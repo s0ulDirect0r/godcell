@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { io, Socket } from 'socket.io-client';
-import { GAME_CONFIG } from '@lofi-mmo/shared'
+import { GAME_CONFIG } from '@godcell/shared'
 import type {
   Player,
   GameStateMessage,
@@ -8,7 +8,7 @@ import type {
   PlayerLeftMessage,
   PlayerMovedMessage,
   PlayerMoveMessage,
-} from '@lofi-mmo/shared';
+} from '@godcell/shared';
 
 // ============================================
 // Flowing Particle (Data Stream)

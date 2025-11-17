@@ -1,5 +1,5 @@
 {
-  "name": "@lofi-mmo/client",
+  "name": "@godcell/client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@lofi-mmo/shared": "*",
+    "@godcell/shared": "*",
     "phaser": "^3.80.1",
     "socket.io-client": "^4.7.2"
   },
