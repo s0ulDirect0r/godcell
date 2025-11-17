@@ -1,0 +1,21 @@
+{
+  "name": "lofi-mmo",
+  "version": "0.1.0",
+  "description": "A lo-fi multiplayer game experiment",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=server & npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspaces",
+    "clean": "rm -rf client/dist server/dist node_modules client/node_modules server/node_modules shared/node_modules"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
