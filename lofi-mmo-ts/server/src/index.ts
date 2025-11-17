@@ -156,12 +156,12 @@ setInterval(() => {
     const normalizedY = length > 0 ? velocity.y / length : 0;
 
     // Update position (frame-rate independent)
-    player.position.x += normalizedX * 200 * deltaTime; // 200 = PLAYER_SPEED
-    player.position.y += normalizedY * 200 * deltaTime;
+    player.position.x += normalizedX * GAME_CONFIG.PLAYER_SPEED * deltaTime;
+    player.position.y += normalizedY * GAME_CONFIG.PLAYER_SPEED * deltaTime;
 
     // Keep player within world bounds
-    player.position.x = Math.max(0, Math.min(800, player.position.x)); // WORLD_WIDTH
-    player.position.y = Math.max(0, Math.min(600, player.position.y)); // WORLD_HEIGHT
+    player.position.x = Math.max(0, Math.min(GAME_CONFIG.WORLD_WIDTH, player.position.x));
+    player.position.y = Math.max(0, Math.min(GAME_CONFIG.WORLD_HEIGHT, player.position.y));
 
     // Broadcast position update to all clients
     const moveMessage: PlayerMovedMessage = {

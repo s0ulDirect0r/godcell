@@ -34,6 +34,18 @@ export class GameScene extends Phaser.Scene {
   // Maps playerId → Phaser circle sprite
   private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
 
+  // Trail system - glowing path left behind by each cyber-cell
+  // Maps playerId → array of recent positions
+  private playerTrails: Map<string, { x: number; y: number }[]> = new Map();
+
+  // Graphics objects for rendering trails
+  // Maps playerId → Graphics object
+  private trailGraphics: Map<string, Phaser.GameObjects.Graphics> = new Map();
+
+  // Track last known position of each player to detect when they're stationary
+  // Maps playerId → last position
+  private lastPlayerPositions: Map<string, { x: number; y: number }> = new Map();
+
   // Keyboard input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
 
@@ -43,7 +55,7 @@ export class GameScene extends Phaser.Scene {
   // Connection status text (removed once connected)
   private connectionText?: Phaser.GameObjects.Text;
 
-  // ========== GODCELL World Elements ==========
+  // ========== godcell World Elements ==========
 
   // Flowing background particles (the "digital water")
   private dataParticles: DataParticle[] = [];
@@ -61,6 +73,11 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   create() {
+    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+
+    // Set world bounds (the full playable area)
+    this.physics.world.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+
     // Create the digital primordial soup environment
     this.createDigitalOcean();
 
@@ -208,6 +225,18 @@ export class GameScene extends Phaser.Scene {
       for (const [playerId, player] of Object.entries(message.players)) {
         this.createCyberCell(playerId, player);
       }
+
+      // Set up camera to follow our player
+      const mySprite = this.playerSprites.get(this.myPlayerId);
+      if (mySprite) {
+        const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+
+        // Camera follows our cyber-cell
+        this.cameras.main.startFollow(mySprite, true, 0.1, 0.1);
+
+        // Set camera bounds to the full world
+        this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+      }
     });
 
     // Another player joined
@@ -280,6 +309,17 @@ export class GameScene extends Phaser.Scene {
 
     // Store reference so we can update it later
     this.playerSprites.set(playerId, cell);
+
+    // Create trail graphics for this cyber-cell
+    const trailGraphic = this.add.graphics();
+    trailGraphic.setDepth(-10); // Behind cells, but above particles
+    this.trailGraphics.set(playerId, trailGraphic);
+
+    // Initialize empty trail array
+    this.playerTrails.set(playerId, []);
+
+    // Initialize last known position
+    this.lastPlayerPositions.set(playerId, { x: player.position.x, y: player.position.y });
   }
 
   /**
@@ -291,6 +331,19 @@ export class GameScene extends Phaser.Scene {
       sprite.destroy();
       this.playerSprites.delete(playerId);
     }
+
+    // Clean up trail graphics
+    const trailGraphic = this.trailGraphics.get(playerId);
+    if (trailGraphic) {
+      trailGraphic.destroy();
+      this.trailGraphics.delete(playerId);
+    }
+
+    // Clean up trail data
+    this.playerTrails.delete(playerId);
+
+    // Clean up last position tracking
+    this.lastPlayerPositions.delete(playerId);
   }
 
   /**
@@ -299,6 +352,25 @@ export class GameScene extends Phaser.Scene {
   private updateCyberCellPosition(playerId: string, position: { x: number; y: number }) {
     const sprite = this.playerSprites.get(playerId);
     if (!sprite) return;
+
+    // Add current position to trail when player moves
+    const trail = this.playerTrails.get(playerId);
+    if (trail) {
+      trail.push({ x: sprite.x, y: sprite.y });
+
+      // Keep only last 90 positions (roughly 1.5 seconds at 60fps)
+      const maxTrailLength = 90;
+      if (trail.length > maxTrailLength) {
+        trail.shift(); // Remove oldest position
+      }
+    }
+
+    // Update last known position for this player
+    const lastPos = this.lastPlayerPositions.get(playerId);
+    if (lastPos) {
+      lastPos.x = position.x;
+      lastPos.y = position.y;
+    }
 
     // Smooth movement using Phaser tweens
     // Instead of instantly teleporting, animate to new position
@@ -311,6 +383,72 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Fade trails for stationary cyber-cells
+   * Called every frame to gradually remove trail points when players aren't moving
+   */
+  private updateTrailFading() {
+    // Check each player's current position vs last known position
+    for (const [playerId, sprite] of this.playerSprites) {
+      const lastPos = this.lastPlayerPositions.get(playerId);
+      const trail = this.playerTrails.get(playerId);
+
+      if (!lastPos || !trail) continue;
+
+      const currentX = sprite.x;
+      const currentY = sprite.y;
+
+      // Check if player has moved significantly (more than 1 pixel)
+      const hasMoved = Math.abs(currentX - lastPos.x) > 1 || Math.abs(currentY - lastPos.y) > 1;
+
+      if (!hasMoved && trail.length > 0) {
+        // Player is stationary - remove oldest trail point to create fade effect
+        trail.shift();
+      }
+
+      // Update last known position
+      lastPos.x = currentX;
+      lastPos.y = currentY;
+    }
+  }
+
+  /**
+   * Render glowing trails for all cyber-cells
+   */
+  private renderTrails() {
+    // Iterate through all players
+    for (const [playerId, trail] of this.playerTrails) {
+      const trailGraphic = this.trailGraphics.get(playerId);
+      const sprite = this.playerSprites.get(playerId);
+
+      if (!trailGraphic || !sprite || trail.length === 0) continue;
+
+      // Clear previous frame's trail
+      trailGraphic.clear();
+
+      // Get the player's color
+      const playerColor = Phaser.Display.Color.HexStringToColor(
+        // Find the player's color from the sprite's fillColor
+        '#' + sprite.fillColor.toString(16).padStart(6, '0')
+      );
+
+      // Draw each point in the trail
+      for (let i = 0; i < trail.length; i++) {
+        const pos = trail[i];
+
+        // Calculate opacity - oldest (start) is most transparent, newest (end) is most opaque
+        const alpha = (i / trail.length) * 0.7; // Max 0.7 opacity
+
+        // Calculate size - trail points get larger toward the front
+        const size = 8 + (i / trail.length) * 18; // 8px to 26px (wider trail)
+
+        // Draw the trail point
+        trailGraphic.fillStyle(playerColor.color, alpha);
+        trailGraphic.fillCircle(pos.x, pos.y, size);
+      }
+    }
+  }
+
   // ============================================
   // Phaser Lifecycle: Update
   // Runs every frame (60 times per second)
@@ -319,6 +457,12 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number) {
     // Update flowing particles (the digital water)
     this.updateDataParticles(delta);
+
+    // Render glowing trails for all cyber-cells
+    this.renderTrails();
+
+    // Fade trails for stationary players
+    this.updateTrailFading();
 
     // Don't process input until we're connected
     if (!this.myPlayerId) return;

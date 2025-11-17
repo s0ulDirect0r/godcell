@@ -70,16 +70,16 @@ export const GAME_CONFIG = {
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
 
   // World dimensions
-  WORLD_WIDTH: 1200,
-  WORLD_HEIGHT: 800,
+  WORLD_WIDTH: 2400,
+  WORLD_HEIGHT: 1600,
 
-  // Visual theme - GODCELL: Digital Primordial Soup
+  // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void
   GRID_COLOR: 0x1a1a3e,       // Subtle grid lines
   PARTICLE_COLOR: 0x00ff88,    // Flowing data particles (cyan)
 
   // Particle system
-  MAX_PARTICLES: 150,          // Number of background particles
+  MAX_PARTICLES: 300,          // Number of background particles
   PARTICLE_MIN_SIZE: 1,
   PARTICLE_MAX_SIZE: 3,
   PARTICLE_SPEED_MIN: 10,
