@@ -49,9 +49,9 @@ export class GameScene extends Phaser.Scene {
   // Maps playerId → Phaser circle sprite
   private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
 
-  // Store player colors for trail rendering
-  // Maps playerId → hex color string
-  private playerColors: Map<string, string> = new Map();
+  // Store player colors for trail rendering (cached as integer values)
+  // Maps playerId → Phaser Color object (parsed once, reused every frame)
+  private playerColors: Map<string, Phaser.Display.Color> = new Map();
 
   // Trail system - glowing path left behind by each cyber-cell
   // Maps playerId → array of recent positions
@@ -458,8 +458,6 @@ export class GameScene extends Phaser.Scene {
 
     // Initial game state (sent when we first connect)
     this.socket.on('gameState', (message: GameStateMessage) => {
-      console.log('📦 Received game state:', message);
-
       // Remove "Connecting..." text now that we're connected
       if (this.connectionText) {
         this.connectionText.destroy();
@@ -476,6 +474,14 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.maxHealth = myPlayer.maxHealth;
         this.myPlayerStats.energy = myPlayer.energy;
         this.myPlayerStats.maxEnergy = myPlayer.maxEnergy;
+
+        // Update UI immediately with initial stats
+        this.updateMetabolismUI(
+          this.myPlayerStats.health,
+          this.myPlayerStats.maxHealth,
+          this.myPlayerStats.energy,
+          this.myPlayerStats.maxEnergy
+        );
       }
 
       // Create sprites for all existing players
@@ -503,13 +509,11 @@ export class GameScene extends Phaser.Scene {
 
     // Another player joined
     this.socket.on('playerJoined', (message: PlayerJoinedMessage) => {
-      console.log('👋 Cyber-cell joined:', message.player.id);
       this.createCyberCell(message.player.id, message.player);
     });
 
     // A player left
     this.socket.on('playerLeft', (message: PlayerLeftMessage) => {
-      console.log('👋 Cyber-cell left:', message.playerId);
       this.removeCyberCell(message.playerId);
     });
 
@@ -531,7 +535,6 @@ export class GameScene extends Phaser.Scene {
       if (message.playerId === this.myPlayerId) {
         this.myPlayerStats.energy = message.collectorEnergy;
         this.myPlayerStats.maxEnergy = message.collectorMaxEnergy;
-        console.log(`🍏 Collected nutrient! Energy: ${message.collectorEnergy}/${message.collectorMaxEnergy}`);
 
         // Immediately update UI with new energy/maxEnergy
         this.updateMetabolismUI(
@@ -580,6 +583,14 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.maxHealth = message.player.maxHealth;
         this.myPlayerStats.energy = message.player.energy;
         this.myPlayerStats.maxEnergy = message.player.maxEnergy;
+
+        // Update UI immediately with reset stats
+        this.updateMetabolismUI(
+          this.myPlayerStats.health,
+          this.myPlayerStats.maxHealth,
+          this.myPlayerStats.energy,
+          this.myPlayerStats.maxEnergy
+        );
       }
 
       // Recreate sprite (it was removed on death)
@@ -595,6 +606,14 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.health = message.newMaxHealth; // Evolution fully heals
         this.myPlayerStats.maxHealth = message.newMaxHealth;
         this.myPlayerStats.maxEnergy = message.newMaxEnergy;
+
+        // Update UI immediately with new max values
+        this.updateMetabolismUI(
+          this.myPlayerStats.health,
+          this.myPlayerStats.maxHealth,
+          this.myPlayerStats.energy,
+          this.myPlayerStats.maxEnergy
+        );
       }
 
       // TODO: Visual evolution effect (size increase, flash, particles)
@@ -654,8 +673,8 @@ export class GameScene extends Phaser.Scene {
     // Store reference so we can update it later
     this.playerSprites.set(playerId, cell);
 
-    // Store player color for trail rendering
-    this.playerColors.set(playerId, player.color);
+    // Store player color for trail rendering (parse once, cache for performance)
+    this.playerColors.set(playerId, Phaser.Display.Color.HexStringToColor(player.color));
 
     // Create trail graphics for this cyber-cell
     const trailGraphic = this.add.graphics();
@@ -758,15 +777,12 @@ export class GameScene extends Phaser.Scene {
     for (const [playerId, trail] of this.playerTrails) {
       const trailGraphic = this.trailGraphics.get(playerId);
       const sprite = this.playerSprites.get(playerId);
-      const colorHex = this.playerColors.get(playerId);
+      const playerColor = this.playerColors.get(playerId);
 
-      if (!trailGraphic || !sprite || !colorHex || trail.length === 0) continue;
+      if (!trailGraphic || !sprite || !playerColor || trail.length === 0) continue;
 
       // Clear previous frame's trail
       trailGraphic.clear();
-
-      // Get the player's color
-      const playerColor = Phaser.Display.Color.HexStringToColor(colorHex);
 
       // Draw each point in the trail
       for (let i = 0; i < trail.length; i++) {
@@ -778,7 +794,7 @@ export class GameScene extends Phaser.Scene {
         // Calculate size - trail points get larger toward the front
         const size = 8 + (i / trail.length) * 18; // 8px to 26px (wider trail)
 
-        // Draw the trail point
+        // Draw the trail point (use cached color object)
         trailGraphic.fillStyle(playerColor.color, alpha);
         trailGraphic.fillCircle(pos.x, pos.y, size);
       }

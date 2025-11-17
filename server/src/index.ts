@@ -82,6 +82,7 @@ function distance(p1: Position, p2: Position): number {
 
 /**
  * Spawn a nutrient at a random location
+ * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
 function spawnNutrient(): Nutrient {
   const nutrient: Nutrient = {
@@ -187,6 +188,9 @@ function checkEvolution(player: Player) {
 
   // Schedule evolution completion after molting duration
   setTimeout(() => {
+    // Check if player still exists (they might have disconnected during molting)
+    if (!players.has(player.id)) return;
+
     player.stage = nextEvolution.stage;
     player.isEvolving = false;
 
@@ -231,6 +235,13 @@ function handlePlayerDeath(player: Player) {
   player.stage = EvolutionStage.SINGLE_CELL;
   player.isEvolving = false;
 
+  // Reset velocity (stop movement if player was holding input during death)
+  const velocity = playerVelocities.get(player.id);
+  if (velocity) {
+    velocity.x = 0;
+    velocity.y = 0;
+  }
+
   // Broadcast respawn event
   const respawnMessage: PlayerRespawnedMessage = {
     type: 'playerRespawned',
@@ -261,6 +272,7 @@ function updateMetabolism(deltaTime: number) {
 
     // Death check
     if (player.health <= 0) {
+      player.health = 0; // Clamp to prevent negative health
       handlePlayerDeath(player);
       continue; // Skip evolution check after death
     }
@@ -310,9 +322,10 @@ function checkNutrientCollisions() {
 
       if (dist < collisionRadius) {
         // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
+        // Safety clamp to prevent negative energy gain if player.energy somehow drifts above maxEnergy
         const energyGain = Math.min(
           nutrient.value,
-          player.maxEnergy - player.energy
+          Math.max(0, player.maxEnergy - player.energy)
         );
         player.energy += energyGain;
         player.maxEnergy += GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE;
