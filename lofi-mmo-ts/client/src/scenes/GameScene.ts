@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { io, Socket } from 'socket.io-client';
+import { GAME_CONFIG } from '@lofi-mmo/shared'
 import type {
   Player,
   GameStateMessage,
@@ -7,12 +8,19 @@ import type {
   PlayerLeftMessage,
   PlayerMovedMessage,
   PlayerMoveMessage,
-  GAME_CONFIG,
 } from '@lofi-mmo/shared';
 
 // ============================================
-// Game Scene
-// This is where all the gameplay happens
+// Flowing Particle (Data Stream)
+// ============================================
+
+interface DataParticle {
+  sprite: Phaser.GameObjects.Arc;
+  velocity: { x: number; y: number };
+}
+
+// ============================================
+// Game Scene - GODCELL: Digital Primordial Soup
 // ============================================
 
 export class GameScene extends Phaser.Scene {
@@ -22,9 +30,9 @@ export class GameScene extends Phaser.Scene {
   // Our player's ID (assigned by server)
   private myPlayerId?: string;
 
-  // Visual representations of all players
-  // Maps playerId → Phaser rectangle sprite
-  private playerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  // Visual representations of all cyber-cells (players)
+  // Maps playerId → Phaser circle sprite
+  private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
 
   // Keyboard input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -34,6 +42,14 @@ export class GameScene extends Phaser.Scene {
 
   // Connection status text (removed once connected)
   private connectionText?: Phaser.GameObjects.Text;
+
+  // ========== GODCELL World Elements ==========
+
+  // Flowing background particles (the "digital water")
+  private dataParticles: DataParticle[] = [];
+
+  // Grid graphics for subtle background pattern
+  private gridGraphics!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -45,6 +61,9 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   create() {
+    // Create the digital primordial soup environment
+    this.createDigitalOcean();
+
     // Set up keyboard input
     this.cursors = this.input.keyboard!.createCursorKeys();
 
@@ -55,9 +74,110 @@ export class GameScene extends Phaser.Scene {
     this.connectionText = this.add
       .text(10, 10, 'Connecting to server...', {
         fontSize: '14px',
-        color: '#ffffff',
+        color: '#00ffff',
+        fontFamily: 'monospace',
       })
       .setDepth(1000);
+  }
+
+  // ============================================
+  // GODCELL Environment Creation
+  // ============================================
+
+  /**
+   * Create the digital primordial soup aesthetic
+   * - Subtle grid pattern
+   * - Flowing data particles
+   */
+  private createDigitalOcean() {
+    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+
+    // ========== Subtle Grid Pattern ==========
+    this.gridGraphics = this.add.graphics();
+    this.gridGraphics.lineStyle(1, config.GRID_COLOR, 0.3);
+
+    const gridSize = 50;
+
+    // Vertical lines
+    for (let x = 0; x <= config.WORLD_WIDTH; x += gridSize) {
+      this.gridGraphics.lineBetween(x, 0, x, config.WORLD_HEIGHT);
+    }
+
+    // Horizontal lines
+    for (let y = 0; y <= config.WORLD_HEIGHT; y += gridSize) {
+      this.gridGraphics.lineBetween(0, y, config.WORLD_WIDTH, y);
+    }
+
+    this.gridGraphics.setDepth(-100);
+    this.gridGraphics.setAlpha(0.15); // Very subtle
+
+    // ========== Flowing Data Particles ==========
+    for (let i = 0; i < config.MAX_PARTICLES; i++) {
+      this.createDataParticle();
+    }
+  }
+
+  /**
+   * Create a single flowing data particle
+   */
+  private createDataParticle() {
+    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+
+    // Random starting position
+    const x = Math.random() * config.WORLD_WIDTH;
+    const y = Math.random() * config.WORLD_HEIGHT;
+
+    // Random size
+    const size =
+      config.PARTICLE_MIN_SIZE +
+      Math.random() * (config.PARTICLE_MAX_SIZE - config.PARTICLE_MIN_SIZE);
+
+    // Create glowing particle
+    const sprite = this.add.circle(x, y, size, config.PARTICLE_COLOR, 0.6);
+    sprite.setDepth(-50); // Behind players
+
+    // Random velocity (mostly flowing in one direction with some variance)
+    const baseAngle = Math.PI / 4; // Flow diagonally down-right
+    const variance = (Math.random() - 0.5) * Math.PI / 2;
+    const angle = baseAngle + variance;
+    const speed =
+      config.PARTICLE_SPEED_MIN +
+      Math.random() * (config.PARTICLE_SPEED_MAX - config.PARTICLE_SPEED_MIN);
+
+    const velocity = {
+      x: Math.cos(angle) * speed,
+      y: Math.sin(angle) * speed,
+    };
+
+    this.dataParticles.push({ sprite, velocity });
+  }
+
+  /**
+   * Update flowing particles (called every frame)
+   */
+  private updateDataParticles(delta: number) {
+    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const deltaSeconds = delta / 1000;
+
+    for (const particle of this.dataParticles) {
+      // Move particle
+      particle.sprite.x += particle.velocity.x * deltaSeconds;
+      particle.sprite.y += particle.velocity.y * deltaSeconds;
+
+      // Wrap around screen (create endless flow)
+      if (particle.sprite.x > config.WORLD_WIDTH + 10) {
+        particle.sprite.x = -10;
+      }
+      if (particle.sprite.y > config.WORLD_HEIGHT + 10) {
+        particle.sprite.y = -10;
+      }
+      if (particle.sprite.x < -10) {
+        particle.sprite.x = config.WORLD_WIDTH + 10;
+      }
+      if (particle.sprite.y < -10) {
+        particle.sprite.y = config.WORLD_HEIGHT + 10;
+      }
+    }
   }
 
   // ============================================
@@ -86,70 +206,86 @@ export class GameScene extends Phaser.Scene {
 
       // Create sprites for all existing players
       for (const [playerId, player] of Object.entries(message.players)) {
-        this.createPlayerSprite(playerId, player);
+        this.createCyberCell(playerId, player);
       }
     });
 
     // Another player joined
     this.socket.on('playerJoined', (message: PlayerJoinedMessage) => {
-      console.log('👋 Player joined:', message.player.id);
-      this.createPlayerSprite(message.player.id, message.player);
+      console.log('👋 Cyber-cell joined:', message.player.id);
+      this.createCyberCell(message.player.id, message.player);
     });
 
     // A player left
     this.socket.on('playerLeft', (message: PlayerLeftMessage) => {
-      console.log('👋 Player left:', message.playerId);
-      this.removePlayerSprite(message.playerId);
+      console.log('👋 Cyber-cell left:', message.playerId);
+      this.removeCyberCell(message.playerId);
     });
 
     // A player moved
     this.socket.on('playerMoved', (message: PlayerMovedMessage) => {
-      this.updatePlayerPosition(message.playerId, message.position);
+      this.updateCyberCellPosition(message.playerId, message.position);
     });
 
     // Connection events
     this.socket.on('connect', () => {
-      console.log('✅ Connected to server');
+      console.log('✅ Connected to digital ocean');
     });
 
     this.socket.on('disconnect', () => {
-      console.log('❌ Disconnected from server');
+      console.log('❌ Disconnected from digital ocean');
     });
   }
 
   // ============================================
-  // Player Sprite Management
+  // Cyber-Cell (Player) Sprite Management
   // ============================================
 
   /**
-   * Create a visual representation of a player
+   * Create a visual representation of a cyber-cell (player)
    */
-  private createPlayerSprite(playerId: string, player: Player) {
+  private createCyberCell(playerId: string, player: Player) {
     // Don't create duplicate sprites
     if (this.playerSprites.has(playerId)) return;
 
-    // Create a colored rectangle to represent the player
-    const sprite = this.add.rectangle(
+    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+
+    // Create a glowing circular cyber-cell
+    const cell = this.add.circle(
       player.position.x,
       player.position.y,
-      50, // PLAYER_SIZE
-      50, // PLAYER_SIZE
-      Phaser.Display.Color.HexStringToColor(player.color).color
+      config.PLAYER_SIZE,
+      Phaser.Display.Color.HexStringToColor(player.color).color,
+      1
     );
 
-    // Highlight our own player with a white border
+    // Add glow effect
+    cell.setStrokeStyle(3, Phaser.Display.Color.HexStringToColor(player.color).color, 0.8);
+
+    // Highlight our own cell with extra glow
     if (playerId === this.myPlayerId) {
-      sprite.setStrokeStyle(3, 0xffffff);
+      cell.setStrokeStyle(5, 0xffffff, 1);
+
+      // Pulsing animation for our cell
+      this.tweens.add({
+        targets: cell,
+        scaleX: 1.1,
+        scaleY: 1.1,
+        duration: 1000,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
     }
 
     // Store reference so we can update it later
-    this.playerSprites.set(playerId, sprite);
+    this.playerSprites.set(playerId, cell);
   }
 
   /**
-   * Remove a player's sprite when they disconnect
+   * Remove a cyber-cell when player disconnects
    */
-  private removePlayerSprite(playerId: string) {
+  private removeCyberCell(playerId: string) {
     const sprite = this.playerSprites.get(playerId);
     if (sprite) {
       sprite.destroy();
@@ -158,9 +294,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Update a player's position smoothly
+   * Update a cyber-cell's position smoothly
    */
-  private updatePlayerPosition(playerId: string, position: { x: number; y: number }) {
+  private updateCyberCellPosition(playerId: string, position: { x: number; y: number }) {
     const sprite = this.playerSprites.get(playerId);
     if (!sprite) return;
 
@@ -180,7 +316,10 @@ export class GameScene extends Phaser.Scene {
   // Runs every frame (60 times per second)
   // ============================================
 
-  update() {
+  update(_time: number, delta: number) {
+    // Update flowing particles (the digital water)
+    this.updateDataParticles(delta);
+
     // Don't process input until we're connected
     if (!this.myPlayerId) return;
 

@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import { GAME_CONFIG } from '@lofi-mmo/shared';
 import type {
   Player,
   Position,
@@ -7,7 +8,6 @@ import type {
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
-  GAME_CONFIG,
 } from '@lofi-mmo/shared';
 
 // ============================================
@@ -35,20 +35,21 @@ const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 // ============================================
 
 /**
- * Generate a random color for a new player
+ * Generate a random neon color for a new cyber-cell
  */
 function randomColor(): string {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'];
-  return colors[Math.floor(Math.random() * colors.length)];
+  return GAME_CONFIG.CELL_COLORS[Math.floor(Math.random() * GAME_CONFIG.CELL_COLORS.length)];
 }
 
 /**
- * Generate a random spawn position
+ * Generate a random spawn position in the digital ocean
  */
 function randomSpawnPosition(): Position {
+  const padding = 100; // Keep cells away from edges
+
   return {
-    x: Math.random() * 700 + 50, // Random x between 50 and 750
-    y: Math.random() * 500 + 50, // Random y between 50 and 550
+    x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+    y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
   };
 }
 
