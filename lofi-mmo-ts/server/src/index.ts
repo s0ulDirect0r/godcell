@@ -159,9 +159,15 @@ setInterval(() => {
     player.position.x += normalizedX * GAME_CONFIG.PLAYER_SPEED * deltaTime;
     player.position.y += normalizedY * GAME_CONFIG.PLAYER_SPEED * deltaTime;
 
-    // Keep player within world bounds
-    player.position.x = Math.max(0, Math.min(GAME_CONFIG.WORLD_WIDTH, player.position.x));
-    player.position.y = Math.max(0, Math.min(GAME_CONFIG.WORLD_HEIGHT, player.position.y));
+    // Keep player within world bounds (accounting for cell radius)
+    player.position.x = Math.max(
+      GAME_CONFIG.PLAYER_SIZE,
+      Math.min(GAME_CONFIG.WORLD_WIDTH - GAME_CONFIG.PLAYER_SIZE, player.position.x)
+    );
+    player.position.y = Math.max(
+      GAME_CONFIG.PLAYER_SIZE,
+      Math.min(GAME_CONFIG.WORLD_HEIGHT - GAME_CONFIG.PLAYER_SIZE, player.position.y)
+    );
 
     // Broadcast position update to all clients
     const moveMessage: PlayerMovedMessage = {

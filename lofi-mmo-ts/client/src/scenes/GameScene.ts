@@ -73,7 +73,7 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   create() {
-    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const config = GAME_CONFIG;
 
     // Set world bounds (the full playable area)
     this.physics.world.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
@@ -107,7 +107,7 @@ export class GameScene extends Phaser.Scene {
    * - Flowing data particles
    */
   private createDigitalOcean() {
-    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const config = GAME_CONFIG;
 
     // ========== Subtle Grid Pattern ==========
     this.gridGraphics = this.add.graphics();
@@ -138,7 +138,7 @@ export class GameScene extends Phaser.Scene {
    * Create a single flowing data particle
    */
   private createDataParticle() {
-    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const config = GAME_CONFIG;
 
     // Random starting position
     const x = Math.random() * config.WORLD_WIDTH;
@@ -173,7 +173,7 @@ export class GameScene extends Phaser.Scene {
    * Update flowing particles (called every frame)
    */
   private updateDataParticles(delta: number) {
-    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const config = GAME_CONFIG;
     const deltaSeconds = delta / 1000;
 
     for (const particle of this.dataParticles) {
@@ -229,7 +229,7 @@ export class GameScene extends Phaser.Scene {
       // Set up camera to follow our player
       const mySprite = this.playerSprites.get(this.myPlayerId);
       if (mySprite) {
-        const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+        const config = GAME_CONFIG;
 
         // Camera follows our cyber-cell
         this.cameras.main.startFollow(mySprite, true, 0.1, 0.1);
@@ -277,7 +277,7 @@ export class GameScene extends Phaser.Scene {
     // Don't create duplicate sprites
     if (this.playerSprites.has(playerId)) return;
 
-    const config = GAME_CONFIG as unknown as typeof import('@lofi-mmo/shared').GAME_CONFIG;
+    const config = GAME_CONFIG;
 
     // Create a glowing circular cyber-cell
     const cell = this.add.circle(
@@ -372,15 +372,10 @@ export class GameScene extends Phaser.Scene {
       lastPos.y = position.y;
     }
 
-    // Smooth movement using Phaser tweens
-    // Instead of instantly teleporting, animate to new position
-    this.tweens.add({
-      targets: sprite,
-      x: position.x,
-      y: position.y,
-      duration: 50, // 50ms - fast enough to feel responsive
-      ease: 'Linear',
-    });
+    // Smooth movement - update position directly
+    // The server sends updates frequently enough (60fps) that we don't need tweening
+    sprite.x = position.x;
+    sprite.y = position.y;
   }
 
   /**

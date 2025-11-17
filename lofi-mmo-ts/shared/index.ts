@@ -70,8 +70,10 @@ export const GAME_CONFIG = {
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
 
   // World dimensions
-  WORLD_WIDTH: 2400,
+  WORLD_WIDTH: 2400,   // Full playable world
   WORLD_HEIGHT: 1600,
+  VIEWPORT_WIDTH: 1200,  // What you see on screen
+  VIEWPORT_HEIGHT: 800,
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void
