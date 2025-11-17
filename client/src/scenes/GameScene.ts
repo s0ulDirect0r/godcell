@@ -1,13 +1,20 @@
 import Phaser from 'phaser';
 import { io, Socket } from 'socket.io-client';
-import { GAME_CONFIG } from '@godcell/shared'
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared'
 import type {
   Player,
+  Nutrient,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
   PlayerMoveMessage,
+  NutrientSpawnedMessage,
+  NutrientCollectedMessage,
+  EnergyUpdateMessage,
+  PlayerDiedMessage,
+  PlayerRespawnedMessage,
+  PlayerEvolvedMessage,
 } from '@godcell/shared';
 
 // ============================================
@@ -30,9 +37,21 @@ export class GameScene extends Phaser.Scene {
   // Our player's ID (assigned by server)
   private myPlayerId?: string;
 
+  // Our player's stats (for UI display)
+  private myPlayerStats = {
+    health: 100,
+    maxHealth: 100,
+    energy: 100,
+    maxEnergy: 100,
+  };
+
   // Visual representations of all cyber-cells (players)
   // Maps playerId → Phaser circle sprite
   private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+
+  // Store player colors for trail rendering
+  // Maps playerId → hex color string
+  private playerColors: Map<string, string> = new Map();
 
   // Trail system - glowing path left behind by each cyber-cell
   // Maps playerId → array of recent positions
@@ -62,6 +81,15 @@ export class GameScene extends Phaser.Scene {
 
   // Grid graphics for subtle background pattern
   private gridGraphics!: Phaser.GameObjects.Graphics;
+
+  // Nutrients (data packets) - collectible resources
+  // Maps nutrientId → Phaser polygon sprite (hexagon)
+  private nutrientSprites: Map<string, Phaser.GameObjects.Polygon> = new Map();
+
+  // Health/Energy UI
+  private healthBar?: Phaser.GameObjects.Graphics;
+  private energyBar?: Phaser.GameObjects.Graphics;
+  private uiText?: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -95,6 +123,99 @@ export class GameScene extends Phaser.Scene {
         fontFamily: 'monospace',
       })
       .setDepth(1000);
+
+    // Create metabolism UI (health/energy bars)
+    this.createMetabolismUI();
+  }
+
+  // ============================================
+  // Metabolism UI
+  // ============================================
+
+  /**
+   * Create health and energy bars
+   */
+  private createMetabolismUI() {
+    // Health bar (red)
+    this.healthBar = this.add.graphics();
+    this.healthBar.setScrollFactor(0); // Fixed to camera
+    this.healthBar.setDepth(1000);
+
+    // Energy bar (cyan)
+    this.energyBar = this.add.graphics();
+    this.energyBar.setScrollFactor(0); // Fixed to camera
+    this.energyBar.setDepth(1000);
+
+    // UI text (stats display)
+    this.uiText = this.add
+      .text(10, 50, '', {
+        fontSize: '12px',
+        color: '#ffffff',
+        fontFamily: 'monospace',
+      })
+      .setScrollFactor(0)
+      .setDepth(1000);
+  }
+
+  /**
+   * Update metabolism UI bars
+   */
+  private updateMetabolismUI(health: number, maxHealth: number, energy: number, maxEnergy: number) {
+    if (!this.healthBar || !this.energyBar || !this.uiText) return;
+
+    const barWidth = 200;
+    const barHeight = 20;
+    const barX = 10;
+    const healthBarY = 10;
+    const energyBarY = 35;
+
+    // Clear previous frames
+    this.healthBar.clear();
+    this.energyBar.clear();
+
+    // Health bar background
+    this.healthBar.fillStyle(0x330000, 0.8);
+    this.healthBar.fillRect(barX, healthBarY, barWidth, barHeight);
+
+    // Health bar fill
+    const healthPercent = health / maxHealth;
+    const healthColor = healthPercent < 0.3 ? 0xff0000 : 0xff4444;
+    this.healthBar.fillStyle(healthColor, 1);
+    this.healthBar.fillRect(barX, healthBarY, barWidth * healthPercent, barHeight);
+
+    // Health bar border
+    this.healthBar.lineStyle(2, 0xff0000, 1);
+    this.healthBar.strokeRect(barX, healthBarY, barWidth, barHeight);
+
+    // Energy bar background
+    this.energyBar.fillStyle(0x003333, 0.8);
+    this.energyBar.fillRect(barX, energyBarY, barWidth, barHeight);
+
+    // Energy bar fill
+    const energyPercent = energy / maxEnergy;
+    const energyColor = energyPercent < 0.3 ? 0x00cccc : 0x00ffff;
+    this.energyBar.fillStyle(energyColor, 1);
+    this.energyBar.fillRect(barX, energyBarY, barWidth * energyPercent, barHeight);
+
+    // Energy bar border
+    this.energyBar.lineStyle(2, 0x00ffff, 1);
+    this.energyBar.strokeRect(barX, energyBarY, barWidth, barHeight);
+
+    // Update text display
+    this.uiText.setText([
+      `Health: ${Math.ceil(health)}/${maxHealth}`,
+      `Energy: ${Math.ceil(energy)}/${maxEnergy}`,
+    ]);
+
+    // Visual feedback for low energy - dim player glow
+    if (this.myPlayerId) {
+      const mySprite = this.playerSprites.get(this.myPlayerId);
+      if (mySprite && energyPercent < 0.3) {
+        mySprite.setAlpha(0.6 + energyPercent * 0.4); // Dim when low energy
+      } else if (mySprite) {
+        mySprite.setAlpha(1); // Full brightness
+      }
+    }
   }
 
   // ============================================
@@ -198,6 +319,133 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
+  // Nutrient System
+  // ============================================
+
+  /**
+   * Create a nutrient sprite (hexagonal data crystal)
+   */
+  private createNutrient(nutrient: Nutrient) {
+    // Don't create duplicates
+    if (this.nutrientSprites.has(nutrient.id)) return;
+
+    const config = GAME_CONFIG;
+
+    // Create hexagon points (6-sided polygon)
+    const hexagon = new Phaser.Geom.Polygon([
+      { x: 0, y: -config.NUTRIENT_SIZE },
+      { x: config.NUTRIENT_SIZE * 0.866, y: -config.NUTRIENT_SIZE * 0.5 },
+      { x: config.NUTRIENT_SIZE * 0.866, y: config.NUTRIENT_SIZE * 0.5 },
+      { x: 0, y: config.NUTRIENT_SIZE },
+      { x: -config.NUTRIENT_SIZE * 0.866, y: config.NUTRIENT_SIZE * 0.5 },
+      { x: -config.NUTRIENT_SIZE * 0.866, y: -config.NUTRIENT_SIZE * 0.5 },
+    ]);
+
+    // Create polygon sprite
+    const sprite = this.add.polygon(
+      nutrient.position.x,
+      nutrient.position.y,
+      hexagon.points,
+      config.NUTRIENT_COLOR,
+      0.8
+    );
+
+    // Add glow effect
+    sprite.setStrokeStyle(2, config.NUTRIENT_COLOR, 1);
+
+    // Pulsing animation
+    this.tweens.add({
+      targets: sprite,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      alpha: 1,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    // Set depth (above background, below players)
+    sprite.setDepth(-25);
+
+    this.nutrientSprites.set(nutrient.id, sprite);
+  }
+
+  /**
+   * Remove a nutrient sprite (with collection effect)
+   */
+  private removeNutrient(id: string, showEffect: boolean = false) {
+    const sprite = this.nutrientSprites.get(id);
+    if (!sprite) return;
+
+    if (showEffect) {
+      // Collection particle burst
+      const particles = this.add.particles(sprite.x, sprite.y, 'particle', {
+        speed: { min: 50, max: 150 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 1, end: 0 },
+        alpha: { start: 0.8, end: 0 },
+        lifespan: 600,
+        quantity: 12,
+        tint: GAME_CONFIG.NUTRIENT_COLOR,
+      });
+
+      // Clean up particles after animation
+      this.time.delayedCall(700, () => particles.destroy());
+    }
+
+    sprite.destroy();
+    this.nutrientSprites.delete(id);
+  }
+
+  // ============================================
+  // Death Effects
+  // ============================================
+
+  /**
+   * Create dilution effect when a cyber-cell dies
+   * Particles scatter outward and fade over 2 seconds
+   */
+  private createDilutionEffect(position: { x: number; y: number }, color: string) {
+    const particleCount = 25;
+    const playerColor = Phaser.Display.Color.HexStringToColor(color);
+
+    // Create individual particles that drift apart
+    for (let i = 0; i < particleCount; i++) {
+      // Random angle for scatter direction
+      const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.2;
+
+      // Random distance particles will travel
+      const distance = 50 + Math.random() * 100;
+
+      // Calculate end position
+      const endX = position.x + Math.cos(angle) * distance;
+      const endY = position.y + Math.sin(angle) * distance;
+
+      // Random size for variety
+      const size = 3 + Math.random() * 5;
+
+      // Create particle circle
+      const particle = this.add.circle(position.x, position.y, size, playerColor.color, 0.9);
+      particle.setDepth(100); // Above everything else
+
+      // Animate particle: drift outward and fade
+      this.tweens.add({
+        targets: particle,
+        x: endX,
+        y: endY,
+        alpha: 0,
+        scale: 0.2,
+        duration: 2000,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          particle.destroy();
+        },
+      });
+    }
+  }
+
+  // ============================================
   // Network Setup
   // ============================================
 
@@ -221,9 +469,23 @@ export class GameScene extends Phaser.Scene {
       // Remember our player ID
       this.myPlayerId = this.socket.id;
 
+      // Store our player's stats
+      const myPlayer = message.players[this.myPlayerId];
+      if (myPlayer) {
+        this.myPlayerStats.health = myPlayer.health;
+        this.myPlayerStats.maxHealth = myPlayer.maxHealth;
+        this.myPlayerStats.energy = myPlayer.energy;
+        this.myPlayerStats.maxEnergy = myPlayer.maxEnergy;
+      }
+
       // Create sprites for all existing players
       for (const [playerId, player] of Object.entries(message.players)) {
         this.createCyberCell(playerId, player);
+      }
+
+      // Create sprites for all existing nutrients
+      for (const [nutrientId, nutrient] of Object.entries(message.nutrients)) {
+        this.createNutrient(nutrient);
       }
 
       // Set up camera to follow our player
@@ -254,6 +516,88 @@ export class GameScene extends Phaser.Scene {
     // A player moved
     this.socket.on('playerMoved', (message: PlayerMovedMessage) => {
       this.updateCyberCellPosition(message.playerId, message.position);
+    });
+
+    // Nutrient spawned
+    this.socket.on('nutrientSpawned', (message: NutrientSpawnedMessage) => {
+      this.createNutrient(message.nutrient);
+    });
+
+    // Nutrient collected
+    this.socket.on('nutrientCollected', (message: NutrientCollectedMessage) => {
+      this.removeNutrient(message.nutrientId, true); // Show collection effect
+
+      // Update our stats if we collected it
+      if (message.playerId === this.myPlayerId) {
+        this.myPlayerStats.energy = message.collectorEnergy;
+        this.myPlayerStats.maxEnergy = message.collectorMaxEnergy;
+        console.log(`🍏 Collected nutrient! Energy: ${message.collectorEnergy}/${message.collectorMaxEnergy}`);
+
+        // Immediately update UI with new energy/maxEnergy
+        this.updateMetabolismUI(
+          this.myPlayerStats.health,
+          this.myPlayerStats.maxHealth,
+          this.myPlayerStats.energy,
+          this.myPlayerStats.maxEnergy
+        );
+      }
+    });
+
+    // Energy/health update
+    this.socket.on('energyUpdate', (message: EnergyUpdateMessage) => {
+      // Update UI for our own player
+      if (message.playerId === this.myPlayerId) {
+        this.myPlayerStats.health = message.health;
+        this.myPlayerStats.energy = message.energy;
+
+        this.updateMetabolismUI(
+          this.myPlayerStats.health,
+          this.myPlayerStats.maxHealth,
+          this.myPlayerStats.energy,
+          this.myPlayerStats.maxEnergy
+        );
+      }
+    });
+
+    // Player died
+    this.socket.on('playerDied', (message: PlayerDiedMessage) => {
+      console.log(`💀 Player ${message.playerId} died (PERMANENT LOSS)`);
+
+      // Create dilution effect (particles scatter and fade)
+      this.createDilutionEffect(message.position, message.color);
+
+      // Remove the player sprite immediately
+      this.removeCyberCell(message.playerId);
+    });
+
+    // Player respawned
+    this.socket.on('playerRespawned', (message: PlayerRespawnedMessage) => {
+      console.log(`🔄 Player ${message.player.id} respawned as single-cell`);
+
+      // Update our stats if it's us
+      if (message.player.id === this.myPlayerId) {
+        this.myPlayerStats.health = message.player.health;
+        this.myPlayerStats.maxHealth = message.player.maxHealth;
+        this.myPlayerStats.energy = message.player.energy;
+        this.myPlayerStats.maxEnergy = message.player.maxEnergy;
+      }
+
+      // Recreate sprite (it was removed on death)
+      this.createCyberCell(message.player.id, message.player);
+    });
+
+    // Player evolved
+    this.socket.on('playerEvolved', (message: PlayerEvolvedMessage) => {
+      console.log(`🧬 Player ${message.playerId} evolved to ${message.newStage}`);
+
+      // Update our stats if it's us (evolution fully heals)
+      if (message.playerId === this.myPlayerId) {
+        this.myPlayerStats.health = message.newMaxHealth; // Evolution fully heals
+        this.myPlayerStats.maxHealth = message.newMaxHealth;
+        this.myPlayerStats.maxEnergy = message.newMaxEnergy;
+      }
+
+      // TODO: Visual evolution effect (size increase, flash, particles)
     });
 
     // Connection events
@@ -310,6 +654,9 @@ export class GameScene extends Phaser.Scene {
     // Store reference so we can update it later
     this.playerSprites.set(playerId, cell);
 
+    // Store player color for trail rendering
+    this.playerColors.set(playerId, player.color);
+
     // Create trail graphics for this cyber-cell
     const trailGraphic = this.add.graphics();
     trailGraphic.setDepth(-10); // Behind cells, but above particles
@@ -331,6 +678,9 @@ export class GameScene extends Phaser.Scene {
       sprite.destroy();
       this.playerSprites.delete(playerId);
     }
+
+    // Clean up player color
+    this.playerColors.delete(playerId);
 
     // Clean up trail graphics
     const trailGraphic = this.trailGraphics.get(playerId);
@@ -363,13 +713,6 @@ export class GameScene extends Phaser.Scene {
       if (trail.length > maxTrailLength) {
         trail.shift(); // Remove oldest position
       }
-    }
-
-    // Update last known position for this player
-    const lastPos = this.lastPlayerPositions.get(playerId);
-    if (lastPos) {
-      lastPos.x = position.x;
-      lastPos.y = position.y;
     }
 
     // Smooth movement - update position directly
@@ -415,17 +758,15 @@ export class GameScene extends Phaser.Scene {
     for (const [playerId, trail] of this.playerTrails) {
       const trailGraphic = this.trailGraphics.get(playerId);
       const sprite = this.playerSprites.get(playerId);
+      const colorHex = this.playerColors.get(playerId);
 
-      if (!trailGraphic || !sprite || trail.length === 0) continue;
+      if (!trailGraphic || !sprite || !colorHex || trail.length === 0) continue;
 
       // Clear previous frame's trail
       trailGraphic.clear();
 
       // Get the player's color
-      const playerColor = Phaser.Display.Color.HexStringToColor(
-        // Find the player's color from the sprite's fillColor
-        '#' + sprite.fillColor.toString(16).padStart(6, '0')
-      );
+      const playerColor = Phaser.Display.Color.HexStringToColor(colorHex);
 
       // Draw each point in the trail
       for (let i = 0; i < trail.length; i++) {
