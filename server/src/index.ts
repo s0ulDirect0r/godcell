@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG } from '@lofi-mmo/shared';
+import { GAME_CONFIG } from '@godcell/shared';
 import type {
   Player,
   Position,
@@ -8,7 +8,7 @@ import type {
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
-} from '@lofi-mmo/shared';
+} from '@godcell/shared';
 
 // ============================================
 // Server Configuration

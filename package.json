@@ -1,7 +1,7 @@
 {
-  "name": "lofi-mmo",
+  "name": "godcell",
   "version": "0.1.0",
-  "description": "A lo-fi multiplayer game experiment",
+  "description": "A game of transcendence and evolution",
   "private": true,
   "workspaces": [
     "client",

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GameScene } from './scenes/GameScene';
-import { GAME_CONFIG } from '@lofi-mmo/shared';
+import { GAME_CONFIG } from '@godcell/shared';
 
 // ============================================
 // Phaser Game Configuration
