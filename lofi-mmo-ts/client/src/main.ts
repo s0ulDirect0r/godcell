@@ -9,9 +9,9 @@ import { GAME_CONFIG } from '@lofi-mmo/shared';
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO, // WebGL if available, fallback to Canvas
   parent: 'game-container',
-  width: GAME_CONFIG.WORLD_WIDTH,
-  height: GAME_CONFIG.WORLD_HEIGHT,
-  backgroundColor: '#2d2d2d',
+  width: GAME_CONFIG.VIEWPORT_WIDTH,
+  height: GAME_CONFIG.VIEWPORT_HEIGHT,
+  backgroundColor: GAME_CONFIG.BACKGROUND_COLOR, // Deep void
   scene: [GameScene],
   physics: {
     default: 'arcade', // Simple physics system

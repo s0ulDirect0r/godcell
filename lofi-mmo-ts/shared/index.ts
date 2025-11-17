@@ -65,8 +65,36 @@ export type ServerMessage =
 // ============================================
 
 export const GAME_CONFIG = {
+  // Movement
   PLAYER_SPEED: 200, // Pixels per second
-  PLAYER_SIZE: 50,   // Width/height of player square
-  WORLD_WIDTH: 800,
-  WORLD_HEIGHT: 600,
+  PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
+
+  // World dimensions
+  WORLD_WIDTH: 2400,   // Full playable world
+  WORLD_HEIGHT: 1600,
+  VIEWPORT_WIDTH: 1200,  // What you see on screen
+  VIEWPORT_HEIGHT: 800,
+
+  // Visual theme - godcell: Digital Primordial Soup
+  BACKGROUND_COLOR: 0x0a0a14, // Deep void
+  GRID_COLOR: 0x1a1a3e,       // Subtle grid lines
+  PARTICLE_COLOR: 0x00ff88,    // Flowing data particles (cyan)
+
+  // Particle system
+  MAX_PARTICLES: 300,          // Number of background particles
+  PARTICLE_MIN_SIZE: 1,
+  PARTICLE_MAX_SIZE: 3,
+  PARTICLE_SPEED_MIN: 10,
+  PARTICLE_SPEED_MAX: 40,
+
+  // Cyber-cell colors (neon palette)
+  CELL_COLORS: [
+    '#00ffff', // Cyan
+    '#ff00ff', // Magenta
+    '#ffff00', // Yellow
+    '#00ff88', // Mint
+    '#ff0088', // Hot pink
+    '#88ff00', // Lime
+    '#0088ff', // Electric blue
+  ],
 };

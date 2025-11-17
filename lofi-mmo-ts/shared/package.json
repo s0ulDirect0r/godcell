@@ -2,6 +2,10 @@
   "name": "@lofi-mmo/shared",
   "version": "0.1.0",
   "private": true,
-  "main": "index.ts",
-  "types": "index.ts"
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  }
 }

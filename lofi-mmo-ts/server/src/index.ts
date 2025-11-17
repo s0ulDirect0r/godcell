@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import { GAME_CONFIG } from '@lofi-mmo/shared';
 import type {
   Player,
   Position,
@@ -7,7 +8,6 @@ import type {
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
-  GAME_CONFIG,
 } from '@lofi-mmo/shared';
 
 // ============================================
@@ -35,20 +35,21 @@ const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 // ============================================
 
 /**
- * Generate a random color for a new player
+ * Generate a random neon color for a new cyber-cell
  */
 function randomColor(): string {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'];
-  return colors[Math.floor(Math.random() * colors.length)];
+  return GAME_CONFIG.CELL_COLORS[Math.floor(Math.random() * GAME_CONFIG.CELL_COLORS.length)];
 }
 
 /**
- * Generate a random spawn position
+ * Generate a random spawn position in the digital ocean
  */
 function randomSpawnPosition(): Position {
+  const padding = 100; // Keep cells away from edges
+
   return {
-    x: Math.random() * 700 + 50, // Random x between 50 and 750
-    y: Math.random() * 500 + 50, // Random y between 50 and 550
+    x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+    y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
   };
 }
 
@@ -155,12 +156,18 @@ setInterval(() => {
     const normalizedY = length > 0 ? velocity.y / length : 0;
 
     // Update position (frame-rate independent)
-    player.position.x += normalizedX * 200 * deltaTime; // 200 = PLAYER_SPEED
-    player.position.y += normalizedY * 200 * deltaTime;
+    player.position.x += normalizedX * GAME_CONFIG.PLAYER_SPEED * deltaTime;
+    player.position.y += normalizedY * GAME_CONFIG.PLAYER_SPEED * deltaTime;
 
-    // Keep player within world bounds
-    player.position.x = Math.max(0, Math.min(800, player.position.x)); // WORLD_WIDTH
-    player.position.y = Math.max(0, Math.min(600, player.position.y)); // WORLD_HEIGHT
+    // Keep player within world bounds (accounting for cell radius)
+    player.position.x = Math.max(
+      GAME_CONFIG.PLAYER_SIZE,
+      Math.min(GAME_CONFIG.WORLD_WIDTH - GAME_CONFIG.PLAYER_SIZE, player.position.x)
+    );
+    player.position.y = Math.max(
+      GAME_CONFIG.PLAYER_SIZE,
+      Math.min(GAME_CONFIG.WORLD_HEIGHT - GAME_CONFIG.PLAYER_SIZE, player.position.y)
+    );
 
     // Broadcast position update to all clients
     const moveMessage: PlayerMovedMessage = {
