@@ -20,6 +20,21 @@ import type {
   PlayerEvolvedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
+import {
+  logger,
+  logServerStarted,
+  logPlayerConnected,
+  logPlayerDisconnected,
+  logPlayerDeath,
+  logPlayerRespawn,
+  logPlayerEvolution,
+  logNutrientsSpawned,
+  logObstaclesSpawned,
+  logGravityDebug,
+  logSingularityCrush,
+  logAggregateStats,
+  logGameStateSnapshot,
+} from './logger';
 
 // ============================================
 // Server Configuration
@@ -149,7 +164,7 @@ function initializeNutrients() {
   for (let i = 0; i < GAME_CONFIG.NUTRIENT_COUNT; i++) {
     spawnNutrient();
   }
-  console.log(`✨ Spawned ${GAME_CONFIG.NUTRIENT_COUNT} nutrients`);
+  logNutrientsSpawned(GAME_CONFIG.NUTRIENT_COUNT);
 }
 
 /**
@@ -198,7 +213,7 @@ function initializeObstacles() {
     obstacles.set(obstacle.id, obstacle);
   }
 
-  console.log(`⚫ Spawned ${obstacles.size} gravity distortions`);
+  logObstaclesSpawned(obstacles.size);
 }
 
 /**
@@ -285,7 +300,7 @@ function checkEvolution(player: Player) {
     };
     io.emit('playerEvolved', evolveMessage);
 
-    console.log(`🧬 Player ${player.id} evolved to ${player.stage}`);
+    logPlayerEvolution(player.id, player.stage);
   }, GAME_CONFIG.EVOLUTION_MOLTING_DURATION);
 }
 
@@ -307,7 +322,7 @@ function handlePlayerDeath(player: Player) {
   if (isBot(player.id)) {
     handleBotDeath(player.id, io, players);
   } else {
-    console.log(`💀 Player ${player.id} died (waiting for manual respawn)`);
+    logPlayerDeath(player.id, 'starvation');
   }
 }
 
@@ -343,7 +358,7 @@ function respawnPlayer(player: Player) {
   };
   io.emit('playerRespawned', respawnMessage);
 
-  console.log(`🔄 Player ${player.id} respawned as single-cell`);
+  logPlayerRespawn(player.id);
 }
 
 /**
@@ -483,7 +498,7 @@ const io = new Server(PORT, {
   },
 });
 
-console.log(`🎮 Game server running on port ${PORT}`);
+logServerStarted(PORT);
 
 // Initialize game world
 initializeObstacles();
@@ -495,7 +510,7 @@ initializeBots(io, players, playerInputDirections, playerVelocities);
 // ============================================
 
 io.on('connection', (socket) => {
-  console.log(`✅ Player connected: ${socket.id}`);
+  logPlayerConnected(socket.id);
 
   // Create a new player
   const newPlayer: Player = {
@@ -572,7 +587,7 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('disconnect', () => {
-    console.log(`❌ Player disconnected: ${socket.id}`);
+    logPlayerDisconnected(socket.id);
 
     // Remove from game state
     players.delete(socket.id);
@@ -614,7 +629,7 @@ function applyGravityForces() {
 
       // Instant death at singularity core
       if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
-        console.log(`💀 Player ${playerId} crushed by singularity at dist ${dist.toFixed(1)}px`);
+        logSingularityCrush(playerId, dist);
         player.health = 0; // Set health to zero
         handlePlayerDeath(player); // Trigger death event and broadcast
         continue;
@@ -645,7 +660,7 @@ function applyGravityForces() {
 
       // DEBUG: Log gravity forces
       if (!isBot(playerId)) {
-        console.log(`🌀 Player at dist ${dist.toFixed(0)}px: force=${forceMagnitude.toFixed(2)} px/s, vel=(${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)})`);
+        logGravityDebug(playerId, dist, forceMagnitude, velocity);
       }
     }
   }
@@ -788,3 +803,86 @@ setInterval(() => {
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
 }, TICK_INTERVAL);
+
+// ============================================
+// Periodic Logging
+// ============================================
+
+/**
+ * Calculate aggregate statistics about the game state
+ */
+function calculateAggregateStats() {
+  const allPlayers = Array.from(players.values());
+  const alivePlayers = allPlayers.filter(p => p.health > 0);
+  const deadPlayers = allPlayers.filter(p => p.health <= 0);
+  const bots = allPlayers.filter(p => isBot(p.id));
+  const aliveBots = bots.filter(p => p.health > 0);
+
+  // Calculate averages for alive players only
+  const avgEnergy = alivePlayers.length > 0
+    ? alivePlayers.reduce((sum, p) => sum + p.energy, 0) / alivePlayers.length
+    : 0;
+  const avgHealth = alivePlayers.length > 0
+    ? alivePlayers.reduce((sum, p) => sum + p.health, 0) / alivePlayers.length
+    : 0;
+
+  // Stage distribution
+  const stageDistribution: Record<string, number> = {};
+  for (const player of alivePlayers) {
+    stageDistribution[player.stage] = (stageDistribution[player.stage] || 0) + 1;
+  }
+
+  return {
+    totalPlayers: allPlayers.length,
+    alivePlayers: alivePlayers.length,
+    deadPlayers: deadPlayers.length,
+    totalBots: bots.length,
+    aliveBots: aliveBots.length,
+    avgPlayerEnergy: avgEnergy,
+    avgPlayerHealth: avgHealth,
+    totalNutrients: nutrients.size,
+    stageDistribution,
+  };
+}
+
+/**
+ * Create a complete game state snapshot
+ */
+function createGameStateSnapshot() {
+  return {
+    timestamp: Date.now(),
+    players: Array.from(players.values()).map(p => ({
+      id: p.id,
+      isBot: isBot(p.id),
+      stage: p.stage,
+      health: p.health,
+      maxHealth: p.maxHealth,
+      energy: p.energy,
+      maxEnergy: p.maxEnergy,
+      position: { x: p.position.x, y: p.position.y },
+      alive: p.health > 0,
+    })),
+    nutrients: Array.from(nutrients.values()).map(n => ({
+      id: n.id,
+      position: { x: n.position.x, y: n.position.y },
+      value: n.value,
+    })),
+    obstacles: Array.from(obstacles.values()).map(o => ({
+      id: o.id,
+      position: { x: o.position.x, y: o.position.y },
+      radius: o.radius,
+    })),
+  };
+}
+
+// Log aggregate stats every 15 seconds
+setInterval(() => {
+  const stats = calculateAggregateStats();
+  logAggregateStats(stats);
+}, 15000);
+
+// Log full game state snapshot every 60 seconds
+setInterval(() => {
+  const snapshot = createGameStateSnapshot();
+  logGameStateSnapshot(snapshot);
+}, 60000);

@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Tech Stack:**
 - **Client:** TypeScript + Phaser 3 + Vite
-- **Server:** Node.js + Socket.io (server-authoritative)
+- **Server:** Node.js + Socket.io (server-authoritative) + Pino (logging)
 - **Shared:** Common types and constants in monorepo structure
 - **Issue Tracking:** bd (beads)
 
@@ -132,6 +132,54 @@ cd client && npm run dev
 - Constants in `GAME_CONFIG` object (tunable parameters)
 - Position updates at 60fps, energy updates throttled to 10fps
 
+### Server Logging
+
+The server uses **Pino** for structured logging to both console and file:
+
+**Log Files:**
+- Location: `server/logs/server.log`
+- Format: JSON lines (machine-parseable)
+- Includes: timestamps, PIDs, event types, structured data
+
+**Viewing Logs:**
+```bash
+# View recent logs
+tail -50 server/logs/server.log
+
+# View logs in real-time
+tail -f server/logs/server.log
+
+# Search for specific events
+grep "player_died" server/logs/server.log
+grep "event\":\"bot_respawned" server/logs/server.log
+
+# Pretty-print JSON logs
+tail -20 server/logs/server.log | jq
+```
+
+**Logged Events:**
+- `server_started` - Server initialization
+- `player_connected` / `player_disconnected` - Player connections
+- `player_died` - Player deaths (with cause: starvation/singularity)
+- `player_respawned` - Player respawns
+- `player_evolved` - Evolution stage changes
+- `bot_died` / `bot_respawned` - Bot lifecycle
+- `bots_spawned` - Bot initialization
+- `nutrients_spawned` - Nutrient initialization
+- `obstacles_spawned` - Obstacle initialization
+- `gravity_applied` - Debug gravity physics (level: debug)
+- `singularity_crush` - Singularity deaths
+
+**When Debugging:**
+1. Check console output for immediate feedback (pretty formatted)
+2. Review `server/logs/server.log` for historical events and patterns
+3. Use grep to find specific player IDs or event types
+4. Parse JSON logs with `jq` for advanced queries
+
+**Log Levels:**
+- Set via `LOG_LEVEL` environment variable: `debug`, `info`, `warn`, `error`
+- Default: `info` (gravity debug logs require `LOG_LEVEL=debug`)
+
 ### Common Tasks
 
 **Adding a new game mechanic:**
@@ -142,10 +190,11 @@ cd client && npm run dev
 5. Tune constants in `GAME_CONFIG`
 
 **Debugging physics issues:**
-- Add debug logs with specific prefixes (🌀 for gravity, 💀 for death, etc.)
-- Use Plan mode to trace logic step-by-step
-- Verify server logs show expected behavior
+- Check `server/logs/server.log` for event history and patterns
+- Use `grep` to find specific player deaths, crashes, or events
+- Set `LOG_LEVEL=debug` for detailed gravity physics logs
 - Check network messages in browser console
+- Use Plan mode to trace logic step-by-step
 
 **Adding new obstacles/entities:**
 1. Define interface in `shared/index.ts`
@@ -156,6 +205,13 @@ cd client && npm run dev
 
 ## Git Workflow
 
+**Commit Style:**
+- **One-line commit messages** - Keep it simple and concise
+- Example: `Add server logging with Pino (events, aggregate stats, snapshots)`
+- No multi-paragraph explanations or bullet lists in commit messages
+- Let the code diff speak for itself
+
+**Workflow:**
 - The repository uses a custom git merge driver for `.beads/beads.jsonl` files
 - Always commit `.beads/beads.left.jsonl` together with related code changes
 - Issue state should stay synchronized with code state

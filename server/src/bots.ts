@@ -1,6 +1,7 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { Player, Position, Nutrient, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
+import { logBotsSpawned, logBotDeath, logBotRespawn } from './logger';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -248,7 +249,7 @@ export function initializeBots(
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
     spawnBot(io, players, playerInputDirections, playerVelocities);
   }
-  console.log(`🤖 Spawned ${BOT_CONFIG.COUNT} AI bots`);
+  logBotsSpawned(BOT_CONFIG.COUNT);
 }
 
 /**
@@ -282,7 +283,7 @@ export function handleBotDeath(botId: string, io: Server, players: Map<string, P
   const bot = bots.get(botId);
   if (!bot) return;
 
-  console.log(`🤖💀 Bot ${botId} died, respawning in ${BOT_CONFIG.RESPAWN_DELAY}ms`);
+  logBotDeath(botId);
 
   // Schedule respawn
   setTimeout(() => {
@@ -316,6 +317,6 @@ export function handleBotDeath(botId: string, io: Server, players: Map<string, P
     };
     io.emit('playerRespawned', respawnMessage);
 
-    console.log(`🤖✨ Bot ${botId} respawned`);
+    logBotRespawn(botId);
   }, BOT_CONFIG.RESPAWN_DELAY);
 }
