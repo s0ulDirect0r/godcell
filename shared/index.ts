@@ -54,6 +54,10 @@ export interface PlayerMoveMessage {
   };
 }
 
+export interface PlayerRespawnRequestMessage {
+  type: 'playerRespawnRequest';
+}
+
 // ============================================
 // Network Messages (Server → Client)
 // ============================================

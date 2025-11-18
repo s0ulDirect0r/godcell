@@ -5,6 +5,7 @@ import type {
   Position,
   Nutrient,
   PlayerMoveMessage,
+  PlayerRespawnRequestMessage,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -214,7 +215,7 @@ function checkEvolution(player: Player) {
 }
 
 /**
- * Handle player death - respawn at random location with reset stats
+ * Handle player death - broadcast death event but DON'T auto-respawn
  */
 function handlePlayerDeath(player: Player) {
   // Broadcast death event (for dilution effect)
@@ -226,6 +227,13 @@ function handlePlayerDeath(player: Player) {
   };
   io.emit('playerDied', deathMessage);
 
+  console.log(`💀 Player ${player.id} died (waiting for manual respawn)`);
+}
+
+/**
+ * Respawn a dead player - reset to single-cell at random location
+ */
+function respawnPlayer(player: Player) {
   // Reset player to single-cell at random spawn
   player.position = randomSpawnPosition();
   player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
@@ -249,7 +257,7 @@ function handlePlayerDeath(player: Player) {
   };
   io.emit('playerRespawned', respawnMessage);
 
-  console.log(`💀 Player ${player.id} died and respawned (PERMANENT LOSS)`);
+  console.log(`🔄 Player ${player.id} respawned as single-cell`);
 }
 
 /**
@@ -258,6 +266,9 @@ function handlePlayerDeath(player: Player) {
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
+    // Skip dead players (waiting for manual respawn)
+    if (player.health <= 0) continue;
+
     // Skip metabolism during evolution molting (invulnerable)
     if (player.isEvolving) continue;
 
@@ -296,6 +307,9 @@ function broadcastEnergyUpdates() {
     energyUpdateTicks = 0;
 
     for (const [playerId, player] of players) {
+      // Skip dead players (no need to broadcast their energy)
+      if (player.health <= 0) continue;
+
       const updateMessage: EnergyUpdateMessage = {
         type: 'energyUpdate',
         playerId,
@@ -313,6 +327,9 @@ function broadcastEnergyUpdates() {
  */
 function checkNutrientCollisions() {
   for (const [playerId, player] of players) {
+    // Skip dead players (waiting for manual respawn)
+    if (player.health <= 0) continue;
+
     // Skip if player is evolving (invulnerable during molting)
     if (player.isEvolving) continue;
 
@@ -396,9 +413,17 @@ io.on('connection', (socket) => {
   playerVelocities.set(socket.id, { x: 0, y: 0 });
 
   // Send current game state to the new player
+  // Filter out dead players (health <= 0) from initial state
+  const alivePlayers = new Map();
+  for (const [id, player] of players) {
+    if (player.health > 0) {
+      alivePlayers.set(id, player);
+    }
+  }
+
   const gameState: GameStateMessage = {
     type: 'gameState',
-    players: Object.fromEntries(players),
+    players: Object.fromEntries(alivePlayers),
     nutrients: Object.fromEntries(nutrients),
   };
   socket.emit('gameState', gameState);
@@ -422,6 +447,20 @@ io.on('connection', (socket) => {
     // Direction values are -1, 0, or 1
     velocity.x = message.direction.x;
     velocity.y = message.direction.y;
+  });
+
+  // ============================================
+  // Player Respawn Request
+  // ============================================
+
+  socket.on('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    // Only respawn if player is dead (health <= 0)
+    if (player.health <= 0) {
+      respawnPlayer(player);
+    }
   });
 
   // ============================================
@@ -457,6 +496,9 @@ setInterval(() => {
 
   // Update each player's position
   for (const [playerId, player] of players) {
+    // Skip dead players (waiting for manual respawn)
+    if (player.health <= 0) continue;
+
     const velocity = playerVelocities.get(playerId);
     if (!velocity) continue;
 
