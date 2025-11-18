@@ -9,6 +9,7 @@ import type {
   PlayerLeftMessage,
   PlayerMovedMessage,
   PlayerMoveMessage,
+  PlayerRespawnRequestMessage,
   NutrientSpawnedMessage,
   NutrientCollectedMessage,
   EnergyUpdateMessage,
@@ -43,6 +44,13 @@ export class GameScene extends Phaser.Scene {
     maxHealth: 100,
     energy: 100,
     maxEnergy: 100,
+  };
+
+  // Session stats (for death screen)
+  private sessionStats = {
+    spawnTime: 0, // Timestamp when player spawned
+    nutrientsCollected: 0, // Total nutrients collected this life
+    highestStage: EvolutionStage.SINGLE_CELL, // Highest stage reached this life
   };
 
   // Visual representations of all cyber-cells (players)
@@ -91,6 +99,10 @@ export class GameScene extends Phaser.Scene {
   private energyBar?: Phaser.GameObjects.Graphics;
   private uiText?: Phaser.GameObjects.Text;
 
+  // Death UI (DOM elements)
+  private deathOverlay?: HTMLElement;
+  private respawnButton?: HTMLButtonElement;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -126,6 +138,9 @@ export class GameScene extends Phaser.Scene {
 
     // Create metabolism UI (health/energy bars)
     this.createMetabolismUI();
+
+    // Set up death UI (DOM elements)
+    this.setupDeathUI();
   }
 
   // ============================================
@@ -399,6 +414,88 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
+  // Death UI
+  // ============================================
+
+  /**
+   * Set up DOM references for death overlay
+   */
+  private setupDeathUI() {
+    this.deathOverlay = document.getElementById('death-overlay') as HTMLElement;
+    this.respawnButton = document.getElementById('respawn-btn') as HTMLButtonElement;
+
+    // Wire up respawn button
+    if (this.respawnButton) {
+      this.respawnButton.addEventListener('click', () => {
+        // Send respawn request to server
+        const respawnRequest: PlayerRespawnRequestMessage = {
+          type: 'playerRespawnRequest',
+        };
+        this.socket.emit('playerRespawnRequest', respawnRequest);
+
+        console.log('🔄 Respawn requested');
+      });
+    }
+  }
+
+  /**
+   * Show death UI with stats
+   */
+  private showDeathUI() {
+    if (!this.deathOverlay) return;
+
+    // Calculate time survived
+    const timeAlive = Date.now() - this.sessionStats.spawnTime;
+    const minutes = Math.floor(timeAlive / 60000);
+    const seconds = Math.floor((timeAlive % 60000) / 1000);
+    const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+    // Convert stage enum to display string
+    const stageNames: Record<EvolutionStage, string> = {
+      [EvolutionStage.SINGLE_CELL]: 'Single-Cell',
+      [EvolutionStage.MULTI_CELL]: 'Multi-Cell',
+      [EvolutionStage.CYBER_ORGANISM]: 'Cyber-Organism',
+      [EvolutionStage.HUMANOID]: 'Humanoid',
+      [EvolutionStage.GODCELL]: 'Godcell',
+    };
+
+    // Update stats in UI
+    const timeEl = document.getElementById('stat-time');
+    const nutrientsEl = document.getElementById('stat-nutrients');
+    const stageEl = document.getElementById('stat-stage');
+    const causeEl = document.getElementById('stat-cause');
+
+    if (timeEl) timeEl.textContent = timeString;
+    if (nutrientsEl) nutrientsEl.textContent = this.sessionStats.nutrientsCollected.toString();
+    if (stageEl) stageEl.textContent = stageNames[this.sessionStats.highestStage];
+    if (causeEl) {
+      // Determine cause of death (for now, always starvation)
+      // TODO: Add combat/entropy death causes when implemented
+      causeEl.textContent = 'Starvation';
+    }
+
+    // Show overlay
+    this.deathOverlay.classList.add('show');
+  }
+
+  /**
+   * Hide death UI
+   */
+  private hideDeathUI() {
+    if (!this.deathOverlay) return;
+    this.deathOverlay.classList.remove('show');
+  }
+
+  /**
+   * Reset session stats (called on spawn/respawn)
+   */
+  private resetSessionStats() {
+    this.sessionStats.spawnTime = Date.now();
+    this.sessionStats.nutrientsCollected = 0;
+    this.sessionStats.highestStage = EvolutionStage.SINGLE_CELL;
+  }
+
+  // ============================================
   // Death Effects
   // ============================================
 
@@ -482,6 +579,9 @@ export class GameScene extends Phaser.Scene {
           this.myPlayerStats.energy,
           this.myPlayerStats.maxEnergy
         );
+
+        // Initialize session stats (start tracking survival time)
+        this.resetSessionStats();
       }
 
       // Create sprites for all existing players
@@ -536,6 +636,9 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.energy = message.collectorEnergy;
         this.myPlayerStats.maxEnergy = message.collectorMaxEnergy;
 
+        // Track nutrient collection for death stats
+        this.sessionStats.nutrientsCollected++;
+
         // Immediately update UI with new energy/maxEnergy
         this.updateMetabolismUI(
           this.myPlayerStats.health,
@@ -569,6 +672,14 @@ export class GameScene extends Phaser.Scene {
       // Create dilution effect (particles scatter and fade)
       this.createDilutionEffect(message.position, message.color);
 
+      // Show death UI if it's our player
+      if (message.playerId === this.myPlayerId) {
+        // Small delay to let dilution effect play
+        this.time.delayedCall(500, () => {
+          this.showDeathUI();
+        });
+      }
+
       // Remove the player sprite immediately
       this.removeCyberCell(message.playerId);
     });
@@ -584,6 +695,12 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.energy = message.player.energy;
         this.myPlayerStats.maxEnergy = message.player.maxEnergy;
 
+        // Reset session stats (new life begins)
+        this.resetSessionStats();
+
+        // Hide death UI
+        this.hideDeathUI();
+
         // Update UI immediately with reset stats
         this.updateMetabolismUI(
           this.myPlayerStats.health,
@@ -595,6 +712,22 @@ export class GameScene extends Phaser.Scene {
 
       // Recreate sprite (it was removed on death)
       this.createCyberCell(message.player.id, message.player);
+
+      // Re-attach camera if this is our player (fixes camera tracking bug)
+      if (message.player.id === this.myPlayerId) {
+        const mySprite = this.playerSprites.get(this.myPlayerId);
+        if (mySprite) {
+          const config = GAME_CONFIG;
+
+          // Re-attach camera to the new sprite
+          this.cameras.main.startFollow(mySprite, true, 0.1, 0.1);
+
+          // Ensure camera bounds are still set
+          this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+
+          console.log('📷 Camera re-attached after respawn');
+        }
+      }
     });
 
     // Player evolved
@@ -606,6 +739,9 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.health = message.newMaxHealth; // Evolution fully heals
         this.myPlayerStats.maxHealth = message.newMaxHealth;
         this.myPlayerStats.maxEnergy = message.newMaxEnergy;
+
+        // Track highest stage reached for death stats
+        this.sessionStats.highestStage = message.newStage;
 
         // Update UI immediately with new max values
         this.updateMetabolismUI(
