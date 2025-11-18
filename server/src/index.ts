@@ -20,6 +20,19 @@ import type {
   PlayerEvolvedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
+import {
+  logger,
+  logServerStarted,
+  logPlayerConnected,
+  logPlayerDisconnected,
+  logPlayerDeath,
+  logPlayerRespawn,
+  logPlayerEvolution,
+  logNutrientsSpawned,
+  logObstaclesSpawned,
+  logGravityDebug,
+  logSingularityCrush,
+} from './logger';
 
 // ============================================
 // Server Configuration
@@ -149,7 +162,7 @@ function initializeNutrients() {
   for (let i = 0; i < GAME_CONFIG.NUTRIENT_COUNT; i++) {
     spawnNutrient();
   }
-  console.log(`✨ Spawned ${GAME_CONFIG.NUTRIENT_COUNT} nutrients`);
+  logNutrientsSpawned(GAME_CONFIG.NUTRIENT_COUNT);
 }
 
 /**
@@ -198,7 +211,7 @@ function initializeObstacles() {
     obstacles.set(obstacle.id, obstacle);
   }
 
-  console.log(`⚫ Spawned ${obstacles.size} gravity distortions`);
+  logObstaclesSpawned(obstacles.size);
 }
 
 /**
@@ -285,7 +298,7 @@ function checkEvolution(player: Player) {
     };
     io.emit('playerEvolved', evolveMessage);
 
-    console.log(`🧬 Player ${player.id} evolved to ${player.stage}`);
+    logPlayerEvolution(player.id, player.stage);
   }, GAME_CONFIG.EVOLUTION_MOLTING_DURATION);
 }
 
@@ -307,7 +320,7 @@ function handlePlayerDeath(player: Player) {
   if (isBot(player.id)) {
     handleBotDeath(player.id, io, players);
   } else {
-    console.log(`💀 Player ${player.id} died (waiting for manual respawn)`);
+    logPlayerDeath(player.id, 'starvation');
   }
 }
 
@@ -343,7 +356,7 @@ function respawnPlayer(player: Player) {
   };
   io.emit('playerRespawned', respawnMessage);
 
-  console.log(`🔄 Player ${player.id} respawned as single-cell`);
+  logPlayerRespawn(player.id);
 }
 
 /**
@@ -483,7 +496,7 @@ const io = new Server(PORT, {
   },
 });
 
-console.log(`🎮 Game server running on port ${PORT}`);
+logServerStarted(PORT);
 
 // Initialize game world
 initializeObstacles();
@@ -495,7 +508,7 @@ initializeBots(io, players, playerInputDirections, playerVelocities);
 // ============================================
 
 io.on('connection', (socket) => {
-  console.log(`✅ Player connected: ${socket.id}`);
+  logPlayerConnected(socket.id);
 
   // Create a new player
   const newPlayer: Player = {
@@ -572,7 +585,7 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('disconnect', () => {
-    console.log(`❌ Player disconnected: ${socket.id}`);
+    logPlayerDisconnected(socket.id);
 
     // Remove from game state
     players.delete(socket.id);
@@ -614,7 +627,7 @@ function applyGravityForces() {
 
       // Instant death at singularity core
       if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
-        console.log(`💀 Player ${playerId} crushed by singularity at dist ${dist.toFixed(1)}px`);
+        logSingularityCrush(playerId, dist);
         player.health = 0; // Set health to zero
         handlePlayerDeath(player); // Trigger death event and broadcast
         continue;
@@ -645,7 +658,7 @@ function applyGravityForces() {
 
       // DEBUG: Log gravity forces
       if (!isBot(playerId)) {
-        console.log(`🌀 Player at dist ${dist.toFixed(0)}px: force=${forceMagnitude.toFixed(2)} px/s, vel=(${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)})`);
+        logGravityDebug(playerId, dist, forceMagnitude, velocity);
       }
     }
   }
