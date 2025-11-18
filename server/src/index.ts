@@ -329,6 +329,7 @@ function handlePlayerDeath(player: Player, cause: string) {
     playerId: player.id,
     position: { ...player.position },
     color: player.color,
+    cause: cause as 'starvation' | 'singularity' | 'swarm' | 'obstacle',
   };
   io.emit('playerDied', deathMessage);
 
