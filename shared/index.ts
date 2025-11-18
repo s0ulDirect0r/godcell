@@ -147,8 +147,8 @@ export const GAME_CONFIG = {
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
 
   // World dimensions
-  WORLD_WIDTH: 2400,   // Full playable world
-  WORLD_HEIGHT: 1600,
+  WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
+  WORLD_HEIGHT: 3200,
   VIEWPORT_WIDTH: 1200,  // What you see on screen
   VIEWPORT_HEIGHT: 800,
 
@@ -176,7 +176,7 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 25,           // Initial spawn count
+  NUTRIENT_COUNT: 13,           // Initial spawn count (reduced for stage 1 difficulty)
   NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
   NUTRIENT_SIZE: 8,             // Radius
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals
