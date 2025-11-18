@@ -590,7 +590,7 @@ export class GameScene extends Phaser.Scene {
   /**
    * Show death UI with stats
    */
-  private showDeathUI() {
+  private showDeathUI(cause?: 'starvation' | 'singularity' | 'swarm' | 'obstacle') {
     if (!this.deathOverlay) return;
 
     // Calculate time survived
@@ -608,6 +608,14 @@ export class GameScene extends Phaser.Scene {
       [EvolutionStage.GODCELL]: 'Godcell',
     };
 
+    // Convert death cause to display string
+    const causeNames: Record<string, string> = {
+      starvation: 'Starvation',
+      singularity: 'Crushed by Singularity',
+      swarm: 'Entropy Swarm',
+      obstacle: 'Gravity Distortion',
+    };
+
     // Update stats in UI
     const timeEl = document.getElementById('stat-time');
     const nutrientsEl = document.getElementById('stat-nutrients');
@@ -618,9 +626,7 @@ export class GameScene extends Phaser.Scene {
     if (nutrientsEl) nutrientsEl.textContent = this.sessionStats.nutrientsCollected.toString();
     if (stageEl) stageEl.textContent = stageNames[this.sessionStats.highestStage];
     if (causeEl) {
-      // Determine cause of death (for now, always starvation)
-      // TODO: Add combat/entropy death causes when implemented
-      causeEl.textContent = 'Starvation';
+      causeEl.textContent = cause ? causeNames[cause] : 'Unknown';
     }
 
     // Show overlay
@@ -854,7 +860,7 @@ export class GameScene extends Phaser.Scene {
       if (message.playerId === this.myPlayerId) {
         // Small delay to let dilution effect play
         this.time.delayedCall(500, () => {
-          this.showDeathUI();
+          this.showDeathUI(message.cause);
         });
       }
 
