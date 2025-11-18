@@ -4,6 +4,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared'
 import type {
   Player,
   Nutrient,
+  Obstacle,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -12,6 +13,7 @@ import type {
   PlayerRespawnRequestMessage,
   NutrientSpawnedMessage,
   NutrientCollectedMessage,
+  NutrientMovedMessage,
   EnergyUpdateMessage,
   PlayerDiedMessage,
   PlayerRespawnedMessage,
@@ -72,6 +74,10 @@ export class GameScene extends Phaser.Scene {
   // Track last known position of each player to detect when they're stationary
   // Maps playerId → last position
   private lastPlayerPositions: Map<string, { x: number; y: number }> = new Map();
+
+  // Gravity obstacles (distortion fields)
+  // Maps obstacleId → Graphics object
+  private obstacleSprites: Map<string, Phaser.GameObjects.Graphics> = new Map();
 
   // Keyboard input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -346,6 +352,9 @@ export class GameScene extends Phaser.Scene {
 
     const config = GAME_CONFIG;
 
+    // High-value nutrients (near obstacles) are gold, normal ones are green
+    const color = nutrient.isHighValue ? config.NUTRIENT_HIGH_VALUE_COLOR : config.NUTRIENT_COLOR;
+
     // Create hexagon points (6-sided polygon)
     const hexagon = new Phaser.Geom.Polygon([
       { x: 0, y: -config.NUTRIENT_SIZE },
@@ -361,12 +370,12 @@ export class GameScene extends Phaser.Scene {
       nutrient.position.x,
       nutrient.position.y,
       hexagon.points,
-      config.NUTRIENT_COLOR,
+      color,
       0.8
     );
 
-    // Add glow effect
-    sprite.setStrokeStyle(2, config.NUTRIENT_COLOR, 1);
+    // Add glow effect (brighter for high-value)
+    sprite.setStrokeStyle(nutrient.isHighValue ? 3 : 2, color, 1);
 
     // Pulsing animation
     this.tweens.add({
@@ -384,6 +393,43 @@ export class GameScene extends Phaser.Scene {
     sprite.setDepth(-25);
 
     this.nutrientSprites.set(nutrient.id, sprite);
+  }
+
+  /**
+   * Create a gravity obstacle (distortion field) visualization
+   */
+  private createObstacle(obstacle: Obstacle) {
+    // Don't create duplicates
+    if (this.obstacleSprites.has(obstacle.id)) return;
+
+    const graphics = this.add.graphics();
+    const config = GAME_CONFIG;
+
+    // Draw four concentric danger zones
+    // Outer ring (safe-ish zone)
+    graphics.lineStyle(2, 0x00ffff, 0.3);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius);
+
+    // Middle ring (danger zone)
+    graphics.lineStyle(2, 0x00ffff, 0.5);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.6);
+
+    // Inner ring (high danger)
+    graphics.lineStyle(3, 0xff0088, 0.8);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3);
+    graphics.fillStyle(0xff0088, 0.1);
+    graphics.fillCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3);
+
+    // SINGULARITY CORE (instant death zone - actual radius from config)
+    graphics.lineStyle(4, 0xff0000, 1.0);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS);
+    graphics.fillStyle(0xff0000, 0.3);
+    graphics.fillCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS);
+
+    // Set depth (above background, below players and nutrients)
+    graphics.setDepth(-50);
+
+    this.obstacleSprites.set(obstacle.id, graphics);
   }
 
   /**
@@ -595,6 +641,11 @@ export class GameScene extends Phaser.Scene {
         this.createNutrient(nutrient);
       }
 
+      // Create gravity obstacles (distortion fields)
+      for (const obstacle of Object.values(message.obstacles)) {
+        this.createObstacle(obstacle);
+      }
+
       // Set up camera to follow our player
       const mySprite = this.playerSprites.get(this.myPlayerId);
       if (mySprite) {
@@ -626,6 +677,14 @@ export class GameScene extends Phaser.Scene {
     // Nutrient spawned
     this.socket.on('nutrientSpawned', (message: NutrientSpawnedMessage) => {
       this.createNutrient(message.nutrient);
+    });
+
+    // Nutrient moved (attracted by obstacles)
+    this.socket.on('nutrientMoved', (message: NutrientMovedMessage) => {
+      const sprite = this.nutrientSprites.get(message.nutrientId);
+      if (sprite) {
+        sprite.setPosition(message.position.x, message.position.y);
+      }
     });
 
     // Nutrient collected
