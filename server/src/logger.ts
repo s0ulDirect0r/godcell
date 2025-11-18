@@ -63,7 +63,7 @@ export function logPlayerDisconnected(socketId: string) {
 /**
  * Log a player death
  */
-export function logPlayerDeath(playerId: string, cause: 'starvation' | 'singularity') {
+export function logPlayerDeath(playerId: string, cause: 'starvation' | 'singularity' | 'swarm' | 'obstacle') {
   logger.info({ playerId, cause, event: 'player_died' }, `Player died: ${cause}`);
 }
 
