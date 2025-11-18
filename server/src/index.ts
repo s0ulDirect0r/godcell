@@ -32,6 +32,8 @@ import {
   logObstaclesSpawned,
   logGravityDebug,
   logSingularityCrush,
+  logAggregateStats,
+  logGameStateSnapshot,
 } from './logger';
 
 // ============================================
@@ -801,3 +803,86 @@ setInterval(() => {
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
 }, TICK_INTERVAL);
+
+// ============================================
+// Periodic Logging
+// ============================================
+
+/**
+ * Calculate aggregate statistics about the game state
+ */
+function calculateAggregateStats() {
+  const allPlayers = Array.from(players.values());
+  const alivePlayers = allPlayers.filter(p => p.health > 0);
+  const deadPlayers = allPlayers.filter(p => p.health <= 0);
+  const bots = allPlayers.filter(p => isBot(p.id));
+  const aliveBots = bots.filter(p => p.health > 0);
+
+  // Calculate averages for alive players only
+  const avgEnergy = alivePlayers.length > 0
+    ? alivePlayers.reduce((sum, p) => sum + p.energy, 0) / alivePlayers.length
+    : 0;
+  const avgHealth = alivePlayers.length > 0
+    ? alivePlayers.reduce((sum, p) => sum + p.health, 0) / alivePlayers.length
+    : 0;
+
+  // Stage distribution
+  const stageDistribution: Record<string, number> = {};
+  for (const player of alivePlayers) {
+    stageDistribution[player.stage] = (stageDistribution[player.stage] || 0) + 1;
+  }
+
+  return {
+    totalPlayers: allPlayers.length,
+    alivePlayers: alivePlayers.length,
+    deadPlayers: deadPlayers.length,
+    totalBots: bots.length,
+    aliveBots: aliveBots.length,
+    avgPlayerEnergy: avgEnergy,
+    avgPlayerHealth: avgHealth,
+    totalNutrients: nutrients.size,
+    stageDistribution,
+  };
+}
+
+/**
+ * Create a complete game state snapshot
+ */
+function createGameStateSnapshot() {
+  return {
+    timestamp: Date.now(),
+    players: Array.from(players.values()).map(p => ({
+      id: p.id,
+      isBot: isBot(p.id),
+      stage: p.stage,
+      health: p.health,
+      maxHealth: p.maxHealth,
+      energy: p.energy,
+      maxEnergy: p.maxEnergy,
+      position: { x: p.position.x, y: p.position.y },
+      alive: p.health > 0,
+    })),
+    nutrients: Array.from(nutrients.values()).map(n => ({
+      id: n.id,
+      position: { x: n.position.x, y: n.position.y },
+      value: n.value,
+    })),
+    obstacles: Array.from(obstacles.values()).map(o => ({
+      id: o.id,
+      position: { x: o.position.x, y: o.position.y },
+      radius: o.radius,
+    })),
+  };
+}
+
+// Log aggregate stats every 15 seconds
+setInterval(() => {
+  const stats = calculateAggregateStats();
+  logAggregateStats(stats);
+}, 15000);
+
+// Log full game state snapshot every 60 seconds
+setInterval(() => {
+  const snapshot = createGameStateSnapshot();
+  logGameStateSnapshot(snapshot);
+}, 60000);

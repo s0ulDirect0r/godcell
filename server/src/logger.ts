@@ -142,3 +142,71 @@ export function logSingularityCrush(playerId: string, distance: number) {
     `Player crushed by singularity at dist ${distance.toFixed(1)}px`
   );
 }
+
+// ============================================
+// Game State Logging
+// ============================================
+
+/**
+ * Log aggregate game statistics (lightweight, frequent)
+ * Use this for high-level monitoring without overwhelming logs
+ */
+export function logAggregateStats(stats: {
+  totalPlayers: number;
+  alivePlayers: number;
+  deadPlayers: number;
+  totalBots: number;
+  aliveBots: number;
+  avgPlayerEnergy: number;
+  avgPlayerHealth: number;
+  totalNutrients: number;
+  stageDistribution: Record<string, number>; // e.g., {"single-cell": 3, "multi-cell": 1}
+}) {
+  logger.info(
+    {
+      ...stats,
+      event: 'aggregate_stats',
+    },
+    `Stats: ${stats.alivePlayers}/${stats.totalPlayers} players alive, ${stats.totalNutrients} nutrients, avg energy: ${stats.avgPlayerEnergy.toFixed(0)}`
+  );
+}
+
+/**
+ * Log complete game state snapshot (heavy, infrequent)
+ * Use this for detailed debugging and post-mortem analysis
+ */
+export function logGameStateSnapshot(snapshot: {
+  timestamp: number;
+  players: Array<{
+    id: string;
+    isBot: boolean;
+    stage: string;
+    health: number;
+    maxHealth: number;
+    energy: number;
+    maxEnergy: number;
+    position: { x: number; y: number };
+    alive: boolean;
+  }>;
+  nutrients: Array<{
+    id: string;
+    position: { x: number; y: number };
+    value: number;
+  }>;
+  obstacles: Array<{
+    id: string;
+    position: { x: number; y: number };
+    radius: number;
+  }>;
+}) {
+  logger.info(
+    {
+      ...snapshot,
+      event: 'game_state_snapshot',
+      playerCount: snapshot.players.length,
+      nutrientCount: snapshot.nutrients.length,
+      obstacleCount: snapshot.obstacles.length,
+    },
+    `Game state snapshot: ${snapshot.players.length} players, ${snapshot.nutrients.length} nutrients`
+  );
+}
