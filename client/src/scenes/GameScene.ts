@@ -5,6 +5,7 @@ import type {
   Player,
   Nutrient,
   Obstacle,
+  EntropySwarm,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -18,6 +19,8 @@ import type {
   PlayerDiedMessage,
   PlayerRespawnedMessage,
   PlayerEvolvedMessage,
+  SwarmSpawnedMessage,
+  SwarmMovedMessage,
 } from '@godcell/shared';
 
 // ============================================
@@ -79,6 +82,10 @@ export class GameScene extends Phaser.Scene {
   // Maps obstacleId → Graphics object
   private obstacleSprites: Map<string, Phaser.GameObjects.Graphics> = new Map();
 
+  // Entropy swarms (virus enemies)
+  // Maps swarmId → Container with circle + particle emitter
+  private swarmSprites: Map<string, Phaser.GameObjects.Container> = new Map();
+
   // Keyboard input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
 
@@ -123,6 +130,9 @@ export class GameScene extends Phaser.Scene {
 
     // Set world bounds (the full playable area)
     this.physics.world.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+
+    // Create particle texture for swarm effects
+    this.createParticleTexture();
 
     // Create the digital primordial soup environment
     this.createDigitalOcean();
@@ -242,6 +252,18 @@ export class GameScene extends Phaser.Scene {
   // ============================================
   // GODCELL Environment Creation
   // ============================================
+
+  /**
+   * Create a simple particle texture for swarm effects at runtime
+   */
+  private createParticleTexture() {
+    // Create a 16x16 circle texture
+    const graphics = this.add.graphics();
+    graphics.fillStyle(0xffffff, 1);
+    graphics.fillCircle(8, 8, 8); // Center at 8,8 with radius 8
+    graphics.generateTexture('particle', 16, 16);
+    graphics.destroy();
+  }
 
   /**
    * Create the digital primordial soup aesthetic
@@ -430,6 +452,87 @@ export class GameScene extends Phaser.Scene {
     graphics.setDepth(-50);
 
     this.obstacleSprites.set(obstacle.id, graphics);
+  }
+
+  /**
+   * Create an entropy swarm (virus enemy) visualization with glitchy particles
+   */
+  private createSwarm(swarm: EntropySwarm) {
+    // Don't create duplicates
+    if (this.swarmSprites.has(swarm.id)) return;
+
+    // Container to hold all swarm visuals
+    const container = this.add.container(swarm.position.x, swarm.position.y);
+
+    // Core circle (pulsing corrupted data)
+    const core = this.add.circle(0, 0, swarm.size, 0xff0088, 0.6);
+    core.setStrokeStyle(3, 0xff00ff, 0.9);
+    container.add(core);
+
+    // Glitchy particle emitter (corrupted data fragments)
+    // Emit from random positions within the swarm radius for a chaotic corrupted look
+    // Create a custom zone source that matches Phaser's RandomZoneSource interface
+    const circle = new Phaser.Geom.Circle(0, 0, swarm.size);
+    const zoneSource = {
+      getRandomPoint: (point: Phaser.Types.Math.Vector2Like) => {
+        // Generate random point within circle and modify point in-place
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * circle.radius;
+        point.x = circle.x + Math.cos(angle) * radius;
+        point.y = circle.y + Math.sin(angle) * radius;
+      }
+    };
+
+    const particles = this.add.particles(0, 0, 'particle', {
+      speed: { min: 30, max: 100 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 1.5, end: 0.5 }, // Bigger particles
+      alpha: { start: 1, end: 0 },
+      lifespan: 1200, // Particles last longer
+      frequency: 40, // Emit more often (every 40ms)
+      tint: [0xff0088, 0xff00ff, 0x8800ff], // Purple/magenta glitch colors
+      blendMode: 'ADD',
+      emitZone: new Phaser.GameObjects.Particles.Zones.RandomZone(zoneSource),
+    });
+    container.add(particles);
+
+    // Set depth (above obstacles, below players)
+    container.setDepth(-30);
+
+    // Add pulsing animation to core
+    this.tweens.add({
+      targets: core,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      alpha: 0.4,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    this.swarmSprites.set(swarm.id, container);
+  }
+
+  /**
+   * Update swarm position and visual state
+   */
+  private updateSwarm(swarmId: string, position: { x: number; y: number }, state: 'patrol' | 'chase') {
+    const container = this.swarmSprites.get(swarmId);
+    if (!container) return;
+
+    // Update position
+    container.setPosition(position.x, position.y);
+
+    // Visual feedback for state (chase = more intense)
+    const core = container.list[0] as Phaser.GameObjects.Arc;
+    if (state === 'chase') {
+      core.setFillStyle(0xff0044, 0.8); // Brighter red when chasing
+      core.setStrokeStyle(4, 0xff0000, 1.0);
+    } else {
+      core.setFillStyle(0xff0088, 0.6); // Normal purple when patrolling
+      core.setStrokeStyle(3, 0xff00ff, 0.9);
+    }
   }
 
   /**
@@ -646,6 +749,11 @@ export class GameScene extends Phaser.Scene {
         this.createObstacle(obstacle);
       }
 
+      // Create entropy swarms (virus enemies)
+      for (const swarm of Object.values(message.swarms)) {
+        this.createSwarm(swarm);
+      }
+
       // Set up camera to follow our player
       const mySprite = this.playerSprites.get(this.myPlayerId);
       if (mySprite) {
@@ -685,6 +793,16 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         sprite.setPosition(message.position.x, message.position.y);
       }
+    });
+
+    // Swarm spawned
+    this.socket.on('swarmSpawned', (message: SwarmSpawnedMessage) => {
+      this.createSwarm(message.swarm);
+    });
+
+    // Swarm moved
+    this.socket.on('swarmMoved', (message: SwarmMovedMessage) => {
+      this.updateSwarm(message.swarmId, message.position, message.state);
     });
 
     // Nutrient collected
