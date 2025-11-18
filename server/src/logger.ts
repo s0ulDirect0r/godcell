@@ -2,6 +2,7 @@ import pino from 'pino';
 import { createWriteStream } from 'fs';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import type { DeathCause } from '@godcell/shared';
 
 // ============================================
 // Logger Configuration
@@ -63,7 +64,7 @@ export function logPlayerDisconnected(socketId: string) {
 /**
  * Log a player death
  */
-export function logPlayerDeath(playerId: string, cause: 'starvation' | 'singularity' | 'swarm' | 'obstacle') {
+export function logPlayerDeath(playerId: string, cause: DeathCause) {
   logger.info({ playerId, cause, event: 'player_died' }, `Player died: ${cause}`);
 }
 
