@@ -236,9 +236,12 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
 
 /**
  * Check for collisions between swarms and players, deal damage
- * Death is handled by universal death check in updateMetabolism()
+ * Death is handled by universal death check after all damage sources
+ * Returns Set of player IDs that were damaged (for cause tracking)
  */
-export function checkSwarmCollisions(players: Map<string, Player>, deltaTime: number): void {
+export function checkSwarmCollisions(players: Map<string, Player>, deltaTime: number): Set<string> {
+  const damagedPlayerIds = new Set<string>();
+
   for (const swarm of swarms.values()) {
     for (const player of players.values()) {
       // Skip dead/evolving players
@@ -249,12 +252,15 @@ export function checkSwarmCollisions(players: Map<string, Player>, deltaTime: nu
       const collisionDist = swarm.size + GAME_CONFIG.PLAYER_SIZE;
 
       if (dist < collisionDist) {
-        // Deal damage over time (death handled by updateMetabolism)
+        // Deal damage over time (death handled by checkPlayerDeaths)
         const damage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
         player.health -= damage;
+        damagedPlayerIds.add(player.id);
       }
     }
   }
+
+  return damagedPlayerIds;
 }
 
 /**
