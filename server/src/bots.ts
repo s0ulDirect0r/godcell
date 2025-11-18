@@ -1,0 +1,313 @@
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import type { Player, Position, Nutrient, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
+import type { Server } from 'socket.io';
+
+// ============================================
+// Bot System - AI-controlled players for testing multiplayer dynamics
+// ============================================
+
+// Bot controller - manages AI state for each bot
+export interface BotController {
+  player: Player; // Reference to player object in players Map
+  velocity: { x: number; y: number }; // Reference to velocity in playerVelocities Map
+  ai: {
+    state: 'wander' | 'seek_nutrient';
+    targetNutrient?: string; // ID of nutrient being pursued
+    wanderDirection: { x: number; y: number }; // Current random walk direction
+    nextWanderChange: number; // Timestamp when wander direction should change
+  };
+}
+
+// All AI bots currently in the game
+const bots: Map<string, BotController> = new Map();
+
+// Bot configuration
+const BOT_CONFIG = {
+  COUNT: 5, // Number of bots to spawn
+  SEARCH_RADIUS: 400, // How far bots can see nutrients (pixels)
+  WANDER_CHANGE_MIN: 1000, // Min time between direction changes (ms)
+  WANDER_CHANGE_MAX: 3000, // Max time between direction changes (ms)
+  RESPAWN_DELAY: 3000, // How long to wait before respawning dead bots (ms)
+};
+
+// ============================================
+// Helper Functions (from main module)
+// ============================================
+
+function randomColor(): string {
+  return GAME_CONFIG.CELL_COLORS[Math.floor(Math.random() * GAME_CONFIG.CELL_COLORS.length)];
+}
+
+function randomSpawnPosition(): Position {
+  const padding = 100;
+  return {
+    x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+    y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+  };
+}
+
+function distance(p1: Position, p2: Position): number {
+  const dx = p1.x - p2.x;
+  const dy = p1.y - p2.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ============================================
+// Bot Spawning
+// ============================================
+
+/**
+ * Spawn a single AI bot
+ */
+function spawnBot(
+  io: Server,
+  players: Map<string, Player>,
+  playerVelocities: Map<string, { x: number; y: number }>
+): BotController {
+  // Generate unique bot ID (distinct from socket IDs)
+  const botId = `bot-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Create bot player (same as human player)
+  const botPlayer: Player = {
+    id: botId,
+    position: randomSpawnPosition(),
+    color: randomColor(),
+    health: GAME_CONFIG.SINGLE_CELL_HEALTH,
+    maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH,
+    energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
+    maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
+    stage: EvolutionStage.SINGLE_CELL,
+    isEvolving: false,
+  };
+
+  // Create velocity object
+  const botVelocity = { x: 0, y: 0 };
+
+  // Create bot controller with AI state
+  const bot: BotController = {
+    player: botPlayer,
+    velocity: botVelocity,
+    ai: {
+      state: 'wander',
+      wanderDirection: { x: 0, y: 0 },
+      nextWanderChange: Date.now(),
+    },
+  };
+
+  // Add to game state (bots are treated as regular players)
+  players.set(botId, botPlayer);
+  playerVelocities.set(botId, botVelocity);
+  bots.set(botId, bot);
+
+  // Broadcast to all clients (bots appear as regular players)
+  const joinMessage: PlayerJoinedMessage = {
+    type: 'playerJoined',
+    player: botPlayer,
+  };
+  io.emit('playerJoined', joinMessage);
+
+  return bot;
+}
+
+// ============================================
+// Bot AI Behaviors
+// ============================================
+
+/**
+ * Update bot wander behavior - random walk with periodic direction changes
+ */
+function updateBotWander(bot: BotController, currentTime: number) {
+  // Check if it's time to change wander direction
+  if (currentTime >= bot.ai.nextWanderChange) {
+    // Pick new random direction
+    bot.ai.wanderDirection = {
+      x: Math.random() * 2 - 1, // -1 to 1
+      y: Math.random() * 2 - 1, // -1 to 1
+    };
+
+    // Schedule next direction change
+    const changeDelay =
+      BOT_CONFIG.WANDER_CHANGE_MIN +
+      Math.random() * (BOT_CONFIG.WANDER_CHANGE_MAX - BOT_CONFIG.WANDER_CHANGE_MIN);
+    bot.ai.nextWanderChange = currentTime + changeDelay;
+  }
+
+  // Apply wander direction to velocity
+  bot.velocity.x = bot.ai.wanderDirection.x;
+  bot.velocity.y = bot.ai.wanderDirection.y;
+}
+
+/**
+ * Find the nearest nutrient within search radius
+ */
+function findNearestNutrient(botPosition: Position, nutrients: Map<string, Nutrient>): Nutrient | null {
+  let nearest: Nutrient | null = null;
+  let nearestDist = BOT_CONFIG.SEARCH_RADIUS;
+
+  for (const nutrient of nutrients.values()) {
+    const dist = distance(botPosition, nutrient.position);
+    if (dist < nearestDist) {
+      nearest = nutrient;
+      nearestDist = dist;
+    }
+  }
+
+  return nearest;
+}
+
+/**
+ * Steer bot towards target position (smooth turning)
+ */
+function steerTowards(
+  from: Position,
+  to: Position,
+  currentVelocity: { x: number; y: number },
+  maxForce: number = 0.15
+): { x: number; y: number } {
+  // Calculate direction to target
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist === 0) return currentVelocity;
+
+  // Desired velocity (normalized direction)
+  const desiredX = dx / dist;
+  const desiredY = dy / dist;
+
+  // Steering force = desired - current
+  const steerX = desiredX - currentVelocity.x;
+  const steerY = desiredY - currentVelocity.y;
+
+  // Limit steering force for smooth turns
+  const steerDist = Math.sqrt(steerX * steerX + steerY * steerY);
+  if (steerDist > maxForce) {
+    return {
+      x: currentVelocity.x + (steerX / steerDist) * maxForce,
+      y: currentVelocity.y + (steerY / steerDist) * maxForce,
+    };
+  }
+
+  return {
+    x: currentVelocity.x + steerX,
+    y: currentVelocity.y + steerY,
+  };
+}
+
+/**
+ * Update a single bot's AI decision-making
+ */
+function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<string, Nutrient>) {
+  const player = bot.player;
+
+  // Skip dead or evolving bots
+  if (player.health <= 0 || player.isEvolving) {
+    bot.velocity.x = 0;
+    bot.velocity.y = 0;
+    return;
+  }
+
+  // Try to find nearby nutrient
+  const nearestNutrient = findNearestNutrient(player.position, nutrients);
+
+  if (nearestNutrient) {
+    // SEEK state - move towards nutrient
+    bot.ai.state = 'seek_nutrient';
+    bot.ai.targetNutrient = nearestNutrient.id;
+
+    // Steer towards target
+    const newVelocity = steerTowards(player.position, nearestNutrient.position, bot.velocity);
+    bot.velocity.x = newVelocity.x;
+    bot.velocity.y = newVelocity.y;
+  } else {
+    // WANDER state - random exploration
+    bot.ai.state = 'wander';
+    bot.ai.targetNutrient = undefined;
+    updateBotWander(bot, currentTime);
+  }
+}
+
+// ============================================
+// Public API
+// ============================================
+
+/**
+ * Initialize AI bots on server start
+ */
+export function initializeBots(
+  io: Server,
+  players: Map<string, Player>,
+  playerVelocities: Map<string, { x: number; y: number }>
+) {
+  for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
+    spawnBot(io, players, playerVelocities);
+  }
+  console.log(`🤖 Spawned ${BOT_CONFIG.COUNT} AI bots`);
+}
+
+/**
+ * Update all bots' AI decision-making
+ * Call this before the movement loop in the game tick
+ */
+export function updateBots(currentTime: number, nutrients: Map<string, Nutrient>) {
+  for (const [botId, bot] of bots) {
+    updateBotAI(bot, currentTime, nutrients);
+  }
+}
+
+/**
+ * Check if a player ID is a bot
+ */
+export function isBot(playerId: string): boolean {
+  return playerId.startsWith('bot-');
+}
+
+/**
+ * Get bot count for debugging
+ */
+export function getBotCount(): number {
+  return bots.size;
+}
+
+/**
+ * Handle bot death - schedule auto-respawn after delay
+ */
+export function handleBotDeath(botId: string, io: Server, players: Map<string, Player>) {
+  const bot = bots.get(botId);
+  if (!bot) return;
+
+  console.log(`🤖💀 Bot ${botId} died, respawning in ${BOT_CONFIG.RESPAWN_DELAY}ms`);
+
+  // Schedule respawn
+  setTimeout(() => {
+    const player = players.get(botId);
+    if (!player) return; // Bot was removed from game
+
+    // Reset to single-cell at random spawn
+    player.position = randomSpawnPosition();
+    player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
+    player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
+    player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
+    player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+    player.stage = EvolutionStage.SINGLE_CELL;
+    player.isEvolving = false;
+
+    // Reset velocity
+    bot.velocity.x = 0;
+    bot.velocity.y = 0;
+
+    // Reset AI state
+    bot.ai.state = 'wander';
+    bot.ai.targetNutrient = undefined;
+    bot.ai.nextWanderChange = Date.now();
+
+    // Broadcast respawn to all clients
+    const respawnMessage: PlayerRespawnedMessage = {
+      type: 'playerRespawned',
+      player: { ...player },
+    };
+    io.emit('playerRespawned', respawnMessage);
+
+    console.log(`🤖✨ Bot ${botId} respawned`);
+  }, BOT_CONFIG.RESPAWN_DELAY);
+}
