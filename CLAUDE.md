@@ -205,6 +205,13 @@ tail -20 server/logs/server.log | jq
 
 ## Git Workflow
 
+**Commit Style:**
+- **One-line commit messages** - Keep it simple and concise
+- Example: `Add server logging with Pino (events, aggregate stats, snapshots)`
+- No multi-paragraph explanations or bullet lists in commit messages
+- Let the code diff speak for itself
+
+**Workflow:**
 - The repository uses a custom git merge driver for `.beads/beads.jsonl` files
 - Always commit `.beads/beads.left.jsonl` together with related code changes
 - Issue state should stay synchronized with code state
