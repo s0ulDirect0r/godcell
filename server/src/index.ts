@@ -5,6 +5,7 @@ import type {
   Position,
   Nutrient,
   Obstacle,
+  DeathCause,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
   GameStateMessage,
@@ -62,8 +63,8 @@ const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
 const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 
 // Track what last damaged each player (for death cause logging)
-// Maps player ID → damage source ('starvation' | 'singularity' | 'swarm' | 'obstacle')
-const playerLastDamageSource: Map<string, 'starvation' | 'singularity' | 'swarm' | 'obstacle'> = new Map();
+// Maps player ID → damage source
+const playerLastDamageSource: Map<string, DeathCause> = new Map();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -93,14 +94,73 @@ function randomColor(): string {
 
 /**
  * Generate a random spawn position in the digital ocean
+ * Ensures position is safe from gravity wells with retry logic
  */
 function randomSpawnPosition(): Position {
   const padding = 100; // Keep cells away from edges
+  const maxAttempts = 20; // Max retries before giving up
+  let attempts = 0;
 
-  return {
-    x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-    y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+  while (attempts < maxAttempts) {
+    const position = {
+      x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+      y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+    };
+
+    // If obstacles haven't been initialized yet, or position is safe, use it
+    if (obstacles.size === 0 || isSpawnSafe(position)) {
+      return position;
+    }
+
+    attempts++;
+  }
+
+  // Fallback: if we couldn't find a safe position after max attempts,
+  // check if map center is safe, otherwise find the furthest point from all obstacles
+  logger.warn('Could not find safe spawn position after max attempts, using fallback');
+
+  const mapCenter = {
+    x: GAME_CONFIG.WORLD_WIDTH / 2,
+    y: GAME_CONFIG.WORLD_HEIGHT / 2,
   };
+
+  // If map center is safe, use it
+  if (isSpawnSafe(mapCenter)) {
+    return mapCenter;
+  }
+
+  // Map center isn't safe - find the position furthest from all obstacles
+  let maxMinDistance = 0;
+  let safestPosition = mapCenter;
+
+  // Check a grid of positions to find the safest spot
+  const gridSize = 10; // Check 10x10 grid
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      const testPos = {
+        x: (GAME_CONFIG.WORLD_WIDTH / gridSize) * i + padding,
+        y: (GAME_CONFIG.WORLD_HEIGHT / gridSize) * j + padding,
+      };
+
+      // Find minimum distance to any obstacle
+      let minDistToObstacle = Infinity;
+      for (const obstacle of obstacles.values()) {
+        const dist = distance(testPos, obstacle.position);
+        if (dist < minDistToObstacle) {
+          minDistToObstacle = dist;
+        }
+      }
+
+      // Keep the position with the maximum minimum distance (furthest from all obstacles)
+      if (minDistToObstacle > maxMinDistance) {
+        maxMinDistance = minDistToObstacle;
+        safestPosition = testPos;
+      }
+    }
+  }
+
+  logger.warn(`Using safest fallback position with ${maxMinDistance.toFixed(0)}px from nearest obstacle`);
+  return safestPosition;
 }
 
 /**
@@ -113,18 +173,80 @@ function distance(p1: Position, p2: Position): number {
 }
 
 /**
+ * Check if a spawn position is safe (not inside or near gravity wells)
+ * Safe distance is 1000px from obstacle center (400px buffer outside gravity influence)
+ */
+function isSpawnSafe(position: Position): boolean {
+  const SAFE_DISTANCE = 1000; // Gravity radius (600px) + buffer (400px)
+
+  for (const obstacle of obstacles.values()) {
+    if (distance(position, obstacle.position) < SAFE_DISTANCE) {
+      return false; // Too close to a gravity well
+    }
+  }
+
+  return true; // Safe from all obstacles
+}
+
+/**
+ * Check if nutrient spawn position is safe
+ * Nutrients can spawn inside gravity well (600px) but not inside event horizon (180px inescapable zone)
+ */
+function isNutrientSpawnSafe(position: Position): boolean {
+  const EVENT_HORIZON = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable magenta zone
+
+  for (const obstacle of obstacles.values()) {
+    if (distance(position, obstacle.position) < EVENT_HORIZON) {
+      return false; // Inside event horizon - inescapable zone
+    }
+  }
+
+  return true; // Safe (can spawn anywhere >= 180px from obstacle centers)
+}
+
+/**
  * Spawn a nutrient at a random location
  * Nutrients near obstacles get 2x value (risk/reward mechanic)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
 function spawnNutrient(): Nutrient {
-  const position = randomSpawnPosition();
+  const padding = 100;
+  const maxAttempts = 20;
+  let attempts = 0;
+  let position: Position = {
+    x: GAME_CONFIG.WORLD_WIDTH / 2,
+    y: GAME_CONFIG.WORLD_HEIGHT / 2,
+  };
 
-  // Check if nutrient spawned near any obstacle
+  // Find a safe position (not inside event horizon)
+  while (attempts < maxAttempts) {
+    const candidate = {
+      x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+      y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+    };
+
+    if (obstacles.size === 0 || isNutrientSpawnSafe(candidate)) {
+      position = candidate;
+      break; // Found safe position
+    }
+
+    attempts++;
+  }
+
+  // Log warning if we had to use fallback
+  if (attempts >= maxAttempts) {
+    logger.warn('Could not find safe nutrient spawn position after max attempts, using fallback');
+  }
+
+  // Check if nutrient spawned inside gravity well (for high-value bonus)
+  // High-value zone: outside event horizon but inside gravity well (180-600px range)
   let isHighValue = false;
+  const EVENT_HORIZON = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable zone
+  const GRAVITY_RADIUS = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS; // 600px - full influence
   for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < obstacle.radius) {
-      isHighValue = true;
+    const dist = distance(position, obstacle.position);
+    if (dist >= EVENT_HORIZON && dist < GRAVITY_RADIUS) {
+      isHighValue = true; // Inside gravity well but outside event horizon = risky = high value!
       break;
     }
   }
@@ -177,7 +299,7 @@ function initializeNutrients() {
  * Ensures obstacles are spaced apart by OBSTACLE_MIN_SEPARATION
  */
 function initializeObstacles() {
-  const padding = GAME_CONFIG.OBSTACLE_BASE_RADIUS + 100;
+  const padding = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS + 100;
   let obstacleIdCounter = 0;
 
   for (let i = 0; i < GAME_CONFIG.OBSTACLE_COUNT; i++) {
@@ -210,7 +332,7 @@ function initializeObstacles() {
     const obstacle: Obstacle = {
       id: `obstacle-${obstacleIdCounter++}`,
       position,
-      radius: GAME_CONFIG.OBSTACLE_BASE_RADIUS,
+      radius: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS, // Full gravity influence (600px)
       strength: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH,
       damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
     };
@@ -313,7 +435,7 @@ function checkEvolution(player: Player) {
  * Handle player death - broadcast death event with cause
  * Bots auto-respawn, human players wait for manual respawn
  */
-function handlePlayerDeath(player: Player, cause: string) {
+function handlePlayerDeath(player: Player, cause: DeathCause) {
   // Send final health update showing 0 before death message
   const finalHealthUpdate: EnergyUpdateMessage = {
     type: 'energyUpdate',
@@ -335,7 +457,7 @@ function handlePlayerDeath(player: Player, cause: string) {
 
   // Auto-respawn bots after delay
   if (isBot(player.id)) {
-    handleBotDeath(player.id, io, players);
+    handleBotDeath(player.id, io, players, obstacles);
   } else {
     logPlayerDeath(player.id, cause);
   }
@@ -541,7 +663,7 @@ logServerStarted(PORT);
 // Initialize game world
 initializeObstacles();
 initializeNutrients();
-initializeBots(io, players, playerInputDirections, playerVelocities);
+initializeBots(io, players, playerInputDirections, playerVelocities, obstacles);
 initializeSwarms(io);
 
 // ============================================
