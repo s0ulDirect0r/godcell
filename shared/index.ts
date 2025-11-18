@@ -52,6 +52,17 @@ export interface Obstacle {
   damageRate: number; // Health damage per second at center
 }
 
+// An entropy swarm (virus enemy)
+export interface EntropySwarm {
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number }; // Current movement direction/speed
+  size: number; // Radius for collision detection
+  state: 'patrol' | 'chase'; // AI state
+  targetPlayerId?: string; // Player being chased (if state === 'chase')
+  patrolTarget?: Position; // Where swarm is wandering toward (if state === 'patrol')
+}
+
 // ============================================
 // Network Messages (Client → Server)
 // ============================================
@@ -77,6 +88,7 @@ export interface GameStateMessage {
   players: Record<string, Player>; // Map of playerId → Player
   nutrients: Record<string, Nutrient>; // Map of nutrientId → Nutrient
   obstacles: Record<string, Obstacle>; // Map of obstacleId → Obstacle
+  swarms: Record<string, EntropySwarm>; // Map of swarmId → EntropySwarm
 }
 
 export interface PlayerJoinedMessage {
@@ -141,6 +153,18 @@ export interface NutrientMovedMessage {
   position: Position;
 }
 
+export interface SwarmSpawnedMessage {
+  type: 'swarmSpawned';
+  swarm: EntropySwarm;
+}
+
+export interface SwarmMovedMessage {
+  type: 'swarmMoved';
+  swarmId: string;
+  position: Position;
+  state: 'patrol' | 'chase';
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -153,7 +177,9 @@ export type ServerMessage =
   | EnergyUpdateMessage
   | PlayerDiedMessage
   | PlayerRespawnedMessage
-  | PlayerEvolvedMessage;
+  | PlayerEvolvedMessage
+  | SwarmSpawnedMessage
+  | SwarmMovedMessage;
 
 // ============================================
 // Game Constants
@@ -238,4 +264,13 @@ export const GAME_CONFIG = {
   CYBER_ORGANISM_HEALTH_MULTIPLIER: 2,  // 200 health
   HUMANOID_HEALTH_MULTIPLIER: 3,        // 300 health
   GODCELL_HEALTH_MULTIPLIER: 5,         // 500 health
+
+  // Entropy Swarms (virus enemies)
+  SWARM_COUNT: 9,                    // Number of swarms to spawn
+  SWARM_SIZE: 39,                    // Radius for collision detection (30% bigger)
+  SWARM_SPEED: 144,                  // 20% faster than before - more threatening
+  SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
+  SWARM_DAMAGE_RATE: 15,            // Health damage per second on contact
+  SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point
+  SWARM_PATROL_CHANGE_INTERVAL: 3000, // Time between random patrol direction changes (ms)
 };

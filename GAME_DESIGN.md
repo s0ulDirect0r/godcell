@@ -23,7 +23,7 @@ Every system in the game reinforces this: nutrients = information gain, entropy 
 
 ## High-Level Vision
 
-- **Genre**: Multiplayer evolutionary survival
+- **Genre**: Chaotic cybernetic evolutionary survival MMORPG
 - **Setting**: Digital primordial soup (Tron meets microscopic life)
 - **Core Loop**: Gather nutrients → Avoid entropy → Evolve → Compete → Transcend
 - **Death Penalty**: **PERMANENT LOSS** - when you die, you restart as a single-cell

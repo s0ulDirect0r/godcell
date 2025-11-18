@@ -20,6 +20,7 @@ import type {
   PlayerEvolvedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms } from './swarms';
 import {
   logger,
   logServerStarted,
@@ -59,6 +60,10 @@ const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
 // Player velocities (actual velocity in pixels/second, accumulates forces)
 // Maps socket ID → {x, y} velocity
 const playerVelocities: Map<string, { x: number; y: number }> = new Map();
+
+// Track what last damaged each player (for death cause logging)
+// Maps player ID → damage source ('starvation' | 'singularity' | 'swarm' | 'obstacle')
+const playerLastDamageSource: Map<string, 'starvation' | 'singularity' | 'swarm' | 'obstacle'> = new Map();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -305,10 +310,10 @@ function checkEvolution(player: Player) {
 }
 
 /**
- * Handle player death - broadcast death event
+ * Handle player death - broadcast death event with cause
  * Bots auto-respawn, human players wait for manual respawn
  */
-function handlePlayerDeath(player: Player) {
+function handlePlayerDeath(player: Player, cause: string) {
   // Broadcast death event (for dilution effect)
   const deathMessage: PlayerDiedMessage = {
     type: 'playerDied',
@@ -322,7 +327,7 @@ function handlePlayerDeath(player: Player) {
   if (isBot(player.id)) {
     handleBotDeath(player.id, io, players);
   } else {
-    logPlayerDeath(player.id, 'starvation');
+    logPlayerDeath(player.id, cause);
   }
 }
 
@@ -363,7 +368,9 @@ function respawnPlayer(player: Player) {
 
 /**
  * Update metabolism for all players
- * Handles energy decay, starvation damage, death, and evolution checks
+ * Handles energy decay, starvation damage, and obstacle damage
+ * Tracks damage sources for death cause logging
+ * Does NOT handle death - that's checked separately after all damage sources
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
@@ -379,7 +386,9 @@ function updateMetabolism(deltaTime: number) {
     // Starvation damage when energy depleted
     if (player.energy <= 0) {
       player.energy = 0;
-      player.health -= GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
+      const damage = GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
+      player.health -= damage;
+      playerLastDamageSource.set(playerId, 'starvation');
     }
 
     // Obstacle damage (escalates exponentially near center)
@@ -392,19 +401,38 @@ function updateMetabolism(deltaTime: number) {
         const damageScale = Math.pow(1 - normalizedDist, 2);
 
         player.health -= obstacle.damageRate * damageScale * deltaTime;
+        playerLastDamageSource.set(playerId, 'obstacle');
         break; // Only one obstacle damages at a time
       }
     }
 
-    // Death check
-    if (player.health <= 0) {
-      player.health = 0; // Clamp to prevent negative health
-      handlePlayerDeath(player);
-      continue; // Skip evolution check after death
+    // Check for evolution (only if still alive)
+    if (player.health > 0) {
+      checkEvolution(player);
     }
+  }
+}
 
-    // Evolution check
-    checkEvolution(player);
+/**
+ * Check all players for death (health <= 0)
+ * This runs AFTER all damage sources have applied their damage
+ * Uses tracked damage source to log specific death cause
+ * Only processes deaths once (clears damage source after processing)
+ */
+function checkPlayerDeaths() {
+  for (const [playerId, player] of players) {
+    // Only process if:
+    // 1. Health is at or below 0
+    // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
+    if (player.health <= 0 && playerLastDamageSource.has(playerId)) {
+      const cause = playerLastDamageSource.get(playerId)!;
+
+      player.health = 0; // Clamp to prevent negative health
+      handlePlayerDeath(player, cause);
+
+      // Clear damage source to prevent reprocessing same death
+      playerLastDamageSource.delete(playerId);
+    }
   }
 }
 
@@ -504,6 +532,7 @@ logServerStarted(PORT);
 initializeObstacles();
 initializeNutrients();
 initializeBots(io, players, playerInputDirections, playerVelocities);
+initializeSwarms(io);
 
 // ============================================
 // Connection Handling
@@ -544,6 +573,7 @@ io.on('connection', (socket) => {
     players: Object.fromEntries(alivePlayers),
     nutrients: Object.fromEntries(nutrients),
     obstacles: Object.fromEntries(obstacles),
+    swarms: getSwarmsRecord(),
   };
   socket.emit('gameState', gameState);
 
@@ -630,8 +660,8 @@ function applyGravityForces() {
       // Instant death at singularity core
       if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
         logSingularityCrush(playerId, dist);
-        player.health = 0; // Set health to zero
-        handlePlayerDeath(player); // Trigger death event and broadcast
+        player.health = 0; // Set health to zero (will be processed by checkPlayerDeaths)
+        playerLastDamageSource.set(playerId, 'singularity');
         continue;
       }
 
@@ -662,6 +692,44 @@ function applyGravityForces() {
       if (!isBot(playerId)) {
         logGravityDebug(playerId, dist, forceMagnitude, velocity);
       }
+    }
+  }
+
+  // Apply gravity to entropy swarms (80% resistance - they're corrupted data, less mass)
+  for (const swarm of getSwarms().values()) {
+    // Reset velocity to zero (will accumulate gravity this frame)
+    swarm.velocity.x = 0;
+    swarm.velocity.y = 0;
+
+    for (const obstacle of obstacles.values()) {
+      const dist = distance(swarm.position, obstacle.position);
+      if (dist > obstacle.radius) continue; // Outside event horizon
+
+      // Swarms can get destroyed by singularities too
+      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
+        // For now, swarms just get pulled through - they're corrupted data, they might survive
+        // Could add swarm death logic later
+        continue;
+      }
+
+      // 80% gravity resistance compared to players (only 20% of normal gravity affects them)
+      const distSq = Math.max(dist * dist, 100);
+      const gravityStrength = obstacle.strength * 100000000;
+      const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity (80% resistance)
+
+      // Direction FROM swarm TO obstacle (attraction)
+      const dx = obstacle.position.x - swarm.position.x;
+      const dy = obstacle.position.y - swarm.position.y;
+      const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (dirLength === 0) continue;
+
+      const dirX = dx / dirLength;
+      const dirY = dy / dirLength;
+
+      // Accumulate gravitational velocity offset
+      swarm.velocity.x += dirX * forceMagnitude;
+      swarm.velocity.y += dirY * forceMagnitude;
     }
   }
 }
@@ -738,8 +806,11 @@ setInterval(() => {
   // Update bot AI decisions (before movement)
   updateBots(Date.now(), nutrients);
 
-  // Apply gravity forces from obstacles (before movement)
+  // Apply gravity forces from obstacles (sets velocity for players/swarms)
   applyGravityForces();
+
+  // Update swarm AI decisions - adds movement on top of gravity
+  updateSwarms(Date.now(), players, obstacles);
 
   // Update each player's position
   for (const [playerId, player] of players) {
@@ -799,6 +870,18 @@ setInterval(() => {
 
   // Attract nutrients to obstacles (visual feeding effect)
   attractNutrientsToObstacles(deltaTime);
+
+  // Update entropy swarm positions
+  updateSwarmPositions(deltaTime, io);
+
+  // Check for swarm collisions and track damage source
+  const swarmDamagedPlayers = checkSwarmCollisions(players, deltaTime);
+  for (const playerId of swarmDamagedPlayers) {
+    playerLastDamageSource.set(playerId, 'swarm');
+  }
+
+  // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms, singularity)
+  checkPlayerDeaths();
 
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
