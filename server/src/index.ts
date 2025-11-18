@@ -61,6 +61,10 @@ const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
 // Maps socket ID → {x, y} velocity
 const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 
+// Track what last damaged each player (for death cause logging)
+// Maps player ID → damage source ('starvation' | 'singularity' | 'swarm' | 'obstacle')
+const playerLastDamageSource: Map<string, 'starvation' | 'singularity' | 'swarm' | 'obstacle'> = new Map();
+
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
 const nutrients: Map<string, Nutrient> = new Map();
@@ -306,10 +310,10 @@ function checkEvolution(player: Player) {
 }
 
 /**
- * Handle player death - broadcast death event
+ * Handle player death - broadcast death event with cause
  * Bots auto-respawn, human players wait for manual respawn
  */
-function handlePlayerDeath(player: Player) {
+function handlePlayerDeath(player: Player, cause: string) {
   // Broadcast death event (for dilution effect)
   const deathMessage: PlayerDiedMessage = {
     type: 'playerDied',
@@ -323,7 +327,7 @@ function handlePlayerDeath(player: Player) {
   if (isBot(player.id)) {
     handleBotDeath(player.id, io, players);
   } else {
-    logPlayerDeath(player.id, 'starvation');
+    logPlayerDeath(player.id, cause);
   }
 }
 
@@ -364,7 +368,8 @@ function respawnPlayer(player: Player) {
 
 /**
  * Update metabolism for all players
- * Handles energy decay, starvation damage, and evolution checks
+ * Handles energy decay, starvation damage, and obstacle damage
+ * Tracks damage sources for death cause logging
  * Does NOT handle death - that's checked separately after all damage sources
  */
 function updateMetabolism(deltaTime: number) {
@@ -381,7 +386,9 @@ function updateMetabolism(deltaTime: number) {
     // Starvation damage when energy depleted
     if (player.energy <= 0) {
       player.energy = 0;
-      player.health -= GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
+      const damage = GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
+      player.health -= damage;
+      playerLastDamageSource.set(playerId, 'starvation');
     }
 
     // Obstacle damage (escalates exponentially near center)
@@ -394,11 +401,12 @@ function updateMetabolism(deltaTime: number) {
         const damageScale = Math.pow(1 - normalizedDist, 2);
 
         player.health -= obstacle.damageRate * damageScale * deltaTime;
+        playerLastDamageSource.set(playerId, 'obstacle');
         break; // Only one obstacle damages at a time
       }
     }
 
-    // Check for evolution (only if still alive after all damage)
+    // Check for evolution (only if still alive)
     if (player.health > 0) {
       checkEvolution(player);
     }
@@ -408,15 +416,22 @@ function updateMetabolism(deltaTime: number) {
 /**
  * Check all players for death (health <= 0)
  * This runs AFTER all damage sources have applied their damage
- * Only processes deaths that just happened (health went negative this frame)
+ * Uses tracked damage source to log specific death cause
+ * Only processes deaths once (clears damage source after processing)
  */
 function checkPlayerDeaths() {
   for (const [playerId, player] of players) {
-    // Only process if health just went negative (not already dead at 0)
-    // Once handlePlayerDeath clamps health to 0, we won't reprocess
-    if (player.health < 0) {
+    // Only process if:
+    // 1. Health is at or below 0
+    // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
+    if (player.health <= 0 && playerLastDamageSource.has(playerId)) {
+      const cause = playerLastDamageSource.get(playerId)!;
+
       player.health = 0; // Clamp to prevent negative health
-      handlePlayerDeath(player);
+      handlePlayerDeath(player, cause);
+
+      // Clear damage source to prevent reprocessing same death
+      playerLastDamageSource.delete(playerId);
     }
   }
 }
@@ -645,8 +660,8 @@ function applyGravityForces() {
       // Instant death at singularity core
       if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
         logSingularityCrush(playerId, dist);
-        player.health = 0; // Set health to zero
-        handlePlayerDeath(player); // Trigger death event and broadcast
+        player.health = 0; // Set health to zero (will be processed by checkPlayerDeaths)
+        playerLastDamageSource.set(playerId, 'singularity');
         continue;
       }
 
@@ -859,10 +874,13 @@ setInterval(() => {
   // Update entropy swarm positions
   updateSwarmPositions(deltaTime, io);
 
-  // Check for swarm collisions with players
-  checkSwarmCollisions(players, deltaTime);
+  // Check for swarm collisions and track damage source
+  const swarmDamagedPlayers = checkSwarmCollisions(players, deltaTime);
+  for (const playerId of swarmDamagedPlayers) {
+    playerLastDamageSource.set(playerId, 'swarm');
+  }
 
-  // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms)
+  // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms, singularity)
   checkPlayerDeaths();
 
   // Broadcast energy/health updates (throttled)
