@@ -31,44 +31,69 @@ Every system in the game reinforces this: nutrients = information gain, entropy 
 
 ---
 
-## Evolution Stages
+## Evolution Stages & Plane Transcendence
 
-Players progress through distinct evolutionary stages, each unlocking new capabilities:
+**Core Concept**: At each evolution stage, players **transcend to a higher plane of existence** - entering a new layer of the simulation where they become the predator to lower-tier life forms.
+
+When you evolve, you don't just get stronger - you shift to a fundamentally different dimension of the digital universe, where your previous peers become your prey.
+
+Players progress through distinct evolutionary stages:
 
 ### 1. Single-Cell (Starting Stage)
+- **Plane**: The Primordial Substrate - base layer of the simulation
 - **Appearance**: Small glowing cyber-cell (current implementation)
 - **Abilities**: Movement only
 - **Goal**: Survive and gather nutrients
+- **Prey**: Nutrient crystals (inanimate data)
+- **Predators**: Entropy swarms, evolved players (if they can reach down?)
 - **Vulnerabilities**: Defenseless against entropy and predators
 
 ### 2. Multi-Cell
+- **Plane**: The Cellular Ocean - a realm teeming with single-cell life
 - **Appearance**: Larger, more complex cellular structure
 - **Abilities**:
   - Faster movement
   - Basic detection radius (see nutrients/threats from farther away)
+- **Prey**: Single-cell cyber-organisms (your former peers!) + nutrient crystals
+- **Predators**: Cyber-organisms and above, entropy manifestations
 - **Unlocks**: First defensive capabilities (maybe membrane armor?)
+- **Plane Mechanics**: When you evolve to multi-cell, you transcend into a new layer filled with NPC single-cells to hunt. You're now the predator.
 
 ### 3. Cyber-Organism
+- **Plane**: The Organic Expanse - a hostile ecosystem of competing multi-cellular life
 - **Appearance**: Complex organism with visible subsystems
 - **Abilities**:
   - **Projectile weapon** (first offensive capability!)
   - Energy-based attacks
   - Advanced movement patterns
+- **Prey**: Multi-cell clusters + single-cells + nutrients
+- **Predators**: Humanoids and above, advanced entropy forms
 - **Unlocks**: Can fight back against entropy
+- **Plane Mechanics**: You enter a realm where multi-cells compete for dominance. Combat becomes viable strategy.
 
 ### 4. Humanoid
+- **Plane**: The Emergent Realm - a world where intelligence and strategy dominate
 - **Appearance**: Cyber-humanoid form (proto-god)
 - **Abilities**:
   - Multiple weapon types
   - Special abilities (dash, shield, AOE attacks)
   - Can influence the environment
+- **Prey**: All lower life forms (cyber-organisms, multi-cells, single-cells)
+- **Predators**: Other humanoids, godcells, entropy constructs
 - **Unlocks**: Advanced combat and territory control
+- **Plane Mechanics**: You've transcended to where thinking beings compete. PvP becomes primary gameplay.
 
 ### 5. Godcell (Final Stage)
-- **Appearance**: Transcendent entity (visual effects TBD)
-- **Abilities**: ???
-- **Goal**: Ultimate evolution - exact mechanics TBD
-- **Note**: This is the endgame. What does it mean to become a god in this digital universe?
+- **Plane**: A Higher Dimension - the game begins anew, but vaster
+- **Appearance**: You become a single cell again... but in an incomprehensibly larger substrate
+- **Abilities**: You retain echoes of your journey - not full power, but wisdom and understanding
+- **Mechanics**: When you reach godhood, the simulation **remixes and expands**. You're back to hunting nutrients, but:
+  - The scale is cosmic instead of microscopic
+  - You carry forward learned abilities (maybe simplified/adapted?)
+  - The planes below become your legacy - you've ascended beyond them
+  - New threats and mysteries await in this higher dimension
+- **Goal**: Perhaps godhood is not an ending, but a gateway to an infinite ladder of transcendence
+- **Philosophy**: "To become a god is to realize you're still just a cell in a vaster ocean"
 
 ---
 
