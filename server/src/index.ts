@@ -4,6 +4,7 @@ import type {
   Player,
   Position,
   Nutrient,
+  Obstacle,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
   GameStateMessage,
@@ -12,6 +13,7 @@ import type {
   PlayerMovedMessage,
   NutrientSpawnedMessage,
   NutrientCollectedMessage,
+  NutrientMovedMessage,
   EnergyUpdateMessage,
   PlayerDiedMessage,
   PlayerRespawnedMessage,
@@ -35,7 +37,11 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // Maps socket ID → Player data
 const players: Map<string, Player> = new Map();
 
-// Player velocities (for server-side movement simulation)
+// Player input directions (from keyboard/controller)
+// Maps socket ID → {x, y} direction (-1, 0, or 1)
+const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
+
+// Player velocities (actual velocity in pixels/second, accumulates forces)
 // Maps socket ID → {x, y} velocity
 const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 
@@ -49,6 +55,10 @@ const nutrientRespawnTimers: Map<string, NodeJS.Timeout> = new Map();
 
 // Counter for generating unique nutrient IDs
 let nutrientIdCounter = 0;
+
+// All gravity obstacles in the world
+// Maps obstacle ID → Obstacle data
+const obstacles: Map<string, Obstacle> = new Map();
 
 // ============================================
 // Helper Functions
@@ -84,13 +94,28 @@ function distance(p1: Position, p2: Position): number {
 
 /**
  * Spawn a nutrient at a random location
+ * Nutrients near obstacles get 2x value (risk/reward mechanic)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
 function spawnNutrient(): Nutrient {
+  const position = randomSpawnPosition();
+
+  // Check if nutrient spawned near any obstacle
+  let isHighValue = false;
+  for (const obstacle of obstacles.values()) {
+    if (distance(position, obstacle.position) < obstacle.radius) {
+      isHighValue = true;
+      break;
+    }
+  }
+
   const nutrient: Nutrient = {
     id: `nutrient-${nutrientIdCounter++}`,
-    position: randomSpawnPosition(),
-    value: GAME_CONFIG.NUTRIENT_ENERGY_VALUE,
+    position,
+    value: isHighValue
+      ? GAME_CONFIG.NUTRIENT_ENERGY_VALUE * GAME_CONFIG.NUTRIENT_HIGH_VALUE_MULTIPLIER
+      : GAME_CONFIG.NUTRIENT_ENERGY_VALUE,
+    isHighValue,
   };
 
   nutrients.set(nutrient.id, nutrient);
@@ -125,6 +150,55 @@ function initializeNutrients() {
     spawnNutrient();
   }
   console.log(`✨ Spawned ${GAME_CONFIG.NUTRIENT_COUNT} nutrients`);
+}
+
+/**
+ * Initialize gravity obstacles with procedural generation
+ * Ensures obstacles are spaced apart by OBSTACLE_MIN_SEPARATION
+ */
+function initializeObstacles() {
+  const padding = GAME_CONFIG.OBSTACLE_BASE_RADIUS + 100;
+  let obstacleIdCounter = 0;
+
+  for (let i = 0; i < GAME_CONFIG.OBSTACLE_COUNT; i++) {
+    let position: Position;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    // Find a valid position with proper separation
+    do {
+      position = {
+        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+      };
+      attempts++;
+
+      // Check if too close to any existing obstacle
+      let tooClose = false;
+      for (const existingObstacle of obstacles.values()) {
+        const dist = distance(position, existingObstacle.position);
+        if (dist < GAME_CONFIG.OBSTACLE_MIN_SEPARATION) {
+          tooClose = true;
+          break;
+        }
+      }
+
+      if (!tooClose) break;
+    } while (attempts < maxAttempts);
+
+    // Create obstacle
+    const obstacle: Obstacle = {
+      id: `obstacle-${obstacleIdCounter++}`,
+      position,
+      radius: GAME_CONFIG.OBSTACLE_BASE_RADIUS,
+      strength: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH,
+      damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
+    };
+
+    obstacles.set(obstacle.id, obstacle);
+  }
+
+  console.log(`⚫ Spawned ${obstacles.size} gravity distortions`);
 }
 
 /**
@@ -250,7 +324,12 @@ function respawnPlayer(player: Player) {
   player.stage = EvolutionStage.SINGLE_CELL;
   player.isEvolving = false;
 
-  // Reset velocity (stop movement if player was holding input during death)
+  // Reset input direction and velocity (stop movement if player was holding input during death)
+  const inputDirection = playerInputDirections.get(player.id);
+  if (inputDirection) {
+    inputDirection.x = 0;
+    inputDirection.y = 0;
+  }
   const velocity = playerVelocities.get(player.id);
   if (velocity) {
     velocity.x = 0;
@@ -286,6 +365,20 @@ function updateMetabolism(deltaTime: number) {
     if (player.energy <= 0) {
       player.energy = 0;
       player.health -= GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
+    }
+
+    // Obstacle damage (escalates exponentially near center)
+    for (const obstacle of obstacles.values()) {
+      const dist = distance(player.position, obstacle.position);
+      if (dist < obstacle.radius) {
+        // Damage scales with proximity: (1 - dist/radius)²
+        // 0% damage at edge, 100% damage at center
+        const normalizedDist = dist / obstacle.radius;
+        const damageScale = Math.pow(1 - normalizedDist, 2);
+
+        player.health -= obstacle.damageRate * damageScale * deltaTime;
+        break; // Only one obstacle damages at a time
+      }
     }
 
     // Death check
@@ -393,8 +486,9 @@ const io = new Server(PORT, {
 console.log(`🎮 Game server running on port ${PORT}`);
 
 // Initialize game world
+initializeObstacles();
 initializeNutrients();
-initializeBots(io, players, playerVelocities);
+initializeBots(io, players, playerInputDirections, playerVelocities);
 
 // ============================================
 // Connection Handling
@@ -418,6 +512,7 @@ io.on('connection', (socket) => {
 
   // Add to game state
   players.set(socket.id, newPlayer);
+  playerInputDirections.set(socket.id, { x: 0, y: 0 });
   playerVelocities.set(socket.id, { x: 0, y: 0 });
 
   // Send current game state to the new player
@@ -433,6 +528,7 @@ io.on('connection', (socket) => {
     type: 'gameState',
     players: Object.fromEntries(alivePlayers),
     nutrients: Object.fromEntries(nutrients),
+    obstacles: Object.fromEntries(obstacles),
   };
   socket.emit('gameState', gameState);
 
@@ -448,13 +544,13 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerMove', (message: PlayerMoveMessage) => {
-    const velocity = playerVelocities.get(socket.id);
-    if (!velocity) return;
+    const inputDirection = playerInputDirections.get(socket.id);
+    if (!inputDirection) return;
 
-    // Update player's velocity based on input
+    // Store player's input direction (will be combined with gravity in game loop)
     // Direction values are -1, 0, or 1
-    velocity.x = message.direction.x;
-    velocity.y = message.direction.y;
+    inputDirection.x = message.direction.x;
+    inputDirection.y = message.direction.y;
   });
 
   // ============================================
@@ -480,6 +576,7 @@ io.on('connection', (socket) => {
 
     // Remove from game state
     players.delete(socket.id);
+    playerInputDirections.delete(socket.id);
     playerVelocities.delete(socket.id);
 
     // Notify other players
@@ -490,6 +587,127 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerLeft', leftMessage);
   });
 });
+
+// ============================================
+// Gravity Physics
+// ============================================
+
+/**
+ * Apply gravity forces from obstacles to all players
+ * Uses inverse-square gravity: force increases exponentially near center
+ * Velocity represents gravity offset in pixels/second
+ */
+function applyGravityForces() {
+  for (const [playerId, player] of players) {
+    if (player.health <= 0 || player.isEvolving) continue;
+
+    const velocity = playerVelocities.get(playerId);
+    if (!velocity) continue;
+
+    // Reset velocity to zero (will accumulate gravity this frame)
+    velocity.x = 0;
+    velocity.y = 0;
+
+    for (const obstacle of obstacles.values()) {
+      const dist = distance(player.position, obstacle.position);
+      if (dist > obstacle.radius) continue; // Outside event horizon
+
+      // Instant death at singularity core
+      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
+        console.log(`💀 Player ${playerId} crushed by singularity at dist ${dist.toFixed(1)}px`);
+        player.health = 0; // Set health to zero
+        handlePlayerDeath(player); // Trigger death event and broadcast
+        continue;
+      }
+
+      // Inverse-square gravity: F = strength / dist²
+      // Prevent divide-by-zero and extreme forces
+      const distSq = Math.max(dist * dist, 100);
+
+      // Scale gravity strength for pixels/second velocity units
+      // obstacle.strength (0.03) needs massive scaling for pixel velocities
+      const gravityStrength = obstacle.strength * 100000000; // Scale factor for pixels/second (10x more)
+      const forceMagnitude = gravityStrength / distSq;
+
+      // Direction FROM player TO obstacle (attraction)
+      const dx = obstacle.position.x - player.position.x;
+      const dy = obstacle.position.y - player.position.y;
+      const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (dirLength === 0) continue;
+
+      const dirX = dx / dirLength;
+      const dirY = dy / dirLength;
+
+      // Accumulate gravitational velocity offset (pixels/second)
+      velocity.x += dirX * forceMagnitude;
+      velocity.y += dirY * forceMagnitude;
+
+      // DEBUG: Log gravity forces
+      if (!isBot(playerId)) {
+        console.log(`🌀 Player at dist ${dist.toFixed(0)}px: force=${forceMagnitude.toFixed(2)} px/s, vel=(${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)})`);
+      }
+    }
+  }
+}
+
+/**
+ * Attract nutrients toward obstacles and destroy them at center
+ * Creates visual "feeding" effect for distortions
+ */
+function attractNutrientsToObstacles(deltaTime: number) {
+  for (const [nutrientId, nutrient] of nutrients) {
+    for (const obstacle of obstacles.values()) {
+      const dist = distance(nutrient.position, obstacle.position);
+
+      if (dist < obstacle.radius) {
+        // Apply same inverse-square gravity as players
+        const distSq = Math.max(dist * dist, 100);
+        const forceMagnitude = obstacle.strength / distSq;
+
+        const dx = obstacle.position.x - nutrient.position.x;
+        const dy = obstacle.position.y - nutrient.position.y;
+        const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+        if (dirLength > 0) {
+          const dirX = dx / dirLength;
+          const dirY = dy / dirLength;
+
+          // Move nutrient toward obstacle
+          nutrient.position.x += dirX * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
+          nutrient.position.y += dirY * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
+
+          // Broadcast nutrient movement
+          const moveMessage: NutrientMovedMessage = {
+            type: 'nutrientMoved',
+            nutrientId,
+            position: nutrient.position,
+          };
+          io.emit('nutrientMoved', moveMessage);
+        }
+
+        // Check if nutrient reached center (destroyed by distortion)
+        if (dist < 20) {
+          nutrients.delete(nutrientId);
+
+          // Broadcast as "collected" by obstacle (special playerId)
+          const collectMessage: NutrientCollectedMessage = {
+            type: 'nutrientCollected',
+            nutrientId,
+            playerId: 'obstacle',
+            collectorEnergy: 0,
+            collectorMaxEnergy: 0,
+          };
+          io.emit('nutrientCollected', collectMessage);
+
+          // Schedule respawn
+          respawnNutrient(nutrientId);
+          break;
+        }
+      }
+    }
+  }
+}
 
 // ============================================
 // Game Loop (Server Tick)
@@ -505,25 +723,39 @@ setInterval(() => {
   // Update bot AI decisions (before movement)
   updateBots(Date.now(), nutrients);
 
+  // Apply gravity forces from obstacles (before movement)
+  applyGravityForces();
+
   // Update each player's position
   for (const [playerId, player] of players) {
     // Skip dead players (waiting for manual respawn)
     if (player.health <= 0) continue;
 
+    const inputDirection = playerInputDirections.get(playerId);
     const velocity = playerVelocities.get(playerId);
-    if (!velocity) continue;
+    if (!inputDirection || !velocity) continue;
 
-    // Skip if player isn't moving
-    if (velocity.x === 0 && velocity.y === 0) continue;
+    // Calculate desired velocity from player input
+    // Normalize diagonal input to maintain consistent speed
+    const inputLength = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
+    const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
+    const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
 
-    // Normalize diagonal movement (same as Bevy version)
-    const length = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    const normalizedX = length > 0 ? velocity.x / length : 0;
-    const normalizedY = length > 0 ? velocity.y / length : 0;
+    // Desired velocity from input (pixels/second)
+    const desiredVelX = inputNormX * GAME_CONFIG.PLAYER_SPEED;
+    const desiredVelY = inputNormY * GAME_CONFIG.PLAYER_SPEED;
+
+    // Actual velocity = desired velocity + gravity offset
+    // Gravity forces were added to velocity in applyGravityForces()
+    const actualVelX = desiredVelX + velocity.x;
+    const actualVelY = desiredVelY + velocity.y;
+
+    // Skip if no movement at all
+    if (actualVelX === 0 && actualVelY === 0) continue;
 
     // Update position (frame-rate independent)
-    player.position.x += normalizedX * GAME_CONFIG.PLAYER_SPEED * deltaTime;
-    player.position.y += normalizedY * GAME_CONFIG.PLAYER_SPEED * deltaTime;
+    player.position.x += actualVelX * deltaTime;
+    player.position.y += actualVelY * deltaTime;
 
     // Keep player within world bounds (accounting for cell radius)
     player.position.x = Math.max(
@@ -549,6 +781,9 @@ setInterval(() => {
 
   // Check for nutrient collection
   checkNutrientCollisions();
+
+  // Attract nutrients to obstacles (visual feeding effect)
+  attractNutrientsToObstacles(deltaTime);
 
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
