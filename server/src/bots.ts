@@ -9,7 +9,8 @@ import type { Server } from 'socket.io';
 // Bot controller - manages AI state for each bot
 export interface BotController {
   player: Player; // Reference to player object in players Map
-  velocity: { x: number; y: number }; // Reference to velocity in playerVelocities Map
+  inputDirection: { x: number; y: number }; // Reference to input direction in playerInputDirections Map
+  velocity: { x: number; y: number }; // Reference to velocity in playerVelocities Map (for gravity)
   ai: {
     state: 'wander' | 'seek_nutrient';
     targetNutrient?: string; // ID of nutrient being pursued
@@ -62,6 +63,7 @@ function distance(p1: Position, p2: Position): number {
 function spawnBot(
   io: Server,
   players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
   // Generate unique bot ID (distinct from socket IDs)
@@ -80,12 +82,14 @@ function spawnBot(
     isEvolving: false,
   };
 
-  // Create velocity object
+  // Create input direction and velocity objects
+  const botInputDirection = { x: 0, y: 0 };
   const botVelocity = { x: 0, y: 0 };
 
   // Create bot controller with AI state
   const bot: BotController = {
     player: botPlayer,
+    inputDirection: botInputDirection,
     velocity: botVelocity,
     ai: {
       state: 'wander',
@@ -96,6 +100,7 @@ function spawnBot(
 
   // Add to game state (bots are treated as regular players)
   players.set(botId, botPlayer);
+  playerInputDirections.set(botId, botInputDirection);
   playerVelocities.set(botId, botVelocity);
   bots.set(botId, bot);
 
@@ -132,9 +137,9 @@ function updateBotWander(bot: BotController, currentTime: number) {
     bot.ai.nextWanderChange = currentTime + changeDelay;
   }
 
-  // Apply wander direction to velocity
-  bot.velocity.x = bot.ai.wanderDirection.x;
-  bot.velocity.y = bot.ai.wanderDirection.y;
+  // Apply wander direction to input (will be combined with gravity in movement loop)
+  bot.inputDirection.x = bot.ai.wanderDirection.x;
+  bot.inputDirection.y = bot.ai.wanderDirection.y;
 }
 
 /**
@@ -202,8 +207,8 @@ function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<str
 
   // Skip dead or evolving bots
   if (player.health <= 0 || player.isEvolving) {
-    bot.velocity.x = 0;
-    bot.velocity.y = 0;
+    bot.inputDirection.x = 0;
+    bot.inputDirection.y = 0;
     return;
   }
 
@@ -215,10 +220,10 @@ function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<str
     bot.ai.state = 'seek_nutrient';
     bot.ai.targetNutrient = nearestNutrient.id;
 
-    // Steer towards target
-    const newVelocity = steerTowards(player.position, nearestNutrient.position, bot.velocity);
-    bot.velocity.x = newVelocity.x;
-    bot.velocity.y = newVelocity.y;
+    // Steer towards target (returns direction vector, not velocity)
+    const newDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+    bot.inputDirection.x = newDirection.x;
+    bot.inputDirection.y = newDirection.y;
   } else {
     // WANDER state - random exploration
     bot.ai.state = 'wander';
@@ -237,10 +242,11 @@ function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<str
 export function initializeBots(
   io: Server,
   players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ) {
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
-    spawnBot(io, players, playerVelocities);
+    spawnBot(io, players, playerInputDirections, playerVelocities);
   }
   console.log(`🤖 Spawned ${BOT_CONFIG.COUNT} AI bots`);
 }
@@ -292,7 +298,9 @@ export function handleBotDeath(botId: string, io: Server, players: Map<string, P
     player.stage = EvolutionStage.SINGLE_CELL;
     player.isEvolving = false;
 
-    // Reset velocity
+    // Reset input direction and velocity
+    bot.inputDirection.x = 0;
+    bot.inputDirection.y = 0;
     bot.velocity.x = 0;
     bot.velocity.y = 0;
 

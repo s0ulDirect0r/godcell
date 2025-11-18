@@ -39,7 +39,17 @@ export interface Player {
 export interface Nutrient {
   id: string;
   position: Position;
-  value: number; // Energy value when collected (25)
+  value: number; // Energy value when collected (25 or 50 for high-value)
+  isHighValue?: boolean; // True if spawned near obstacle (2x value)
+}
+
+// A gravity distortion obstacle (mini black hole)
+export interface Obstacle {
+  id: string;
+  position: Position;
+  radius: number; // Event horizon size
+  strength: number; // Gravity force multiplier
+  damageRate: number; // Health damage per second at center
 }
 
 // ============================================
@@ -66,6 +76,7 @@ export interface GameStateMessage {
   type: 'gameState';
   players: Record<string, Player>; // Map of playerId → Player
   nutrients: Record<string, Nutrient>; // Map of nutrientId → Nutrient
+  obstacles: Record<string, Obstacle>; // Map of obstacleId → Obstacle
 }
 
 export interface PlayerJoinedMessage {
@@ -124,6 +135,12 @@ export interface PlayerEvolvedMessage {
   newMaxHealth: number;
 }
 
+export interface NutrientMovedMessage {
+  type: 'nutrientMoved';
+  nutrientId: string;
+  position: Position;
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -132,6 +149,7 @@ export type ServerMessage =
   | PlayerMovedMessage
   | NutrientSpawnedMessage
   | NutrientCollectedMessage
+  | NutrientMovedMessage
   | EnergyUpdateMessage
   | PlayerDiedMessage
   | PlayerRespawnedMessage
@@ -147,8 +165,8 @@ export const GAME_CONFIG = {
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
 
   // World dimensions
-  WORLD_WIDTH: 2400,   // Full playable world
-  WORLD_HEIGHT: 1600,
+  WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
+  WORLD_HEIGHT: 3200,
   VIEWPORT_WIDTH: 1200,  // What you see on screen
   VIEWPORT_HEIGHT: 800,
 
@@ -176,12 +194,23 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 25,           // Initial spawn count
+  NUTRIENT_COUNT: 13,           // Initial spawn count (reduced for stage 1 difficulty)
   NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
   NUTRIENT_SIZE: 8,             // Radius
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals
   NUTRIENT_ENERGY_VALUE: 25,    // Immediate energy gain
   NUTRIENT_CAPACITY_INCREASE: 10, // Permanent maxEnergy increase
+  NUTRIENT_HIGH_VALUE_MULTIPLIER: 2, // Multiplier for nutrients near obstacles
+  NUTRIENT_HIGH_VALUE_COLOR: 0xffff00, // Gold color for high-value nutrients
+
+  // Gravity Obstacles (mini black holes)
+  OBSTACLE_COUNT: 12,           // Number of distortions to spawn
+  OBSTACLE_BASE_RADIUS: 600,    // Event horizon size (pixels) - doubled
+  OBSTACLE_CORE_RADIUS: 60,     // Instant-death core radius (singularity) - doubled
+  OBSTACLE_GRAVITY_STRENGTH: 0.06, // Force multiplier for inverse-square gravity (doubled)
+  OBSTACLE_DAMAGE_RATE: 10,     // Health damage per second at center (scales down with distance)
+  OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
+  OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
 
   // Metabolism & Health
   SINGLE_CELL_HEALTH: 100,
