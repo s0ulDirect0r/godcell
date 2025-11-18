@@ -20,6 +20,7 @@ import type {
   PlayerEvolvedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms } from './swarms';
 import {
   logger,
   logServerStarted,
@@ -363,7 +364,8 @@ function respawnPlayer(player: Player) {
 
 /**
  * Update metabolism for all players
- * Handles energy decay, starvation damage, death, and evolution checks
+ * Handles energy decay, starvation damage, and evolution checks
+ * Does NOT handle death - that's checked separately after all damage sources
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
@@ -396,15 +398,26 @@ function updateMetabolism(deltaTime: number) {
       }
     }
 
-    // Death check
-    if (player.health <= 0) {
+    // Check for evolution (only if still alive after all damage)
+    if (player.health > 0) {
+      checkEvolution(player);
+    }
+  }
+}
+
+/**
+ * Check all players for death (health <= 0)
+ * This runs AFTER all damage sources have applied their damage
+ * Only processes deaths that just happened (health went negative this frame)
+ */
+function checkPlayerDeaths() {
+  for (const [playerId, player] of players) {
+    // Only process if health just went negative (not already dead at 0)
+    // Once handlePlayerDeath clamps health to 0, we won't reprocess
+    if (player.health < 0) {
       player.health = 0; // Clamp to prevent negative health
       handlePlayerDeath(player);
-      continue; // Skip evolution check after death
     }
-
-    // Evolution check
-    checkEvolution(player);
   }
 }
 
@@ -504,6 +517,7 @@ logServerStarted(PORT);
 initializeObstacles();
 initializeNutrients();
 initializeBots(io, players, playerInputDirections, playerVelocities);
+initializeSwarms(io);
 
 // ============================================
 // Connection Handling
@@ -544,6 +558,7 @@ io.on('connection', (socket) => {
     players: Object.fromEntries(alivePlayers),
     nutrients: Object.fromEntries(nutrients),
     obstacles: Object.fromEntries(obstacles),
+    swarms: getSwarmsRecord(),
   };
   socket.emit('gameState', gameState);
 
@@ -664,6 +679,44 @@ function applyGravityForces() {
       }
     }
   }
+
+  // Apply gravity to entropy swarms (80% resistance - they're corrupted data, less mass)
+  for (const swarm of getSwarms().values()) {
+    // Reset velocity to zero (will accumulate gravity this frame)
+    swarm.velocity.x = 0;
+    swarm.velocity.y = 0;
+
+    for (const obstacle of obstacles.values()) {
+      const dist = distance(swarm.position, obstacle.position);
+      if (dist > obstacle.radius) continue; // Outside event horizon
+
+      // Swarms can get destroyed by singularities too
+      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
+        // For now, swarms just get pulled through - they're corrupted data, they might survive
+        // Could add swarm death logic later
+        continue;
+      }
+
+      // 80% gravity resistance compared to players (only 20% of normal gravity affects them)
+      const distSq = Math.max(dist * dist, 100);
+      const gravityStrength = obstacle.strength * 100000000;
+      const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity (80% resistance)
+
+      // Direction FROM swarm TO obstacle (attraction)
+      const dx = obstacle.position.x - swarm.position.x;
+      const dy = obstacle.position.y - swarm.position.y;
+      const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (dirLength === 0) continue;
+
+      const dirX = dx / dirLength;
+      const dirY = dy / dirLength;
+
+      // Accumulate gravitational velocity offset
+      swarm.velocity.x += dirX * forceMagnitude;
+      swarm.velocity.y += dirY * forceMagnitude;
+    }
+  }
 }
 
 /**
@@ -738,8 +791,11 @@ setInterval(() => {
   // Update bot AI decisions (before movement)
   updateBots(Date.now(), nutrients);
 
-  // Apply gravity forces from obstacles (before movement)
+  // Apply gravity forces from obstacles (sets velocity for players/swarms)
   applyGravityForces();
+
+  // Update swarm AI decisions - adds movement on top of gravity
+  updateSwarms(Date.now(), players, obstacles);
 
   // Update each player's position
   for (const [playerId, player] of players) {
@@ -799,6 +855,15 @@ setInterval(() => {
 
   // Attract nutrients to obstacles (visual feeding effect)
   attractNutrientsToObstacles(deltaTime);
+
+  // Update entropy swarm positions
+  updateSwarmPositions(deltaTime, io);
+
+  // Check for swarm collisions with players
+  checkSwarmCollisions(players, deltaTime);
+
+  // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms)
+  checkPlayerDeaths();
 
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
