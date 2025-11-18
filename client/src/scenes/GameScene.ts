@@ -565,6 +565,7 @@ export class GameScene extends Phaser.Scene {
       this.myPlayerId = this.socket.id;
 
       // Store our player's stats
+      if (!this.myPlayerId) return;
       const myPlayer = message.players[this.myPlayerId];
       if (myPlayer) {
         this.myPlayerStats.health = myPlayer.health;
@@ -590,7 +591,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Create sprites for all existing nutrients
-      for (const [nutrientId, nutrient] of Object.entries(message.nutrients)) {
+      for (const nutrient of Object.values(message.nutrients)) {
         this.createNutrient(nutrient);
       }
 
