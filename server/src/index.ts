@@ -17,6 +17,7 @@ import type {
   PlayerRespawnedMessage,
   PlayerEvolvedMessage,
 } from '@godcell/shared';
+import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
 
 // ============================================
 // Server Configuration
@@ -215,7 +216,8 @@ function checkEvolution(player: Player) {
 }
 
 /**
- * Handle player death - broadcast death event but DON'T auto-respawn
+ * Handle player death - broadcast death event
+ * Bots auto-respawn, human players wait for manual respawn
  */
 function handlePlayerDeath(player: Player) {
   // Broadcast death event (for dilution effect)
@@ -227,7 +229,12 @@ function handlePlayerDeath(player: Player) {
   };
   io.emit('playerDied', deathMessage);
 
-  console.log(`💀 Player ${player.id} died (waiting for manual respawn)`);
+  // Auto-respawn bots after delay
+  if (isBot(player.id)) {
+    handleBotDeath(player.id, io, players);
+  } else {
+    console.log(`💀 Player ${player.id} died (waiting for manual respawn)`);
+  }
 }
 
 /**
@@ -387,6 +394,7 @@ console.log(`🎮 Game server running on port ${PORT}`);
 
 // Initialize game world
 initializeNutrients();
+initializeBots(io, players, playerVelocities);
 
 // ============================================
 // Connection Handling
@@ -493,6 +501,9 @@ io.on('connection', (socket) => {
  */
 setInterval(() => {
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
+
+  // Update bot AI decisions (before movement)
+  updateBots(Date.now(), nutrients);
 
   // Update each player's position
   for (const [playerId, player] of players) {
