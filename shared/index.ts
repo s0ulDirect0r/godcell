@@ -205,9 +205,9 @@ export const GAME_CONFIG = {
 
   // Gravity Obstacles (mini black holes)
   OBSTACLE_COUNT: 12,           // Number of distortions to spawn
-  OBSTACLE_BASE_RADIUS: 300,    // Event horizon size (pixels)
-  OBSTACLE_CORE_RADIUS: 30,     // Instant-death core radius (singularity)
-  OBSTACLE_GRAVITY_STRENGTH: 0.03, // Force multiplier for inverse-square gravity
+  OBSTACLE_BASE_RADIUS: 600,    // Event horizon size (pixels) - doubled
+  OBSTACLE_CORE_RADIUS: 60,     // Instant-death core radius (singularity) - doubled
+  OBSTACLE_GRAVITY_STRENGTH: 0.06, // Force multiplier for inverse-square gravity (doubled)
   OBSTACLE_DAMAGE_RATE: 10,     // Health damage per second at center (scales down with distance)
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
