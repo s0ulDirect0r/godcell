@@ -314,6 +314,15 @@ function checkEvolution(player: Player) {
  * Bots auto-respawn, human players wait for manual respawn
  */
 function handlePlayerDeath(player: Player, cause: string) {
+  // Send final health update showing 0 before death message
+  const finalHealthUpdate: EnergyUpdateMessage = {
+    type: 'energyUpdate',
+    playerId: player.id,
+    energy: player.energy,
+    health: 0, // Ensure client sees health at 0
+  };
+  io.emit('energyUpdate', finalHealthUpdate);
+
   // Broadcast death event (for dilution effect)
   const deathMessage: PlayerDiedMessage = {
     type: 'playerDied',
