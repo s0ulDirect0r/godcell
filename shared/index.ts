@@ -132,6 +132,7 @@ export interface PlayerDiedMessage {
   playerId: string;
   position: Position; // For dilution effect
   color: string; // For colored particle effect
+  cause: 'starvation' | 'singularity' | 'swarm' | 'obstacle'; // What killed the player
 }
 
 export interface PlayerRespawnedMessage {
