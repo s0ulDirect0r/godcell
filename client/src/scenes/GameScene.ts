@@ -428,25 +428,25 @@ export class GameScene extends Phaser.Scene {
     const config = GAME_CONFIG;
 
     // Draw four concentric danger zones
-    // Outer ring (safe-ish zone)
+    // Outer ring (gravity well edge - 600px escapable with effort)
     graphics.lineStyle(2, 0x00ffff, 0.3);
-    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius); // 600px
 
-    // Middle ring (danger zone)
+    // Middle ring (strong gravity - 360px)
     graphics.lineStyle(2, 0x00ffff, 0.5);
-    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.6);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.6); // 360px
 
-    // Inner ring (high danger)
+    // EVENT HORIZON (inescapable magenta zone - 180px)
     graphics.lineStyle(3, 0xff0088, 0.8);
-    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3); // 180px
     graphics.fillStyle(0xff0088, 0.1);
-    graphics.fillCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3);
+    graphics.fillCircle(obstacle.position.x, obstacle.position.y, obstacle.radius * 0.3); // 180px EVENT HORIZON
 
-    // SINGULARITY CORE (instant death zone - actual radius from config)
+    // SINGULARITY CORE (instant death - 60px)
     graphics.lineStyle(4, 0xff0000, 1.0);
-    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS);
+    graphics.strokeCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS); // 60px
     graphics.fillStyle(0xff0000, 0.3);
-    graphics.fillCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS);
+    graphics.fillCircle(obstacle.position.x, obstacle.position.y, config.OBSTACLE_CORE_RADIUS); // 60px
 
     // Set depth (above background, below players and nutrients)
     graphics.setDepth(-50);

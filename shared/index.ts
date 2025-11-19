@@ -9,6 +9,9 @@ export interface Position {
   y: number;
 }
 
+// Death causes for players
+export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle';
+
 // Evolution stages
 export enum EvolutionStage {
   SINGLE_CELL = 'single_cell',
@@ -47,7 +50,7 @@ export interface Nutrient {
 export interface Obstacle {
   id: string;
   position: Position;
-  radius: number; // Event horizon size
+  radius: number; // Gravity influence radius (600px - escapable zone)
   strength: number; // Gravity force multiplier
   damageRate: number; // Health damage per second at center
 }
@@ -132,7 +135,7 @@ export interface PlayerDiedMessage {
   playerId: string;
   position: Position; // For dilution effect
   color: string; // For colored particle effect
-  cause: 'starvation' | 'singularity' | 'swarm' | 'obstacle'; // What killed the player
+  cause: DeathCause; // What killed the player
 }
 
 export interface PlayerRespawnedMessage {
@@ -221,7 +224,7 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 13,           // Initial spawn count (reduced for stage 1 difficulty)
+  NUTRIENT_COUNT: 26,           // Initial spawn count (doubled for stage 1 tuning)
   NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
   NUTRIENT_SIZE: 8,             // Radius
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals
@@ -232,9 +235,10 @@ export const GAME_CONFIG = {
 
   // Gravity Obstacles (mini black holes)
   OBSTACLE_COUNT: 12,           // Number of distortions to spawn
-  OBSTACLE_BASE_RADIUS: 600,    // Event horizon size (pixels) - doubled
-  OBSTACLE_CORE_RADIUS: 60,     // Instant-death core radius (singularity) - doubled
-  OBSTACLE_GRAVITY_STRENGTH: 0.06, // Force multiplier for inverse-square gravity (doubled)
+  OBSTACLE_GRAVITY_RADIUS: 600, // Full gravity influence zone (escapable with effort)
+  OBSTACLE_EVENT_HORIZON: 180,  // Inescapable zone (magenta filled - 30% of gravity radius)
+  OBSTACLE_CORE_RADIUS: 60,     // Instant-death singularity core
+  OBSTACLE_GRAVITY_STRENGTH: 0.06, // Force multiplier for inverse-square gravity
   OBSTACLE_DAMAGE_RATE: 10,     // Health damage per second at center (scales down with distance)
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
@@ -246,7 +250,7 @@ export const GAME_CONFIG = {
   SINGLE_CELL_MAX_ENERGY: 100,
 
   // Decay rates (units per second)
-  ENERGY_DECAY_RATE: 2.22,      // ~45 seconds to starvation for single-cell (doubled for more pressure)
+  ENERGY_DECAY_RATE: 2.66,      // ~37.5 seconds to starvation for single-cell (20% faster for stage 1 tuning)
   STARVATION_DAMAGE_RATE: 5,    // Health damage per second when energy = 0
 
   // Evolution thresholds (maxEnergy required)
@@ -271,7 +275,7 @@ export const GAME_CONFIG = {
   SWARM_SIZE: 39,                    // Radius for collision detection (30% bigger)
   SWARM_SPEED: 144,                  // 20% faster than before - more threatening
   SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
-  SWARM_DAMAGE_RATE: 15,            // Health damage per second on contact
+  SWARM_DAMAGE_RATE: 30,            // Health damage per second on contact (doubled for stage 1 tuning)
   SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point
   SWARM_PATROL_CHANGE_INTERVAL: 3000, // Time between random patrol direction changes (ms)
 };
