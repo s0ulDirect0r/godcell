@@ -171,6 +171,18 @@ export interface SwarmMovedMessage {
   state: 'patrol' | 'chase';
 }
 
+export interface DetectedEntity {
+  id: string;
+  position: Position;
+  entityType: 'player' | 'nutrient';
+  stage?: EvolutionStage; // For players only
+}
+
+export interface DetectionUpdateMessage {
+  type: 'detectionUpdate';
+  detected: DetectedEntity[];
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -185,7 +197,8 @@ export type ServerMessage =
   | PlayerRespawnedMessage
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
-  | SwarmMovedMessage;
+  | SwarmMovedMessage
+  | DetectionUpdateMessage;
 
 // ============================================
 // Game Constants
@@ -288,6 +301,9 @@ export const GAME_CONFIG = {
   CYBER_ORGANISM_SIZE_MULTIPLIER: 6,    // 6x larger (144px radius)
   HUMANOID_SIZE_MULTIPLIER: 8,          // 8x larger (192px radius)
   GODCELL_SIZE_MULTIPLIER: 12,          // 12x larger (288px radius) - transcendent scale
+
+  // Multi-cell detection (chemical sensing)
+  MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

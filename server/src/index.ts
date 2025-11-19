@@ -19,6 +19,8 @@ import type {
   PlayerDiedMessage,
   PlayerRespawnedMessage,
   PlayerEvolvedMessage,
+  DetectedEntity,
+  DetectionUpdateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms } from './swarms';
@@ -412,6 +414,26 @@ function getEnergyDecayRate(stage: EvolutionStage): number {
 }
 
 /**
+ * Get player collision radius based on evolution stage
+ * Returns scaled radius for hitbox calculations
+ */
+function getPlayerRadius(stage: EvolutionStage): number {
+  const baseRadius = GAME_CONFIG.PLAYER_SIZE;
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      return baseRadius * GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER;
+    case EvolutionStage.MULTI_CELL:
+      return baseRadius * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
+    case EvolutionStage.CYBER_ORGANISM:
+      return baseRadius * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
+    case EvolutionStage.HUMANOID:
+      return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
+    case EvolutionStage.GODCELL:
+      return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+  }
+}
+
+/**
  * Get next evolution stage and required maxEnergy threshold
  */
 function getNextEvolutionStage(currentStage: EvolutionStage): { stage: EvolutionStage; threshold: number } | null {
@@ -645,6 +667,68 @@ function broadcastEnergyUpdates() {
   }
 }
 
+// Detection update broadcast counter (chemical sensing for multi-cells)
+let detectionUpdateTicks = 0;
+const DETECTION_UPDATE_INTERVAL = 15; // Every 15 ticks (~4 times/sec) - less frequent than energy
+
+/**
+ * Broadcast detected entities to multi-cell players (chemical sensing)
+ * Multi-cells can "smell" nearby prey and nutrients from extended range
+ */
+function broadcastDetectionUpdates() {
+  detectionUpdateTicks++;
+
+  if (detectionUpdateTicks >= DETECTION_UPDATE_INTERVAL) {
+    detectionUpdateTicks = 0;
+
+    for (const [playerId, player] of players) {
+      // Only multi-cells and above have chemical sensing
+      if (player.stage === EvolutionStage.SINGLE_CELL) continue;
+      if (player.health <= 0) continue; // Skip dead players
+
+      const detected: DetectedEntity[] = [];
+
+      // Detect other players (potential prey or threats)
+      for (const [otherId, otherPlayer] of players) {
+        if (otherId === playerId) continue; // Don't detect yourself
+        if (otherPlayer.health <= 0) continue; // Skip dead players
+
+        const dist = distance(player.position, otherPlayer.position);
+        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+          detected.push({
+            id: otherId,
+            position: otherPlayer.position,
+            entityType: 'player',
+            stage: otherPlayer.stage,
+          });
+        }
+      }
+
+      // Detect nutrients
+      for (const [nutrientId, nutrient] of nutrients) {
+        const dist = distance(player.position, nutrient.position);
+        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+          detected.push({
+            id: nutrientId,
+            position: nutrient.position,
+            entityType: 'nutrient',
+          });
+        }
+      }
+
+      // Send detection update to this player only (private information)
+      const socket = io.sockets.sockets.get(playerId);
+      if (socket) {
+        const detectionMessage: DetectionUpdateMessage = {
+          type: 'detectionUpdate',
+          detected,
+        };
+        socket.emit('detectionUpdate', detectionMessage);
+      }
+    }
+  }
+}
+
 /**
  * Check for nutrient collection collisions
  * Called each game tick to detect when players touch nutrients
@@ -659,7 +743,8 @@ function checkNutrientCollisions() {
 
     for (const [nutrientId, nutrient] of nutrients) {
       const dist = distance(player.position, nutrient.position);
-      const collisionRadius = GAME_CONFIG.PLAYER_SIZE + GAME_CONFIG.NUTRIENT_SIZE;
+      const playerRadius = getPlayerRadius(player.stage);
+      const collisionRadius = playerRadius + GAME_CONFIG.NUTRIENT_SIZE;
 
       if (dist < collisionRadius) {
         // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
@@ -1068,14 +1153,15 @@ setInterval(() => {
       player.energy = Math.max(0, player.energy); // Clamp to zero
     }
 
-    // Keep player within world bounds (accounting for cell radius)
+    // Keep player within world bounds (accounting for scaled cell radius)
+    const playerRadius = getPlayerRadius(player.stage);
     player.position.x = Math.max(
-      GAME_CONFIG.PLAYER_SIZE,
-      Math.min(GAME_CONFIG.WORLD_WIDTH - GAME_CONFIG.PLAYER_SIZE, player.position.x)
+      playerRadius,
+      Math.min(GAME_CONFIG.WORLD_WIDTH - playerRadius, player.position.x)
     );
     player.position.y = Math.max(
-      GAME_CONFIG.PLAYER_SIZE,
-      Math.min(GAME_CONFIG.WORLD_HEIGHT - GAME_CONFIG.PLAYER_SIZE, player.position.y)
+      playerRadius,
+      Math.min(GAME_CONFIG.WORLD_HEIGHT - playerRadius, player.position.y)
     );
 
     // Broadcast position update to all clients
@@ -1101,6 +1187,9 @@ setInterval(() => {
 
   // Broadcast energy/health updates (throttled)
   broadcastEnergyUpdates();
+
+  // Broadcast detection updates for multi-cells (chemical sensing)
+  broadcastDetectionUpdates();
 }, TICK_INTERVAL);
 
 // ============================================

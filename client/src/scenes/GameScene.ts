@@ -21,6 +21,8 @@ import type {
   PlayerEvolvedMessage,
   SwarmSpawnedMessage,
   SwarmMovedMessage,
+  DetectedEntity,
+  DetectionUpdateMessage,
 } from '@godcell/shared';
 
 // ============================================
@@ -61,7 +63,7 @@ export class GameScene extends Phaser.Scene {
 
   // Visual representations of all cyber-cells (players)
   // Maps playerId → Phaser circle sprite
-  private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private playerSprites: Map<string, Phaser.GameObjects.Container> = new Map();
 
   // Store player colors for trail rendering (cached as integer values)
   // Maps playerId → Phaser Color object (parsed once, reused every frame)
@@ -118,6 +120,10 @@ export class GameScene extends Phaser.Scene {
   // Death UI (DOM elements)
   private deathOverlay?: HTMLElement;
   private respawnButton?: HTMLButtonElement;
+
+  // Detection system (chemical sensing for multi-cells)
+  private detectedEntities: DetectedEntity[] = [];
+  private detectionIndicators: Phaser.GameObjects.Graphics[] = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -851,7 +857,7 @@ export class GameScene extends Phaser.Scene {
 
       // Set up camera to follow our player
       const mySprite = this.playerSprites.get(this.myPlayerId);
-      if (mySprite) {
+      if (mySprite && myPlayer) {
         const config = GAME_CONFIG;
 
         // Camera follows our cyber-cell
@@ -859,6 +865,10 @@ export class GameScene extends Phaser.Scene {
 
         // Set camera bounds to the full world
         this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+
+        // Set camera zoom based on evolution stage
+        const zoom = this.getStageZoom(myPlayer.stage);
+        this.cameras.main.setZoom(zoom);
       }
     });
 
@@ -999,6 +1009,10 @@ export class GameScene extends Phaser.Scene {
           // Ensure camera bounds are still set
           this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
 
+          // Reset camera zoom to single-cell level
+          const resetZoom = this.getStageZoom(EvolutionStage.SINGLE_CELL);
+          this.cameras.main.setZoom(resetZoom);
+
           console.log('📷 Camera re-attached after respawn');
         }
       }
@@ -1034,7 +1048,7 @@ export class GameScene extends Phaser.Scene {
         if (!playerColor) return;
 
         // Kill any existing tweens on this container (especially pulse animation)
-        this.tweens.killTweensOf(container);
+        this.tweens.killTweensOf(container as any);
 
         // Remove old visuals
         container.removeAll(true); // true = destroy children
@@ -1076,6 +1090,17 @@ export class GameScene extends Phaser.Scene {
           },
         });
 
+        // Update camera zoom if this is our player (expanded vision at higher stages)
+        if (message.playerId === this.myPlayerId) {
+          const newZoom = this.getStageZoom(message.newStage);
+          this.tweens.add({
+            targets: this.cameras.main,
+            zoom: newZoom,
+            duration: 1000,
+            ease: 'Sine.easeInOut',
+          });
+        }
+
         // Flash effect
         this.tweens.add({
           targets: container,
@@ -1085,6 +1110,11 @@ export class GameScene extends Phaser.Scene {
           repeat: 3,
         });
       }
+    });
+
+    // Detection updates (chemical sensing for multi-cells)
+    this.socket.on('detectionUpdate', (message: DetectionUpdateMessage) => {
+      this.detectedEntities = message.detected;
     });
 
     // Connection events
@@ -1119,6 +1149,25 @@ export class GameScene extends Phaser.Scene {
         return GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
       case EvolutionStage.GODCELL:
         return GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+    }
+  }
+
+  /**
+   * Get camera zoom level for evolution stage
+   * Higher stages zoom out to see more of the world
+   */
+  private getStageZoom(stage: EvolutionStage): number {
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        return 1.0; // Base zoom
+      case EvolutionStage.MULTI_CELL:
+        return 0.67; // 1.5x more visible area (1/1.5 = 0.67)
+      case EvolutionStage.CYBER_ORGANISM:
+        return 0.5; // 2x more visible area
+      case EvolutionStage.HUMANOID:
+        return 0.4; // 2.5x more visible area
+      case EvolutionStage.GODCELL:
+        return 0.33; // 3x more visible area
     }
   }
 
@@ -1192,7 +1241,6 @@ export class GameScene extends Phaser.Scene {
     // Don't create duplicate sprites
     if (this.playerSprites.has(playerId)) return;
 
-    const config = GAME_CONFIG;
     const color = Phaser.Display.Color.HexStringToColor(player.color).color;
 
     // Create container for stage-specific visuals
@@ -1356,6 +1404,82 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Render detection indicators (chemical sensing for multi-cells)
+   * Shows arrows at screen edge pointing toward detected entities
+   */
+  private renderDetectionIndicators() {
+    // Clear previous indicators
+    this.detectionIndicators.forEach((indicator) => indicator.destroy());
+    this.detectionIndicators = [];
+
+    // Only show if player is Stage 2+ (multi-cell has chemical sensing)
+    if (this.myPlayerStats.stage === EvolutionStage.SINGLE_CELL) return;
+
+    // Get my player sprite for camera position
+    const mySprite = this.myPlayerId ? this.playerSprites.get(this.myPlayerId) : null;
+    if (!mySprite) return;
+
+    const camera = this.cameras.main;
+    const viewportCenterX = camera.scrollX + camera.width / 2;
+    const viewportCenterY = camera.scrollY + camera.height / 2;
+
+    const maxDetectionRange = GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS;
+
+    // Render indicator for each detected entity
+    for (const entity of this.detectedEntities) {
+      // Calculate angle from viewport center to entity
+      const dx = entity.position.x - viewportCenterX;
+      const dy = entity.position.y - viewportCenterY;
+      const angle = Math.atan2(dy, dx);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Calculate arrow scale based on proximity (closer = bigger)
+      // Scale ranges from 0.5 (far) to 2.0 (very close)
+      const normalizedDistance = Math.min(distance / maxDetectionRange, 1.0);
+      const arrowScale = 0.5 + (1.0 - normalizedDistance) * 1.5;
+
+      // Choose color based on entity type
+      const color = entity.entityType === 'player' ? 0xff00ff : 0x00ff00; // Magenta for players, green for nutrients
+
+      // Calculate indicator position at edge of screen
+      const edgeX = viewportCenterX + Math.cos(angle) * (camera.width / 2 - 40);
+      const edgeY = viewportCenterY + Math.sin(angle) * (camera.height / 2 - 40);
+
+      // Create arrow indicator
+      const indicator = this.add.graphics();
+      indicator.setScrollFactor(0); // Fixed to camera
+      indicator.setDepth(999); // Below UI bars but above game world
+
+      // Convert world position to screen position for rendering
+      const screenX = edgeX - camera.scrollX;
+      const screenY = edgeY - camera.scrollY;
+
+      // Draw arrow pointing toward entity (size scales with proximity)
+      const tipLength = 15 * arrowScale;
+      const baseLength = 8 * arrowScale;
+
+      indicator.fillStyle(color, 0.8);
+      indicator.beginPath();
+      // Arrow tip
+      indicator.moveTo(screenX + Math.cos(angle) * tipLength, screenY + Math.sin(angle) * tipLength);
+      // Arrow base left
+      indicator.lineTo(
+        screenX + Math.cos(angle + 2.5) * baseLength,
+        screenY + Math.sin(angle + 2.5) * baseLength
+      );
+      // Arrow base right
+      indicator.lineTo(
+        screenX + Math.cos(angle - 2.5) * baseLength,
+        screenY + Math.sin(angle - 2.5) * baseLength
+      );
+      indicator.closePath();
+      indicator.fillPath();
+
+      this.detectionIndicators.push(indicator);
+    }
+  }
+
   // ============================================
   // Phaser Lifecycle: Update
   // Runs every frame (60 times per second)
@@ -1373,6 +1497,9 @@ export class GameScene extends Phaser.Scene {
 
     // Fade trails for stationary players
     this.updateTrailFading();
+
+    // Render detection indicators (chemical sensing for multi-cells)
+    this.renderDetectionIndicators();
 
     // Don't process input until we're connected
     if (!this.myPlayerId) return;
