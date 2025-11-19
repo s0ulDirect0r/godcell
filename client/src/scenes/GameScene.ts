@@ -110,7 +110,8 @@ export class GameScene extends Phaser.Scene {
   // Health/Energy UI
   private healthBar?: Phaser.GameObjects.Graphics;
   private energyBar?: Phaser.GameObjects.Graphics;
-  private uiText?: Phaser.GameObjects.Text;
+  private healthText?: Phaser.GameObjects.Text;
+  private energyText?: Phaser.GameObjects.Text;
   private countdownTimer?: Phaser.GameObjects.Text;
 
   // Death UI (DOM elements)
@@ -178,15 +179,29 @@ export class GameScene extends Phaser.Scene {
     this.energyBar.setScrollFactor(0); // Fixed to camera
     this.energyBar.setDepth(1000);
 
-    // UI text (stats display)
-    this.uiText = this.add
-      .text(10, 50, '', {
+    // Health text (inside health bar)
+    this.healthText = this.add
+      .text(110, 20, '', {
         fontSize: '12px',
         color: '#ffffff',
         fontFamily: 'monospace',
+        fontStyle: 'bold',
       })
+      .setOrigin(0.5, 0.5) // Center the text
       .setScrollFactor(0)
-      .setDepth(1000);
+      .setDepth(1001); // Above bars
+
+    // Energy text (inside energy bar)
+    this.energyText = this.add
+      .text(110, 45, '', {
+        fontSize: '12px',
+        color: '#ffffff',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5, 0.5) // Center the text
+      .setScrollFactor(0)
+      .setDepth(1001); // Above bars
 
     // Energy countdown timer (digital watch style, center-top)
     this.countdownTimer = this.add
@@ -243,7 +258,7 @@ export class GameScene extends Phaser.Scene {
    * Update metabolism UI bars
    */
   private updateMetabolismUI(health: number, maxHealth: number, energy: number, maxEnergy: number) {
-    if (!this.healthBar || !this.energyBar || !this.uiText) return;
+    if (!this.healthBar || !this.energyBar || !this.healthText || !this.energyText) return;
 
     const barWidth = 200;
     const barHeight = 20;
@@ -283,11 +298,9 @@ export class GameScene extends Phaser.Scene {
     this.energyBar.lineStyle(2, 0x00ffff, 1);
     this.energyBar.strokeRect(barX, energyBarY, barWidth, barHeight);
 
-    // Update text display
-    this.uiText.setText([
-      `Health: ${Math.ceil(health)}/${maxHealth}`,
-      `Energy: ${Math.ceil(energy)}/${maxEnergy}`,
-    ]);
+    // Update text display (centered inside bars)
+    this.healthText.setText(`${Math.ceil(health)}/${maxHealth}`);
+    this.energyText.setText(`${Math.ceil(energy)}/${maxEnergy}`);
 
     // Visual feedback for low energy - dim player glow
     if (this.myPlayerId) {
@@ -418,6 +431,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Create a nutrient sprite (hexagonal data crystal)
+   * Color indicates risk/reward gradient based on proximity to distortion cores
    */
   private createNutrient(nutrient: Nutrient) {
     // Don't create duplicates
@@ -425,8 +439,22 @@ export class GameScene extends Phaser.Scene {
 
     const config = GAME_CONFIG;
 
-    // High-value nutrients (near obstacles) are gold, normal ones are green
-    const color = nutrient.isHighValue ? config.NUTRIENT_HIGH_VALUE_COLOR : config.NUTRIENT_COLOR;
+    // Nutrient color based on value multiplier (gradient system)
+    let color: number;
+    switch (nutrient.valueMultiplier) {
+      case 5:
+        color = config.NUTRIENT_5X_COLOR; // Magenta - extreme risk/reward!
+        break;
+      case 3:
+        color = config.NUTRIENT_3X_COLOR; // Gold - inner gravity well
+        break;
+      case 2:
+        color = config.NUTRIENT_2X_COLOR; // Cyan - outer gravity well
+        break;
+      default:
+        color = config.NUTRIENT_COLOR; // Green - safe zone
+        break;
+    }
 
     // Create hexagon points (6-sided polygon)
     const hexagon = new Phaser.Geom.Polygon([
@@ -447,14 +475,16 @@ export class GameScene extends Phaser.Scene {
       0.8
     );
 
-    // Add glow effect (brighter for high-value)
-    sprite.setStrokeStyle(nutrient.isHighValue ? 3 : 2, color, 1);
+    // Add stroke that scales with value (thicker stroke for higher value)
+    const strokeWidth = 1 + nutrient.valueMultiplier; // 2/3/4/6px stroke
+    sprite.setStrokeStyle(strokeWidth, color, 1);
 
-    // Pulsing animation
+    // Pulsing animation (more intense for high-value)
+    const pulseScale = 1.1 + (nutrient.valueMultiplier * 0.05); // 1.15/1.2/1.25/1.35
     this.tweens.add({
       targets: sprite,
-      scaleX: 1.2,
-      scaleY: 1.2,
+      scaleX: pulseScale,
+      scaleY: pulseScale,
       alpha: 1,
       duration: 800,
       yoyo: true,

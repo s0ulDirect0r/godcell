@@ -42,8 +42,10 @@ export interface Player {
 export interface Nutrient {
   id: string;
   position: Position;
-  value: number; // Energy value when collected (25 or 50 for high-value)
-  isHighValue?: boolean; // True if spawned near obstacle (2x value)
+  value: number; // Immediate energy value when collected (scales with proximity: 25/50/75/125)
+  capacityIncrease: number; // Permanent maxEnergy increase (scales with proximity: 10/20/30/50)
+  valueMultiplier: number; // Proximity multiplier (1/2/3/5) - determines color
+  isHighValue?: boolean; // True if spawned near obstacle (multiplier > 1)
 }
 
 // A gravity distortion obstacle (mini black hole)
@@ -228,11 +230,14 @@ export const GAME_CONFIG = {
   NUTRIENT_COUNT: 26,           // Initial spawn count (doubled for stage 1 tuning)
   NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
   NUTRIENT_SIZE: 8,             // Radius
-  NUTRIENT_COLOR: 0x00ff00,     // Green data crystals
+  NUTRIENT_COLOR: 0x00ff00,     // Green data crystals (base 1x)
   NUTRIENT_ENERGY_VALUE: 25,    // Immediate energy gain
   NUTRIENT_CAPACITY_INCREASE: 10, // Permanent maxEnergy increase
-  NUTRIENT_HIGH_VALUE_MULTIPLIER: 2, // Multiplier for nutrients near obstacles
-  NUTRIENT_HIGH_VALUE_COLOR: 0xffff00, // Gold color for high-value nutrients
+
+  // Gradient nutrient colors (based on proximity to distortion cores)
+  NUTRIENT_2X_COLOR: 0x00ffff,  // Cyan (2x value, outer gravity well)
+  NUTRIENT_3X_COLOR: 0xffff00,  // Gold (3x value, inner gravity well)
+  NUTRIENT_5X_COLOR: 0xff00ff,  // Magenta (5x value, event horizon edge - extreme risk!)
 
   // Gravity Obstacles (mini black holes)
   OBSTACLE_COUNT: 12,           // Number of distortions to spawn
@@ -253,6 +258,7 @@ export const GAME_CONFIG = {
   // Decay rates (units per second)
   ENERGY_DECAY_RATE: 2.66,      // ~37.5 seconds to starvation for single-cell (20% faster for stage 1 tuning)
   STARVATION_DAMAGE_RATE: 5,    // Health damage per second when energy = 0
+  MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved (start low, tune upward based on playtesting)
 
   // Evolution thresholds (maxEnergy required)
   EVOLUTION_MULTI_CELL: 250,      // 15 nutrients needed
