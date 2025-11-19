@@ -190,14 +190,15 @@ function isSpawnSafe(position: Position): boolean {
 
 /**
  * Check if nutrient spawn position is safe
- * Nutrients can spawn inside gravity well (600px) but not inside event horizon (180px inescapable zone)
+ * Nutrients can spawn inside gravity well and even outer edge of event horizon (180-240px)
+ * Only exclude the inner event horizon (0-180px) where escape is truly impossible
  */
 function isNutrientSpawnSafe(position: Position): boolean {
-  const EVENT_HORIZON = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable magenta zone
+  const INNER_EVENT_HORIZON = 180; // Inner 180px - truly inescapable, no nutrients
 
   for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < EVENT_HORIZON) {
-      return false; // Inside event horizon - inescapable zone
+    if (distance(position, obstacle.position) < INNER_EVENT_HORIZON) {
+      return false; // Inside inner event horizon - too dangerous
     }
   }
 
@@ -205,8 +206,43 @@ function isNutrientSpawnSafe(position: Position): boolean {
 }
 
 /**
+ * Calculate nutrient value multiplier based on proximity to nearest obstacle
+ * Gradient system creates risk/reward:
+ * - 400-600px (outer gravity well): 2x
+ * - 240-400px (inner gravity well): 3x
+ * - 180-240px (outer event horizon): 5x - high risk, high reward!
+ * - <180px: N/A (nutrients don't spawn here)
+ */
+function calculateNutrientValueMultiplier(position: Position): number {
+  let closestDist = Infinity;
+
+  for (const obstacle of obstacles.values()) {
+    const dist = distance(position, obstacle.position);
+    if (dist < closestDist) {
+      closestDist = dist;
+    }
+  }
+
+  const GRAVITY_RADIUS = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS; // 600px
+
+  // Not in any gravity well
+  if (closestDist >= GRAVITY_RADIUS) {
+    return 1; // Base value
+  }
+
+  // Gradient system
+  if (closestDist >= 400) {
+    return 2; // Outer gravity well
+  } else if (closestDist >= 240) {
+    return 3; // Inner gravity well, approaching danger
+  } else {
+    return 5; // Outer event horizon - extreme risk, extreme reward!
+  }
+}
+
+/**
  * Spawn a nutrient at a random location
- * Nutrients near obstacles get 2x value (risk/reward mechanic)
+ * Nutrients near obstacles get enhanced value based on gradient system (2x/3x/5x multipliers)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
 function spawnNutrient(): Nutrient {
@@ -238,25 +274,16 @@ function spawnNutrient(): Nutrient {
     logger.warn('Could not find safe nutrient spawn position after max attempts, using fallback');
   }
 
-  // Check if nutrient spawned inside gravity well (for high-value bonus)
-  // High-value zone: outside event horizon but inside gravity well (180-600px range)
-  let isHighValue = false;
-  const EVENT_HORIZON = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable zone
-  const GRAVITY_RADIUS = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS; // 600px - full influence
-  for (const obstacle of obstacles.values()) {
-    const dist = distance(position, obstacle.position);
-    if (dist >= EVENT_HORIZON && dist < GRAVITY_RADIUS) {
-      isHighValue = true; // Inside gravity well but outside event horizon = risky = high value!
-      break;
-    }
-  }
+  // Calculate nutrient value based on proximity to obstacles (gradient system)
+  const valueMultiplier = calculateNutrientValueMultiplier(position);
+  const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
 
   const nutrient: Nutrient = {
     id: `nutrient-${nutrientIdCounter++}`,
     position,
-    value: isHighValue
-      ? GAME_CONFIG.NUTRIENT_ENERGY_VALUE * GAME_CONFIG.NUTRIENT_HIGH_VALUE_MULTIPLIER
-      : GAME_CONFIG.NUTRIENT_ENERGY_VALUE,
+    value: GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
+    capacityIncrease: GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
+    valueMultiplier, // Store multiplier for client color rendering
     isHighValue,
   };
 
@@ -617,13 +644,14 @@ function checkNutrientCollisions() {
 
       if (dist < collisionRadius) {
         // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
+        // Both scale with proximity gradient (high-risk nutrients = faster evolution!)
         // Safety clamp to prevent negative energy gain if player.energy somehow drifts above maxEnergy
         const energyGain = Math.min(
           nutrient.value,
           Math.max(0, player.maxEnergy - player.energy)
         );
         player.energy += energyGain;
-        player.maxEnergy += GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE;
+        player.maxEnergy += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
 
         // Safety clamp: ensure energy never exceeds maxEnergy
         player.energy = Math.min(player.energy, player.maxEnergy);
@@ -1008,9 +1036,18 @@ setInterval(() => {
     // Skip if no movement at all (velocity already includes gravity + input + momentum)
     if (velocity.x === 0 && velocity.y === 0) continue;
 
+    // Calculate distance about to be traveled for energy cost
+    const distanceMoved = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y) * deltaTime;
+
     // Update position using accumulated velocity (frame-rate independent)
     player.position.x += velocity.x * deltaTime;
     player.position.y += velocity.y * deltaTime;
+
+    // Deduct energy for movement (creates strategic choice: move vs conserve energy)
+    if (player.energy > 0) {
+      player.energy -= distanceMoved * GAME_CONFIG.MOVEMENT_ENERGY_COST;
+      player.energy = Math.max(0, player.energy); // Clamp to zero
+    }
 
     // Keep player within world bounds (accounting for cell radius)
     player.position.x = Math.max(
