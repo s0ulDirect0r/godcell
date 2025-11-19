@@ -171,6 +171,18 @@ export interface SwarmMovedMessage {
   state: 'patrol' | 'chase';
 }
 
+export interface DetectedEntity {
+  id: string;
+  position: Position;
+  entityType: 'player' | 'nutrient';
+  stage?: EvolutionStage; // For players only
+}
+
+export interface DetectionUpdateMessage {
+  type: 'detectionUpdate';
+  detected: DetectedEntity[];
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -185,7 +197,8 @@ export type ServerMessage =
   | PlayerRespawnedMessage
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
-  | SwarmMovedMessage;
+  | SwarmMovedMessage
+  | DetectionUpdateMessage;
 
 // ============================================
 // Game Constants
@@ -255,8 +268,13 @@ export const GAME_CONFIG = {
   SINGLE_CELL_ENERGY: 100,
   SINGLE_CELL_MAX_ENERGY: 100,
 
-  // Decay rates (units per second)
-  ENERGY_DECAY_RATE: 2.66,      // ~37.5 seconds to starvation for single-cell (20% faster for stage 1 tuning)
+  // Decay rates (units per second) - stage-specific metabolic efficiency
+  SINGLE_CELL_ENERGY_DECAY_RATE: 2.66,  // ~37.5 seconds to starvation (100 energy / 2.66 = 37.5s)
+  MULTI_CELL_ENERGY_DECAY_RATE: 2.1,    // ~119 seconds to starvation (250 energy / 2.1 = 119s ≈ 2 minutes)
+  CYBER_ORGANISM_ENERGY_DECAY_RATE: 2.8,  // ~178 seconds (500 / 2.8 ≈ 3 minutes)
+  HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~303 seconds (1000 / 3.3 ≈ 5 minutes)
+  GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics (no passive decay)
+
   STARVATION_DAMAGE_RATE: 5,    // Health damage per second when energy = 0
   MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved (start low, tune upward based on playtesting)
 
@@ -276,6 +294,16 @@ export const GAME_CONFIG = {
   CYBER_ORGANISM_HEALTH_MULTIPLIER: 2,  // 200 health
   HUMANOID_HEALTH_MULTIPLIER: 3,        // 300 health
   GODCELL_HEALTH_MULTIPLIER: 5,         // 500 health
+
+  // Size multipliers (visual presence and intimidation)
+  SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (24px radius)
+  MULTI_CELL_SIZE_MULTIPLIER: 4,        // 4x larger (96px radius) - multi-cellular organism
+  CYBER_ORGANISM_SIZE_MULTIPLIER: 6,    // 6x larger (144px radius)
+  HUMANOID_SIZE_MULTIPLIER: 8,          // 8x larger (192px radius)
+  GODCELL_SIZE_MULTIPLIER: 12,          // 12x larger (288px radius) - transcendent scale
+
+  // Multi-cell detection (chemical sensing)
+  MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

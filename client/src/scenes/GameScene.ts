@@ -21,6 +21,8 @@ import type {
   PlayerEvolvedMessage,
   SwarmSpawnedMessage,
   SwarmMovedMessage,
+  DetectedEntity,
+  DetectionUpdateMessage,
 } from '@godcell/shared';
 
 // ============================================
@@ -49,6 +51,7 @@ export class GameScene extends Phaser.Scene {
     maxHealth: 100,
     energy: 100,
     maxEnergy: 100,
+    stage: EvolutionStage.SINGLE_CELL, // Current evolution stage
   };
 
   // Session stats (for death screen)
@@ -60,7 +63,7 @@ export class GameScene extends Phaser.Scene {
 
   // Visual representations of all cyber-cells (players)
   // Maps playerId → Phaser circle sprite
-  private playerSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private playerSprites: Map<string, Phaser.GameObjects.Container> = new Map();
 
   // Store player colors for trail rendering (cached as integer values)
   // Maps playerId → Phaser Color object (parsed once, reused every frame)
@@ -117,6 +120,10 @@ export class GameScene extends Phaser.Scene {
   // Death UI (DOM elements)
   private deathOverlay?: HTMLElement;
   private respawnButton?: HTMLButtonElement;
+
+  // Detection system (chemical sensing for multi-cells)
+  private detectedEntities: DetectedEntity[] = [];
+  private detectionIndicators: Phaser.GameObjects.Graphics[] = [];
 
   constructor() {
     super({ key: 'GameScene' });
@@ -224,12 +231,18 @@ export class GameScene extends Phaser.Scene {
     if (!this.countdownTimer) return;
 
     const energy = this.myPlayerStats.energy;
-    const secondsRemaining = energy / GAME_CONFIG.ENERGY_DECAY_RATE;
+    const decayRate = this.getStageDecayRate(this.myPlayerStats.stage);
+    const secondsRemaining = decayRate > 0 ? energy / decayRate : Infinity;
 
     // Format as SS:TT (seconds:hundredths - Eva battery style)
-    const seconds = Math.floor(secondsRemaining);
-    const hundredths = Math.floor((secondsRemaining - seconds) * 100);
-    const timeString = `${String(seconds).padStart(2, '0')}:${String(hundredths).padStart(2, '0')}`;
+    let timeString: string;
+    if (secondsRemaining === Infinity) {
+      timeString = '∞∞:∞∞'; // Godcell - transcended entropy
+    } else {
+      const seconds = Math.floor(secondsRemaining);
+      const hundredths = Math.floor((secondsRemaining - seconds) * 100);
+      timeString = `${String(seconds).padStart(2, '0')}:${String(hundredths).padStart(2, '0')}`;
+    }
 
     // Update timer text
     this.countdownTimer.setText(timeString);
@@ -808,6 +821,7 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.maxHealth = myPlayer.maxHealth;
         this.myPlayerStats.energy = myPlayer.energy;
         this.myPlayerStats.maxEnergy = myPlayer.maxEnergy;
+        this.myPlayerStats.stage = myPlayer.stage;
 
         // Update UI immediately with initial stats
         this.updateMetabolismUI(
@@ -843,7 +857,7 @@ export class GameScene extends Phaser.Scene {
 
       // Set up camera to follow our player
       const mySprite = this.playerSprites.get(this.myPlayerId);
-      if (mySprite) {
+      if (mySprite && myPlayer) {
         const config = GAME_CONFIG;
 
         // Camera follows our cyber-cell
@@ -851,6 +865,10 @@ export class GameScene extends Phaser.Scene {
 
         // Set camera bounds to the full world
         this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
+
+        // Set camera zoom based on evolution stage
+        const zoom = this.getStageZoom(myPlayer.stage);
+        this.cameras.main.setZoom(zoom);
       }
     });
 
@@ -959,6 +977,7 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.maxHealth = message.player.maxHealth;
         this.myPlayerStats.energy = message.player.energy;
         this.myPlayerStats.maxEnergy = message.player.maxEnergy;
+        this.myPlayerStats.stage = message.player.stage; // Back to single-cell
 
         // Reset session stats (new life begins)
         this.resetSessionStats();
@@ -990,6 +1009,10 @@ export class GameScene extends Phaser.Scene {
           // Ensure camera bounds are still set
           this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
 
+          // Reset camera zoom to single-cell level
+          const resetZoom = this.getStageZoom(EvolutionStage.SINGLE_CELL);
+          this.cameras.main.setZoom(resetZoom);
+
           console.log('📷 Camera re-attached after respawn');
         }
       }
@@ -1004,6 +1027,7 @@ export class GameScene extends Phaser.Scene {
         this.myPlayerStats.health = message.newMaxHealth; // Evolution fully heals
         this.myPlayerStats.maxHealth = message.newMaxHealth;
         this.myPlayerStats.maxEnergy = message.newMaxEnergy;
+        this.myPlayerStats.stage = message.newStage; // Update to new evolution stage
 
         // Track highest stage reached for death stats
         this.sessionStats.highestStage = message.newStage;
@@ -1017,7 +1041,80 @@ export class GameScene extends Phaser.Scene {
         );
       }
 
-      // TODO: Visual evolution effect (size increase, flash, particles)
+      // Visual evolution effect - swap to new stage visuals
+      const container = this.playerSprites.get(message.playerId);
+      if (container && container instanceof Phaser.GameObjects.Container) {
+        const playerColor = this.playerColors.get(message.playerId);
+        if (!playerColor) return;
+
+        // Kill any existing tweens on this container (especially pulse animation)
+        this.tweens.killTweensOf(container as any);
+
+        // Remove old visuals
+        container.removeAll(true); // true = destroy children
+
+        // Build new stage visuals
+        const newVisuals = this.buildStageVisuals(message.newStage, playerColor.color);
+        container.add(newVisuals);
+
+        // Re-apply white outline if this is our player
+        if (message.playerId === this.myPlayerId) {
+          container.list.forEach((child) => {
+            (child as Phaser.GameObjects.Arc).setStrokeStyle(3, 0xffffff, 1);
+          });
+        }
+
+        // Calculate new scale
+        const newScale = this.getStageScale(message.newStage);
+
+        // Animate size growth
+        this.tweens.add({
+          targets: container,
+          scaleX: newScale,
+          scaleY: newScale,
+          duration: 500,
+          ease: 'Back.easeOut',
+          onComplete: () => {
+            // Restart pulse animation for our own cell at new scale
+            if (message.playerId === this.myPlayerId) {
+              this.tweens.add({
+                targets: container,
+                scaleX: newScale * 1.1,
+                scaleY: newScale * 1.1,
+                duration: 1000,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut',
+              });
+            }
+          },
+        });
+
+        // Update camera zoom if this is our player (expanded vision at higher stages)
+        if (message.playerId === this.myPlayerId) {
+          const newZoom = this.getStageZoom(message.newStage);
+          this.tweens.add({
+            targets: this.cameras.main,
+            zoom: newZoom,
+            duration: 1000,
+            ease: 'Sine.easeInOut',
+          });
+        }
+
+        // Flash effect
+        this.tweens.add({
+          targets: container,
+          alpha: 0.5,
+          duration: 100,
+          yoyo: true,
+          repeat: 3,
+        });
+      }
+    });
+
+    // Detection updates (chemical sensing for multi-cells)
+    this.socket.on('detectionUpdate', (message: DetectionUpdateMessage) => {
+      this.detectedEntities = message.detected;
     });
 
     // Connection events
@@ -1037,33 +1134,138 @@ export class GameScene extends Phaser.Scene {
   /**
    * Create a visual representation of a cyber-cell (player)
    */
+  /**
+   * Get scale multiplier based on evolution stage
+   */
+  private getStageScale(stage: EvolutionStage): number {
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        return GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER;
+      case EvolutionStage.MULTI_CELL:
+        return GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
+      case EvolutionStage.CYBER_ORGANISM:
+        return GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
+      case EvolutionStage.HUMANOID:
+        return GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
+      case EvolutionStage.GODCELL:
+        return GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+    }
+  }
+
+  /**
+   * Get camera zoom level for evolution stage
+   * Higher stages zoom out to see more of the world
+   */
+  private getStageZoom(stage: EvolutionStage): number {
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        return 1.0; // Base zoom
+      case EvolutionStage.MULTI_CELL:
+        return 0.67; // 1.5x more visible area (1/1.5 = 0.67)
+      case EvolutionStage.CYBER_ORGANISM:
+        return 0.5; // 2x more visible area
+      case EvolutionStage.HUMANOID:
+        return 0.4; // 2.5x more visible area
+      case EvolutionStage.GODCELL:
+        return 0.33; // 3x more visible area
+    }
+  }
+
+  /**
+   * Get energy decay rate based on evolution stage
+   */
+  private getStageDecayRate(stage: EvolutionStage): number {
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;
+      case EvolutionStage.MULTI_CELL:
+        return GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE;
+      case EvolutionStage.CYBER_ORGANISM:
+        return GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE;
+      case EvolutionStage.HUMANOID:
+        return GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE;
+      case EvolutionStage.GODCELL:
+        return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
+    }
+  }
+
+  /**
+   * Build stage-specific visual elements for a cyber-cell
+   * Returns array of Phaser game objects to add to container
+   */
+  private buildStageVisuals(stage: EvolutionStage, color: number): Phaser.GameObjects.GameObject[] {
+    const visuals: Phaser.GameObjects.GameObject[] = [];
+
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL: {
+        // Simple single circle - clean, minimal
+        const circle = this.add.circle(0, 0, GAME_CONFIG.PLAYER_SIZE, color, 1);
+        circle.setStrokeStyle(3, color, 0.8);
+        visuals.push(circle);
+        break;
+      }
+
+      case EvolutionStage.MULTI_CELL:
+      case EvolutionStage.CYBER_ORGANISM:
+      case EvolutionStage.HUMANOID:
+      case EvolutionStage.GODCELL: {
+        // Star pattern: center + 5 points in pentagon arrangement
+        const circleRadius = 8;
+        const starRadius = 8;  // Tight overlapping cluster
+        const numPoints = 5;
+
+        // Add outer circles FIRST (they'll be behind)
+        for (let i = 0; i < numPoints; i++) {
+          const angle = (i * Math.PI * 2) / numPoints - Math.PI / 2;
+          const x = Math.cos(angle) * starRadius;
+          const y = Math.sin(angle) * starRadius;
+
+          const pointCircle = this.add.circle(x, y, circleRadius, color, 1);
+          pointCircle.setStrokeStyle(2, color, 0.8);
+          visuals.push(pointCircle);
+        }
+
+        // Add center circle LAST (it'll be on top)
+        const centerCircle = this.add.circle(0, 0, circleRadius, color, 1);
+        centerCircle.setStrokeStyle(2, color, 0.8);
+        visuals.push(centerCircle);
+
+        break;
+      }
+    }
+
+    return visuals;
+  }
+
   private createCyberCell(playerId: string, player: Player) {
     // Don't create duplicate sprites
     if (this.playerSprites.has(playerId)) return;
 
-    const config = GAME_CONFIG;
+    const color = Phaser.Display.Color.HexStringToColor(player.color).color;
 
-    // Create a glowing circular cyber-cell
-    const cell = this.add.circle(
-      player.position.x,
-      player.position.y,
-      config.PLAYER_SIZE,
-      Phaser.Display.Color.HexStringToColor(player.color).color,
-      1
-    );
+    // Create container for stage-specific visuals
+    const cellContainer = this.add.container(player.position.x, player.position.y);
 
-    // Add glow effect
-    cell.setStrokeStyle(3, Phaser.Display.Color.HexStringToColor(player.color).color, 0.8);
+    // Build and add stage-specific visual elements
+    const visuals = this.buildStageVisuals(player.stage, color);
+    cellContainer.add(visuals);
+
+    // Set initial scale based on evolution stage
+    const initialScale = this.getStageScale(player.stage);
+    cellContainer.setScale(initialScale);
 
     // Highlight our own cell with extra glow
     if (playerId === this.myPlayerId) {
-      cell.setStrokeStyle(5, 0xffffff, 1);
+      // Add white outline to all circles in our cell
+      cellContainer.list.forEach((child) => {
+        (child as Phaser.GameObjects.Arc).setStrokeStyle(3, 0xffffff, 1);
+      });
 
       // Pulsing animation for our cell
       this.tweens.add({
-        targets: cell,
-        scaleX: 1.1,
-        scaleY: 1.1,
+        targets: cellContainer,
+        scaleX: initialScale * 1.1,
+        scaleY: initialScale * 1.1,
         duration: 1000,
         yoyo: true,
         repeat: -1,
@@ -1072,7 +1274,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Store reference so we can update it later
-    this.playerSprites.set(playerId, cell);
+    this.playerSprites.set(playerId, cellContainer);
 
     // Store player color for trail rendering (parse once, cache for performance)
     this.playerColors.set(playerId, Phaser.Display.Color.HexStringToColor(player.color));
@@ -1202,6 +1404,82 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Render detection indicators (chemical sensing for multi-cells)
+   * Shows arrows at screen edge pointing toward detected entities
+   */
+  private renderDetectionIndicators() {
+    // Clear previous indicators
+    this.detectionIndicators.forEach((indicator) => indicator.destroy());
+    this.detectionIndicators = [];
+
+    // Only show if player is Stage 2+ (multi-cell has chemical sensing)
+    if (this.myPlayerStats.stage === EvolutionStage.SINGLE_CELL) return;
+
+    // Get my player sprite for camera position
+    const mySprite = this.myPlayerId ? this.playerSprites.get(this.myPlayerId) : null;
+    if (!mySprite) return;
+
+    const camera = this.cameras.main;
+    const viewportCenterX = camera.scrollX + camera.width / 2;
+    const viewportCenterY = camera.scrollY + camera.height / 2;
+
+    const maxDetectionRange = GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS;
+
+    // Render indicator for each detected entity
+    for (const entity of this.detectedEntities) {
+      // Calculate angle from viewport center to entity
+      const dx = entity.position.x - viewportCenterX;
+      const dy = entity.position.y - viewportCenterY;
+      const angle = Math.atan2(dy, dx);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Calculate arrow scale based on proximity (closer = bigger)
+      // Scale ranges from 0.5 (far) to 2.0 (very close)
+      const normalizedDistance = Math.min(distance / maxDetectionRange, 1.0);
+      const arrowScale = 0.5 + (1.0 - normalizedDistance) * 1.5;
+
+      // Choose color based on entity type
+      const color = entity.entityType === 'player' ? 0xff00ff : 0x00ff00; // Magenta for players, green for nutrients
+
+      // Calculate indicator position at edge of screen
+      const edgeX = viewportCenterX + Math.cos(angle) * (camera.width / 2 - 40);
+      const edgeY = viewportCenterY + Math.sin(angle) * (camera.height / 2 - 40);
+
+      // Create arrow indicator
+      const indicator = this.add.graphics();
+      indicator.setScrollFactor(0); // Fixed to camera
+      indicator.setDepth(999); // Below UI bars but above game world
+
+      // Convert world position to screen position for rendering
+      const screenX = edgeX - camera.scrollX;
+      const screenY = edgeY - camera.scrollY;
+
+      // Draw arrow pointing toward entity (size scales with proximity)
+      const tipLength = 15 * arrowScale;
+      const baseLength = 8 * arrowScale;
+
+      indicator.fillStyle(color, 0.8);
+      indicator.beginPath();
+      // Arrow tip
+      indicator.moveTo(screenX + Math.cos(angle) * tipLength, screenY + Math.sin(angle) * tipLength);
+      // Arrow base left
+      indicator.lineTo(
+        screenX + Math.cos(angle + 2.5) * baseLength,
+        screenY + Math.sin(angle + 2.5) * baseLength
+      );
+      // Arrow base right
+      indicator.lineTo(
+        screenX + Math.cos(angle - 2.5) * baseLength,
+        screenY + Math.sin(angle - 2.5) * baseLength
+      );
+      indicator.closePath();
+      indicator.fillPath();
+
+      this.detectionIndicators.push(indicator);
+    }
+  }
+
   // ============================================
   // Phaser Lifecycle: Update
   // Runs every frame (60 times per second)
@@ -1219,6 +1497,9 @@ export class GameScene extends Phaser.Scene {
 
     // Fade trails for stationary players
     this.updateTrailFading();
+
+    // Render detection indicators (chemical sensing for multi-cells)
+    this.renderDetectionIndicators();
 
     // Don't process input until we're connected
     if (!this.myPlayerId) return;
