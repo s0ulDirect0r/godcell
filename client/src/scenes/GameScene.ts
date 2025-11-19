@@ -89,6 +89,10 @@ export class GameScene extends Phaser.Scene {
   // Maps playerId → target position
   private playerTargetPositions: Map<string, { x: number; y: number }> = new Map();
 
+  // Target positions for swarms (for interpolation)
+  // Maps swarmId → target position
+  private swarmTargetPositions: Map<string, { x: number; y: number }> = new Map();
+
   // Gravity obstacles (distortion fields)
   // Maps obstacleId → Graphics object
   private obstacleSprites: Map<string, Phaser.GameObjects.Graphics> = new Map();
@@ -680,6 +684,9 @@ export class GameScene extends Phaser.Scene {
 
     this.swarmSprites.set(swarm.id, container);
 
+    // Initialize target position
+    this.swarmTargetPositions.set(swarm.id, { x: swarm.position.x, y: swarm.position.y });
+
     // UI camera should ignore world objects
     if (this.uiCamera) {
       this.uiCamera.ignore(container);
@@ -693,8 +700,8 @@ export class GameScene extends Phaser.Scene {
     const container = this.swarmSprites.get(swarmId);
     if (!container) return;
 
-    // Update position
-    container.setPosition(position.x, position.y);
+    // Store target position for interpolation (instead of direct update)
+    this.swarmTargetPositions.set(swarmId, { x: position.x, y: position.y });
 
     // Visual feedback for state (chase = more intense)
     const core = container.list[0] as Phaser.GameObjects.Arc;
@@ -1478,12 +1485,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Interpolate player positions smoothly toward their server targets
+   * Interpolate player and swarm positions smoothly toward their server targets
    * Called every frame to eliminate stuttering from async network updates
    */
   private interpolatePlayerPositions() {
     const lerpFactor = 0.3; // Smoothing factor (0.3 = move 30% toward target each frame)
 
+    // Interpolate player positions
     for (const [playerId, sprite] of this.playerSprites) {
       const targetPos = this.playerTargetPositions.get(playerId);
       if (!targetPos) continue;
@@ -1491,6 +1499,16 @@ export class GameScene extends Phaser.Scene {
       // Smoothly interpolate current position toward target
       sprite.x += (targetPos.x - sprite.x) * lerpFactor;
       sprite.y += (targetPos.y - sprite.y) * lerpFactor;
+    }
+
+    // Interpolate swarm positions
+    for (const [swarmId, container] of this.swarmSprites) {
+      const targetPos = this.swarmTargetPositions.get(swarmId);
+      if (!targetPos) continue;
+
+      // Smoothly interpolate current position toward target
+      container.x += (targetPos.x - container.x) * lerpFactor;
+      container.y += (targetPos.y - container.y) * lerpFactor;
     }
   }
 
