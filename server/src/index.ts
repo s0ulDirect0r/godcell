@@ -6,8 +6,10 @@ import type {
   Nutrient,
   Obstacle,
   DeathCause,
+  Pseudopod,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
+  PseudopodExtendMessage,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -19,6 +21,9 @@ import type {
   PlayerDiedMessage,
   PlayerRespawnedMessage,
   PlayerEvolvedMessage,
+  PseudopodSpawnedMessage,
+  PseudopodRetractedMessage,
+  PlayerEngulfedMessage,
   DetectedEntity,
   DetectionUpdateMessage,
 } from '@godcell/shared';
@@ -67,6 +72,14 @@ const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 // Track what last damaged each player (for death cause logging)
 // Maps player ID → damage source
 const playerLastDamageSource: Map<string, DeathCause> = new Map();
+
+// Pseudopods (hunting tentacles extended by multi-cells)
+// Maps pseudopod ID → Pseudopod data
+const pseudopods: Map<string, Pseudopod> = new Map();
+
+// Pseudopod cooldowns (prevent spam)
+// Maps player ID → timestamp of last pseudopod extension
+const playerPseudopodCooldowns: Map<string, number> = new Map();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -276,6 +289,14 @@ function spawnNutrient(): Nutrient {
     logger.warn('Could not find safe nutrient spawn position after max attempts, using fallback');
   }
 
+  return spawnNutrientAt(position);
+}
+
+/**
+ * Spawn a nutrient at a specific position
+ * Used for prey drops and specific spawn locations
+ */
+function spawnNutrientAt(position: Position): Nutrient {
   // Calculate nutrient value based on proximity to obstacles (gradient system)
   const valueMultiplier = calculateNutrientValueMultiplier(position);
   const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
@@ -430,6 +451,205 @@ function getPlayerRadius(stage: EvolutionStage): number {
       return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
     case EvolutionStage.GODCELL:
       return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+  }
+}
+
+/**
+ * Line-circle intersection test
+ * Returns true if line segment intersects circle
+ */
+function lineCircleIntersection(
+  lineStart: Position,
+  lineEnd: Position,
+  circleCenter: Position,
+  circleRadius: number,
+  currentLength: number
+): boolean {
+  // Calculate actual end position based on current extension
+  const dx = lineEnd.x - lineStart.x;
+  const dy = lineEnd.y - lineStart.y;
+  const totalLength = Math.sqrt(dx * dx + dy * dy);
+  if (totalLength === 0) return false;
+
+  const progress = currentLength / totalLength;
+  const actualEndX = lineStart.x + dx * progress;
+  const actualEndY = lineStart.y + dy * progress;
+
+  // Vector from line start to circle center
+  const fx = circleCenter.x - lineStart.x;
+  const fy = circleCenter.y - lineStart.y;
+
+  // Vector from line start to actual end
+  const lx = actualEndX - lineStart.x;
+  const ly = actualEndY - lineStart.y;
+
+  // Project circle center onto line segment
+  const lineLengthSq = lx * lx + ly * ly;
+  if (lineLengthSq === 0) return false;
+
+  const t = Math.max(0, Math.min(1, (fx * lx + fy * ly) / lineLengthSq));
+
+  // Closest point on line to circle center
+  const closestX = lineStart.x + t * lx;
+  const closestY = lineStart.y + t * ly;
+
+  // Distance from closest point to circle center
+  const distX = circleCenter.x - closestX;
+  const distY = circleCenter.y - closestY;
+  const distSq = distX * distX + distY * distY;
+
+  return distSq <= circleRadius * circleRadius;
+}
+
+/**
+ * Check pseudopod collision with prey
+ * Returns true if engulfment occurred
+ */
+function checkPseudopodCollision(pseudopod: Pseudopod): boolean {
+  const predator = players.get(pseudopod.ownerId);
+  if (!predator) return false;
+
+  // Check collision with all Stage 1 players (including bots)
+  for (const [preyId, prey] of players) {
+    if (preyId === pseudopod.ownerId) continue; // Can't eat yourself
+    if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only Stage 1
+    if (prey.health <= 0) continue; // Already dead
+
+    // Line-circle collision: pseudopod line vs prey circle
+    const preyRadius = getPlayerRadius(prey.stage);
+    const collision = lineCircleIntersection(
+      pseudopod.startPosition,
+      pseudopod.endPosition,
+      prey.position,
+      preyRadius,
+      pseudopod.currentLength
+    );
+
+    if (collision) {
+      engulfPrey(pseudopod.ownerId, preyId, prey.position);
+      return true; // One kill per pseudopod
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Engulf prey (phagocytosis)
+ * Kills prey, rewards predator with energy and nutrient drops
+ */
+function engulfPrey(predatorId: string, preyId: string, position: Position) {
+  const predator = players.get(predatorId);
+  const prey = players.get(preyId);
+
+  if (!predator || !prey) return;
+
+  // Calculate rewards
+  const energyGain = prey.energy * GAME_CONFIG.ENGULFMENT_ENERGY_GAIN;
+  predator.energy = Math.min(predator.maxEnergy, predator.energy + energyGain);
+
+  // Kill prey
+  prey.health = 0;
+  playerLastDamageSource.set(preyId, 'predation');
+
+  // Broadcast engulfment
+  io.emit('playerEngulfed', {
+    type: 'playerEngulfed',
+    predatorId,
+    preyId,
+    position,
+    energyGained: energyGain,
+  } as PlayerEngulfedMessage);
+
+  // Broadcast death
+  io.emit('playerDied', {
+    type: 'playerDied',
+    playerId: preyId,
+    position,
+    color: prey.color,
+    cause: 'predation',
+  } as PlayerDiedMessage);
+
+  // Handle bot death (respawn logic)
+  if (isBot(preyId)) {
+    handleBotDeath(preyId, io, players, obstacles);
+  }
+
+  logger.info({
+    event: 'player_engulfed',
+    predatorId,
+    preyId,
+    isBot: isBot(preyId),
+    energyGained: energyGain.toFixed(1),
+  });
+}
+
+/**
+ * Check for direct collision predation (multi-cells touching Stage 1 players)
+ * Multi-cells engulf Stage 1 players on contact
+ */
+function checkPredationCollisions() {
+  for (const [predatorId, predator] of players) {
+    // Only Stage 2+ can hunt via collision
+    if (predator.stage === EvolutionStage.SINGLE_CELL) continue;
+    if (predator.health <= 0) continue;
+    if (predator.isEvolving) continue;
+
+    const predatorRadius = getPlayerRadius(predator.stage);
+
+    // Check collision with all Stage 1 players
+    for (const [preyId, prey] of players) {
+      if (preyId === predatorId) continue; // Don't eat yourself
+      if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only hunt Stage 1
+      if (prey.health <= 0) continue; // Skip dead prey
+      if (prey.isEvolving) continue; // Skip evolving prey
+
+      const preyRadius = getPlayerRadius(prey.stage);
+      const dist = distance(predator.position, prey.position);
+      const collisionDist = predatorRadius + preyRadius;
+
+      if (dist < collisionDist) {
+        // Engulf prey on contact
+        engulfPrey(predatorId, preyId, prey.position);
+        // Don't check more prey this tick (only one engulfment per predator per tick)
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Update pseudopods (extension animation, collision, retraction)
+ * Called every game tick
+ */
+function updatePseudopods(deltaTime: number, io: Server) {
+  const now = Date.now();
+  const toRemove: string[] = [];
+
+  for (const [id, pseudopod] of pseudopods) {
+    // Extend animation
+    if (pseudopod.currentLength < pseudopod.maxLength) {
+      pseudopod.currentLength += GAME_CONFIG.PSEUDOPOD_EXTENSION_SPEED * deltaTime;
+      pseudopod.currentLength = Math.min(pseudopod.currentLength, pseudopod.maxLength);
+    }
+
+    // Check collision while extending
+    const engulfed = checkPseudopodCollision(pseudopod);
+    if (engulfed) {
+      toRemove.push(id);
+      continue;
+    }
+
+    // Auto-retract after duration
+    if (now - pseudopod.createdAt > GAME_CONFIG.PSEUDOPOD_DURATION) {
+      toRemove.push(id);
+    }
+  }
+
+  // Remove expired/successful pseudopods
+  for (const id of toRemove) {
+    pseudopods.delete(id);
+    io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: id } as PseudopodRetractedMessage);
   }
 }
 
@@ -880,6 +1100,66 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // Pseudopod Extension (Predation)
+  // ============================================
+
+  socket.on('pseudopodExtend', (message: { targetX: number; targetY: number }) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    // Validation: Only Stage 2+ can use pseudopods
+    if (player.stage === EvolutionStage.SINGLE_CELL) return;
+    if (player.health <= 0) return; // Dead players can't attack
+    if (player.isEvolving) return; // Can't attack while molting
+
+    // Cooldown check
+    const lastUse = playerPseudopodCooldowns.get(socket.id) || 0;
+    const now = Date.now();
+    if (now - lastUse < GAME_CONFIG.PSEUDOPOD_COOLDOWN) return;
+
+    // Calculate pseudopod parameters
+    const playerRadius = getPlayerRadius(player.stage);
+    const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
+
+    // Direction from player to target
+    const dx = message.targetX - player.position.x;
+    const dy = message.targetY - player.position.y;
+    const targetDist = Math.sqrt(dx * dx + dy * dy);
+
+    // Clamp to max range
+    const actualDist = Math.min(targetDist, maxRange);
+    const dirX = targetDist > 0 ? dx / targetDist : 0;
+    const dirY = targetDist > 0 ? dy / targetDist : 0;
+
+    const endX = player.position.x + dirX * actualDist;
+    const endY = player.position.y + dirY * actualDist;
+
+    // Create pseudopod
+    const pseudopod: Pseudopod = {
+      id: `pseudopod-${socket.id}-${now}`,
+      ownerId: socket.id,
+      startPosition: { x: player.position.x, y: player.position.y },
+      endPosition: { x: endX, y: endY },
+      currentLength: 0,
+      maxLength: actualDist,
+      createdAt: now,
+      color: player.color,
+    };
+
+    pseudopods.set(pseudopod.id, pseudopod);
+    playerPseudopodCooldowns.set(socket.id, now);
+
+    // Broadcast to all clients
+    io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
+
+    logger.info({
+      event: 'pseudopod_extended',
+      playerId: socket.id,
+      range: actualDist.toFixed(0),
+    });
+  });
+
+  // ============================================
   // Disconnection Handling
   // ============================================
 
@@ -1088,6 +1368,12 @@ setInterval(() => {
 
   // Update entropy swarm positions
   updateSwarmPositions(deltaTime, io);
+
+  // Update pseudopods (extension, collision, retraction)
+  updatePseudopods(deltaTime, io);
+
+  // Check for direct collision predation (multi-cells touching Stage 1 players)
+  checkPredationCollisions();
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
   const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
