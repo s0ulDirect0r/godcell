@@ -85,6 +85,14 @@ export class GameScene extends Phaser.Scene {
   // Maps playerId → last position
   private lastPlayerPositions: Map<string, { x: number; y: number }> = new Map();
 
+  // Target positions from server (for interpolation)
+  // Maps playerId → target position
+  private playerTargetPositions: Map<string, { x: number; y: number }> = new Map();
+
+  // Target positions for swarms (for interpolation)
+  // Maps swarmId → target position
+  private swarmTargetPositions: Map<string, { x: number; y: number }> = new Map();
+
   // Gravity obstacles (distortion fields)
   // Maps obstacleId → Graphics object
   private obstacleSprites: Map<string, Phaser.GameObjects.Graphics> = new Map();
@@ -676,6 +684,9 @@ export class GameScene extends Phaser.Scene {
 
     this.swarmSprites.set(swarm.id, container);
 
+    // Initialize target position
+    this.swarmTargetPositions.set(swarm.id, { x: swarm.position.x, y: swarm.position.y });
+
     // UI camera should ignore world objects
     if (this.uiCamera) {
       this.uiCamera.ignore(container);
@@ -689,8 +700,8 @@ export class GameScene extends Phaser.Scene {
     const container = this.swarmSprites.get(swarmId);
     if (!container) return;
 
-    // Update position
-    container.setPosition(position.x, position.y);
+    // Store target position for interpolation (instead of direct update)
+    this.swarmTargetPositions.set(swarmId, { x: position.x, y: position.y });
 
     // Visual feedback for state (chase = more intense)
     const core = container.list[0] as Phaser.GameObjects.Arc;
@@ -934,8 +945,9 @@ export class GameScene extends Phaser.Scene {
       if (mySprite && myPlayer) {
         const config = GAME_CONFIG;
 
-        // Camera follows our cyber-cell
-        this.cameras.main.startFollow(mySprite, true, 0.1, 0.1);
+        // Camera follows with moderate lerp
+        // Now using client-side position interpolation to eliminate stutter
+        this.cameras.main.startFollow(mySprite, true, 0.2, 0.2);
 
         // Set camera bounds to the full world
         this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
@@ -1077,8 +1089,8 @@ export class GameScene extends Phaser.Scene {
         if (mySprite) {
           const config = GAME_CONFIG;
 
-          // Re-attach camera to the new sprite
-          this.cameras.main.startFollow(mySprite, true, 0.1, 0.1);
+          // Re-attach camera with moderate lerp
+          this.cameras.main.startFollow(mySprite, true, 0.2, 0.2);
 
           // Ensure camera bounds are still set
           this.cameras.main.setBounds(0, 0, config.WORLD_WIDTH, config.WORLD_HEIGHT);
@@ -1409,6 +1421,9 @@ export class GameScene extends Phaser.Scene {
     // Initialize last known position
     this.lastPlayerPositions.set(playerId, { x: player.position.x, y: player.position.y });
 
+    // Initialize target position
+    this.playerTargetPositions.set(playerId, { x: player.position.x, y: player.position.y });
+
     // UI camera should ignore world objects
     if (this.uiCamera) {
       this.uiCamera.ignore([cellContainer, trailGraphic]);
@@ -1440,6 +1455,9 @@ export class GameScene extends Phaser.Scene {
 
     // Clean up last position tracking
     this.lastPlayerPositions.delete(playerId);
+
+    // Clean up target position
+    this.playerTargetPositions.delete(playerId);
   }
 
   /**
@@ -1448,6 +1466,10 @@ export class GameScene extends Phaser.Scene {
   private updateCyberCellPosition(playerId: string, position: { x: number; y: number }) {
     const sprite = this.playerSprites.get(playerId);
     if (!sprite) return;
+
+    // Store the target position from server
+    // Instead of snapping directly, we'll interpolate to it in the update() loop
+    this.playerTargetPositions.set(playerId, { x: position.x, y: position.y });
 
     // Add current position to trail when player moves
     const trail = this.playerTrails.get(playerId);
@@ -1460,11 +1482,34 @@ export class GameScene extends Phaser.Scene {
         trail.shift(); // Remove oldest position
       }
     }
+  }
 
-    // Smooth movement - update position directly
-    // The server sends updates frequently enough (60fps) that we don't need tweening
-    sprite.x = position.x;
-    sprite.y = position.y;
+  /**
+   * Interpolate player and swarm positions smoothly toward their server targets
+   * Called every frame to eliminate stuttering from async network updates
+   */
+  private interpolatePlayerPositions() {
+    const lerpFactor = 0.3; // Smoothing factor (0.3 = move 30% toward target each frame)
+
+    // Interpolate player positions
+    for (const [playerId, sprite] of this.playerSprites) {
+      const targetPos = this.playerTargetPositions.get(playerId);
+      if (!targetPos) continue;
+
+      // Smoothly interpolate current position toward target
+      sprite.x += (targetPos.x - sprite.x) * lerpFactor;
+      sprite.y += (targetPos.y - sprite.y) * lerpFactor;
+    }
+
+    // Interpolate swarm positions
+    for (const [swarmId, container] of this.swarmSprites) {
+      const targetPos = this.swarmTargetPositions.get(swarmId);
+      if (!targetPos) continue;
+
+      // Smoothly interpolate current position toward target
+      container.x += (targetPos.x - container.x) * lerpFactor;
+      container.y += (targetPos.y - container.y) * lerpFactor;
+    }
   }
 
   /**
@@ -1684,6 +1729,9 @@ export class GameScene extends Phaser.Scene {
 
     // Update flowing particles (the digital water)
     this.updateDataParticles(delta);
+
+    // Interpolate all player positions smoothly toward their targets
+    this.interpolatePlayerPositions();
 
     // Render glowing trails for all cyber-cells
     this.renderTrails();
