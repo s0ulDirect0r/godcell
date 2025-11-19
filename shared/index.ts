@@ -191,8 +191,9 @@ export type ServerMessage =
 
 export const GAME_CONFIG = {
   // Movement
-  PLAYER_SPEED: 200, // Pixels per second
+  PLAYER_SPEED: 336, // Pixels per second (tuned for feel with momentum system)
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
+  MOVEMENT_FRICTION: 0.85, // Velocity decay per second (0 = instant stop, 1 = no friction)
 
   // World dimensions
   WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
@@ -238,7 +239,7 @@ export const GAME_CONFIG = {
   OBSTACLE_GRAVITY_RADIUS: 600, // Full gravity influence zone (escapable with effort)
   OBSTACLE_EVENT_HORIZON: 180,  // Inescapable zone (magenta filled - 30% of gravity radius)
   OBSTACLE_CORE_RADIUS: 60,     // Instant-death singularity core
-  OBSTACLE_GRAVITY_STRENGTH: 0.06, // Force multiplier for inverse-square gravity
+  OBSTACLE_GRAVITY_STRENGTH: 0.72, // Force multiplier for inverse-square gravity (12x original to compensate for higher speeds + momentum)
   OBSTACLE_DAMAGE_RATE: 10,     // Health damage per second at center (scales down with distance)
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
@@ -271,9 +272,10 @@ export const GAME_CONFIG = {
   GODCELL_HEALTH_MULTIPLIER: 5,         // 500 health
 
   // Entropy Swarms (virus enemies)
-  SWARM_COUNT: 9,                    // Number of swarms to spawn
-  SWARM_SIZE: 39,                    // Radius for collision detection (30% bigger)
-  SWARM_SPEED: 144,                  // 20% faster than before - more threatening
+  SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)
+  SWARM_SIZE: 47,                    // Radius for collision detection (20% larger, more threatening)
+  SWARM_SPEED: 242,                  // Tuned with new player speed (still slower than players)
+  SWARM_SLOW_EFFECT: 0.6,            // Speed multiplier when player is in contact with swarm (40% slow)
   SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
   SWARM_DAMAGE_RATE: 30,            // Health damage per second on contact (doubled for stage 1 tuning)
   SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point

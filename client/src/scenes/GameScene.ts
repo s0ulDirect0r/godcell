@@ -111,6 +111,7 @@ export class GameScene extends Phaser.Scene {
   private healthBar?: Phaser.GameObjects.Graphics;
   private energyBar?: Phaser.GameObjects.Graphics;
   private uiText?: Phaser.GameObjects.Text;
+  private countdownTimer?: Phaser.GameObjects.Text;
 
   // Death UI (DOM elements)
   private deathOverlay?: HTMLElement;
@@ -186,6 +187,56 @@ export class GameScene extends Phaser.Scene {
       })
       .setScrollFactor(0)
       .setDepth(1000);
+
+    // Energy countdown timer (digital watch style, center-top)
+    this.countdownTimer = this.add
+      .text(GAME_CONFIG.VIEWPORT_WIDTH / 2, 20, '00:00', {
+        fontSize: '32px',
+        color: '#00ffff', // Cyan (safe)
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5, 0) // Center horizontally, top vertically
+      .setScrollFactor(0)
+      .setDepth(1000);
+  }
+
+  /**
+   * Update energy countdown timer every frame (Evangelion-style intensity)
+   * Updates at 60fps for smooth countdown feel
+   */
+  private updateCountdownTimer() {
+    if (!this.countdownTimer) return;
+
+    const energy = this.myPlayerStats.energy;
+    const secondsRemaining = energy / GAME_CONFIG.ENERGY_DECAY_RATE;
+
+    // Format as SS:TT (seconds:hundredths - Eva battery style)
+    const seconds = Math.floor(secondsRemaining);
+    const hundredths = Math.floor((secondsRemaining - seconds) * 100);
+    const timeString = `${String(seconds).padStart(2, '0')}:${String(hundredths).padStart(2, '0')}`;
+
+    // Update timer text
+    this.countdownTimer.setText(timeString);
+
+    // Color based on time remaining
+    let timerColor: string;
+    if (secondsRemaining > 30) {
+      timerColor = '#00ffff'; // Cyan (safe)
+    } else if (secondsRemaining > 15) {
+      timerColor = '#ffff00'; // Yellow (warning)
+    } else {
+      timerColor = '#ff0000'; // Red (critical)
+    }
+    this.countdownTimer.setColor(timerColor);
+
+    // Add pulsing effect when critical (< 15 seconds)
+    if (secondsRemaining < 15) {
+      const pulseScale = 1 + Math.sin(Date.now() / 200) * 0.1; // Pulse between 0.9 and 1.1
+      this.countdownTimer.setScale(pulseScale);
+    } else {
+      this.countdownTimer.setScale(1);
+    }
   }
 
   /**
@@ -1127,6 +1178,9 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   update(_time: number, delta: number) {
+    // Update energy countdown timer every frame (Eva-style intensity)
+    this.updateCountdownTimer();
+
     // Update flowing particles (the digital water)
     this.updateDataParticles(delta);
 

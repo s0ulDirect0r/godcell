@@ -1,5 +1,5 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, Obstacle, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
+import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger } from './logger';
 
@@ -281,9 +281,113 @@ function steerTowards(
 }
 
 /**
- * Update a single bot's AI decision-making
+ * Calculate avoidance force away from dangerous obstacle cores
+ * Returns a steering force away from the nearest dangerous obstacle
  */
-function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<string, Nutrient>) {
+function avoidObstacles(
+  botPosition: Position,
+  obstacles: Map<string, Obstacle>
+): { x: number; y: number } {
+  let avoidanceForce = { x: 0, y: 0 };
+
+  for (const obstacle of obstacles.values()) {
+    const dist = distance(botPosition, obstacle.position);
+
+    // Danger zones based on obstacle characteristics
+    const coreRadius = GAME_CONFIG.OBSTACLE_CORE_RADIUS; // 60px - instant death
+    const eventHorizon = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable
+    const cautionRadius = eventHorizon * 1.5; // 270px - start avoiding
+
+    // If bot is outside caution radius, no avoidance needed
+    if (dist > cautionRadius) continue;
+
+    // Calculate avoidance strength (stronger when closer)
+    // Core: maximum avoidance (1.0)
+    // Event horizon: strong avoidance (0.7)
+    // Caution zone: gentle avoidance (0.3)
+    let avoidanceStrength = 0;
+    if (dist < coreRadius) {
+      avoidanceStrength = 1.0; // Maximum panic
+    } else if (dist < eventHorizon) {
+      avoidanceStrength = 0.7 + (0.3 * (eventHorizon - dist) / (eventHorizon - coreRadius));
+    } else {
+      avoidanceStrength = 0.3 * (cautionRadius - dist) / (cautionRadius - eventHorizon);
+    }
+
+    // Direction AWAY from obstacle
+    const dx = botPosition.x - obstacle.position.x;
+    const dy = botPosition.y - obstacle.position.y;
+    const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (dirLength > 0) {
+      // Normalize and scale by avoidance strength
+      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
+      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
+    }
+  }
+
+  return avoidanceForce;
+}
+
+/**
+ * Calculate avoidance force away from dangerous entropy swarms
+ * Swarms deal damage on contact and chase players, so bots should avoid them
+ */
+function avoidSwarms(
+  botPosition: Position,
+  swarms: EntropySwarm[]
+): { x: number; y: number } {
+  let avoidanceForce = { x: 0, y: 0 };
+
+  for (const swarm of swarms) {
+    const dist = distance(botPosition, swarm.position);
+
+    // Danger zones
+    const contactRadius = swarm.size; // Direct contact - taking damage
+    const threatRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS * 0.5; // 350px - swarm might detect us
+    const cautionRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS; // 700px - full detection range
+
+    // If bot is outside caution radius, no avoidance needed
+    if (dist > cautionRadius) continue;
+
+    // Calculate avoidance strength (stronger when closer)
+    let avoidanceStrength = 0;
+    if (dist < contactRadius) {
+      avoidanceStrength = 1.0; // Maximum panic - we're being damaged!
+    } else if (dist < threatRadius) {
+      // High avoidance when within half detection range
+      avoidanceStrength = 0.6 + (0.4 * (threatRadius - dist) / (threatRadius - contactRadius));
+    } else {
+      // Gentle avoidance at edge of detection range
+      avoidanceStrength = 0.3 * (cautionRadius - dist) / (cautionRadius - threatRadius);
+    }
+
+    // Direction AWAY from swarm
+    const dx = botPosition.x - swarm.position.x;
+    const dy = botPosition.y - swarm.position.y;
+    const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (dirLength > 0) {
+      // Normalize and scale by avoidance strength
+      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
+      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
+    }
+  }
+
+  return avoidanceForce;
+}
+
+/**
+ * Update a single bot's AI decision-making
+ * Combines goal-seeking (nutrients/wander) with obstacle and swarm avoidance
+ */
+function updateBotAI(
+  bot: BotController,
+  currentTime: number,
+  nutrients: Map<string, Nutrient>,
+  obstacles: Map<string, Obstacle>,
+  swarms: EntropySwarm[]
+) {
   const player = bot.player;
 
   // Skip dead or evolving bots
@@ -292,6 +396,16 @@ function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<str
     bot.inputDirection.y = 0;
     return;
   }
+
+  // Calculate combined avoidance forces (always active)
+  const obstacleAvoidance = avoidObstacles(player.position, obstacles);
+  const swarmAvoidance = avoidSwarms(player.position, swarms);
+
+  // Combine avoidance forces (both are important for survival)
+  const avoidance = {
+    x: obstacleAvoidance.x + swarmAvoidance.x,
+    y: obstacleAvoidance.y + swarmAvoidance.y,
+  };
 
   // Try to find nearby nutrient
   const nearestNutrient = findNearestNutrient(player.position, nutrients);
@@ -302,14 +416,30 @@ function updateBotAI(bot: BotController, currentTime: number, nutrients: Map<str
     bot.ai.targetNutrient = nearestNutrient.id;
 
     // Steer towards target (returns direction vector, not velocity)
-    const newDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
-    bot.inputDirection.x = newDirection.x;
-    bot.inputDirection.y = newDirection.y;
+    const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+
+    // Combine seeking with obstacle avoidance (avoidance takes priority)
+    bot.inputDirection.x = seekDirection.x + avoidance.x;
+    bot.inputDirection.y = seekDirection.y + avoidance.y;
   } else {
     // WANDER state - random exploration
     bot.ai.state = 'wander';
     bot.ai.targetNutrient = undefined;
     updateBotWander(bot, currentTime);
+
+    // Add obstacle avoidance to wander direction
+    bot.inputDirection.x += avoidance.x;
+    bot.inputDirection.y += avoidance.y;
+  }
+
+  // Normalize final direction (don't let combined forces create super-speed)
+  const dirLength = Math.sqrt(
+    bot.inputDirection.x * bot.inputDirection.x +
+    bot.inputDirection.y * bot.inputDirection.y
+  );
+  if (dirLength > 1) {
+    bot.inputDirection.x /= dirLength;
+    bot.inputDirection.y /= dirLength;
   }
 }
 
@@ -337,9 +467,14 @@ export function initializeBots(
  * Update all bots' AI decision-making
  * Call this before the movement loop in the game tick
  */
-export function updateBots(currentTime: number, nutrients: Map<string, Nutrient>) {
+export function updateBots(
+  currentTime: number,
+  nutrients: Map<string, Nutrient>,
+  obstacles: Map<string, Obstacle>,
+  swarms: EntropySwarm[]
+) {
   for (const [botId, bot] of bots) {
-    updateBotAI(bot, currentTime, nutrients);
+    updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
   }
 }
 
