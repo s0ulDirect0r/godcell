@@ -394,6 +394,24 @@ function getStageStats(stage: EvolutionStage): { maxHealth: number } {
 }
 
 /**
+ * Get energy decay rate based on evolution stage (metabolic efficiency)
+ */
+function getEnergyDecayRate(stage: EvolutionStage): number {
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;
+    case EvolutionStage.MULTI_CELL:
+      return GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE;
+    case EvolutionStage.CYBER_ORGANISM:
+      return GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE;
+    case EvolutionStage.HUMANOID:
+      return GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE;
+    case EvolutionStage.GODCELL:
+      return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
+  }
+}
+
+/**
  * Get next evolution stage and required maxEnergy threshold
  */
 function getNextEvolutionStage(currentStage: EvolutionStage): { stage: EvolutionStage; threshold: number } | null {
@@ -542,8 +560,9 @@ function updateMetabolism(deltaTime: number) {
     // Skip metabolism during evolution molting (invulnerable)
     if (player.isEvolving) continue;
 
-    // Energy decay (passive drain)
-    player.energy -= GAME_CONFIG.ENERGY_DECAY_RATE * deltaTime;
+    // Energy decay (passive drain) - stage-specific metabolic efficiency
+    const decayRate = getEnergyDecayRate(player.stage);
+    player.energy -= decayRate * deltaTime;
 
     // Starvation damage when energy depleted
     if (player.energy <= 0) {
