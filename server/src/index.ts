@@ -297,9 +297,12 @@ function initializeNutrients() {
 /**
  * Initialize gravity obstacles with procedural generation
  * Ensures obstacles are spaced apart by OBSTACLE_MIN_SEPARATION
+ * Obstacles can spawn near edges to create boundary dynamics
  */
 function initializeObstacles() {
-  const padding = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS + 100;
+  // Small padding to prevent gravity center from being exactly on edge
+  // Reduced from 700px to allow edge spawning and prevent edge-camping
+  const padding = 150;
   let obstacleIdCounter = 0;
 
   for (let i = 0; i < GAME_CONFIG.OBSTACLE_COUNT; i++) {
@@ -772,19 +775,22 @@ io.on('connection', (socket) => {
 /**
  * Apply gravity forces from obstacles to all players
  * Uses inverse-square gravity: force increases exponentially near center
- * Velocity represents gravity offset in pixels/second
+ * Gravity forces are added to existing velocity (creating momentum)
  */
-function applyGravityForces() {
+function applyGravityForces(deltaTime: number) {
   for (const [playerId, player] of players) {
     if (player.health <= 0 || player.isEvolving) continue;
 
     const velocity = playerVelocities.get(playerId);
     if (!velocity) continue;
 
-    // Reset velocity to zero (will accumulate gravity this frame)
-    velocity.x = 0;
-    velocity.y = 0;
+    // Apply friction to create momentum/inertia (velocity decays over time)
+    // Use exponential decay for smooth deceleration: v = v * friction^dt
+    const frictionFactor = Math.pow(GAME_CONFIG.MOVEMENT_FRICTION, deltaTime);
+    velocity.x *= frictionFactor;
+    velocity.y *= frictionFactor;
 
+    // Accumulate gravity forces into existing velocity (don't reset)
     for (const obstacle of obstacles.values()) {
       const dist = distance(player.position, obstacle.position);
       if (dist > obstacle.radius) continue; // Outside event horizon
@@ -816,9 +822,10 @@ function applyGravityForces() {
       const dirX = dx / dirLength;
       const dirY = dy / dirLength;
 
-      // Accumulate gravitational velocity offset (pixels/second)
-      velocity.x += dirX * forceMagnitude;
-      velocity.y += dirY * forceMagnitude;
+      // Accumulate gravitational acceleration (pixels/second²) into velocity
+      // Multiply by deltaTime to get velocity change for this frame
+      velocity.x += dirX * forceMagnitude * deltaTime;
+      velocity.y += dirY * forceMagnitude * deltaTime;
 
       // DEBUG: Log gravity forces
       if (!isBot(playerId)) {
@@ -827,12 +834,14 @@ function applyGravityForces() {
     }
   }
 
-  // Apply gravity to entropy swarms (80% resistance - they're corrupted data, less mass)
+  // Apply gravity to entropy swarms with momentum (corrupted data, less mass)
   for (const swarm of getSwarms().values()) {
-    // Reset velocity to zero (will accumulate gravity this frame)
-    swarm.velocity.x = 0;
-    swarm.velocity.y = 0;
+    // Apply friction to swarms (same momentum system as players)
+    const frictionFactor = Math.pow(GAME_CONFIG.MOVEMENT_FRICTION, deltaTime);
+    swarm.velocity.x *= frictionFactor;
+    swarm.velocity.y *= frictionFactor;
 
+    // Accumulate gravity forces into existing velocity
     for (const obstacle of obstacles.values()) {
       const dist = distance(swarm.position, obstacle.position);
       if (dist > obstacle.radius) continue; // Outside event horizon
@@ -844,7 +853,8 @@ function applyGravityForces() {
         continue;
       }
 
-      // 80% gravity resistance compared to players (only 20% of normal gravity affects them)
+      // 80% gravity resistance compared to players (original value)
+      // Corrupted data has less mass - now works with momentum system
       const distSq = Math.max(dist * dist, 100);
       const gravityStrength = obstacle.strength * 100000000;
       const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity (80% resistance)
@@ -859,9 +869,9 @@ function applyGravityForces() {
       const dirX = dx / dirLength;
       const dirY = dy / dirLength;
 
-      // Accumulate gravitational velocity offset
-      swarm.velocity.x += dirX * forceMagnitude;
-      swarm.velocity.y += dirY * forceMagnitude;
+      // Accumulate gravitational acceleration into velocity (frame-rate independent)
+      swarm.velocity.x += dirX * forceMagnitude * deltaTime;
+      swarm.velocity.y += dirY * forceMagnitude * deltaTime;
     }
   }
 }
@@ -935,14 +945,23 @@ function attractNutrientsToObstacles(deltaTime: number) {
 setInterval(() => {
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
-  // Update bot AI decisions (before movement)
-  updateBots(Date.now(), nutrients);
+  // Update bot AI decisions with obstacle and swarm avoidance (before movement)
+  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()));
 
-  // Apply gravity forces from obstacles (sets velocity for players/swarms)
-  applyGravityForces();
+  // Apply gravity forces from obstacles and friction (updates velocity with momentum)
+  applyGravityForces(deltaTime);
 
-  // Update swarm AI decisions - adds movement on top of gravity
-  updateSwarms(Date.now(), players, obstacles);
+  // Update swarm AI decisions - adds acceleration on top of gravity
+  updateSwarms(Date.now(), players, obstacles, deltaTime);
+
+  // Update entropy swarm positions
+  updateSwarmPositions(deltaTime, io);
+
+  // Check for swarm collisions BEFORE movement - get slowed players for this frame
+  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
+  for (const playerId of damagedPlayerIds) {
+    playerLastDamageSource.set(playerId, 'swarm');
+  }
 
   // Update each player's position
   for (const [playerId, player] of players) {
@@ -953,27 +972,45 @@ setInterval(() => {
     const velocity = playerVelocities.get(playerId);
     if (!inputDirection || !velocity) continue;
 
-    // Calculate desired velocity from player input
-    // Normalize diagonal input to maintain consistent speed
+    // Calculate input acceleration from player keys
+    // Normalize diagonal input to maintain consistent acceleration
     const inputLength = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
     const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
     const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
 
-    // Desired velocity from input (pixels/second)
-    const desiredVelX = inputNormX * GAME_CONFIG.PLAYER_SPEED;
-    const desiredVelY = inputNormY * GAME_CONFIG.PLAYER_SPEED;
+    // Add input as acceleration to existing velocity (creates momentum)
+    // Use high acceleration value to make controls responsive while maintaining coast
+    let acceleration = GAME_CONFIG.PLAYER_SPEED * 8; // 8x speed as acceleration for responsive controls
 
-    // Actual velocity = desired velocity + gravity offset
-    // Gravity forces were added to velocity in applyGravityForces()
-    const actualVelX = desiredVelX + velocity.x;
-    const actualVelY = desiredVelY + velocity.y;
+    // Apply swarm slow debuff if player is in contact with a swarm
+    if (slowedPlayerIds.has(playerId)) {
+      acceleration *= GAME_CONFIG.SWARM_SLOW_EFFECT; // 20% slower when touched by swarm
+    }
 
-    // Skip if no movement at all
-    if (actualVelX === 0 && actualVelY === 0) continue;
+    velocity.x += inputNormX * acceleration * deltaTime;
+    velocity.y += inputNormY * acceleration * deltaTime;
 
-    // Update position (frame-rate independent)
-    player.position.x += actualVelX * deltaTime;
-    player.position.y += actualVelY * deltaTime;
+    // Cap maximum velocity to prevent runaway speed from continuous input
+    const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+    let maxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2; // Allow 20% overspeed for gravity boost
+
+    // Apply slow effect to max speed cap as well
+    if (slowedPlayerIds.has(playerId)) {
+      maxSpeed *= GAME_CONFIG.SWARM_SLOW_EFFECT;
+    }
+
+    if (currentSpeed > maxSpeed) {
+      const scale = maxSpeed / currentSpeed;
+      velocity.x *= scale;
+      velocity.y *= scale;
+    }
+
+    // Skip if no movement at all (velocity already includes gravity + input + momentum)
+    if (velocity.x === 0 && velocity.y === 0) continue;
+
+    // Update position using accumulated velocity (frame-rate independent)
+    player.position.x += velocity.x * deltaTime;
+    player.position.y += velocity.y * deltaTime;
 
     // Keep player within world bounds (accounting for cell radius)
     player.position.x = Math.max(
@@ -1002,15 +1039,6 @@ setInterval(() => {
 
   // Attract nutrients to obstacles (visual feeding effect)
   attractNutrientsToObstacles(deltaTime);
-
-  // Update entropy swarm positions
-  updateSwarmPositions(deltaTime, io);
-
-  // Check for swarm collisions and track damage source
-  const swarmDamagedPlayers = checkSwarmCollisions(players, deltaTime);
-  for (const playerId of swarmDamagedPlayers) {
-    playerLastDamageSource.set(playerId, 'swarm');
-  }
 
   // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms, singularity)
   checkPlayerDeaths();

@@ -129,10 +129,11 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
       const distSq = Math.max(dist * dist, 1); // Prevent division by zero
 
       // Stronger avoidance the closer we get (inverse square)
-      const forceMagnitude = (avoidanceRadius * avoidanceRadius) / distSq * GAME_CONFIG.SWARM_SPEED * 2;
+      // Treat as acceleration for consistency with movement system
+      const accelerationMagnitude = (avoidanceRadius * avoidanceRadius) / distSq * GAME_CONFIG.SWARM_SPEED * 16;
 
-      avoidanceX += (dx / dist) * forceMagnitude;
-      avoidanceY += (dy / dist) * forceMagnitude;
+      avoidanceX += (dx / dist) * accelerationMagnitude;
+      avoidanceY += (dy / dist) * accelerationMagnitude;
     }
   }
 
@@ -140,9 +141,14 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
 }
 
 /**
- * Update swarm AI decision-making
+ * Update swarm AI decision-making with acceleration-based movement
  */
-export function updateSwarms(currentTime: number, players: Map<string, Player>, obstacles: Map<string, Obstacle>) {
+export function updateSwarms(
+  currentTime: number,
+  players: Map<string, Player>,
+  obstacles: Map<string, Obstacle>,
+  deltaTime: number
+) {
   for (const swarm of swarms.values()) {
     // Check for nearby players
     const nearestPlayer = findNearestPlayer(swarm, players);
@@ -161,9 +167,11 @@ export function updateSwarms(currentTime: number, players: Map<string, Player>, 
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist > 0) {
-        // Add AI movement to gravity velocity
-        swarm.velocity.x += (dx / dist) * GAME_CONFIG.SWARM_SPEED;
-        swarm.velocity.y += (dy / dist) * GAME_CONFIG.SWARM_SPEED;
+        // Add AI movement as acceleration (like player input)
+        // Use higher multiplier for responsive movement with momentum
+        const acceleration = GAME_CONFIG.SWARM_SPEED * 8;
+        swarm.velocity.x += (dx / dist) * acceleration * deltaTime;
+        swarm.velocity.y += (dy / dist) * acceleration * deltaTime;
       }
     } else {
       // PATROL: No players nearby, wander around
@@ -188,24 +196,25 @@ export function updateSwarms(currentTime: number, players: Map<string, Player>, 
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0) {
-          // Slower movement while patrolling (60% of chase speed), add to gravity
-          const patrolSpeed = GAME_CONFIG.SWARM_SPEED * 0.6;
-          swarm.velocity.x += (dx / dist) * patrolSpeed;
-          swarm.velocity.y += (dy / dist) * patrolSpeed;
+          // Slower acceleration while patrolling (60% of chase speed)
+          const patrolAcceleration = GAME_CONFIG.SWARM_SPEED * 8 * 0.6;
+          swarm.velocity.x += (dx / dist) * patrolAcceleration * deltaTime;
+          swarm.velocity.y += (dy / dist) * patrolAcceleration * deltaTime;
         }
       }
     }
 
-    // Apply obstacle avoidance force (overrides movement if danger is close)
+    // Apply obstacle avoidance acceleration (high priority)
     const avoidance = calculateObstacleAvoidance(swarm, obstacles);
-    swarm.velocity.x += avoidance.x;
-    swarm.velocity.y += avoidance.y;
+    swarm.velocity.x += avoidance.x * deltaTime;
+    swarm.velocity.y += avoidance.y * deltaTime;
 
-    // Clamp to max speed (after avoidance is applied)
+    // Clamp to max speed (like players, allow slight overspeed for gravity)
     const velocityMagnitude = Math.sqrt(swarm.velocity.x * swarm.velocity.x + swarm.velocity.y * swarm.velocity.y);
-    if (velocityMagnitude > GAME_CONFIG.SWARM_SPEED * 3) {
-      swarm.velocity.x = (swarm.velocity.x / velocityMagnitude) * GAME_CONFIG.SWARM_SPEED * 3;
-      swarm.velocity.y = (swarm.velocity.y / velocityMagnitude) * GAME_CONFIG.SWARM_SPEED * 3;
+    const maxSpeed = GAME_CONFIG.SWARM_SPEED * 1.2; // 20% overspeed allowance
+    if (velocityMagnitude > maxSpeed) {
+      swarm.velocity.x = (swarm.velocity.x / velocityMagnitude) * maxSpeed;
+      swarm.velocity.y = (swarm.velocity.y / velocityMagnitude) * maxSpeed;
     }
   }
 }
@@ -235,12 +244,16 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
 }
 
 /**
- * Check for collisions between swarms and players, deal damage
+ * Check for collisions between swarms and players, deal damage and apply slow
  * Death is handled by universal death check after all damage sources
- * Returns Set of player IDs that were damaged (for cause tracking)
+ * Returns object with damaged player IDs (for cause tracking) and slowed player IDs
  */
-export function checkSwarmCollisions(players: Map<string, Player>, deltaTime: number): Set<string> {
+export function checkSwarmCollisions(
+  players: Map<string, Player>,
+  deltaTime: number
+): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
+  const slowedPlayerIds = new Set<string>();
 
   for (const swarm of swarms.values()) {
     for (const player of players.values()) {
@@ -256,11 +269,14 @@ export function checkSwarmCollisions(players: Map<string, Player>, deltaTime: nu
         const damage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
         player.health -= damage;
         damagedPlayerIds.add(player.id);
+
+        // Apply movement slow debuff
+        slowedPlayerIds.add(player.id);
       }
     }
   }
 
-  return damagedPlayerIds;
+  return { damagedPlayerIds, slowedPlayerIds };
 }
 
 /**
