@@ -284,10 +284,10 @@ export const GAME_CONFIG = {
 
   // Size multipliers (visual presence and intimidation)
   SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (24px radius)
-  MULTI_CELL_SIZE_MULTIPLIER: 3,        // 3x larger (72px radius) - multi-cellular organism
-  CYBER_ORGANISM_SIZE_MULTIPLIER: 5,    // 5x larger (120px radius)
-  HUMANOID_SIZE_MULTIPLIER: 7,          // 7x larger (168px radius)
-  GODCELL_SIZE_MULTIPLIER: 10,          // 10x larger (240px radius) - transcendent scale
+  MULTI_CELL_SIZE_MULTIPLIER: 4,        // 4x larger (96px radius) - multi-cellular organism
+  CYBER_ORGANISM_SIZE_MULTIPLIER: 6,    // 6x larger (144px radius)
+  HUMANOID_SIZE_MULTIPLIER: 8,          // 8x larger (192px radius)
+  GODCELL_SIZE_MULTIPLIER: 12,          // 12x larger (288px radius) - transcendent scale
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)
