@@ -10,7 +10,7 @@ export interface Position {
 }
 
 // Death causes for players
-export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle';
+export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation';
 
 // Evolution stages
 export enum EvolutionStage {
@@ -68,6 +68,18 @@ export interface EntropySwarm {
   patrolTarget?: Position; // Where swarm is wandering toward (if state === 'patrol')
 }
 
+// A pseudopod (hunting tentacle extended by multi-cells)
+export interface Pseudopod {
+  id: string;
+  ownerId: string;          // Player who extended it
+  startPosition: Position;  // Origin (player position)
+  endPosition: Position;    // Target position (max range)
+  currentLength: number;    // Animation progress (0 to maxLength)
+  maxLength: number;        // 2x multi-cell radius
+  createdAt: number;        // Timestamp for retraction timing
+  color: string;            // Owner's color (for rendering)
+}
+
 // ============================================
 // Network Messages (Client → Server)
 // ============================================
@@ -82,6 +94,12 @@ export interface PlayerMoveMessage {
 
 export interface PlayerRespawnRequestMessage {
   type: 'playerRespawnRequest';
+}
+
+export interface PseudopodExtendMessage {
+  type: 'pseudopodExtend';
+  targetX: number;
+  targetY: number;
 }
 
 // ============================================
@@ -171,6 +189,24 @@ export interface SwarmMovedMessage {
   state: 'patrol' | 'chase';
 }
 
+export interface PseudopodSpawnedMessage {
+  type: 'pseudopodSpawned';
+  pseudopod: Pseudopod;
+}
+
+export interface PseudopodRetractedMessage {
+  type: 'pseudopodRetracted';
+  pseudopodId: string;
+}
+
+export interface PlayerEngulfedMessage {
+  type: 'playerEngulfed';
+  predatorId: string;
+  preyId: string;
+  position: Position;       // For visual effect
+  energyGained: number;     // How much predator gained
+}
+
 export interface DetectedEntity {
   id: string;
   position: Position;
@@ -198,6 +234,9 @@ export type ServerMessage =
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
   | SwarmMovedMessage
+  | PseudopodSpawnedMessage
+  | PseudopodRetractedMessage
+  | PlayerEngulfedMessage
   | DetectionUpdateMessage;
 
 // ============================================
@@ -304,6 +343,15 @@ export const GAME_CONFIG = {
 
   // Multi-cell detection (chemical sensing)
   MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)
+
+  // Pseudopod hunting (phagocytosis)
+  PSEUDOPOD_RANGE: 2.0,                  // Multiplier of multi-cell radius (2x = 192px for Stage 2)
+  PSEUDOPOD_EXTENSION_SPEED: 800,        // Pixels per second extension speed
+  PSEUDOPOD_DURATION: 1500,              // Milliseconds before auto-retract
+  PSEUDOPOD_COOLDOWN: 2000,              // Milliseconds between extensions
+  PSEUDOPOD_WIDTH: 12,                   // Width of tendril in pixels
+  ENGULFMENT_ENERGY_GAIN: 0.5,           // Predator gains 50% of prey's current energy
+  ENGULFMENT_NUTRIENT_DROP: 0.5,         // Prey drops 50% of collected nutrients (maxEnergy → nutrient count)
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

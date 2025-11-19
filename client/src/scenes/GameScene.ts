@@ -6,6 +6,7 @@ import type {
   Nutrient,
   Obstacle,
   EntropySwarm,
+  Pseudopod,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -21,6 +22,9 @@ import type {
   PlayerEvolvedMessage,
   SwarmSpawnedMessage,
   SwarmMovedMessage,
+  PseudopodSpawnedMessage,
+  PseudopodRetractedMessage,
+  PlayerEngulfedMessage,
   DetectedEntity,
   DetectionUpdateMessage,
 } from '@godcell/shared';
@@ -125,6 +129,13 @@ export class GameScene extends Phaser.Scene {
   private detectedEntities: DetectedEntity[] = [];
   private detectionIndicators: Phaser.GameObjects.Graphics[] = [];
 
+  // Pseudopod system (hunting tentacles for multi-cells)
+  private pseudopods: Map<string, Pseudopod> = new Map();
+  private pseudopodGraphics: Map<string, Phaser.GameObjects.Graphics> = new Map();
+
+  // UI camera (separate camera for UI elements, always at zoom 1.0)
+  private uiCamera?: Phaser.Cameras.Scene2D.Camera;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -149,6 +160,21 @@ export class GameScene extends Phaser.Scene {
     // Set up keyboard input
     this.cursors = this.input.keyboard!.createCursorKeys();
 
+    // Set up spacebar for pseudopod extension (multi-cells)
+    const spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    spaceKey.on('down', () => {
+      // Only Stage 2+ can use pseudopods
+      if (this.myPlayerStats.stage === EvolutionStage.SINGLE_CELL) return;
+
+      // Get mouse position in world coordinates
+      const pointer = this.input.activePointer;
+      const worldX = pointer.worldX;
+      const worldY = pointer.worldY;
+
+      // Send pseudopod extension request to server (extends toward mouse cursor)
+      this.socket.emit('pseudopodExtend', { targetX: worldX, targetY: worldY });
+    });
+
     // Connect to game server
     this.connectToServer();
 
@@ -163,6 +189,9 @@ export class GameScene extends Phaser.Scene {
 
     // Create metabolism UI (health/energy bars)
     this.createMetabolismUI();
+
+    // Set up UI camera (separate camera at zoom 1.0 for UI elements)
+    this.setupUICamera();
 
     // Set up death UI (DOM elements)
     this.setupDeathUI();
@@ -221,6 +250,36 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 0) // Center horizontally, top vertically
       .setScrollFactor(0)
       .setDepth(1000);
+  }
+
+  /**
+   * Set up UI camera (separate from main camera, always at zoom 1.0)
+   * Called after creating UI elements
+   */
+  private setupUICamera() {
+    // Create UI camera that never zooms
+    this.uiCamera = this.cameras.add(0, 0, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+    this.uiCamera.setName('uiCamera');
+    this.uiCamera.setScroll(0, 0); // Never scrolls
+    this.uiCamera.setZoom(1); // Always stays at 1.0 zoom
+
+    // Main camera should ignore UI elements (so they don't render twice)
+    const uiElements = [
+      this.healthBar!,
+      this.energyBar!,
+      this.healthText!,
+      this.energyText!,
+      this.countdownTimer!,
+    ];
+    this.cameras.main.ignore(uiElements);
+
+    // UI camera should ignore all world objects (they're rendered on main camera)
+    // We'll call uiCamera.ignore() when creating each world object
+    const worldObjects = [
+      this.gridGraphics,
+      ...this.dataParticles.map(p => p.sprite),
+    ];
+    this.uiCamera.ignore(worldObjects);
   }
 
   /**
@@ -509,6 +568,11 @@ export class GameScene extends Phaser.Scene {
     sprite.setDepth(-25);
 
     this.nutrientSprites.set(nutrient.id, sprite);
+
+    // UI camera should ignore world objects
+    if (this.uiCamera) {
+      this.uiCamera.ignore(sprite);
+    }
   }
 
   /**
@@ -546,6 +610,11 @@ export class GameScene extends Phaser.Scene {
     graphics.setDepth(-50);
 
     this.obstacleSprites.set(obstacle.id, graphics);
+
+    // UI camera should ignore world objects
+    if (this.uiCamera) {
+      this.uiCamera.ignore(graphics);
+    }
   }
 
   /**
@@ -606,6 +675,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.swarmSprites.set(swarm.id, container);
+
+    // UI camera should ignore world objects
+    if (this.uiCamera) {
+      this.uiCamera.ignore(container);
+    }
   }
 
   /**
@@ -1117,6 +1191,51 @@ export class GameScene extends Phaser.Scene {
       this.detectedEntities = message.detected;
     });
 
+    // Pseudopod spawned (hunting tentacle extended)
+    this.socket.on('pseudopodSpawned', (message: PseudopodSpawnedMessage) => {
+      this.pseudopods.set(message.pseudopod.id, message.pseudopod);
+
+      // Create graphics object for this pseudopod
+      const graphic = this.add.graphics();
+      graphic.setDepth(5); // Above trails, below UI
+      this.pseudopodGraphics.set(message.pseudopod.id, graphic);
+
+      // UI camera should ignore world objects
+      if (this.uiCamera) {
+        this.uiCamera.ignore(graphic);
+      }
+    });
+
+    // Pseudopod retracted (automatically or after hit)
+    this.socket.on('pseudopodRetracted', (message: PseudopodRetractedMessage) => {
+      const graphic = this.pseudopodGraphics.get(message.pseudopodId);
+      if (graphic) {
+        graphic.destroy();
+        this.pseudopodGraphics.delete(message.pseudopodId);
+      }
+      this.pseudopods.delete(message.pseudopodId);
+    });
+
+    // Player engulfed (prey caught by pseudopod)
+    this.socket.on('playerEngulfed', (message: PlayerEngulfedMessage) => {
+      const preySprite = this.playerSprites.get(message.preyId);
+      const predatorSprite = this.playerSprites.get(message.predatorId);
+
+      if (preySprite && predatorSprite) {
+        // Tween prey toward predator with scale shrink (absorption visual)
+        this.tweens.add({
+          targets: preySprite,
+          x: predatorSprite.x,
+          y: predatorSprite.y,
+          scaleX: 0,
+          scaleY: 0,
+          alpha: 0,
+          duration: 300,
+          ease: 'Power2',
+        });
+      }
+    });
+
     // Connection events
     this.socket.on('connect', () => {
       console.log('✅ Connected to digital ocean');
@@ -1289,6 +1408,11 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize last known position
     this.lastPlayerPositions.set(playerId, { x: player.position.x, y: player.position.y });
+
+    // UI camera should ignore world objects
+    if (this.uiCamera) {
+      this.uiCamera.ignore([cellContainer, trailGraphic]);
+    }
   }
 
   /**
@@ -1451,6 +1575,9 @@ export class GameScene extends Phaser.Scene {
       indicator.setScrollFactor(0); // Fixed to camera
       indicator.setDepth(999); // Below UI bars but above game world
 
+      // Ignore on main camera (render only on UI camera for fixed screen position)
+      this.cameras.main.ignore(indicator);
+
       // Convert world position to screen position for rendering
       const screenX = edgeX - camera.scrollX;
       const screenY = edgeY - camera.scrollY;
@@ -1480,6 +1607,72 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Render pseudopods (hunting tentacles)
+   * Draws glowing tendrils extending from multi-cells toward prey
+   */
+  private renderPseudopods() {
+    // Iterate through all active pseudopods
+    for (const [id, pseudopod] of this.pseudopods) {
+      const graphic = this.pseudopodGraphics.get(id);
+      if (!graphic) continue;
+
+      // Clear previous frame
+      graphic.clear();
+
+      // Calculate current end position based on extension progress
+      const dx = pseudopod.endPosition.x - pseudopod.startPosition.x;
+      const dy = pseudopod.endPosition.y - pseudopod.startPosition.y;
+      const totalLength = Math.sqrt(dx * dx + dy * dy);
+      const progress = Math.min(pseudopod.currentLength / pseudopod.maxLength, 1.0);
+
+      const currentEndX = pseudopod.startPosition.x + (dx * progress);
+      const currentEndY = pseudopod.startPosition.y + (dy * progress);
+
+      // Parse owner color (from hex string)
+      const color = Phaser.Display.Color.HexStringToColor(pseudopod.color).color;
+
+      // Draw outer glow (thicker, lower alpha) for glowing effect
+      graphic.lineStyle(GAME_CONFIG.PSEUDOPOD_WIDTH * 2.5, color, 0.2);
+      graphic.lineBetween(
+        pseudopod.startPosition.x,
+        pseudopod.startPosition.y,
+        currentEndX,
+        currentEndY
+      );
+
+      // Draw middle glow (medium thickness, medium alpha)
+      graphic.lineStyle(GAME_CONFIG.PSEUDOPOD_WIDTH * 1.5, color, 0.4);
+      graphic.lineBetween(
+        pseudopod.startPosition.x,
+        pseudopod.startPosition.y,
+        currentEndX,
+        currentEndY
+      );
+
+      // Draw core tendril (thin, high alpha) for sharp center
+      graphic.lineStyle(GAME_CONFIG.PSEUDOPOD_WIDTH, color, 0.9);
+      graphic.lineBetween(
+        pseudopod.startPosition.x,
+        pseudopod.startPosition.y,
+        currentEndX,
+        currentEndY
+      );
+
+      // Draw glowing tip (pulsing circle at end point)
+      const tipRadius = GAME_CONFIG.PSEUDOPOD_WIDTH * 1.5;
+      const tipPulse = 1 + Math.sin(Date.now() / 150) * 0.3; // Pulse between 0.7x and 1.3x
+
+      // Outer tip glow
+      graphic.fillStyle(color, 0.3);
+      graphic.fillCircle(currentEndX, currentEndY, tipRadius * 2 * tipPulse);
+
+      // Inner tip glow
+      graphic.fillStyle(color, 0.7);
+      graphic.fillCircle(currentEndX, currentEndY, tipRadius * tipPulse);
+    }
+  }
+
   // ============================================
   // Phaser Lifecycle: Update
   // Runs every frame (60 times per second)
@@ -1500,6 +1693,9 @@ export class GameScene extends Phaser.Scene {
 
     // Render detection indicators (chemical sensing for multi-cells)
     this.renderDetectionIndicators();
+
+    // Render pseudopods (hunting tentacles)
+    this.renderPseudopods();
 
     // Don't process input until we're connected
     if (!this.myPlayerId) return;
