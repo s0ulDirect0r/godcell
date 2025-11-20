@@ -7,6 +7,7 @@ import type {
   Obstacle,
   EntropySwarm,
   Pseudopod,
+  DeathCause,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -28,6 +29,7 @@ import type {
   DetectedEntity,
   DetectionUpdateMessage,
 } from '@godcell/shared';
+import { getRendererFlags, type RendererMode } from '../config/renderer-flags';
 
 // ============================================
 // Flowing Particle (Data Stream)
@@ -43,6 +45,9 @@ interface DataParticle {
 // ============================================
 
 export class GameScene extends Phaser.Scene {
+  // Renderer mode (for future dual-render support)
+  private rendererMode: RendererMode = 'phaser-only';
+
   // Network connection to server
   private socket!: Socket;
 
@@ -146,6 +151,9 @@ export class GameScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'GameScene' });
+    const flags = getRendererFlags();
+    this.rendererMode = flags.mode;
+    console.log(`[GameScene] Renderer mode: ${this.rendererMode}`);
   }
 
   // ============================================
@@ -769,7 +777,7 @@ export class GameScene extends Phaser.Scene {
   /**
    * Show death UI with stats
    */
-  private showDeathUI(cause?: 'starvation' | 'singularity' | 'swarm' | 'obstacle') {
+  private showDeathUI(cause?: DeathCause) {
     if (!this.deathOverlay) return;
 
     // Calculate time survived
@@ -793,6 +801,7 @@ export class GameScene extends Phaser.Scene {
       singularity: 'Crushed by Singularity',
       swarm: 'Entropy Swarm',
       obstacle: 'Gravity Distortion',
+      predation: 'Predation',
     };
 
     // Update stats in UI
@@ -1668,7 +1677,6 @@ export class GameScene extends Phaser.Scene {
       // Calculate current end position based on extension progress
       const dx = pseudopod.endPosition.x - pseudopod.startPosition.x;
       const dy = pseudopod.endPosition.y - pseudopod.startPosition.y;
-      const totalLength = Math.sqrt(dx * dx + dy * dy);
       const progress = Math.min(pseudopod.currentLength / pseudopod.maxLength, 1.0);
 
       const currentEndX = pseudopod.startPosition.x + (dx * progress);
