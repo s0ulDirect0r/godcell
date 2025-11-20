@@ -71,8 +71,8 @@ export class ThreeRenderer implements Renderer {
       (frustumSize * aspect) / 2,
       frustumSize / 2,
       frustumSize / -2,
-      -100, // Near plane (negative for orthographic to see objects behind camera)
-      100   // Far plane
+      0.1,  // Near plane (must be non-negative for Three.js)
+      200   // Far plane
     );
     this.camera.position.set(0, 0, 10);
     this.camera.lookAt(0, 0, 0);

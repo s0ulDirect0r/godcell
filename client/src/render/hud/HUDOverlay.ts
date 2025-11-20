@@ -12,7 +12,7 @@ export class HUDOverlay {
   private healthBarFill!: HTMLDivElement;
   private energyBarFill!: HTMLDivElement;
   private countdown!: HTMLDivElement;
-  private deathOverlay!: HTMLElement;
+  private deathOverlay?: HTMLElement;
   private gameState?: GameState;
 
   // Session stats
@@ -111,8 +111,13 @@ export class HUDOverlay {
   }
 
   private setupDeathOverlay(): void {
-    // Get existing death overlay from HTML
-    this.deathOverlay = document.getElementById('death-overlay')!;
+    // Get existing death overlay from HTML (may be null if markup is missing)
+    const overlay = document.getElementById('death-overlay');
+    if (!overlay) {
+      console.warn('Death overlay element not found in DOM - death screen will not display');
+      return;
+    }
+    this.deathOverlay = overlay;
 
     // Wire up respawn button
     const respawnButton = document.getElementById('respawn-btn');
@@ -223,6 +228,9 @@ export class HUDOverlay {
   }
 
   private showDeathOverlay(cause?: DeathCause): void {
+    // No-op if death overlay is not available
+    if (!this.deathOverlay) return;
+
     // Calculate time alive
     const timeAlive = Date.now() - this.sessionStats.spawnTime;
     const minutes = Math.floor(timeAlive / 60000);
@@ -265,6 +273,9 @@ export class HUDOverlay {
   }
 
   private hideDeathOverlay(): void {
+    // No-op if death overlay is not available
+    if (!this.deathOverlay) return;
+
     this.deathOverlay.classList.remove('show');
   }
 
