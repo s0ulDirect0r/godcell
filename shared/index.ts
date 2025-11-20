@@ -261,7 +261,7 @@ export const GAME_CONFIG = {
   PARTICLE_COLOR: 0x00ff88,    // Flowing data particles (cyan)
 
   // Particle system
-  MAX_PARTICLES: 300,          // Number of background particles
+  MAX_PARTICLES: 600,          // Number of background particles (doubled for more visual density)
   PARTICLE_MIN_SIZE: 1,
   PARTICLE_MAX_SIZE: 3,
   PARTICLE_SPEED_MIN: 10,

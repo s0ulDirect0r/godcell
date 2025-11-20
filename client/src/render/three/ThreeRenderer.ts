@@ -1,21 +1,31 @@
 // ============================================
-// Three.js Renderer - Proof-of-Concept
+// Three.js Renderer
 // ============================================
 
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG } from '@godcell/shared';
+import { createComposer } from './postprocessing/composer';
 
 /**
- * Three.js-based renderer (proof-of-concept)
- * Phase 5: Renders nutrients only to validate Three.js integration
+ * Three.js-based renderer with postprocessing effects
  */
 export class ThreeRenderer implements Renderer {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
   private container!: HTMLElement;
+  private composer!: EffectComposer;
+
+  // Camera effects
+  private cameraShake = 0;
+  private lastPlayerHealth: number | null = null;
+
+  // Resource caching for performance
+  private geometryCache: Map<string, THREE.BufferGeometry> = new Map();
+  private materialCache: Map<string, THREE.Material> = new Map();
 
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
@@ -23,15 +33,16 @@ export class ThreeRenderer implements Renderer {
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private swarmMeshes: Map<string, THREE.Mesh> = new Map();
 
-  // Trails (store position history and meshes)
+  // Trails (using efficient BufferGeometry)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
-  private playerTrailMeshes: Map<string, THREE.Mesh[]> = new Map();
+  private playerTrailLines: Map<string, THREE.Line> = new Map();
 
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
 
-  // Background particles
-  private dataParticles: Array<{ mesh: THREE.Mesh; velocity: { x: number; y: number } }> = [];
+  // Background particles (using efficient Points system)
+  private dataParticles!: THREE.Points;
+  private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -73,9 +84,53 @@ export class ThreeRenderer implements Renderer {
     const keyLight = new THREE.DirectionalLight(0xffffff, 0.4);
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
+
+    // Create postprocessing composer
+    this.composer = createComposer(this.renderer, this.scene, this.camera, width, height);
+
+    // Setup event listeners for camera effects
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners(): void {
+    // No event listeners needed for now
+    // Camera shake is triggered by health changes in render loop
+  }
+
+  // ============================================
+  // Resource Caching (Performance)
+  // ============================================
+
+  private getGeometry(key: string, factory: () => THREE.BufferGeometry): THREE.BufferGeometry {
+    if (!this.geometryCache.has(key)) {
+      this.geometryCache.set(key, factory());
+    }
+    return this.geometryCache.get(key)!;
+  }
+
+  private getMaterial(key: string, factory: () => THREE.Material): THREE.Material {
+    if (!this.materialCache.has(key)) {
+      this.materialCache.set(key, factory());
+    }
+    return this.materialCache.get(key)!;
   }
 
   render(state: GameState, dt: number): void {
+    // Detect damage for camera shake
+    const myPlayer = state.getMyPlayer();
+    if (myPlayer) {
+      // Detect health decrease (damage taken)
+      if (this.lastPlayerHealth !== null && myPlayer.health < this.lastPlayerHealth) {
+        const damageAmount = this.lastPlayerHealth - myPlayer.health;
+        // Camera shake intensity scales with damage (1 damage = 1.6 shake intensity)
+        const shakeIntensity = Math.min(damageAmount * 1.6, 40); // Cap at 40
+        this.cameraShake = Math.max(this.cameraShake, shakeIntensity); // Use max so multiple hits don't override
+      }
+
+      // Update last health
+      this.lastPlayerHealth = myPlayer.health;
+    }
+
     // Update background particles
     this.updateDataParticles(dt);
 
@@ -92,7 +147,6 @@ export class ThreeRenderer implements Renderer {
     this.updateTrails(state);
 
     // Update camera to follow player's interpolated mesh position
-    const myPlayer = state.getMyPlayer();
     if (myPlayer) {
       const mesh = this.playerMeshes.get(myPlayer.id);
       if (mesh) {
@@ -103,8 +157,17 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Render scene
-    this.renderer.render(this.scene, this.camera);
+    // Apply camera shake effect
+    if (this.cameraShake > 0) {
+      const offsetX = (Math.random() - 0.5) * this.cameraShake;
+      const offsetY = (Math.random() - 0.5) * this.cameraShake;
+      this.camera.position.x += offsetX;
+      this.camera.position.y += offsetY;
+      this.cameraShake *= 0.88; // Moderate decay
+    }
+
+    // Render scene with postprocessing
+    this.composer.render();
   }
 
   private createGrid(): void {
@@ -135,20 +198,24 @@ export class ThreeRenderer implements Renderer {
   }
 
   private createDataParticles(): void {
-    for (let i = 0; i < GAME_CONFIG.MAX_PARTICLES; i++) {
+    const particleCount = GAME_CONFIG.MAX_PARTICLES;
+
+    // Create positions and sizes arrays
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+
+    for (let i = 0; i < particleCount; i++) {
       const x = Math.random() * GAME_CONFIG.WORLD_WIDTH;
       const y = Math.random() * GAME_CONFIG.WORLD_HEIGHT;
       const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
-      const geometry = new THREE.CircleGeometry(size, 16);
-      const material = new THREE.MeshBasicMaterial({
-        color: GAME_CONFIG.PARTICLE_COLOR,
-        transparent: true,
-        opacity: 0.6
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(x, y, -0.8);
-      this.scene.add(mesh);
+      // Position
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = -0.8;
+
+      // Size
+      sizes[i] = size;
 
       // Calculate velocity (diagonal flow)
       const baseAngle = Math.PI / 4; // 45 degrees
@@ -156,28 +223,79 @@ export class ThreeRenderer implements Renderer {
       const angle = baseAngle + variance;
       const speed = GAME_CONFIG.PARTICLE_SPEED_MIN + Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
 
-      const velocity = {
-        x: Math.cos(angle) * speed,
-        y: Math.sin(angle) * speed,
-      };
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
 
-      this.dataParticles.push({ mesh, velocity });
+      // Store particle data for updates
+      this.particleData.push({ x, y, vx, vy, size });
     }
+
+    // Create BufferGeometry with position and size attributes
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    // Create PointsMaterial with transparent circles
+    const material = new THREE.PointsMaterial({
+      color: GAME_CONFIG.PARTICLE_COLOR,
+      size: 5, // Base size (will be multiplied by size attribute)
+      transparent: true,
+      opacity: 0.6,
+      sizeAttenuation: false, // Keep consistent size regardless of camera distance
+      map: this.createCircleTexture(),
+      alphaTest: 0.5,
+    });
+
+    // Create Points mesh
+    this.dataParticles = new THREE.Points(geometry, material);
+    this.scene.add(this.dataParticles);
+  }
+
+  private createCircleTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d')!;
+
+    // Draw circle
+    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 32, 32);
+
+    const texture = new THREE.Texture(canvas);
+    texture.needsUpdate = true;
+    return texture;
   }
 
   private updateDataParticles(dt: number): void {
     const deltaSeconds = dt / 1000;
+    const positions = this.dataParticles.geometry.attributes.position.array as Float32Array;
 
-    for (const particle of this.dataParticles) {
-      particle.mesh.position.x += particle.velocity.x * deltaSeconds;
-      particle.mesh.position.y += particle.velocity.y * deltaSeconds;
+    for (let i = 0; i < this.particleData.length; i++) {
+      const particle = this.particleData[i];
+
+      // Update particle position
+      particle.x += particle.vx * deltaSeconds;
+      particle.y += particle.vy * deltaSeconds;
 
       // Wrap around world bounds
-      if (particle.mesh.position.x > GAME_CONFIG.WORLD_WIDTH + 10) particle.mesh.position.x = -10;
-      if (particle.mesh.position.y > GAME_CONFIG.WORLD_HEIGHT + 10) particle.mesh.position.y = -10;
-      if (particle.mesh.position.x < -10) particle.mesh.position.x = GAME_CONFIG.WORLD_WIDTH + 10;
-      if (particle.mesh.position.y < -10) particle.mesh.position.y = GAME_CONFIG.WORLD_HEIGHT + 10;
+      if (particle.x > GAME_CONFIG.WORLD_WIDTH + 10) particle.x = -10;
+      if (particle.y > GAME_CONFIG.WORLD_HEIGHT + 10) particle.y = -10;
+      if (particle.x < -10) particle.x = GAME_CONFIG.WORLD_WIDTH + 10;
+      if (particle.y < -10) particle.y = GAME_CONFIG.WORLD_HEIGHT + 10;
+
+      // Update BufferGeometry positions
+      positions[i * 3] = particle.x;
+      positions[i * 3 + 1] = particle.y;
+      // Z position stays at -0.8
     }
+
+    // Mark positions as needing update
+    this.dataParticles.geometry.attributes.position.needsUpdate = true;
   }
 
   private syncObstacles(state: GameState): void {
@@ -313,8 +431,7 @@ export class ThreeRenderer implements Renderer {
     this.nutrientMeshes.forEach((mesh, id) => {
       if (!state.nutrients.has(id)) {
         this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+        // Don't dispose cached geometry
         this.nutrientMeshes.delete(id);
       }
     });
@@ -324,22 +441,36 @@ export class ThreeRenderer implements Renderer {
       let mesh = this.nutrientMeshes.get(id);
 
       if (!mesh) {
-        // Create new nutrient mesh (hexagon shape)
-        const geometry = new THREE.CircleGeometry(GAME_CONFIG.NUTRIENT_SIZE, 6);
+        // Create new nutrient mesh (hexagon shape) with cached geometry
+        const geometry = this.getGeometry('hexagon-nutrient', () =>
+          new THREE.CircleGeometry(GAME_CONFIG.NUTRIENT_SIZE, 6)
+        );
 
         // Determine color based on value multiplier
         let color: number;
+        let materialKey: string;
         if (nutrient.valueMultiplier >= 5) {
           color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
+          materialKey = 'nutrient-5x';
         } else if (nutrient.valueMultiplier >= 3) {
           color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
+          materialKey = 'nutrient-3x';
         } else if (nutrient.valueMultiplier >= 2) {
           color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
+          materialKey = 'nutrient-2x';
         } else {
           color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
+          materialKey = 'nutrient-1x';
         }
 
-        const material = new THREE.MeshBasicMaterial({ color });
+        const material = this.getMaterial(materialKey, () =>
+          new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 1.0, // Very strong glow for nutrients (data packets)
+          })
+        );
+
         mesh = new THREE.Mesh(geometry, material);
         this.scene.add(mesh);
         this.nutrientMeshes.set(id, mesh);
@@ -355,8 +486,8 @@ export class ThreeRenderer implements Renderer {
     this.playerMeshes.forEach((mesh, id) => {
       if (!state.players.has(id)) {
         this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+        // Don't dispose cached geometry
+        // Material is disposed in materialCache during dispose()
         this.playerMeshes.delete(id);
       }
     });
@@ -366,12 +497,20 @@ export class ThreeRenderer implements Renderer {
       let mesh = this.playerMeshes.get(id);
 
       if (!mesh) {
-        // Create player mesh (circle)
-        const geometry = new THREE.CircleGeometry(GAME_CONFIG.PLAYER_SIZE, 32);
+        // Create player mesh with cached geometry and emissive material
+        const geometry = this.getGeometry('circle-player', () =>
+          new THREE.CircleGeometry(GAME_CONFIG.PLAYER_SIZE, 32)
+        );
 
         // Parse hex color (#RRGGBB → 0xRRGGBB)
         const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const material = new THREE.MeshBasicMaterial({ color: colorHex });
+        const material = this.getMaterial(`player-${player.color}`, () =>
+          new THREE.MeshStandardMaterial({
+            color: colorHex,
+            emissive: colorHex,
+            emissiveIntensity: 0.8, // Strong glow for players (visible with bloom)
+          })
+        );
 
         mesh = new THREE.Mesh(geometry, material);
         this.scene.add(mesh);
@@ -414,50 +553,45 @@ export class ThreeRenderer implements Renderer {
         trailPoints.shift();
       }
 
-      // Clean up old trail meshes
-      let trailMeshes = this.playerTrailMeshes.get(id);
-      if (trailMeshes) {
-        trailMeshes.forEach(mesh => {
-          this.scene.remove(mesh);
-          mesh.geometry.dispose();
-          (mesh.material as THREE.Material).dispose();
-        });
-      }
-      trailMeshes = [];
-
-      // Render trail as circles (like Phaser)
-      const colorHex = parseInt(player.color.replace('#', ''), 16);
-      for (let i = 0; i < trailPoints.length; i++) {
-        const pos = trailPoints[i];
-        const alpha = (i / trailPoints.length) * 0.7;
-        const size = 8 + (i / trailPoints.length) * 18;
-
-        const geometry = new THREE.CircleGeometry(size, 16);
-        const material = new THREE.MeshBasicMaterial({
+      // Get or create trail line
+      let trailLine = this.playerTrailLines.get(id);
+      if (!trailLine) {
+        const geometry = new THREE.BufferGeometry();
+        const colorHex = parseInt(player.color.replace('#', ''), 16);
+        const material = new THREE.LineBasicMaterial({
           color: colorHex,
           transparent: true,
-          opacity: alpha,
+          opacity: 0.6,
+          linewidth: 3, // Note: linewidth only works in some browsers/WebGL implementations
         });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(pos.x, pos.y, -0.5);
-        this.scene.add(mesh);
-        trailMeshes.push(mesh);
+        trailLine = new THREE.Line(geometry, material);
+        trailLine.position.z = -0.5;
+        this.scene.add(trailLine);
+        this.playerTrailLines.set(id, trailLine);
       }
 
-      this.playerTrailMeshes.set(id, trailMeshes);
+      // Update trail line geometry with current points
+      if (trailPoints.length > 1) {
+        const positions = new Float32Array(trailPoints.length * 3);
+        for (let i = 0; i < trailPoints.length; i++) {
+          positions[i * 3] = trailPoints[i].x;
+          positions[i * 3 + 1] = trailPoints[i].y;
+          positions[i * 3 + 2] = 0;
+        }
+        trailLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        trailLine.geometry.computeBoundingSphere();
+      }
     });
 
     // Clean up trails for disconnected players
     this.playerTrailPoints.forEach((_, id) => {
       if (!state.players.has(id)) {
-        const meshes = this.playerTrailMeshes.get(id);
-        if (meshes) {
-          meshes.forEach(mesh => {
-            this.scene.remove(mesh);
-            mesh.geometry.dispose();
-            (mesh.material as THREE.Material).dispose();
-          });
-          this.playerTrailMeshes.delete(id);
+        const line = this.playerTrailLines.get(id);
+        if (line) {
+          this.scene.remove(line);
+          line.geometry.dispose();
+          (line.material as THREE.Material).dispose();
+          this.playerTrailLines.delete(id);
         }
         this.playerTrailPoints.delete(id);
       }
@@ -466,6 +600,7 @@ export class ThreeRenderer implements Renderer {
 
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
+    this.composer.setSize(width, height);
     const aspect = width / height;
     const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
     this.camera.left = (frustumSize * aspect) / -2;
@@ -509,16 +644,9 @@ export class ThreeRenderer implements Renderer {
   }
 
   dispose(): void {
-    // Clean up geometries/materials
-    this.nutrientMeshes.forEach(mesh => {
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-    });
-
-    this.playerMeshes.forEach(mesh => {
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-    });
+    // Clean up meshes (geometries are cached, so don't dispose them here)
+    this.nutrientMeshes.clear();
+    this.playerMeshes.clear();
 
     this.obstacleMeshes.forEach(group => {
       group.children.forEach(child => {
@@ -528,17 +656,36 @@ export class ThreeRenderer implements Renderer {
         }
       });
     });
+    this.obstacleMeshes.clear();
 
     this.swarmMeshes.forEach(mesh => {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
     });
+    this.swarmMeshes.clear();
 
-    this.dataParticles.forEach(particle => {
-      particle.mesh.geometry.dispose();
-      (particle.mesh.material as THREE.Material).dispose();
-    });
+    // Clean up particle system
+    if (this.dataParticles) {
+      this.dataParticles.geometry.dispose();
+      (this.dataParticles.material as THREE.Material).dispose();
+      const material = this.dataParticles.material as THREE.PointsMaterial;
+      if (material.map) {
+        material.map.dispose();
+      }
+    }
 
+    // Dispose cached geometries
+    this.geometryCache.forEach(geo => geo.dispose());
+    this.geometryCache.clear();
+
+    // Dispose cached materials
+    this.materialCache.forEach(mat => mat.dispose());
+    this.materialCache.clear();
+
+    // Dispose composer
+    this.composer.dispose();
+
+    // Dispose renderer
     this.renderer.dispose();
     this.container.removeChild(this.renderer.domElement);
   }
