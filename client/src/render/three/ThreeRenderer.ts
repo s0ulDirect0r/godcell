@@ -19,6 +19,11 @@ export class ThreeRenderer implements Renderer {
 
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
+  private playerMeshes: Map<string, THREE.Mesh> = new Map();
+
+  // Trails (store position history and meshes)
+  private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
+  private playerTrailMeshes: Map<string, THREE.Mesh[]> = new Map();
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -32,6 +37,9 @@ export class ThreeRenderer implements Renderer {
     // Create scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
+
+    // Add grid
+    this.createGrid();
 
     // Create orthographic camera (top-down 2D)
     const aspect = width / height;
@@ -57,8 +65,12 @@ export class ThreeRenderer implements Renderer {
   }
 
   render(state: GameState, _dt: number): void {
-    // Sync nutrients (only entity type we're rendering for now)
+    // Sync all entities
+    this.syncPlayers(state);
     this.syncNutrients(state);
+
+    // Update trails
+    this.updateTrails(state);
 
     // Update camera to follow player (if local player exists)
     const myPlayer = state.getMyPlayer();
@@ -68,6 +80,33 @@ export class ThreeRenderer implements Renderer {
 
     // Render scene
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private createGrid(): void {
+    const gridSize = 100; // Grid cell size
+    const gridColor = GAME_CONFIG.GRID_COLOR;
+
+    // Create vertical lines
+    for (let x = 0; x <= GAME_CONFIG.WORLD_WIDTH; x += gridSize) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x, 0, -1),
+        new THREE.Vector3(x, GAME_CONFIG.WORLD_HEIGHT, -1),
+      ]);
+      const material = new THREE.LineBasicMaterial({ color: gridColor });
+      const line = new THREE.Line(geometry, material);
+      this.scene.add(line);
+    }
+
+    // Create horizontal lines
+    for (let y = 0; y <= GAME_CONFIG.WORLD_HEIGHT; y += gridSize) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, y, -1),
+        new THREE.Vector3(GAME_CONFIG.WORLD_WIDTH, y, -1),
+      ]);
+      const material = new THREE.LineBasicMaterial({ color: gridColor });
+      const line = new THREE.Line(geometry, material);
+      this.scene.add(line);
+    }
   }
 
   private syncNutrients(state: GameState): void {
@@ -109,6 +148,117 @@ export class ThreeRenderer implements Renderer {
 
       // Update position
       mesh.position.set(nutrient.position.x, nutrient.position.y, 0);
+    });
+  }
+
+  private syncPlayers(state: GameState): void {
+    // Remove players that left
+    this.playerMeshes.forEach((mesh, id) => {
+      if (!state.players.has(id)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+        this.playerMeshes.delete(id);
+      }
+    });
+
+    // Add or update players
+    state.players.forEach((player, id) => {
+      let mesh = this.playerMeshes.get(id);
+
+      if (!mesh) {
+        // Create player mesh (circle)
+        const geometry = new THREE.CircleGeometry(GAME_CONFIG.PLAYER_SIZE, 32);
+
+        // Parse hex color (#RRGGBB → 0xRRGGBB)
+        const colorHex = parseInt(player.color.replace('#', ''), 16);
+        const material = new THREE.MeshBasicMaterial({ color: colorHex });
+
+        mesh = new THREE.Mesh(geometry, material);
+        this.scene.add(mesh);
+        this.playerMeshes.set(id, mesh);
+      }
+
+      // Update position with client-side interpolation
+      const target = state.playerTargets.get(id);
+      if (target) {
+        // Lerp toward server position
+        const lerpFactor = 0.3;
+        mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
+        mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+      } else {
+        // Fallback to direct position if no target
+        mesh.position.set(player.position.x, player.position.y, 0);
+      }
+    });
+  }
+
+  private updateTrails(state: GameState): void {
+    const maxTrailLength = 60;
+
+    state.players.forEach((player, id) => {
+      // Get or create trail points array
+      let trailPoints = this.playerTrailPoints.get(id);
+      if (!trailPoints) {
+        trailPoints = [];
+        this.playerTrailPoints.set(id, trailPoints);
+      }
+
+      // Add current position to trail
+      trailPoints.push({ x: player.position.x, y: player.position.y });
+
+      // Keep only last N points
+      if (trailPoints.length > maxTrailLength) {
+        trailPoints.shift();
+      }
+
+      // Clean up old trail meshes
+      let trailMeshes = this.playerTrailMeshes.get(id);
+      if (trailMeshes) {
+        trailMeshes.forEach(mesh => {
+          this.scene.remove(mesh);
+          mesh.geometry.dispose();
+          (mesh.material as THREE.Material).dispose();
+        });
+      }
+      trailMeshes = [];
+
+      // Render trail as circles (like Phaser)
+      const colorHex = parseInt(player.color.replace('#', ''), 16);
+      for (let i = 0; i < trailPoints.length; i++) {
+        const pos = trailPoints[i];
+        const alpha = (i / trailPoints.length) * 0.7;
+        const size = 8 + (i / trailPoints.length) * 18;
+
+        const geometry = new THREE.CircleGeometry(size, 16);
+        const material = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: alpha,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(pos.x, pos.y, -0.5);
+        this.scene.add(mesh);
+        trailMeshes.push(mesh);
+      }
+
+      this.playerTrailMeshes.set(id, trailMeshes);
+    });
+
+    // Clean up trails for disconnected players
+    this.playerTrailPoints.forEach((_, id) => {
+      if (!state.players.has(id)) {
+        const meshes = this.playerTrailMeshes.get(id);
+        if (meshes) {
+          meshes.forEach(mesh => {
+            this.scene.remove(mesh);
+            mesh.geometry.dispose();
+            (mesh.material as THREE.Material).dispose();
+          });
+          this.playerTrailMeshes.delete(id);
+        }
+        this.playerTrailPoints.delete(id);
+      }
     });
   }
 
@@ -159,6 +309,11 @@ export class ThreeRenderer implements Renderer {
   dispose(): void {
     // Clean up geometries/materials
     this.nutrientMeshes.forEach(mesh => {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    });
+
+    this.playerMeshes.forEach(mesh => {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
     });
