@@ -13,6 +13,7 @@ import { getRendererFlags, type RendererMode } from '../config/renderer-flags';
 import { GameState } from '../core/state/GameState';
 import { SocketManager } from '../core/net/SocketManager';
 import { eventBus } from '../core/events/EventBus';
+import { InputManager, type CameraProjection } from '../core/input/InputManager';
 
 // ============================================
 // Flowing Particle (Data Stream)
@@ -36,6 +37,9 @@ export class GameScene extends Phaser.Scene {
 
   // Network manager
   private socketManager!: SocketManager;
+
+  // Input manager
+  private inputManager!: InputManager;
 
   // Our player's stats (for UI display)
   private myPlayerStats = {
@@ -88,12 +92,6 @@ export class GameScene extends Phaser.Scene {
   // Entropy swarms (virus enemies)
   // Maps swarmId → Container with circle + particle emitter
   private swarmSprites: Map<string, Phaser.GameObjects.Container> = new Map();
-
-  // Keyboard input
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-
-  // Current movement direction we're sending to server
-  private currentDirection = { x: 0, y: 0 };
 
   // Connection status text (removed once connected)
   private connectionText?: Phaser.GameObjects.Text;
@@ -156,29 +154,39 @@ export class GameScene extends Phaser.Scene {
     // Create the digital primordial soup environment
     this.createDigitalOcean();
 
-    // Set up keyboard input
-    this.cursors = this.input.keyboard!.createCursorKeys();
-
-    // Set up spacebar for pseudopod extension (multi-cells)
-    const spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    spaceKey.on('down', () => {
-      // Only Stage 2+ can use pseudopods
-      if (this.myPlayerStats.stage === EvolutionStage.SINGLE_CELL) return;
-
-      // Get mouse position in world coordinates
-      const pointer = this.input.activePointer;
-      const worldX = pointer.worldX;
-      const worldY = pointer.worldY;
-
-      // Send pseudopod extension request to server (extends toward mouse cursor)
-      this.socketManager.sendPseudopodExtend(worldX, worldY);
-    });
-
     // Initialize game state and network connection
     this.gameState = new GameState();
     const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
     const serverUrl = isDev ? 'http://localhost:3000' : window.location.origin;
     this.socketManager = new SocketManager(serverUrl, this.gameState);
+
+    // Initialize input manager with camera projection adapter
+    this.inputManager = new InputManager();
+    const cameraProjection: CameraProjection = {
+      screenToWorld: (screenX: number, screenY: number) => {
+        const cam = this.cameras.main;
+        return {
+          x: cam.scrollX + screenX / cam.zoom,
+          y: cam.scrollY + screenY / cam.zoom,
+        };
+      },
+      worldToScreen: (worldX: number, worldY: number) => {
+        const cam = this.cameras.main;
+        return {
+          x: (worldX - cam.scrollX) * cam.zoom,
+          y: (worldY - cam.scrollY) * cam.zoom,
+        };
+      },
+    };
+    this.inputManager.setCameraProjection(cameraProjection);
+
+    // Subscribe to input intents
+    eventBus.on('client:inputMove', (event) => {
+      this.socketManager.sendMove(event.direction);
+    });
+    eventBus.on('client:inputRespawn', () => {
+      this.socketManager.sendRespawn();
+    });
 
     // Add connection status text
     this.connectionText = this.add
@@ -1719,6 +1727,9 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   update(_time: number, delta: number) {
+    // Update input manager (processes keyboard/mouse, emits intents)
+    this.inputManager.update(delta);
+
     // Update energy countdown timer every frame (Eva-style intensity)
     this.updateCountdownTimer();
 
@@ -1739,32 +1750,5 @@ export class GameScene extends Phaser.Scene {
 
     // Render pseudopods (hunting tentacles)
     this.renderPseudopods();
-
-    // Don't process input until we're connected
-    if (!this.gameState.myPlayerId) return;
-
-    // Read keyboard input
-    const direction = { x: 0, y: 0 };
-
-    if (this.cursors.left.isDown) {
-      direction.x = -1;
-    } else if (this.cursors.right.isDown) {
-      direction.x = 1;
-    }
-
-    if (this.cursors.up.isDown) {
-      direction.y = -1;
-    } else if (this.cursors.down.isDown) {
-      direction.y = 1;
-    }
-
-    // Only send to server if direction changed
-    // (Reduces network traffic)
-    if (direction.x !== this.currentDirection.x || direction.y !== this.currentDirection.y) {
-      this.currentDirection = direction;
-
-      // Send move to server
-      this.socketManager.sendMove(direction);
-    }
   }
 }

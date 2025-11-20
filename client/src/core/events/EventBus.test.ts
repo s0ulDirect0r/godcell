@@ -72,11 +72,11 @@ describe('EventBus', () => {
     it('should emit and receive client events', () => {
       const received: Array<{ x: number; y: number }> = [];
 
-      bus.on('client:inputIntent', (event) => {
+      bus.on('client:inputMove', (event) => {
         received.push(event.direction);
       });
 
-      bus.emit({ type: 'client:inputIntent', direction: { x: 1, y: 0 } });
+      bus.emit({ type: 'client:inputMove', direction: { x: 1, y: 0 } });
 
       expect(received).toHaveLength(1);
       expect(received[0]).toEqual({ x: 1, y: 0 });
