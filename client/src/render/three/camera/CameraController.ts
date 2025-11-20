@@ -5,6 +5,7 @@
 import type { CameraDescriptor } from '../../../core/sim/camera';
 import { lerp } from '../../../core/sim/utils';
 import type { Camera2D } from './Camera2D';
+import { CLIENT_CONFIG } from '../../../core/config/clientConfig';
 
 export class CameraController {
   private camera2D: Camera2D;
@@ -37,10 +38,10 @@ export class CameraController {
     );
 
     // Lerp zoom
-    this.currentZoom = lerp(this.currentZoom, descriptor.zoom, 0.05);
+    this.currentZoom = lerp(this.currentZoom, descriptor.zoom, CLIENT_CONFIG.CAMERA_ZOOM_EASING);
 
     // Apply zoom to camera (by scaling the orthographic frustum)
-    const baseSize = 1000;
+    const baseSize = CLIENT_CONFIG.CAMERA_FRUSTUM_SIZE;
     const zoomedSize = baseSize / this.currentZoom;
     const aspect = camera.right / camera.top; // Preserve aspect ratio
 

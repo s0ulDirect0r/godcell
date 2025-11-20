@@ -24,6 +24,9 @@ export const CLIENT_CONFIG = {
   // Camera
   // ============================================
 
+  // Base frustum size for orthographic camera
+  CAMERA_FRUSTUM_SIZE: 1000,
+
   // Camera position lerp factor (0-1)
   // Higher = camera follows faster, lower = smoother/floatier
   CAMERA_EASING_FACTOR: 0.1,

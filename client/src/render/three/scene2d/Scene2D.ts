@@ -31,6 +31,15 @@ export class Scene2D {
   // Background grid
   private gridLines: THREE.LineSegments | null = null;
 
+  // Stage size multipliers (cached to avoid recreation)
+  private static readonly STAGE_SIZES = {
+    single_cell: 1,
+    multi_cell: 4,
+    cyber_organism: 6,
+    humanoid: 8,
+    godcell: 12,
+  };
+
   constructor(container: HTMLElement) {
     // Create scene
     this.scene = new THREE.Scene();
@@ -124,14 +133,7 @@ export class Scene2D {
       }
 
       // Update size based on evolution stage
-      const stageSizes = {
-        single_cell: 1,
-        multi_cell: 4,
-        cyber_organism: 6,
-        humanoid: 8,
-        godcell: 12,
-      };
-      const sizeMultiplier = stageSizes[player.stage] || 1;
+      const sizeMultiplier = Scene2D.STAGE_SIZES[player.stage] || 1;
       mesh.scale.setScalar(sizeMultiplier);
     });
 

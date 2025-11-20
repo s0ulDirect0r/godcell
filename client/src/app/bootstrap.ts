@@ -51,7 +51,9 @@ export function bootstrap(container: HTMLElement): void {
   const hudOverlay = new HUDOverlay(container);
 
   // Input adapter (DOM → InputManager)
-  new DOMInputAdapter(container, inputManager, camera2D);
+  // Retained for side effects (sets up DOM event listeners)
+  const _inputAdapter = new DOMInputAdapter(container, inputManager, camera2D);
+  void _inputAdapter; // Explicitly mark as used for side effects
 
   // Render loop
   const renderLoop = new RenderLoop();
@@ -83,6 +85,11 @@ export function bootstrap(container: HTMLElement): void {
   renderLoop.onTick(() => {
     // Update input manager (sends movement intents)
     inputManager.update();
+
+    // Handle respawn request (R key)
+    if (inputManager.isRespawnRequested()) {
+      inputManager.requestRespawn();
+    }
 
     // Process any pending network messages
     // (Already handled by socket event listeners)

@@ -40,9 +40,15 @@ export class SocketManager {
    * Connect to the game server
    */
   connect(): void {
-    if (this.socket) {
+    if (this.socket?.connected) {
       console.warn('Socket already connected');
       return;
+    }
+
+    // Disconnect existing socket if present
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
     }
 
     this.socket = io(this.serverUrl, {

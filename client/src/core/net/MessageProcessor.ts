@@ -6,6 +6,11 @@
 import type { GameState } from '../state/GameState';
 import type { StateSnapshot } from '../state/interpolation';
 import type {
+  Player,
+  Nutrient,
+  Obstacle,
+  EntropySwarm,
+  Pseudopod,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -284,13 +289,64 @@ export class MessageProcessor {
       tick: this.state.currentTick++,
       timestamp: performance.now(),
       serverTime: 0, // TODO: Calculate server time offset
-      players: new Map(this.state.players),
-      nutrients: new Map(this.state.nutrients),
-      obstacles: new Map(this.state.obstacles),
-      swarms: new Map(this.state.swarms),
-      pseudopods: new Map(this.state.pseudopods),
+      players: new Map(
+        [...this.state.players].map(([id, player]) => [id, this.clonePlayer(player)])
+      ),
+      nutrients: new Map(
+        [...this.state.nutrients].map(([id, nutrient]) => [id, this.cloneNutrient(nutrient)])
+      ),
+      obstacles: new Map(
+        [...this.state.obstacles].map(([id, obstacle]) => [id, this.cloneObstacle(obstacle)])
+      ),
+      swarms: new Map(
+        [...this.state.swarms].map(([id, swarm]) => [id, this.cloneSwarm(swarm)])
+      ),
+      pseudopods: new Map(
+        [...this.state.pseudopods].map(([id, pseudopod]) => [
+          id,
+          this.clonePseudopod(pseudopod),
+        ])
+      ),
     };
 
     this.state.interpolationBuffer.addSnapshot(snapshot);
+  }
+
+  private clonePlayer(player: Player): Player {
+    return {
+      ...player,
+      position: { ...player.position },
+    };
+  }
+
+  private cloneNutrient(nutrient: Nutrient): Nutrient {
+    return {
+      ...nutrient,
+      position: { ...nutrient.position },
+    };
+  }
+
+  private cloneObstacle(obstacle: Obstacle): Obstacle {
+    return {
+      ...obstacle,
+      position: { ...obstacle.position },
+    };
+  }
+
+  private cloneSwarm(swarm: EntropySwarm): EntropySwarm {
+    return {
+      ...swarm,
+      position: { ...swarm.position },
+      velocity: { ...swarm.velocity },
+      patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
+    };
+  }
+
+  private clonePseudopod(pseudopod: Pseudopod): Pseudopod {
+    return {
+      ...pseudopod,
+      startPosition: { ...pseudopod.startPosition },
+      endPosition: { ...pseudopod.endPosition },
+    };
   }
 }

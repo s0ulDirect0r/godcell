@@ -3,6 +3,7 @@
  */
 
 import * as THREE from 'three';
+import { CLIENT_CONFIG } from '../../../core/config/clientConfig';
 
 export class Camera2D {
   camera: THREE.OrthographicCamera;
@@ -11,7 +12,7 @@ export class Camera2D {
 
     // Create orthographic camera (for 2D view)
     const aspect = width / height;
-    const frustumSize = 1000; // Base size (will be adjusted by zoom)
+    const frustumSize = CLIENT_CONFIG.CAMERA_FRUSTUM_SIZE;
 
     this.camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
@@ -30,7 +31,7 @@ export class Camera2D {
    */
   resize(width: number, height: number): void {
     const aspect = width / height;
-    const frustumSize = 1000;
+    const frustumSize = CLIENT_CONFIG.CAMERA_FRUSTUM_SIZE;
 
     this.camera.left = (-frustumSize * aspect) / 2;
     this.camera.right = (frustumSize * aspect) / 2;
