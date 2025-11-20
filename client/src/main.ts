@@ -7,7 +7,9 @@ import { GameState } from './core/state/GameState';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
 import { eventBus } from './core/events/EventBus';
+import type { Renderer } from './render/Renderer';
 import { PhaserRenderer } from './render/phaser/PhaserRenderer';
+import { ThreeRenderer } from './render/three/ThreeRenderer';
 import { PerformanceMonitor } from './utils/performance';
 import { getRendererFlags } from './config/renderer-flags';
 import { DebugOverlay } from './ui/DebugOverlay';
@@ -47,7 +49,16 @@ const socketManager = new SocketManager(serverUrl, gameState);
 // Initialize Renderer
 // ============================================
 
-const renderer = new PhaserRenderer();
+// Choose renderer based on flag
+let renderer: Renderer;
+if (flags.mode === 'three-only') {
+  console.log('[Init] Using Three.js renderer (nutrients only for now)');
+  renderer = new ThreeRenderer();
+} else {
+  console.log('[Init] Using Phaser renderer');
+  renderer = new PhaserRenderer();
+}
+
 const container = document.getElementById('game-container')!;
 renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
 
