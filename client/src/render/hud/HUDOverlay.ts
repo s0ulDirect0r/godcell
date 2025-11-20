@@ -205,17 +205,17 @@ export class HUDOverlay {
     this.countdown.style.textShadow = `0 0 10px ${timerColor}`;
   }
 
-  private getStageDecayRate(stage: number): number {
+  private getStageDecayRate(stage: EvolutionStage): number {
     switch (stage) {
-      case 0: // SINGLE_CELL
+      case EvolutionStage.SINGLE_CELL:
         return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;
-      case 1: // MULTI_CELL
+      case EvolutionStage.MULTI_CELL:
         return GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE;
-      case 2: // CYBER_ORGANISM
+      case EvolutionStage.CYBER_ORGANISM:
         return GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE;
-      case 3: // HUMANOID
+      case EvolutionStage.HUMANOID:
         return GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE;
-      case 4: // GODCELL
+      case EvolutionStage.GODCELL:
         return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
       default:
         return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;

@@ -7,30 +7,24 @@ import { GameState } from './core/state/GameState';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
 import { eventBus } from './core/events/EventBus';
-import type { Renderer } from './render/Renderer';
-import { PhaserRenderer } from './render/phaser/PhaserRenderer';
 import { ThreeRenderer } from './render/three/ThreeRenderer';
 import { PerformanceMonitor } from './utils/performance';
-import { getRendererFlags } from './config/renderer-flags';
 import { DebugOverlay } from './ui/DebugOverlay';
 import { HUDOverlay } from './render/hud/HUDOverlay';
 
 // ============================================
-// Performance Monitoring & Renderer Flags
+// Performance Monitoring
 // ============================================
 
-const flags = getRendererFlags();
 const perfMonitor = new PerformanceMonitor();
 let debugOverlay: DebugOverlay | null = null;
 
-if (flags.showDebugOverlay) {
+// Show debug overlay if ?debug in URL
+if (new URLSearchParams(window.location.search).has('debug')) {
   debugOverlay = new DebugOverlay();
 }
 
-// Track if we've captured baseline (only once after 10s)
-let baselineCaptured = false;
-
-console.log(`[Init] Renderer mode: ${flags.mode}`);
+console.log('[Init] Using Three.js renderer');
 
 // ============================================
 // Initialize Core Systems
@@ -50,16 +44,7 @@ const socketManager = new SocketManager(serverUrl, gameState);
 // Initialize Renderer
 // ============================================
 
-// Choose renderer based on flag
-let renderer: Renderer;
-if (flags.mode === 'three-only') {
-  console.log('[Init] Using Three.js renderer (nutrients only for now)');
-  renderer = new ThreeRenderer();
-} else {
-  console.log('[Init] Using Phaser renderer');
-  renderer = new PhaserRenderer();
-}
-
+const renderer = new ThreeRenderer();
 const container = document.getElementById('game-container')!;
 renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
 
@@ -103,14 +88,7 @@ function update(): void {
 
   // Debug overlay
   if (debugOverlay) {
-    debugOverlay.update(perfMonitor.getMetrics(), flags.mode);
-  }
-
-  // Capture baseline metrics after 10 seconds (only once)
-  if (flags.captureBaseline && !baselineCaptured && performance.now() > 10000) {
-    perfMonitor.log();
-    console.log('[Baseline] Metrics captured after 10s');
-    baselineCaptured = true;
+    debugOverlay.update(perfMonitor.getMetrics(), 'three-only');
   }
 
   requestAnimationFrame(update);
