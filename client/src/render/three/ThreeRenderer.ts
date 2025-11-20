@@ -72,10 +72,16 @@ export class ThreeRenderer implements Renderer {
     // Update trails
     this.updateTrails(state);
 
-    // Update camera to follow player (if local player exists)
+    // Update camera to follow player's interpolated mesh position
     const myPlayer = state.getMyPlayer();
     if (myPlayer) {
-      this.camera.position.set(myPlayer.position.x, myPlayer.position.y, 10);
+      const mesh = this.playerMeshes.get(myPlayer.id);
+      if (mesh) {
+        // Lerp camera toward mesh position (which is already interpolated)
+        const lerpFactor = 0.2;
+        this.camera.position.x += (mesh.position.x - this.camera.position.x) * lerpFactor;
+        this.camera.position.y += (mesh.position.y - this.camera.position.y) * lerpFactor;
+      }
     }
 
     // Render scene
@@ -204,8 +210,11 @@ export class ThreeRenderer implements Renderer {
         this.playerTrailPoints.set(id, trailPoints);
       }
 
-      // Add current position to trail
-      trailPoints.push({ x: player.position.x, y: player.position.y });
+      // Add current MESH position to trail (not server position!)
+      const mesh = this.playerMeshes.get(id);
+      if (mesh) {
+        trailPoints.push({ x: mesh.position.x, y: mesh.position.y });
+      }
 
       // Keep only last N points
       if (trailPoints.length > maxTrailLength) {
