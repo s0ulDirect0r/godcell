@@ -10,7 +10,10 @@ type ClientEvent =
   | { type: 'client:cameraZoom'; level: number }
   | { type: 'client:pseudopodIntent'; targetX: number; targetY: number }
   | { type: 'client:respawnIntent' }
-  | { type: 'client:debugToggle'; enabled: boolean };
+  | { type: 'client:debugToggle'; enabled: boolean }
+  | { type: 'client:socketConnected'; socketId: string }
+  | { type: 'client:socketDisconnected' }
+  | { type: 'client:socketFailed'; error: string };
 
 // All possible events = server messages + client-only events
 export type GameEvent = ServerMessage | ClientEvent;
