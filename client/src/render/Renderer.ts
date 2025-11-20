@@ -1,5 +1,5 @@
 // ============================================
-// Renderer Contract - Abstraction for Phaser/Three.js
+// Renderer Contract - Interface for Three.js Renderer
 // ============================================
 
 import type { GameState } from '../core/state/GameState';

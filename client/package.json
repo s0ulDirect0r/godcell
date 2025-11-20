@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@godcell/shared": "*",
-    "phaser": "^3.80.1",
     "socket.io-client": "^4.7.2",
     "three": "^0.160.0"
   },
