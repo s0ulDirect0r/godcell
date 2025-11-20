@@ -4,6 +4,10 @@
 
 import type { PerformanceMetrics } from '../utils/performance';
 
+// Valid renderer modes - extend this list as new modes are added
+type RendererMode = 'three-only' | 'phaser-only' | 'hybrid';
+const VALID_RENDERER_MODES: ReadonlySet<string> = new Set<RendererMode>(['three-only', 'phaser-only', 'hybrid']);
+
 export class DebugOverlay {
   private container: HTMLDivElement;
 
@@ -29,16 +33,34 @@ export class DebugOverlay {
 
   /**
    * Update overlay with current metrics
+   * Uses safe DOM APIs to prevent XSS - never uses innerHTML with user-controlled data
    */
   update(metrics: PerformanceMetrics, rendererMode: string): void {
+    // Validate renderer mode against known values to prevent XSS
+    const safeRendererMode = VALID_RENDERER_MODES.has(rendererMode) ? rendererMode : 'unknown';
     const memMB = metrics.memoryUsage ? (metrics.memoryUsage / 1024 / 1024).toFixed(1) : 'N/A';
 
-    this.container.innerHTML = `
-      <div>Renderer: ${rendererMode}</div>
-      <div>FPS: ${metrics.fps}</div>
-      <div>Frame: ${metrics.avgFrameTime}ms</div>
-      <div>Memory: ${memMB}MB</div>
-    `;
+    // Clear previous content
+    this.container.textContent = '';
+
+    // Build overlay using safe DOM APIs
+    const rendererDiv = document.createElement('div');
+    rendererDiv.textContent = `Renderer: ${safeRendererMode}`;
+
+    const fpsDiv = document.createElement('div');
+    fpsDiv.textContent = `FPS: ${metrics.fps}`;
+
+    const frameDiv = document.createElement('div');
+    frameDiv.textContent = `Frame: ${metrics.avgFrameTime}ms`;
+
+    const memDiv = document.createElement('div');
+    memDiv.textContent = `Memory: ${memMB}MB`;
+
+    // Append all elements
+    this.container.appendChild(rendererDiv);
+    this.container.appendChild(fpsDiv);
+    this.container.appendChild(frameDiv);
+    this.container.appendChild(memDiv);
   }
 
   /**
