@@ -2,7 +2,7 @@
 // Renderer Mode Configuration
 // ============================================
 
-export type RendererMode = 'phaser-only' | 'hybrid' | 'three-only';
+export type RendererMode = 'phaser-only' | 'three-only';
 
 export interface RendererFlags {
   mode: RendererMode;
