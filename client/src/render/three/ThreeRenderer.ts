@@ -20,10 +20,18 @@ export class ThreeRenderer implements Renderer {
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
   private playerMeshes: Map<string, THREE.Mesh> = new Map();
+  private obstacleMeshes: Map<string, THREE.Group> = new Map();
+  private swarmMeshes: Map<string, THREE.Mesh> = new Map();
 
   // Trails (store position history and meshes)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
   private playerTrailMeshes: Map<string, THREE.Mesh[]> = new Map();
+
+  // Interpolation targets
+  private swarmTargets: Map<string, { x: number; y: number }> = new Map();
+
+  // Background particles
+  private dataParticles: Array<{ mesh: THREE.Mesh; velocity: { x: number; y: number } }> = [];
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -40,6 +48,9 @@ export class ThreeRenderer implements Renderer {
 
     // Add grid
     this.createGrid();
+
+    // Create background particles
+    this.createDataParticles();
 
     // Create orthographic camera (top-down 2D)
     const aspect = width / height;
@@ -64,10 +75,18 @@ export class ThreeRenderer implements Renderer {
     this.scene.add(keyLight);
   }
 
-  render(state: GameState, _dt: number): void {
+  render(state: GameState, dt: number): void {
+    // Update background particles
+    this.updateDataParticles(dt);
+
     // Sync all entities
     this.syncPlayers(state);
     this.syncNutrients(state);
+    this.syncObstacles(state);
+    this.syncSwarms(state);
+
+    // Interpolate swarm positions
+    this.interpolateSwarms();
 
     // Update trails
     this.updateTrails(state);
@@ -113,6 +132,180 @@ export class ThreeRenderer implements Renderer {
       const line = new THREE.Line(geometry, material);
       this.scene.add(line);
     }
+  }
+
+  private createDataParticles(): void {
+    for (let i = 0; i < GAME_CONFIG.MAX_PARTICLES; i++) {
+      const x = Math.random() * GAME_CONFIG.WORLD_WIDTH;
+      const y = Math.random() * GAME_CONFIG.WORLD_HEIGHT;
+      const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
+
+      const geometry = new THREE.CircleGeometry(size, 16);
+      const material = new THREE.MeshBasicMaterial({
+        color: GAME_CONFIG.PARTICLE_COLOR,
+        transparent: true,
+        opacity: 0.6
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, -0.8);
+      this.scene.add(mesh);
+
+      // Calculate velocity (diagonal flow)
+      const baseAngle = Math.PI / 4; // 45 degrees
+      const variance = (Math.random() - 0.5) * Math.PI / 2;
+      const angle = baseAngle + variance;
+      const speed = GAME_CONFIG.PARTICLE_SPEED_MIN + Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
+
+      const velocity = {
+        x: Math.cos(angle) * speed,
+        y: Math.sin(angle) * speed,
+      };
+
+      this.dataParticles.push({ mesh, velocity });
+    }
+  }
+
+  private updateDataParticles(dt: number): void {
+    const deltaSeconds = dt / 1000;
+
+    for (const particle of this.dataParticles) {
+      particle.mesh.position.x += particle.velocity.x * deltaSeconds;
+      particle.mesh.position.y += particle.velocity.y * deltaSeconds;
+
+      // Wrap around world bounds
+      if (particle.mesh.position.x > GAME_CONFIG.WORLD_WIDTH + 10) particle.mesh.position.x = -10;
+      if (particle.mesh.position.y > GAME_CONFIG.WORLD_HEIGHT + 10) particle.mesh.position.y = -10;
+      if (particle.mesh.position.x < -10) particle.mesh.position.x = GAME_CONFIG.WORLD_WIDTH + 10;
+      if (particle.mesh.position.y < -10) particle.mesh.position.y = GAME_CONFIG.WORLD_HEIGHT + 10;
+    }
+  }
+
+  private syncObstacles(state: GameState): void {
+    // Remove obstacles that no longer exist
+    this.obstacleMeshes.forEach((group, id) => {
+      if (!state.obstacles.has(id)) {
+        group.children.forEach(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
+        this.scene.remove(group);
+        this.obstacleMeshes.delete(id);
+      }
+    });
+
+    // Add obstacles (they don't move, so only create once)
+    state.obstacles.forEach((obstacle, id) => {
+      if (!this.obstacleMeshes.has(id)) {
+        const group = new THREE.Group();
+        group.position.set(obstacle.position.x, obstacle.position.y, -1);
+
+        // Outer ring (cyan, low opacity)
+        const outerRing = new THREE.Mesh(
+          new THREE.RingGeometry(obstacle.radius - 2, obstacle.radius, 64),
+          new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3 })
+        );
+        group.add(outerRing);
+
+        // Middle ring (cyan, medium opacity)
+        const middleRing = new THREE.Mesh(
+          new THREE.RingGeometry(obstacle.radius * 0.6 - 2, obstacle.radius * 0.6, 64),
+          new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+        );
+        group.add(middleRing);
+
+        // Inner ring (magenta)
+        const innerRing = new THREE.Mesh(
+          new THREE.RingGeometry(obstacle.radius * 0.3 - 3, obstacle.radius * 0.3, 64),
+          new THREE.MeshBasicMaterial({ color: 0xff0088, transparent: true, opacity: 0.8 })
+        );
+        group.add(innerRing);
+
+        // Core fill (magenta, low opacity)
+        const coreFill = new THREE.Mesh(
+          new THREE.CircleGeometry(obstacle.radius * 0.3, 64),
+          new THREE.MeshBasicMaterial({ color: 0xff0088, transparent: true, opacity: 0.1 })
+        );
+        group.add(coreFill);
+
+        // Death core (red, solid)
+        const deathCore = new THREE.Mesh(
+          new THREE.CircleGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32),
+          new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.3 })
+        );
+        group.add(deathCore);
+
+        // Death core outline (red)
+        const deathCoreOutline = new THREE.Mesh(
+          new THREE.RingGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS - 4, GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32),
+          new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 1.0 })
+        );
+        group.add(deathCoreOutline);
+
+        this.scene.add(group);
+        this.obstacleMeshes.set(id, group);
+      }
+    });
+  }
+
+  private syncSwarms(state: GameState): void {
+    // Remove swarms that no longer exist
+    this.swarmMeshes.forEach((mesh, id) => {
+      if (!state.swarms.has(id)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+        this.swarmMeshes.delete(id);
+        this.swarmTargets.delete(id);
+      }
+    });
+
+    // Add or update swarms
+    state.swarms.forEach((swarm, id) => {
+      let mesh = this.swarmMeshes.get(id);
+
+      if (!mesh) {
+        // Create swarm mesh (circle with outline)
+        const geometry = new THREE.CircleGeometry(swarm.size, 32);
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xff0088,
+          transparent: true,
+          opacity: 0.6
+        });
+        mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(swarm.position.x, swarm.position.y, -0.3);
+
+        this.scene.add(mesh);
+        this.swarmMeshes.set(id, mesh);
+        this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
+      }
+
+      // Update target position for interpolation
+      this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
+
+      // Update color based on state
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      if (swarm.state === 'chase') {
+        material.color.setHex(0xff0044);
+        material.opacity = 0.8;
+      } else {
+        material.color.setHex(0xff0088);
+        material.opacity = 0.6;
+      }
+    });
+  }
+
+  private interpolateSwarms(): void {
+    const lerpFactor = 0.3;
+
+    this.swarmMeshes.forEach((mesh, id) => {
+      const target = this.swarmTargets.get(id);
+      if (target) {
+        mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
+        mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+      }
+    });
   }
 
   private syncNutrients(state: GameState): void {
@@ -325,6 +518,25 @@ export class ThreeRenderer implements Renderer {
     this.playerMeshes.forEach(mesh => {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
+    });
+
+    this.obstacleMeshes.forEach(group => {
+      group.children.forEach(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    });
+
+    this.swarmMeshes.forEach(mesh => {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    });
+
+    this.dataParticles.forEach(particle => {
+      particle.mesh.geometry.dispose();
+      (particle.mesh.material as THREE.Material).dispose();
     });
 
     this.renderer.dispose();
