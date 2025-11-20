@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { io, Socket } from 'socket.io-client';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared'
 import type {
   Player,
@@ -8,28 +7,12 @@ import type {
   EntropySwarm,
   Pseudopod,
   DeathCause,
-  GameStateMessage,
-  PlayerJoinedMessage,
-  PlayerLeftMessage,
-  PlayerMovedMessage,
-  PlayerMoveMessage,
-  PlayerRespawnRequestMessage,
-  NutrientSpawnedMessage,
-  NutrientCollectedMessage,
-  NutrientMovedMessage,
-  EnergyUpdateMessage,
-  PlayerDiedMessage,
-  PlayerRespawnedMessage,
-  PlayerEvolvedMessage,
-  SwarmSpawnedMessage,
-  SwarmMovedMessage,
-  PseudopodSpawnedMessage,
-  PseudopodRetractedMessage,
-  PlayerEngulfedMessage,
   DetectedEntity,
-  DetectionUpdateMessage,
 } from '@godcell/shared';
 import { getRendererFlags, type RendererMode } from '../config/renderer-flags';
+import { GameState } from '../core/state/GameState';
+import { SocketManager } from '../core/net/SocketManager';
+import { eventBus } from '../core/events/EventBus';
 
 // ============================================
 // Flowing Particle (Data Stream)
@@ -48,11 +31,11 @@ export class GameScene extends Phaser.Scene {
   // Renderer mode (for future dual-render support)
   private rendererMode: RendererMode = 'phaser-only';
 
-  // Network connection to server
-  private socket!: Socket;
+  // Game state (single source of truth)
+  private gameState!: GameState;
 
-  // Our player's ID (assigned by server)
-  private myPlayerId?: string;
+  // Network manager
+  private socketManager!: SocketManager;
 
   // Our player's stats (for UI display)
   private myPlayerStats = {
@@ -188,11 +171,14 @@ export class GameScene extends Phaser.Scene {
       const worldY = pointer.worldY;
 
       // Send pseudopod extension request to server (extends toward mouse cursor)
-      this.socket.emit('pseudopodExtend', { targetX: worldX, targetY: worldY });
+      this.socketManager.sendPseudopodExtend(worldX, worldY);
     });
 
-    // Connect to game server
-    this.connectToServer();
+    // Initialize game state and network connection
+    this.gameState = new GameState();
+    const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+    const serverUrl = isDev ? 'http://localhost:3000' : window.location.origin;
+    this.socketManager = new SocketManager(serverUrl, this.gameState);
 
     // Add connection status text
     this.connectionText = this.add
@@ -202,6 +188,9 @@ export class GameScene extends Phaser.Scene {
         fontFamily: 'monospace',
       })
       .setDepth(1000);
+
+    // Subscribe to game events
+    this.setupEventHandlers();
 
     // Create metabolism UI (health/energy bars)
     this.createMetabolismUI();
@@ -391,8 +380,9 @@ export class GameScene extends Phaser.Scene {
     this.energyText.setText(`${Math.ceil(energy)}/${maxEnergy}`);
 
     // Visual feedback for low energy - dim player glow
-    if (this.myPlayerId) {
-      const mySprite = this.playerSprites.get(this.myPlayerId);
+    const myPlayerId = this.gameState.myPlayerId;
+    if (myPlayerId) {
+      const mySprite = this.playerSprites.get(myPlayerId);
       if (mySprite && energyPercent < 0.3) {
         mySprite.setAlpha(0.6 + energyPercent * 0.4); // Dim when low energy
       } else if (mySprite) {
@@ -764,11 +754,7 @@ export class GameScene extends Phaser.Scene {
     if (this.respawnButton) {
       this.respawnButton.addEventListener('click', () => {
         // Send respawn request to server
-        const respawnRequest: PlayerRespawnRequestMessage = {
-          type: 'playerRespawnRequest',
-        };
-        this.socket.emit('playerRespawnRequest', respawnRequest);
-
+        this.socketManager.sendRespawn();
         console.log('🔄 Respawn requested');
       });
     }
@@ -886,30 +872,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
-  // Network Setup
+  // Event Handlers (EventBus subscriptions)
   // ============================================
 
-  private connectToServer() {
-    // Connect to server (change this URL for deployment)
-    const SERVER_URL = 'http://localhost:3000';
-    this.socket = io(SERVER_URL);
+  private setupEventHandlers() {
+    // Socket connection established
+    eventBus.on('client:socketConnected', () => {
+      console.log('✅ Connected to digital ocean');
+      // Connection text will be removed when we receive initial gameState
+    });
 
-    // ========== Server Messages ==========
+    // Socket disconnected
+    eventBus.on('client:socketDisconnected', () => {
+      console.log('❌ Disconnected from digital ocean');
+    });
+
+    // Socket connection failed
+    eventBus.on('client:socketFailed', (event) => {
+      console.error('❌ Socket connection failed:', event.error);
+    });
 
     // Initial game state (sent when we first connect)
-    this.socket.on('gameState', (message: GameStateMessage) => {
+    eventBus.on('gameState', () => {
       // Remove "Connecting..." text now that we're connected
       if (this.connectionText) {
         this.connectionText.destroy();
         this.connectionText = undefined;
       }
 
-      // Remember our player ID
-      this.myPlayerId = this.socket.id;
-
       // Store our player's stats
-      if (!this.myPlayerId) return;
-      const myPlayer = message.players[this.myPlayerId];
+      const myPlayerId = this.gameState.myPlayerId;
+      if (!myPlayerId) return;
+
+      const myPlayer = this.gameState.players.get(myPlayerId);
       if (myPlayer) {
         this.myPlayerStats.health = myPlayer.health;
         this.myPlayerStats.maxHealth = myPlayer.maxHealth;
@@ -930,27 +925,27 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Create sprites for all existing players
-      for (const [playerId, player] of Object.entries(message.players)) {
+      for (const [playerId, player] of this.gameState.players) {
         this.createCyberCell(playerId, player);
       }
 
       // Create sprites for all existing nutrients
-      for (const nutrient of Object.values(message.nutrients)) {
+      for (const [, nutrient] of this.gameState.nutrients) {
         this.createNutrient(nutrient);
       }
 
       // Create gravity obstacles (distortion fields)
-      for (const obstacle of Object.values(message.obstacles)) {
+      for (const [, obstacle] of this.gameState.obstacles) {
         this.createObstacle(obstacle);
       }
 
       // Create entropy swarms (virus enemies)
-      for (const swarm of Object.values(message.swarms)) {
+      for (const [, swarm] of this.gameState.swarms) {
         this.createSwarm(swarm);
       }
 
       // Set up camera to follow our player
-      const mySprite = this.playerSprites.get(this.myPlayerId);
+      const mySprite = this.playerSprites.get(myPlayerId);
       if (mySprite && myPlayer) {
         const config = GAME_CONFIG;
 
@@ -968,27 +963,27 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Another player joined
-    this.socket.on('playerJoined', (message: PlayerJoinedMessage) => {
+    eventBus.on('playerJoined', (message) => {
       this.createCyberCell(message.player.id, message.player);
     });
 
     // A player left
-    this.socket.on('playerLeft', (message: PlayerLeftMessage) => {
+    eventBus.on('playerLeft', (message) => {
       this.removeCyberCell(message.playerId);
     });
 
     // A player moved
-    this.socket.on('playerMoved', (message: PlayerMovedMessage) => {
+    eventBus.on('playerMoved', (message) => {
       this.updateCyberCellPosition(message.playerId, message.position);
     });
 
     // Nutrient spawned
-    this.socket.on('nutrientSpawned', (message: NutrientSpawnedMessage) => {
+    eventBus.on('nutrientSpawned', (message) => {
       this.createNutrient(message.nutrient);
     });
 
     // Nutrient moved (attracted by obstacles)
-    this.socket.on('nutrientMoved', (message: NutrientMovedMessage) => {
+    eventBus.on('nutrientMoved', (message) => {
       const sprite = this.nutrientSprites.get(message.nutrientId);
       if (sprite) {
         sprite.setPosition(message.position.x, message.position.y);
@@ -996,21 +991,21 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Swarm spawned
-    this.socket.on('swarmSpawned', (message: SwarmSpawnedMessage) => {
+    eventBus.on('swarmSpawned', (message) => {
       this.createSwarm(message.swarm);
     });
 
     // Swarm moved
-    this.socket.on('swarmMoved', (message: SwarmMovedMessage) => {
+    eventBus.on('swarmMoved', (message) => {
       this.updateSwarm(message.swarmId, message.position, message.state);
     });
 
     // Nutrient collected
-    this.socket.on('nutrientCollected', (message: NutrientCollectedMessage) => {
+    eventBus.on('nutrientCollected', (message) => {
       this.removeNutrient(message.nutrientId, true); // Show collection effect
 
       // Update our stats if we collected it
-      if (message.playerId === this.myPlayerId) {
+      if (message.playerId === this.gameState.myPlayerId) {
         this.myPlayerStats.energy = message.collectorEnergy;
         this.myPlayerStats.maxEnergy = message.collectorMaxEnergy;
 
@@ -1028,9 +1023,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Energy/health update
-    this.socket.on('energyUpdate', (message: EnergyUpdateMessage) => {
+    eventBus.on('energyUpdate', (message) => {
       // Update UI for our own player
-      if (message.playerId === this.myPlayerId) {
+      if (message.playerId === this.gameState.myPlayerId) {
         this.myPlayerStats.health = message.health;
         this.myPlayerStats.energy = message.energy;
 
@@ -1044,14 +1039,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Player died
-    this.socket.on('playerDied', (message: PlayerDiedMessage) => {
+    eventBus.on('playerDied', (message) => {
       console.log(`💀 Player ${message.playerId} died (PERMANENT LOSS)`);
 
       // Create dilution effect (particles scatter and fade)
       this.createDilutionEffect(message.position, message.color);
 
       // Show death UI if it's our player
-      if (message.playerId === this.myPlayerId) {
+      if (message.playerId === this.gameState.myPlayerId) {
         // Small delay to let dilution effect play
         this.time.delayedCall(500, () => {
           this.showDeathUI(message.cause);
@@ -1063,11 +1058,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Player respawned
-    this.socket.on('playerRespawned', (message: PlayerRespawnedMessage) => {
+    eventBus.on('playerRespawned', (message) => {
       console.log(`🔄 Player ${message.player.id} respawned as single-cell`);
 
       // Update our stats if it's us
-      if (message.player.id === this.myPlayerId) {
+      if (message.player.id === this.gameState.myPlayerId) {
         this.myPlayerStats.health = message.player.health;
         this.myPlayerStats.maxHealth = message.player.maxHealth;
         this.myPlayerStats.energy = message.player.energy;
@@ -1093,8 +1088,8 @@ export class GameScene extends Phaser.Scene {
       this.createCyberCell(message.player.id, message.player);
 
       // Re-attach camera if this is our player (fixes camera tracking bug)
-      if (message.player.id === this.myPlayerId) {
-        const mySprite = this.playerSprites.get(this.myPlayerId);
+      if (message.player.id === this.gameState.myPlayerId) {
+        const mySprite = this.playerSprites.get(message.player.id);
         if (mySprite) {
           const config = GAME_CONFIG;
 
@@ -1114,11 +1109,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Player evolved
-    this.socket.on('playerEvolved', (message: PlayerEvolvedMessage) => {
+    eventBus.on('playerEvolved', (message) => {
       console.log(`🧬 Player ${message.playerId} evolved to ${message.newStage}`);
 
       // Update our stats if it's us (evolution fully heals)
-      if (message.playerId === this.myPlayerId) {
+      if (message.playerId === this.gameState.myPlayerId) {
         this.myPlayerStats.health = message.newMaxHealth; // Evolution fully heals
         this.myPlayerStats.maxHealth = message.newMaxHealth;
         this.myPlayerStats.maxEnergy = message.newMaxEnergy;
@@ -1153,7 +1148,7 @@ export class GameScene extends Phaser.Scene {
         container.add(newVisuals);
 
         // Re-apply white outline if this is our player
-        if (message.playerId === this.myPlayerId) {
+        if (message.playerId === this.gameState.myPlayerId) {
           container.list.forEach((child) => {
             (child as Phaser.GameObjects.Arc).setStrokeStyle(3, 0xffffff, 1);
           });
@@ -1171,7 +1166,7 @@ export class GameScene extends Phaser.Scene {
           ease: 'Back.easeOut',
           onComplete: () => {
             // Restart pulse animation for our own cell at new scale
-            if (message.playerId === this.myPlayerId) {
+            if (message.playerId === this.gameState.myPlayerId) {
               this.tweens.add({
                 targets: container,
                 scaleX: newScale * 1.1,
@@ -1186,7 +1181,7 @@ export class GameScene extends Phaser.Scene {
         });
 
         // Update camera zoom if this is our player (expanded vision at higher stages)
-        if (message.playerId === this.myPlayerId) {
+        if (message.playerId === this.gameState.myPlayerId) {
           const newZoom = this.getStageZoom(message.newStage);
           this.tweens.add({
             targets: this.cameras.main,
@@ -1208,12 +1203,12 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Detection updates (chemical sensing for multi-cells)
-    this.socket.on('detectionUpdate', (message: DetectionUpdateMessage) => {
+    eventBus.on('detectionUpdate', (message) => {
       this.detectedEntities = message.detected;
     });
 
     // Pseudopod spawned (hunting tentacle extended)
-    this.socket.on('pseudopodSpawned', (message: PseudopodSpawnedMessage) => {
+    eventBus.on('pseudopodSpawned', (message) => {
       this.pseudopods.set(message.pseudopod.id, message.pseudopod);
 
       // Create graphics object for this pseudopod
@@ -1228,7 +1223,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Pseudopod retracted (automatically or after hit)
-    this.socket.on('pseudopodRetracted', (message: PseudopodRetractedMessage) => {
+    eventBus.on('pseudopodRetracted', (message) => {
       const graphic = this.pseudopodGraphics.get(message.pseudopodId);
       if (graphic) {
         graphic.destroy();
@@ -1238,7 +1233,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Player engulfed (prey caught by pseudopod)
-    this.socket.on('playerEngulfed', (message: PlayerEngulfedMessage) => {
+    eventBus.on('playerEngulfed', (message) => {
       const preySprite = this.playerSprites.get(message.preyId);
       const predatorSprite = this.playerSprites.get(message.predatorId);
 
@@ -1255,15 +1250,6 @@ export class GameScene extends Phaser.Scene {
           ease: 'Power2',
         });
       }
-    });
-
-    // Connection events
-    this.socket.on('connect', () => {
-      console.log('✅ Connected to digital ocean');
-    });
-
-    this.socket.on('disconnect', () => {
-      console.log('❌ Disconnected from digital ocean');
     });
   }
 
@@ -1395,7 +1381,7 @@ export class GameScene extends Phaser.Scene {
     cellContainer.setScale(initialScale);
 
     // Highlight our own cell with extra glow
-    if (playerId === this.myPlayerId) {
+    if (playerId === this.gameState.myPlayerId) {
       // Add white outline to all circles in our cell
       cellContainer.list.forEach((child) => {
         (child as Phaser.GameObjects.Arc).setStrokeStyle(3, 0xffffff, 1);
@@ -1595,7 +1581,8 @@ export class GameScene extends Phaser.Scene {
     if (this.myPlayerStats.stage === EvolutionStage.SINGLE_CELL) return;
 
     // Get my player sprite for camera position
-    const mySprite = this.myPlayerId ? this.playerSprites.get(this.myPlayerId) : null;
+    const myPlayerId = this.gameState.myPlayerId;
+    const mySprite = myPlayerId ? this.playerSprites.get(myPlayerId) : null;
     if (!mySprite) return;
 
     const camera = this.cameras.main;
@@ -1754,7 +1741,7 @@ export class GameScene extends Phaser.Scene {
     this.renderPseudopods();
 
     // Don't process input until we're connected
-    if (!this.myPlayerId) return;
+    if (!this.gameState.myPlayerId) return;
 
     // Read keyboard input
     const direction = { x: 0, y: 0 };
@@ -1776,12 +1763,8 @@ export class GameScene extends Phaser.Scene {
     if (direction.x !== this.currentDirection.x || direction.y !== this.currentDirection.y) {
       this.currentDirection = direction;
 
-      const moveMessage: PlayerMoveMessage = {
-        type: 'playerMove',
-        direction,
-      };
-
-      this.socket.emit('playerMove', moveMessage);
+      // Send move to server
+      this.socketManager.sendMove(direction);
     }
   }
 }
