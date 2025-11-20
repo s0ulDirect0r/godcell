@@ -13,6 +13,7 @@ import { ThreeRenderer } from './render/three/ThreeRenderer';
 import { PerformanceMonitor } from './utils/performance';
 import { getRendererFlags } from './config/renderer-flags';
 import { DebugOverlay } from './ui/DebugOverlay';
+import { HUDOverlay } from './render/hud/HUDOverlay';
 
 // ============================================
 // Performance Monitoring & Renderer Flags
@@ -65,6 +66,9 @@ renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT
 // Wire input manager with renderer's camera projection
 inputManager.setCameraProjection(renderer.getCameraProjection());
 
+// Initialize HUD overlay
+const hudOverlay = new HUDOverlay();
+
 // ============================================
 // Wire Input Handlers to Network
 // ============================================
@@ -93,6 +97,9 @@ function update(): void {
 
   // Render
   renderer.render(gameState, dt);
+
+  // Update HUD
+  hudOverlay.update(gameState);
 
   // Debug overlay
   if (debugOverlay) {
