@@ -1,25 +1,17 @@
-import Phaser from 'phaser';
-import { GameScene } from './scenes/GameScene';
-import { GAME_CONFIG } from '@godcell/shared';
+/**
+ * GODCELL - Entry point
+ * Now using Three.js with renderer-agnostic architecture
+ */
 
-// ============================================
-// Phaser Game Configuration
-// ============================================
+import { bootstrap } from './app/bootstrap';
+import './style.css';
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO, // WebGL if available, fallback to Canvas
-  parent: 'game-container',
-  width: GAME_CONFIG.VIEWPORT_WIDTH,
-  height: GAME_CONFIG.VIEWPORT_HEIGHT,
-  backgroundColor: GAME_CONFIG.BACKGROUND_COLOR, // Deep void
-  scene: [GameScene],
-  physics: {
-    default: 'arcade', // Simple physics system
-    arcade: {
-      debug: false,
-    },
-  },
-};
+// Get game container
+const container = document.getElementById('game-container');
 
-// Start the game
-new Phaser.Game(config);
+if (!container) {
+  throw new Error('Game container not found');
+}
+
+// Bootstrap the game
+bootstrap(container);
