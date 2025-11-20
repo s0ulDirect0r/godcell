@@ -13,10 +13,12 @@
   "dependencies": {
     "@godcell/shared": "*",
     "phaser": "^3.80.1",
-    "socket.io-client": "^4.7.2"
+    "socket.io-client": "^4.7.2",
+    "three": "^0.160.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.6",
+    "@types/three": "^0.160.0",
     "happy-dom": "^20.0.10",
     "typescript": "^5.3.3",
     "vite": "^5.0.11",
