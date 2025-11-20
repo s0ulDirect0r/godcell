@@ -6,10 +6,10 @@ import type { ServerMessage } from '@godcell/shared';
 
 // Client-only events (internal state, not from server)
 type ClientEvent =
-  | { type: 'client:inputIntent'; direction: { x: number; y: number } }
+  | { type: 'client:inputMove'; direction: { x: number; y: number } }
+  | { type: 'client:inputRespawn' }
   | { type: 'client:cameraZoom'; level: number }
   | { type: 'client:pseudopodIntent'; targetX: number; targetY: number }
-  | { type: 'client:respawnIntent' }
   | { type: 'client:debugToggle'; enabled: boolean }
   | { type: 'client:socketConnected'; socketId: string }
   | { type: 'client:socketDisconnected' }
