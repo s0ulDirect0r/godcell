@@ -46,12 +46,12 @@ export class InputManager {
     let vx = 0;
     let vy = 0;
 
-    // WASD movement
+    // WASD movement (Y+ is up in world coordinates)
     if (this.inputState.isKeyDown('w') || this.inputState.isKeyDown('arrowup')) {
-      vy = -1;
+      vy = 1;  // Up is positive Y
     }
     if (this.inputState.isKeyDown('s') || this.inputState.isKeyDown('arrowdown')) {
-      vy = 1;
+      vy = -1;  // Down is negative Y
     }
     if (this.inputState.isKeyDown('a') || this.inputState.isKeyDown('arrowleft')) {
       vx = -1;
