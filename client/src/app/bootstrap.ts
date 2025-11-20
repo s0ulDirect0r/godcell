@@ -86,8 +86,8 @@ export function bootstrap(container: HTMLElement): void {
     // Update input manager (sends movement intents)
     inputManager.update();
 
-    // Handle respawn request (R key)
-    if (inputManager.isRespawnRequested()) {
+    // Handle respawn request (R key) - only send on key-down transition
+    if (inputManager.isRespawnKeyDownTransition()) {
       inputManager.requestRespawn();
     }
 

@@ -32,6 +32,9 @@ export class InputManager {
   // Track last sent movement to avoid spamming server
   private lastSentMove = { x: 0, y: 0 };
 
+  // Track respawn key state to avoid spamming server (only send on key-down transition)
+  private respawnSent = false;
+
   constructor(intentSender?: IntentSender) {
     if (intentSender) {
       this.intentSender = intentSender;
@@ -153,6 +156,27 @@ export class InputManager {
   }
 
   /**
+   * Check if respawn key was just pressed (key-down transition only)
+   * Returns true only once per key press, not while held
+   */
+  isRespawnKeyDownTransition(): boolean {
+    const isKeyDown = this.inputState.isKeyDown('r');
+
+    // Key-down transition: key is down AND we haven't sent yet
+    if (isKeyDown && !this.respawnSent) {
+      this.respawnSent = true;
+      return true;
+    }
+
+    // Key released: reset flag for next press
+    if (!isKeyDown && this.respawnSent) {
+      this.respawnSent = false;
+    }
+
+    return false;
+  }
+
+  /**
    * Send respawn request
    */
   requestRespawn(): void {
@@ -167,5 +191,6 @@ export class InputManager {
   reset(): void {
     this.inputState.reset();
     this.lastSentMove = { x: 0, y: 0 };
+    this.respawnSent = false;
   }
 }
