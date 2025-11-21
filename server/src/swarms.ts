@@ -141,6 +141,43 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
 }
 
 /**
+ * Calculate repulsion force to prevent swarms from overlapping each other
+ * Swarms take up physical space and push each other away
+ * Returns a velocity adjustment to apply
+ */
+function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, EntropySwarm>): { x: number; y: number } {
+  let repulsionX = 0;
+  let repulsionY = 0;
+
+  // Swarms repel when their spheres would overlap (2x swarm size = touching)
+  const repulsionRadius = GAME_CONFIG.SWARM_SIZE * 2.2; // Slight buffer for smoother spacing
+
+  for (const otherSwarm of allSwarms.values()) {
+    // Skip self
+    if (otherSwarm.id === swarm.id) continue;
+
+    const dist = distance(swarm.position, otherSwarm.position);
+
+    // If swarms are too close, apply repulsion force
+    if (dist < repulsionRadius) {
+      // Direction away from other swarm
+      const dx = swarm.position.x - otherSwarm.position.x;
+      const dy = swarm.position.y - otherSwarm.position.y;
+      const distSq = Math.max(dist * dist, 1); // Prevent division by zero
+
+      // Stronger repulsion the closer they get (inverse square)
+      // Use moderate force - swarms should spread out but not violently
+      const accelerationMagnitude = (repulsionRadius * repulsionRadius) / distSq * GAME_CONFIG.SWARM_SPEED * 8;
+
+      repulsionX += (dx / dist) * accelerationMagnitude;
+      repulsionY += (dy / dist) * accelerationMagnitude;
+    }
+  }
+
+  return { x: repulsionX, y: repulsionY };
+}
+
+/**
  * Update swarm AI decision-making with acceleration-based movement
  */
 export function updateSwarms(
@@ -208,6 +245,11 @@ export function updateSwarms(
     const avoidance = calculateObstacleAvoidance(swarm, obstacles);
     swarm.velocity.x += avoidance.x * deltaTime;
     swarm.velocity.y += avoidance.y * deltaTime;
+
+    // Apply swarm-swarm repulsion (prevent overlap)
+    const repulsion = calculateSwarmRepulsion(swarm, swarms);
+    swarm.velocity.x += repulsion.x * deltaTime;
+    swarm.velocity.y += repulsion.y * deltaTime;
 
     // Clamp to max speed (like players, allow slight overspeed for gravity)
     const velocityMagnitude = Math.sqrt(swarm.velocity.x * swarm.velocity.x + swarm.velocity.y * swarm.velocity.y);
