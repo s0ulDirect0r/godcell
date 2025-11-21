@@ -11,20 +11,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Current State (November 2025)
 
 **What's Built:**
+
+**Core Gameplay:**
 - Real-time multiplayer (Socket.io, 60fps server tick)
-- Digital ocean aesthetic (flowing particles, grid, neon colors)
-- Cyber-cell movement with glowing trails
+- Digital ocean aesthetic with Three.js rendering (flowing particles, grid, neon colors, postprocessing effects)
+- Cyber-cell movement with momentum/inertia physics and glowing trails
 - Nutrient collection and metabolism system
 - Energy decay and starvation mechanics
+- Eva-style energy countdown timer (MM:SS format, color-coded warnings)
 - Evolution system (5 stages: single-cell → multi-cell → cyber-organism → humanoid → godcell)
-- Death/respawn system with session statistics
-- 5 AI bot players with wander/seek behaviors
-- 12 gravity distortion obstacles (mini black holes with inverse-square physics)
-- Risk/reward high-value nutrients
-- Expanded world (4800×3200) with camera follow
+- Death/respawn system with session statistics and manual respawn
+- Expanded world (4800×3200) with stage-based camera zoom
+
+**Stage-Specific Features:**
+- **Single-Cell (Stage 1):**
+  - Basic movement with momentum system
+  - Simple circle sprite (24px radius)
+  - 37.5s survival time without nutrients
+  - Base camera zoom (1.0x)
+
+- **Multi-Cell (Stage 2+):**
+  - Star cluster sprite pattern (6 overlapping circles, 96px radius)
+  - Chemical sensing detection (1800px radius with proximity-based arrows)
+  - Extended viewport (1.5x camera zoom-out)
+  - Improved metabolic efficiency (~2 minutes survival time)
+  - Pseudopod hunting mechanic (contact predation)
+  - Scaled hitboxes matching visual size
+
+**AI & Threats:**
+- 15 AI bot players with intelligent steering behaviors
+- Bot obstacle and swarm avoidance (graduated threat zones)
+- 18 entropy swarms (virus enemies) with chase/patrol AI
+- Swarm contact applies 40% movement slow debuff
+- 12 gravity distortion obstacles (mini black holes with inverse-square physics, instant-death cores)
+- Risk/reward high-value nutrients near obstacles (2x/3x/5x multipliers)
 
 **Tech Stack:**
-- **Client:** TypeScript + Phaser 3 + Vite
+- **Client:** TypeScript + Three.js + Vite + Vitest
 - **Server:** Node.js + Socket.io (server-authoritative) + Pino (logging)
 - **Shared:** Common types and constants in monorepo structure
 - **Issue Tracking:** bd (beads)
@@ -32,7 +55,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Architecture:**
 - Monorepo with workspaces: `client/`, `server/`, `shared/`
 - Server-authoritative game logic (movement, physics, damage, collisions)
-- Client renders state and handles input
+- Client renders state with Three.js and handles input
+- Clean separation: `client/core` (state, events, input, net), `client/render` (Three.js renderer, HUD), `client/ui` (debug overlay)
+- EventBus for client-side event handling
 - 60fps game loop on server, smooth interpolation on client
 
 ### Game Design Philosophy
@@ -45,13 +70,19 @@ This project follows an **emergent, experimental approach**:
 4. **Track discoveries** - Use `discovered-from` dependencies when new work emerges
 5. **Keep it fluid** - This is an experiment in creative process, not production software
 
-### Current Focus: Stage 1 Difficulty
+### Current Focus: Stage 2 Multi-Cell Mechanics
 
-Stage 1 (single-cell) now has:
-- Scarcity pressure (halved nutrients, doubled world size)
-- Environmental hazards (gravity distortions with instant-death cores)
-- Resource competition (5 AI bots competing for nutrients)
-- Risk/reward decisions (high-value nutrients near dangers)
+**Recently Completed:**
+- Stage 1 difficulty tuning (momentum physics, AI improvements, countdown timer)
+- Multi-cell evolution mechanics (size, sprites, detection, viewport scaling)
+- Chemical sensing detection system with proximity-based UI
+- Contact predation and pseudopod hunting
+
+**Current Development:**
+- Pseudopod visual improvements (squiggly tendril animations)
+- NPC prey population for multi-cell hunting grounds
+- Balancing predation mechanics (slow-drain vs instant kill)
+- Stage 3+ features (cyber-organism abilities)
 
 ## Issue Tracking with bd (beads)
 
@@ -115,22 +146,39 @@ cd client && npm run dev
 
 **Multiple players:** Open multiple browser tabs to `http://localhost:5173`
 
-**Bots:** 5 AI bots spawn automatically on server start for testing
+**Bots:** 15 AI bots spawn automatically on server start for testing
 
 ### Code Organization
 
 **Key Files:**
-- `shared/index.ts` - All shared types, interfaces, constants, network messages
-- `server/src/index.ts` - Main game loop, physics, metabolism, collisions (~800 lines)
-- `server/src/bots.ts` - AI bot system with steering behaviors (~300 lines)
-- `client/src/scenes/GameScene.ts` - Phaser game scene, rendering, input (~1000 lines)
+
+**Shared:**
+- `shared/index.ts` - All shared types, interfaces, constants, network messages (~370 lines)
+
+**Server:**
+- `server/src/index.ts` - Main game loop, physics, metabolism, collisions (~1200 lines)
+- `server/src/bots.ts` - AI bot system with steering behaviors and avoidance (~400 lines)
+- `server/src/swarms.ts` - Entropy swarm AI (chase/patrol behaviors) (~300 lines)
+- `server/src/logger.ts` - Pino logging configuration and helpers
+
+**Client:**
+- `client/src/main.ts` - Bootstrap and main update loop
+- `client/src/core/state/GameState.ts` - Client-side game state management
+- `client/src/core/net/SocketManager.ts` - Socket.io connection and message handling
+- `client/src/core/input/InputManager.ts` - Keyboard/mouse input handling
+- `client/src/core/events/EventBus.ts` - Client-side event system
+- `client/src/render/three/ThreeRenderer.ts` - Three.js renderer with postprocessing (~600 lines)
+- `client/src/render/three/postprocessing/composer.ts` - Bloom/glow effects configuration
+- `client/src/render/hud/HUDOverlay.ts` - HUD elements (energy bars, stats, timer)
+- `client/src/ui/DebugOverlay.ts` - Performance metrics and debug info
 
 **Patterns:**
 - Server is authoritative for all game logic
-- Client receives state updates and renders
+- Client receives state updates and renders with Three.js
 - Network messages typed in `shared/index.ts`
 - Constants in `GAME_CONFIG` object (tunable parameters)
-- Position updates at 60fps, energy updates throttled to 10fps
+- Position updates at 60fps, energy/detection updates throttled
+- EventBus mediates communication between client systems
 
 ### Server Logging
 
@@ -185,23 +233,31 @@ tail -20 server/logs/server.log | jq
 **Adding a new game mechanic:**
 1. Add types/constants to `shared/index.ts`
 2. Implement server logic in `server/src/index.ts` or new module
-3. Add client rendering in `client/src/scenes/GameScene.ts`
-4. Test with bots and multiple browser tabs
-5. Tune constants in `GAME_CONFIG`
+3. Add client rendering in `client/src/render/three/ThreeRenderer.ts`
+4. Wire up input handling in `client/src/core/input/InputManager.ts` if needed
+5. Test with bots and multiple browser tabs
+6. Tune constants in `GAME_CONFIG`
 
 **Debugging physics issues:**
 - Check `server/logs/server.log` for event history and patterns
 - Use `grep` to find specific player deaths, crashes, or events
 - Set `LOG_LEVEL=debug` for detailed gravity physics logs
 - Check network messages in browser console
+- Add debug overlay with `?debug` URL parameter
 - Use Plan mode to trace logic step-by-step
 
 **Adding new obstacles/entities:**
 1. Define interface in `shared/index.ts`
 2. Add spawn/update logic on server
-3. Broadcast creation/updates to clients
-4. Render on client with Phaser
-5. Handle cleanup on despawn
+3. Broadcast creation/updates to clients via Socket.io
+4. Add rendering logic in ThreeRenderer (create meshes, update positions)
+5. Handle cleanup on despawn (remove from scene, dispose geometries/materials)
+
+**Testing:**
+- Unit tests: `npm run test` in `client/` workspace (Vitest)
+- Manual testing: Run server + client, open multiple tabs
+- Debug mode: Add `?debug` to URL for performance overlay
+- Bots provide automatic testing of core gameplay loops
 
 ## Git Workflow
 
