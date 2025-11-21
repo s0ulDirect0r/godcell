@@ -479,6 +479,8 @@ export class ThreeRenderer implements Renderer {
           emissiveIntensity: 0.8,
           roughness: 1.0,
           side: THREE.DoubleSide,
+          depthWrite: false,
+          depthTest: false, // Bypass depth testing completely - always render on top
         });
         const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
         group.add(outerSphere);
@@ -579,7 +581,7 @@ export class ThreeRenderer implements Renderer {
         // Random phase offset for pulsing (so swarms don't pulse in sync)
         this.swarmPulsePhase.set(id, Math.random() * Math.PI * 2);
 
-        group.position.set(swarm.position.x, swarm.position.y, -0.3);
+        group.position.set(swarm.position.x, swarm.position.y, 0.2); // Same depth as players (avoid z-fighting)
 
         this.scene.add(group);
         this.swarmMeshes.set(id, group);
