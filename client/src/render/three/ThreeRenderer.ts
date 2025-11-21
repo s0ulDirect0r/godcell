@@ -33,6 +33,7 @@ export class ThreeRenderer implements Renderer {
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
+  private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for swarm particles
 
   // Trails (using tube geometry for thick ribbons)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
@@ -181,6 +182,9 @@ export class ThreeRenderer implements Renderer {
 
     // Interpolate swarm positions
     this.interpolateSwarms();
+
+    // Animate swarm particles
+    this.updateSwarmParticles(dt);
 
     // Update trails
     this.updateTrails(state);
@@ -420,6 +424,7 @@ export class ThreeRenderer implements Renderer {
         });
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
+        this.swarmParticleData.delete(id); // Clean up particle animation data
       }
     });
 
@@ -445,31 +450,38 @@ export class ThreeRenderer implements Renderer {
         const particleCount = 30;
         const particleGeometry = new THREE.BufferGeometry();
         const positions = new Float32Array(particleCount * 3);
-        const sizes = new Float32Array(particleCount);
 
-        // Scatter particles around swarm
+        // Store animation data for each particle (angle, radius, rotation speed)
+        const particleAnimData: Array<{ angle: number; radius: number; speed: number }> = [];
+
+        // Scatter particles around swarm with animation data
         for (let i = 0; i < particleCount; i++) {
           const angle = Math.random() * Math.PI * 2;
-          const radius = Math.random() * swarm.size * 1.2;
+          const radius = (Math.random() * 0.5 + 0.7) * swarm.size; // 0.7-1.2x radius
+          const speed = (Math.random() - 0.5) * 2; // Random rotation speed (-1 to 1 rad/s)
+
           positions[i * 3] = Math.cos(angle) * radius;
           positions[i * 3 + 1] = Math.sin(angle) * radius;
           positions[i * 3 + 2] = 0;
-          sizes[i] = Math.random() * 2 + 1;
+
+          particleAnimData.push({ angle, radius, speed });
         }
 
         particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
         const particleMaterial = new THREE.PointsMaterial({
           color: 0xff0088,
-          size: 2,
+          size: 6, // Bigger particles
           transparent: true,
-          opacity: 0.8,
+          opacity: 0.7,
           sizeAttenuation: false,
         });
 
         const particles = new THREE.Points(particleGeometry, particleMaterial);
         group.add(particles);
+
+        // Store particle animation data
+        this.swarmParticleData.set(id, particleAnimData);
 
         group.position.set(swarm.position.x, swarm.position.y, -0.3);
 
@@ -484,12 +496,17 @@ export class ThreeRenderer implements Renderer {
       // Update color based on state (get the mesh child from the group)
       const mesh = group.children[0] as THREE.Mesh;
       const material = mesh.material as THREE.MeshBasicMaterial;
+      const particles = group.children[1] as THREE.Points;
+      const particleMaterial = particles.material as THREE.PointsMaterial;
+
       if (swarm.state === 'chase') {
         material.color.setHex(0xff0044);
         material.opacity = 0.8;
+        particleMaterial.color.setHex(0xff0044);
       } else {
         material.color.setHex(0xff0088);
         material.opacity = 0.6;
+        particleMaterial.color.setHex(0xff0088);
       }
     });
   }
@@ -503,6 +520,36 @@ export class ThreeRenderer implements Renderer {
         group.position.x += (target.x - group.position.x) * lerpFactor;
         group.position.y += (target.y - group.position.y) * lerpFactor;
       }
+    });
+  }
+
+  private updateSwarmParticles(dt: number): void {
+    const deltaSeconds = dt / 1000;
+
+    this.swarmMeshes.forEach((group, id) => {
+      const particleAnimData = this.swarmParticleData.get(id);
+      if (!particleAnimData) return;
+
+      // Get the particles mesh (second child of the group)
+      const particles = group.children[1] as THREE.Points;
+      if (!particles) return;
+
+      const positions = particles.geometry.attributes.position.array as Float32Array;
+
+      // Update each particle position based on rotation
+      for (let i = 0; i < particleAnimData.length; i++) {
+        const data = particleAnimData[i];
+
+        // Rotate the particle around the swarm center
+        data.angle += data.speed * deltaSeconds;
+
+        // Update position based on new angle
+        positions[i * 3] = Math.cos(data.angle) * data.radius;
+        positions[i * 3 + 1] = Math.sin(data.angle) * data.radius;
+      }
+
+      // Mark positions as needing update
+      particles.geometry.attributes.position.needsUpdate = true;
     });
   }
 
@@ -960,6 +1007,7 @@ export class ThreeRenderer implements Renderer {
       (mesh.material as THREE.Material).dispose();
     });
     this.swarmMeshes.clear();
+    this.swarmParticleData.clear(); // Clean up particle animation data
 
     // Clean up particle system
     if (this.dataParticles) {
