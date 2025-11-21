@@ -30,12 +30,14 @@ export class ThreeRenderer implements Renderer {
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
   private playerMeshes: Map<string, THREE.Mesh> = new Map();
+  private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
-  private swarmMeshes: Map<string, THREE.Mesh> = new Map();
+  private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
+  private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for swarm particles
 
-  // Trails (using efficient BufferGeometry)
+  // Trails (using tube geometry for thick ribbons)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
-  private playerTrailLines: Map<string, THREE.Line> = new Map();
+  private playerTrailLines: Map<string, THREE.Mesh> = new Map();
 
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
@@ -43,6 +45,14 @@ export class ThreeRenderer implements Renderer {
   // Background particles (using efficient Points system)
   private dataParticles!: THREE.Points;
   private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
+
+  // Death animations (particle bursts)
+  private deathAnimations: Array<{
+    particles: THREE.Points;
+    particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }>;
+    startTime: number;
+    duration: number;
+  }> = [];
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -93,8 +103,35 @@ export class ThreeRenderer implements Renderer {
   }
 
   private setupEventListeners(): void {
-    // No event listeners needed for now
-    // Camera shake is triggered by health changes in render loop
+    // Import eventBus for death animations
+    import('../../core/events/EventBus').then(({ eventBus }) => {
+      eventBus.on('playerDied', (event) => {
+        // Get the player's last known position and color before they're removed
+        const player = this.playerMeshes.get(event.playerId);
+        if (player) {
+          const position = { x: player.position.x, y: player.position.y };
+          const material = player.material as THREE.MeshStandardMaterial;
+          const color = material.color.getHex();
+          this.spawnDeathParticles(position.x, position.y, color);
+
+          // Immediately remove player mesh, outline, and trail
+          this.scene.remove(player);
+          this.playerMeshes.delete(event.playerId);
+
+          const outline = this.playerOutlines.get(event.playerId);
+          if (outline) {
+            this.scene.remove(outline);
+            this.playerOutlines.delete(event.playerId);
+          }
+
+          const trail = this.playerTrailLines.get(event.playerId);
+          if (trail) {
+            this.scene.remove(trail);
+            this.playerTrailLines.delete(event.playerId);
+          }
+        }
+      });
+    });
   }
 
   // ============================================
@@ -134,6 +171,9 @@ export class ThreeRenderer implements Renderer {
     // Update background particles
     this.updateDataParticles(dt);
 
+    // Update death animations
+    this.updateDeathAnimations(dt);
+
     // Sync all entities
     this.syncPlayers(state);
     this.syncNutrients(state);
@@ -142,6 +182,9 @@ export class ThreeRenderer implements Renderer {
 
     // Interpolate swarm positions
     this.interpolateSwarms();
+
+    // Animate swarm particles
+    this.updateSwarmParticles(dt);
 
     // Update trails
     this.updateTrails(state);
@@ -369,47 +412,101 @@ export class ThreeRenderer implements Renderer {
 
   private syncSwarms(state: GameState): void {
     // Remove swarms that no longer exist
-    this.swarmMeshes.forEach((mesh, id) => {
+    this.swarmMeshes.forEach((group, id) => {
       if (!state.swarms.has(id)) {
-        this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+        this.scene.remove(group);
+        // Dispose all children
+        group.children.forEach(child => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
+        this.swarmParticleData.delete(id); // Clean up particle animation data
       }
     });
 
     // Add or update swarms
     state.swarms.forEach((swarm, id) => {
-      let mesh = this.swarmMeshes.get(id);
+      let group = this.swarmMeshes.get(id);
 
-      if (!mesh) {
-        // Create swarm mesh (circle with outline)
+      if (!group) {
+        // Create swarm group (circle + particles for glitch/viral effect)
+        group = new THREE.Group();
+
+        // Main circle body
         const geometry = new THREE.CircleGeometry(swarm.size, 32);
         const material = new THREE.MeshBasicMaterial({
           color: 0xff0088,
           transparent: true,
           opacity: 0.6
         });
-        mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(swarm.position.x, swarm.position.y, -0.3);
+        const mesh = new THREE.Mesh(geometry, material);
+        group.add(mesh);
 
-        this.scene.add(mesh);
-        this.swarmMeshes.set(id, mesh);
+        // Particle system for glitch/static effect
+        const particleCount = 30;
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+
+        // Store animation data for each particle (angle, radius, rotation speed)
+        const particleAnimData: Array<{ angle: number; radius: number; speed: number }> = [];
+
+        // Scatter particles around swarm with animation data
+        for (let i = 0; i < particleCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = (Math.random() * 0.5 + 0.7) * swarm.size; // 0.7-1.2x radius
+          const speed = (Math.random() - 0.5) * 2; // Random rotation speed (-1 to 1 rad/s)
+
+          positions[i * 3] = Math.cos(angle) * radius;
+          positions[i * 3 + 1] = Math.sin(angle) * radius;
+          positions[i * 3 + 2] = 0;
+
+          particleAnimData.push({ angle, radius, speed });
+        }
+
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+        const particleMaterial = new THREE.PointsMaterial({
+          color: 0xff0088,
+          size: 6, // Bigger particles
+          transparent: true,
+          opacity: 0.7,
+          sizeAttenuation: false,
+        });
+
+        const particles = new THREE.Points(particleGeometry, particleMaterial);
+        group.add(particles);
+
+        // Store particle animation data
+        this.swarmParticleData.set(id, particleAnimData);
+
+        group.position.set(swarm.position.x, swarm.position.y, -0.3);
+
+        this.scene.add(group);
+        this.swarmMeshes.set(id, group);
         this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
       }
 
       // Update target position for interpolation
       this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
 
-      // Update color based on state
+      // Update color based on state (get the mesh child from the group)
+      const mesh = group.children[0] as THREE.Mesh;
       const material = mesh.material as THREE.MeshBasicMaterial;
+      const particles = group.children[1] as THREE.Points;
+      const particleMaterial = particles.material as THREE.PointsMaterial;
+
       if (swarm.state === 'chase') {
         material.color.setHex(0xff0044);
         material.opacity = 0.8;
+        particleMaterial.color.setHex(0xff0044);
       } else {
         material.color.setHex(0xff0088);
         material.opacity = 0.6;
+        particleMaterial.color.setHex(0xff0088);
       }
     });
   }
@@ -417,12 +514,42 @@ export class ThreeRenderer implements Renderer {
   private interpolateSwarms(): void {
     const lerpFactor = 0.3;
 
-    this.swarmMeshes.forEach((mesh, id) => {
+    this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
       if (target) {
-        mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
-        mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+        group.position.x += (target.x - group.position.x) * lerpFactor;
+        group.position.y += (target.y - group.position.y) * lerpFactor;
       }
+    });
+  }
+
+  private updateSwarmParticles(dt: number): void {
+    const deltaSeconds = dt / 1000;
+
+    this.swarmMeshes.forEach((group, id) => {
+      const particleAnimData = this.swarmParticleData.get(id);
+      if (!particleAnimData) return;
+
+      // Get the particles mesh (second child of the group)
+      const particles = group.children[1] as THREE.Points;
+      if (!particles) return;
+
+      const positions = particles.geometry.attributes.position.array as Float32Array;
+
+      // Update each particle position based on rotation
+      for (let i = 0; i < particleAnimData.length; i++) {
+        const data = particleAnimData[i];
+
+        // Rotate the particle around the swarm center
+        data.angle += data.speed * deltaSeconds;
+
+        // Update position based on new angle
+        positions[i * 3] = Math.cos(data.angle) * data.radius;
+        positions[i * 3 + 1] = Math.sin(data.angle) * data.radius;
+      }
+
+      // Mark positions as needing update
+      particles.geometry.attributes.position.needsUpdate = true;
     });
   }
 
@@ -489,12 +616,20 @@ export class ThreeRenderer implements Renderer {
         // Don't dispose cached geometry
         // Material is disposed in materialCache during dispose()
         this.playerMeshes.delete(id);
+
+        // Also remove outline if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          this.scene.remove(outline);
+          this.playerOutlines.delete(id);
+        }
       }
     });
 
     // Add or update players
     state.players.forEach((player, id) => {
       let mesh = this.playerMeshes.get(id);
+      const isMyPlayer = id === state.myPlayerId;
 
       if (!mesh) {
         // Create player mesh with cached geometry and emissive material
@@ -515,6 +650,24 @@ export class ThreeRenderer implements Renderer {
         mesh = new THREE.Mesh(geometry, material);
         this.scene.add(mesh);
         this.playerMeshes.set(id, mesh);
+
+        // Add white stroke outline for client player
+        if (isMyPlayer) {
+          const outlineGeometry = this.getGeometry('ring-outline', () =>
+            new THREE.RingGeometry(GAME_CONFIG.PLAYER_SIZE, GAME_CONFIG.PLAYER_SIZE + 3, 32)
+          );
+          const outlineMaterial = this.getMaterial('outline-white', () =>
+            new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.8,
+            })
+          );
+          const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+          outline.position.z = 0.1; // Slightly above player
+          this.scene.add(outline);
+          this.playerOutlines.set(id, outline);
+        }
       }
 
       // Update position with client-side interpolation
@@ -524,15 +677,29 @@ export class ThreeRenderer implements Renderer {
         const lerpFactor = 0.3;
         mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
         mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+
+        // Update outline position if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          outline.position.x = mesh.position.x;
+          outline.position.y = mesh.position.y;
+        }
       } else {
         // Fallback to direct position if no target
         mesh.position.set(player.position.x, player.position.y, 0);
+
+        // Update outline position if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          outline.position.set(player.position.x, player.position.y, 0.1);
+        }
       }
     });
   }
 
   private updateTrails(state: GameState): void {
-    const maxTrailLength = 60;
+    const maxTrailLength = 50; // Trail point history
+    const maxWidth = 20; // Maximum width at head
 
     state.players.forEach((player, id) => {
       // Get or create trail points array
@@ -553,49 +720,226 @@ export class ThreeRenderer implements Renderer {
         trailPoints.shift();
       }
 
-      // Get or create trail line
-      let trailLine = this.playerTrailLines.get(id);
-      if (!trailLine) {
+      // Get or create trail mesh
+      let trailMesh = this.playerTrailLines.get(id);
+      if (!trailMesh) {
         const geometry = new THREE.BufferGeometry();
         const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const material = new THREE.LineBasicMaterial({
+        const material = new THREE.MeshBasicMaterial({
           color: colorHex,
           transparent: true,
-          opacity: 0.6,
-          linewidth: 3, // Note: linewidth only works in some browsers/WebGL implementations
+          opacity: 1,
+          side: THREE.DoubleSide,
+          vertexColors: true,
         });
-        trailLine = new THREE.Line(geometry, material);
-        trailLine.position.z = -0.5;
-        this.scene.add(trailLine);
-        this.playerTrailLines.set(id, trailLine);
+        trailMesh = new THREE.Mesh(geometry, material);
+        trailMesh.position.z = -0.5;
+        this.scene.add(trailMesh);
+        this.playerTrailLines.set(id, trailMesh);
       }
 
-      // Update trail line geometry with current points
-      if (trailPoints.length > 1) {
-        const positions = new Float32Array(trailPoints.length * 3);
+      // Create tapered ribbon geometry
+      if (trailPoints.length >= 2) {
+        const vertexCount = trailPoints.length * 2; // Two vertices per point (top and bottom of ribbon)
+        const positions = new Float32Array(vertexCount * 3);
+        const colors = new Float32Array(vertexCount * 3);
+        const indices: number[] = [];
+
+        const colorHex = parseInt(player.color.replace('#', ''), 16);
+        const r = ((colorHex >> 16) & 255) / 255;
+        const g = ((colorHex >> 8) & 255) / 255;
+        const b = (colorHex & 255) / 255;
+
         for (let i = 0; i < trailPoints.length; i++) {
-          positions[i * 3] = trailPoints[i].x;
-          positions[i * 3 + 1] = trailPoints[i].y;
-          positions[i * 3 + 2] = 0;
+          const point = trailPoints[i];
+
+          // Calculate width taper: thick at newest (i=length-1), thin at oldest (i=0)
+          const age = i / (trailPoints.length - 1); // 0 = oldest, 1 = newest
+          const width = maxWidth * age; // Taper from 0 to maxWidth
+
+          // Calculate opacity fade
+          const opacity = Math.pow(age, 1.5); // Fade from transparent to bright
+
+          // Get perpendicular direction for ribbon width
+          let perpX = 0, perpY = 1;
+          if (i < trailPoints.length - 1) {
+            const next = trailPoints[i + 1];
+            const dx = next.x - point.x;
+            const dy = next.y - point.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+              perpX = -dy / len;
+              perpY = dx / len;
+            }
+          } else if (i > 0) {
+            const prev = trailPoints[i - 1];
+            const dx = point.x - prev.x;
+            const dy = point.y - prev.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+              perpX = -dy / len;
+              perpY = dx / len;
+            }
+          }
+
+          // Create two vertices (top and bottom of ribbon)
+          const idx = i * 2;
+
+          // Top vertex
+          positions[idx * 3] = point.x + perpX * width;
+          positions[idx * 3 + 1] = point.y + perpY * width;
+          positions[idx * 3 + 2] = 0;
+
+          colors[idx * 3] = r;
+          colors[idx * 3 + 1] = g;
+          colors[idx * 3 + 2] = b;
+
+          // Bottom vertex
+          positions[(idx + 1) * 3] = point.x - perpX * width;
+          positions[(idx + 1) * 3 + 1] = point.y - perpY * width;
+          positions[(idx + 1) * 3 + 2] = 0;
+
+          colors[(idx + 1) * 3] = r * opacity;
+          colors[(idx + 1) * 3 + 1] = g * opacity;
+          colors[(idx + 1) * 3 + 2] = b * opacity;
+
+          // Create triangle indices for ribbon
+          if (i < trailPoints.length - 1) {
+            const current = i * 2;
+            const next = (i + 1) * 2;
+
+            // Two triangles per segment
+            indices.push(current, next, current + 1);
+            indices.push(next, next + 1, current + 1);
+          }
         }
-        trailLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        trailLine.geometry.computeBoundingSphere();
+
+        trailMesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        trailMesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        trailMesh.geometry.setIndex(indices);
+        trailMesh.geometry.computeBoundingSphere();
       }
     });
 
     // Clean up trails for disconnected players
     this.playerTrailPoints.forEach((_, id) => {
       if (!state.players.has(id)) {
-        const line = this.playerTrailLines.get(id);
-        if (line) {
-          this.scene.remove(line);
-          line.geometry.dispose();
-          (line.material as THREE.Material).dispose();
+        const mesh = this.playerTrailLines.get(id);
+        if (mesh) {
+          this.scene.remove(mesh);
+          mesh.geometry.dispose();
+          (mesh.material as THREE.Material).dispose();
           this.playerTrailLines.delete(id);
         }
         this.playerTrailPoints.delete(id);
       }
     });
+  }
+
+  private spawnDeathParticles(x: number, y: number, colorHex: number): void {
+    const particleCount = 30;
+    const duration = 800; // 0.8 seconds
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Random angle for radial burst
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 200; // pixels per second
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = 0.2; // Above everything else
+
+      sizes[i] = 3 + Math.random() * 4;
+
+      particleData.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0, // Start at full life
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: colorHex,
+      size: 4,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.deathAnimations.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+    });
+  }
+
+  private updateDeathAnimations(dt: number): void {
+    const deltaSeconds = dt / 1000;
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.deathAnimations.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions and fade
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Move particle
+        p.x += p.vx * deltaSeconds;
+        p.y += p.vy * deltaSeconds;
+
+        // Update geometry position
+        positions[i * 3] = p.x;
+        positions[i * 3 + 1] = p.y;
+
+        // Fade out life
+        p.life = 1 - progress;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Update material opacity for fade out
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = 1 - progress;
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.deathAnimations[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.deathAnimations.splice(index, 1);
+    }
   }
 
   resize(width: number, height: number): void {
@@ -663,6 +1007,7 @@ export class ThreeRenderer implements Renderer {
       (mesh.material as THREE.Material).dispose();
     });
     this.swarmMeshes.clear();
+    this.swarmParticleData.clear(); // Clean up particle animation data
 
     // Clean up particle system
     if (this.dataParticles) {
@@ -673,6 +1018,14 @@ export class ThreeRenderer implements Renderer {
         material.map.dispose();
       }
     }
+
+    // Clean up death animations
+    this.deathAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.deathAnimations = [];
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());

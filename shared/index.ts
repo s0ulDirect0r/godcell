@@ -247,7 +247,7 @@ export const GAME_CONFIG = {
   // Movement
   PLAYER_SPEED: 336, // Pixels per second (tuned for feel with momentum system)
   PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
-  MOVEMENT_FRICTION: 0.85, // Velocity decay per second (0 = instant stop, 1 = no friction)
+  MOVEMENT_FRICTION: 0.70, // Velocity decay per second (0 = instant stop, 1 = no friction) - Lowered for tighter handling
 
   // World dimensions
   WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
