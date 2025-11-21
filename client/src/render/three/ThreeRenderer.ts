@@ -30,8 +30,9 @@ export class ThreeRenderer implements Renderer {
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
   private playerMeshes: Map<string, THREE.Mesh> = new Map();
+  private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
-  private swarmMeshes: Map<string, THREE.Mesh> = new Map();
+  private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
 
   // Trails (using efficient BufferGeometry)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
@@ -369,11 +370,16 @@ export class ThreeRenderer implements Renderer {
 
   private syncSwarms(state: GameState): void {
     // Remove swarms that no longer exist
-    this.swarmMeshes.forEach((mesh, id) => {
+    this.swarmMeshes.forEach((group, id) => {
       if (!state.swarms.has(id)) {
-        this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
+        this.scene.remove(group);
+        // Dispose all children
+        group.children.forEach(child => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
       }
@@ -381,28 +387,64 @@ export class ThreeRenderer implements Renderer {
 
     // Add or update swarms
     state.swarms.forEach((swarm, id) => {
-      let mesh = this.swarmMeshes.get(id);
+      let group = this.swarmMeshes.get(id);
 
-      if (!mesh) {
-        // Create swarm mesh (circle with outline)
+      if (!group) {
+        // Create swarm group (circle + particles for glitch/viral effect)
+        group = new THREE.Group();
+
+        // Main circle body
         const geometry = new THREE.CircleGeometry(swarm.size, 32);
         const material = new THREE.MeshBasicMaterial({
           color: 0xff0088,
           transparent: true,
           opacity: 0.6
         });
-        mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(swarm.position.x, swarm.position.y, -0.3);
+        const mesh = new THREE.Mesh(geometry, material);
+        group.add(mesh);
 
-        this.scene.add(mesh);
-        this.swarmMeshes.set(id, mesh);
+        // Particle system for glitch/static effect
+        const particleCount = 30;
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const sizes = new Float32Array(particleCount);
+
+        // Scatter particles around swarm
+        for (let i = 0; i < particleCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * swarm.size * 1.2;
+          positions[i * 3] = Math.cos(angle) * radius;
+          positions[i * 3 + 1] = Math.sin(angle) * radius;
+          positions[i * 3 + 2] = 0;
+          sizes[i] = Math.random() * 2 + 1;
+        }
+
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const particleMaterial = new THREE.PointsMaterial({
+          color: 0xff0088,
+          size: 2,
+          transparent: true,
+          opacity: 0.8,
+          sizeAttenuation: false,
+        });
+
+        const particles = new THREE.Points(particleGeometry, particleMaterial);
+        group.add(particles);
+
+        group.position.set(swarm.position.x, swarm.position.y, -0.3);
+
+        this.scene.add(group);
+        this.swarmMeshes.set(id, group);
         this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
       }
 
       // Update target position for interpolation
       this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
 
-      // Update color based on state
+      // Update color based on state (get the mesh child from the group)
+      const mesh = group.children[0] as THREE.Mesh;
       const material = mesh.material as THREE.MeshBasicMaterial;
       if (swarm.state === 'chase') {
         material.color.setHex(0xff0044);
@@ -417,11 +459,11 @@ export class ThreeRenderer implements Renderer {
   private interpolateSwarms(): void {
     const lerpFactor = 0.3;
 
-    this.swarmMeshes.forEach((mesh, id) => {
+    this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
       if (target) {
-        mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
-        mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+        group.position.x += (target.x - group.position.x) * lerpFactor;
+        group.position.y += (target.y - group.position.y) * lerpFactor;
       }
     });
   }
@@ -489,12 +531,20 @@ export class ThreeRenderer implements Renderer {
         // Don't dispose cached geometry
         // Material is disposed in materialCache during dispose()
         this.playerMeshes.delete(id);
+
+        // Also remove outline if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          this.scene.remove(outline);
+          this.playerOutlines.delete(id);
+        }
       }
     });
 
     // Add or update players
     state.players.forEach((player, id) => {
       let mesh = this.playerMeshes.get(id);
+      const isMyPlayer = id === state.myPlayerId;
 
       if (!mesh) {
         // Create player mesh with cached geometry and emissive material
@@ -515,6 +565,24 @@ export class ThreeRenderer implements Renderer {
         mesh = new THREE.Mesh(geometry, material);
         this.scene.add(mesh);
         this.playerMeshes.set(id, mesh);
+
+        // Add white stroke outline for client player
+        if (isMyPlayer) {
+          const outlineGeometry = this.getGeometry('ring-outline', () =>
+            new THREE.RingGeometry(GAME_CONFIG.PLAYER_SIZE, GAME_CONFIG.PLAYER_SIZE + 3, 32)
+          );
+          const outlineMaterial = this.getMaterial('outline-white', () =>
+            new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.8,
+            })
+          );
+          const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+          outline.position.z = 0.1; // Slightly above player
+          this.scene.add(outline);
+          this.playerOutlines.set(id, outline);
+        }
       }
 
       // Update position with client-side interpolation
@@ -524,9 +592,22 @@ export class ThreeRenderer implements Renderer {
         const lerpFactor = 0.3;
         mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
         mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+
+        // Update outline position if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          outline.position.x = mesh.position.x;
+          outline.position.y = mesh.position.y;
+        }
       } else {
         // Fallback to direct position if no target
         mesh.position.set(player.position.x, player.position.y, 0);
+
+        // Update outline position if it exists
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          outline.position.set(player.position.x, player.position.y, 0.1);
+        }
       }
     });
   }
