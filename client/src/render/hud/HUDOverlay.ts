@@ -9,10 +9,6 @@ import type { DeathCause } from '@godcell/shared';
 
 export class HUDOverlay {
   private container: HTMLDivElement;
-  private healthBarFill!: HTMLDivElement;
-  private healthBarText!: HTMLDivElement;
-  private energyBarFill!: HTMLDivElement;
-  private energyBarText!: HTMLDivElement;
   private countdown!: HTMLDivElement;
   private deathOverlay?: HTMLElement;
   private gameState?: GameState;
@@ -45,101 +41,9 @@ export class HUDOverlay {
       document.body.appendChild(this.container);
     }
 
-    this.createBars();
     this.createCountdown();
     this.setupDeathOverlay();
     this.setupEventHandlers();
-  }
-
-  private createBars(): void {
-    const barsContainer = document.createElement('div');
-    barsContainer.style.cssText = `
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      width: 200px;
-    `;
-
-    // Health bar
-    const healthBarBg = document.createElement('div');
-    healthBarBg.style.cssText = `
-      width: 100%;
-      height: 20px;
-      background: rgba(255, 0, 0, 0.3);
-      border: 2px solid #ff0000;
-      margin-bottom: 10px;
-      position: relative;
-    `;
-    this.healthBarFill = document.createElement('div');
-    this.healthBarFill.style.cssText = `
-      width: 100%;
-      height: 100%;
-      background: #ff0000;
-      transition: width 0.1s;
-    `;
-    healthBarBg.appendChild(this.healthBarFill);
-
-    // Health bar text overlay
-    this.healthBarText = document.createElement('div');
-    this.healthBarText.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-      text-shadow: 1px 1px 2px black;
-      pointer-events: none;
-      z-index: 1;
-    `;
-    healthBarBg.appendChild(this.healthBarText);
-
-    // Energy bar
-    const energyBarBg = document.createElement('div');
-    energyBarBg.style.cssText = `
-      width: 100%;
-      height: 20px;
-      background: rgba(0, 255, 255, 0.3);
-      border: 2px solid #00ffff;
-      position: relative;
-    `;
-    this.energyBarFill = document.createElement('div');
-    this.energyBarFill.style.cssText = `
-      width: 100%;
-      height: 100%;
-      background: #00ffff;
-      transition: width 0.1s;
-    `;
-    energyBarBg.appendChild(this.energyBarFill);
-
-    // Energy bar text overlay
-    this.energyBarText = document.createElement('div');
-    this.energyBarText.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-      text-shadow: 1px 1px 2px black;
-      pointer-events: none;
-      z-index: 1;
-    `;
-    energyBarBg.appendChild(this.energyBarText);
-
-    barsContainer.appendChild(healthBarBg);
-    barsContainer.appendChild(energyBarBg);
-    this.container.appendChild(barsContainer);
   }
 
   private createCountdown(): void {
@@ -221,16 +125,6 @@ export class HUDOverlay {
 
     const myPlayer = state.getMyPlayer();
     if (!myPlayer) return;
-
-    // Update health bar (clamp to 0-100%)
-    const healthPercent = Math.max(0, Math.min(100, (myPlayer.health / myPlayer.maxHealth) * 100));
-    this.healthBarFill.style.width = `${healthPercent}%`;
-    this.healthBarText.textContent = `${Math.ceil(myPlayer.health)}/${myPlayer.maxHealth}`;
-
-    // Update energy bar (clamp to 0-100%)
-    const energyPercent = Math.max(0, Math.min(100, (myPlayer.energy / myPlayer.maxEnergy) * 100));
-    this.energyBarFill.style.width = `${energyPercent}%`;
-    this.energyBarText.textContent = `${Math.ceil(myPlayer.energy)}/${myPlayer.maxEnergy}`;
 
     // Update countdown (time until starvation)
     const decayRate = this.getStageDecayRate(myPlayer.stage);
