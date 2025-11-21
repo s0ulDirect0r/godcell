@@ -833,8 +833,18 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Update nucleus brightness based on energy (diegetic UI)
-      this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy);
+      // Update nucleus brightness based on energy and health (diegetic UI)
+      this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth);
+
+      // Update outline opacity for client player based on health
+      if (isMyPlayer) {
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          const healthRatio = player.health / player.maxHealth;
+          const outlineMaterial = outline.material as THREE.MeshBasicMaterial;
+          outlineMaterial.opacity = 0.5 + healthRatio * 0.5; // 0.5-1.0 based on health
+        }
+      }
 
       // Update position with client-side interpolation
       const target = state.playerTargets.get(id);
@@ -864,12 +874,13 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Update cell visual state based on energy (diegetic UI)
-   * High energy = bright nucleus, visible cytoplasm jelly
-   * Low energy = dim nucleus, faded cytoplasm
+   * Update cell visual state based on energy and health (diegetic UI)
+   * Energy affects cytoplasm/organelles brightness
+   * Health affects nucleus opacity (fades as health drops)
    */
-  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number): void {
+  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, health: number, maxHealth: number): void {
     const energyRatio = energy / maxEnergy;
+    const healthRatio = health / maxHealth;
 
     // Get cell components (membrane, cytoplasm, organelles, nucleus)
     const membrane = cellGroup.children[0] as THREE.Mesh;
@@ -881,6 +892,10 @@ export class ThreeRenderer implements Renderer {
     const cytoplasmMaterial = cytoplasm.material as THREE.ShaderMaterial;
     const organelleMaterial = organelles.material as THREE.PointsMaterial;
     const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
+
+    // Nucleus fades based on health
+    nucleusMaterial.opacity = 0.3 + healthRatio * 0.7; // 0.3-1.0 based on health
+    nucleusMaterial.transparent = true;
 
     // Update based on energy
     if (energyRatio > 0.5) {
