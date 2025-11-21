@@ -32,8 +32,10 @@ export class ThreeRenderer implements Renderer {
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
-  private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
-  private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for swarm particles
+  private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include 3D sphere + particles
+  private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for orbiting particles
+  private swarmInternalParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }>> = new Map(); // Internal storm particles
+  private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
 
   // Trails (using tube geometry for thick ribbons)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
@@ -213,7 +215,7 @@ export class ThreeRenderer implements Renderer {
     this.interpolateSwarms();
 
     // Animate swarm particles
-    this.updateSwarmParticles(dt);
+    this.updateSwarmParticles(state, dt);
 
     // Update trails
     this.updateTrails(state);
@@ -453,7 +455,9 @@ export class ThreeRenderer implements Renderer {
         });
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
-        this.swarmParticleData.delete(id); // Clean up particle animation data
+        this.swarmParticleData.delete(id);
+        this.swarmInternalParticles.delete(id);
+        this.swarmPulsePhase.delete(id);
       }
     });
 
@@ -462,55 +466,118 @@ export class ThreeRenderer implements Renderer {
       let group = this.swarmMeshes.get(id);
 
       if (!group) {
-        // Create swarm group (circle + particles for glitch/viral effect)
+        // Create 3D energy storm swarm group
         group = new THREE.Group();
 
-        // Main circle body
-        const geometry = new THREE.CircleGeometry(swarm.size, 32);
-        const material = new THREE.MeshBasicMaterial({
-          color: 0xff0088,
+        // === OUTER SPHERE (Semi-transparent boundary) ===
+        const outerGeometry = new THREE.SphereGeometry(swarm.size, 32, 32);
+        const outerMaterial = new THREE.MeshPhysicalMaterial({
+          color: 0xff4400, // Red-orange
           transparent: true,
-          opacity: 0.6
+          opacity: 0.3,
+          emissive: 0xff4400,
+          emissiveIntensity: 0.8,
+          roughness: 1.0,
+          side: THREE.DoubleSide,
         });
-        const mesh = new THREE.Mesh(geometry, material);
-        group.add(mesh);
+        const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
+        group.add(outerSphere);
 
-        // Particle system for glitch/static effect
-        const particleCount = 30;
-        const particleGeometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
+        // === INTERNAL PARTICLE STORM ===
+        const internalParticleCount = 200; // 200 particles per swarm
+        const internalGeometry = new THREE.BufferGeometry();
+        const internalPositions = new Float32Array(internalParticleCount * 3);
+        const internalSizes = new Float32Array(internalParticleCount);
 
-        // Store animation data for each particle (angle, radius, rotation speed)
-        const particleAnimData: Array<{ angle: number; radius: number; speed: number }> = [];
+        // Random positions inside sphere with random velocities
+        const internalParticleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }> = [];
 
-        // Scatter particles around swarm with animation data
-        for (let i = 0; i < particleCount; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const radius = (Math.random() * 0.5 + 0.7) * swarm.size; // 0.7-1.2x radius
-          const speed = (Math.random() - 0.5) * 2; // Random rotation speed (-1 to 1 rad/s)
+        for (let i = 0; i < internalParticleCount; i++) {
+          // Random point inside sphere (uniform distribution)
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.random() * Math.PI;
+          const r = Math.cbrt(Math.random()) * swarm.size * 0.9; // Cbrt for uniform volume distribution
 
-          positions[i * 3] = Math.cos(angle) * radius;
-          positions[i * 3 + 1] = Math.sin(angle) * radius;
-          positions[i * 3 + 2] = 0;
+          const x = r * Math.sin(phi) * Math.cos(theta);
+          const y = r * Math.sin(phi) * Math.sin(theta);
+          const z = r * Math.cos(phi);
 
-          particleAnimData.push({ angle, radius, speed });
+          internalPositions[i * 3] = x;
+          internalPositions[i * 3 + 1] = y;
+          internalPositions[i * 3 + 2] = z;
+
+          internalSizes[i] = 1 + Math.random() * 1.5;
+
+          // Random turbulent velocity (higher speeds for visible chaos)
+          const speed = 60 + Math.random() * 80; // 60-140 pixels per second
+          const vTheta = Math.random() * Math.PI * 2;
+          const vPhi = Math.random() * Math.PI;
+
+          internalParticleData.push({
+            x, y, z,
+            vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
+            vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
+            vz: speed * Math.cos(vPhi),
+          });
         }
 
-        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        internalGeometry.setAttribute('position', new THREE.BufferAttribute(internalPositions, 3));
+        internalGeometry.setAttribute('size', new THREE.BufferAttribute(internalSizes, 1));
 
-        const particleMaterial = new THREE.PointsMaterial({
-          color: 0xff0088,
-          size: 6, // Bigger particles
+        const internalMaterial = new THREE.PointsMaterial({
+          color: 0xffaa00, // Bright orange/yellow
+          size: 2,
           transparent: true,
-          opacity: 0.7,
+          opacity: 0.8,
+          sizeAttenuation: false,
+          blending: THREE.AdditiveBlending, // Additive for energy feel
+        });
+
+        const internalStorm = new THREE.Points(internalGeometry, internalMaterial);
+        group.add(internalStorm);
+
+        // Store internal particle data
+        this.swarmInternalParticles.set(id, internalParticleData);
+
+        // === ORBITING PARTICLES (Keep existing system but reduce count) ===
+        const orbitingCount = 6; // Reduced from 30
+        const orbitingGeometry = new THREE.BufferGeometry();
+        const orbitingPositions = new Float32Array(orbitingCount * 3);
+
+        // Store animation data for each orbiting particle (angle, radius, rotation speed)
+        const orbitingAnimData: Array<{ angle: number; radius: number; speed: number }> = [];
+
+        // Scatter particles around swarm with animation data
+        for (let i = 0; i < orbitingCount; i++) {
+          const angle = (i / orbitingCount) * Math.PI * 2; // Evenly spaced
+          const radius = swarm.size * 1.1; // Just outside sphere
+          const speed = (Math.random() - 0.5) * 2; // Random rotation speed (-1 to 1 rad/s)
+
+          orbitingPositions[i * 3] = Math.cos(angle) * radius;
+          orbitingPositions[i * 3 + 1] = Math.sin(angle) * radius;
+          orbitingPositions[i * 3 + 2] = 0;
+
+          orbitingAnimData.push({ angle, radius, speed });
+        }
+
+        orbitingGeometry.setAttribute('position', new THREE.BufferAttribute(orbitingPositions, 3));
+
+        const orbitingMaterial = new THREE.PointsMaterial({
+          color: 0xff0088,
+          size: 8, // Larger particles for orbiting
+          transparent: true,
+          opacity: 0.9,
           sizeAttenuation: false,
         });
 
-        const particles = new THREE.Points(particleGeometry, particleMaterial);
-        group.add(particles);
+        const orbitingParticles = new THREE.Points(orbitingGeometry, orbitingMaterial);
+        group.add(orbitingParticles);
 
-        // Store particle animation data
-        this.swarmParticleData.set(id, particleAnimData);
+        // Store orbiting particle animation data
+        this.swarmParticleData.set(id, orbitingAnimData);
+
+        // Random phase offset for pulsing (so swarms don't pulse in sync)
+        this.swarmPulsePhase.set(id, Math.random() * Math.PI * 2);
 
         group.position.set(swarm.position.x, swarm.position.y, -0.3);
 
@@ -522,20 +589,28 @@ export class ThreeRenderer implements Renderer {
       // Update target position for interpolation
       this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
 
-      // Update color based on state (get the mesh child from the group)
-      const mesh = group.children[0] as THREE.Mesh;
-      const material = mesh.material as THREE.MeshBasicMaterial;
-      const particles = group.children[1] as THREE.Points;
-      const particleMaterial = particles.material as THREE.PointsMaterial;
+      // Update colors and intensity based on state
+      const outerSphere = group.children[0] as THREE.Mesh;
+      const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
+      const internalStorm = group.children[1] as THREE.Points;
+      const internalMaterial = internalStorm.material as THREE.PointsMaterial;
+      const orbitingParticles = group.children[2] as THREE.Points;
+      const orbitingMaterial = orbitingParticles.material as THREE.PointsMaterial;
 
       if (swarm.state === 'chase') {
-        material.color.setHex(0xff0044);
-        material.opacity = 0.8;
-        particleMaterial.color.setHex(0xff0044);
+        // Chase mode: brighter, more aggressive
+        outerMaterial.color.setHex(0xff0044); // Hot red
+        outerMaterial.emissiveIntensity = 1.2;
+        outerMaterial.opacity = 0.45;
+        internalMaterial.color.setHex(0xff6600); // Bright orange-red
+        orbitingMaterial.color.setHex(0xff0044);
       } else {
-        material.color.setHex(0xff0088);
-        material.opacity = 0.6;
-        particleMaterial.color.setHex(0xff0088);
+        // Patrol mode: dimmer, calmer
+        outerMaterial.color.setHex(0xff4400); // Red-orange
+        outerMaterial.emissiveIntensity = 0.8;
+        outerMaterial.opacity = 0.3;
+        internalMaterial.color.setHex(0xffaa00); // Orange-yellow
+        orbitingMaterial.color.setHex(0xff0088);
       }
     });
   }
@@ -552,33 +627,119 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
-  private updateSwarmParticles(dt: number): void {
+  private updateSwarmParticles(state: GameState, dt: number): void {
     const deltaSeconds = dt / 1000;
+    const time = Date.now() * 0.001; // Time in seconds
 
     this.swarmMeshes.forEach((group, id) => {
-      const particleAnimData = this.swarmParticleData.get(id);
-      if (!particleAnimData) return;
+      // Get actual swarm state from game state
+      const swarm = state.swarms.get(id);
+      const swarmState = swarm?.state || 'patrol';
 
-      // Get the particles mesh (second child of the group)
-      const particles = group.children[1] as THREE.Points;
-      if (!particles) return;
+      // === PULSING ANIMATION (Outer Sphere) ===
+      const outerSphere = group.children[0] as THREE.Mesh;
+      const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
+      const pulsePhase = this.swarmPulsePhase.get(id) || 0;
 
-      const positions = particles.geometry.attributes.position.array as Float32Array;
+      // Breathing effect: scale oscillates between 0.95 and 1.05
+      const pulseSpeed = swarmState === 'chase' ? 3.0 : 2.0; // Faster pulse in chase mode
+      const pulseAmount = 0.05;
+      const scale = 1.0 + Math.sin(time * pulseSpeed + pulsePhase) * pulseAmount;
+      outerSphere.scale.set(scale, scale, scale);
 
-      // Update each particle position based on rotation
-      for (let i = 0; i < particleAnimData.length; i++) {
-        const data = particleAnimData[i];
+      // Flicker emissive intensity for unstable energy feel
+      const baseIntensity = swarmState === 'chase' ? 1.2 : 0.8;
+      const flickerAmount = 0.2;
+      outerMaterial.emissiveIntensity = baseIntensity + Math.sin(time * 5 + pulsePhase) * flickerAmount;
 
-        // Rotate the particle around the swarm center
-        data.angle += data.speed * deltaSeconds;
+      // === INTERNAL PARTICLE STORM ===
+      const internalStorm = group.children[1] as THREE.Points;
+      const internalParticleData = this.swarmInternalParticles.get(id);
+      if (internalStorm && internalParticleData) {
+        const positions = internalStorm.geometry.attributes.position.array as Float32Array;
 
-        // Update position based on new angle
-        positions[i * 3] = Math.cos(data.angle) * data.radius;
-        positions[i * 3 + 1] = Math.sin(data.angle) * data.radius;
+        // Get swarm size from outer sphere geometry
+        const swarmSize = (outerSphere.geometry as THREE.SphereGeometry).parameters.radius;
+        const speedMultiplier = swarmState === 'chase' ? 1.5 : 1.0;
+
+        // Update each internal particle with turbulent motion
+        for (let i = 0; i < internalParticleData.length; i++) {
+          const p = internalParticleData[i];
+
+          // Apply velocity
+          p.x += p.vx * deltaSeconds * speedMultiplier;
+          p.y += p.vy * deltaSeconds * speedMultiplier;
+          p.z += p.vz * deltaSeconds * speedMultiplier;
+
+          // Distance from center
+          const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+
+          // Bounce particles inside sphere (elastic collision with boundary)
+          if (dist > swarmSize * 0.85) {
+            // Reflect velocity (bounce off boundary)
+            const nx = p.x / dist;
+            const ny = p.y / dist;
+            const nz = p.z / dist;
+
+            // Dot product of velocity and normal
+            const dot = p.vx * nx + p.vy * ny + p.vz * nz;
+
+            // Reflect velocity
+            p.vx -= 2 * dot * nx;
+            p.vy -= 2 * dot * ny;
+            p.vz -= 2 * dot * nz;
+
+            // Push particle back inside
+            const pushBack = swarmSize * 0.85;
+            p.x = nx * pushBack;
+            p.y = ny * pushBack;
+            p.z = nz * pushBack;
+          }
+
+          // Add turbulence (random acceleration for chaotic motion)
+          const turbulence = 150 * speedMultiplier;
+          p.vx += (Math.random() - 0.5) * turbulence * deltaSeconds;
+          p.vy += (Math.random() - 0.5) * turbulence * deltaSeconds;
+          p.vz += (Math.random() - 0.5) * turbulence * deltaSeconds;
+
+          // Damping to prevent runaway speeds but keep it energetic
+          const damping = 0.99;
+          p.vx *= damping;
+          p.vy *= damping;
+          p.vz *= damping;
+
+          // Update geometry positions
+          positions[i * 3] = p.x;
+          positions[i * 3 + 1] = p.y;
+          positions[i * 3 + 2] = p.z;
+        }
+
+        // Mark positions as needing update
+        internalStorm.geometry.attributes.position.needsUpdate = true;
       }
 
-      // Mark positions as needing update
-      particles.geometry.attributes.position.needsUpdate = true;
+      // === ORBITING PARTICLES ===
+      const orbitingParticles = group.children[2] as THREE.Points;
+      const orbitingAnimData = this.swarmParticleData.get(id);
+      if (orbitingParticles && orbitingAnimData) {
+        const positions = orbitingParticles.geometry.attributes.position.array as Float32Array;
+
+        // Update each orbiting particle position based on rotation
+        for (let i = 0; i < orbitingAnimData.length; i++) {
+          const data = orbitingAnimData[i];
+
+          // Rotate the particle around the swarm center
+          const rotationSpeed = swarmState === 'chase' ? 1.5 : 1.0;
+          data.angle += data.speed * deltaSeconds * rotationSpeed;
+
+          // Update position based on new angle
+          positions[i * 3] = Math.cos(data.angle) * data.radius;
+          positions[i * 3 + 1] = Math.sin(data.angle) * data.radius;
+        }
+
+        // Mark positions as needing update
+        orbitingParticles.geometry.attributes.position.needsUpdate = true;
+      }
     });
   }
 
@@ -1271,7 +1432,9 @@ export class ThreeRenderer implements Renderer {
       });
     });
     this.swarmMeshes.clear();
-    this.swarmParticleData.clear(); // Clean up particle animation data
+    this.swarmParticleData.clear();
+    this.swarmInternalParticles.clear();
+    this.swarmPulsePhase.clear();
 
     // Clean up particle system
     if (this.dataParticles) {
