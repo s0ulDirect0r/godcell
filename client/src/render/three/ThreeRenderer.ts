@@ -735,7 +735,7 @@ export class ThreeRenderer implements Renderer {
               float dist = length(vPosition);
 
               // Create gradient: denser near center, fading toward edges
-              float gradient = smoothstep(cellRadius, nucleusRadius * 1.5, dist);
+              float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
 
               // Fresnel effect (edges glow more)
               vec3 viewDir = normalize(cameraPosition - vPosition);
