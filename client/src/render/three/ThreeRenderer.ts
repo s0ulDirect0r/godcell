@@ -32,6 +32,8 @@ export class ThreeRenderer implements Renderer {
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
+  private obstacleParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; maxLife: number }>> = new Map(); // Accretion disk particles
+  private obstaclePulsePhase: Map<string, number> = new Map(); // Phase offset for core pulsing animation
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include 3D sphere + particles
   private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for orbiting particles
   private swarmInternalParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }>> = new Map(); // Internal storm particles
@@ -217,6 +219,9 @@ export class ThreeRenderer implements Renderer {
     // Animate swarm particles
     this.updateSwarmParticles(state, dt);
 
+    // Animate obstacle particles
+    this.updateObstacleParticles(state, dt);
+
     // Update trails
     this.updateTrails(state);
 
@@ -380,10 +385,15 @@ export class ThreeRenderer implements Renderer {
           if (child instanceof THREE.Mesh) {
             child.geometry.dispose();
             (child.material as THREE.Material).dispose();
+          } else if (child instanceof THREE.Points) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
           }
         });
         this.scene.remove(group);
         this.obstacleMeshes.delete(id);
+        this.obstacleParticles.delete(id);
+        this.obstaclePulsePhase.delete(id);
       }
     });
 
@@ -391,49 +401,138 @@ export class ThreeRenderer implements Renderer {
     state.obstacles.forEach((obstacle, id) => {
       if (!this.obstacleMeshes.has(id)) {
         const group = new THREE.Group();
-        group.position.set(obstacle.position.x, obstacle.position.y, -1);
+        group.position.set(obstacle.position.x, obstacle.position.y, -0.4);
 
-        // Outer ring (cyan, low opacity)
-        const outerRing = new THREE.Mesh(
-          new THREE.RingGeometry(obstacle.radius - 2, obstacle.radius, 64),
-          new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3 })
-        );
+        // === LAYER 1: OUTER INFLUENCE ZONE (safe-ish, shows gravity) ===
+        const ringWidth = 3; // Thin ring width in pixels
+        const outerGeometry = new THREE.RingGeometry(obstacle.radius - ringWidth, obstacle.radius, 64);
+        const outerMaterial = new THREE.MeshBasicMaterial({
+          color: 0x6644ff,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          depthTest: true, // Enable depth testing so rings get occluded properly
+        });
+        const outerRing = new THREE.Mesh(outerGeometry, outerMaterial);
+        outerRing.position.z = 0; // Relative to group
         group.add(outerRing);
 
-        // Middle ring (cyan, medium opacity)
-        const middleRing = new THREE.Mesh(
-          new THREE.RingGeometry(obstacle.radius * 0.6 - 2, obstacle.radius * 0.6, 64),
-          new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
-        );
+        // === LAYER 2: MIDDLE RING (marks 3x gold nutrient spawn zone at 60% radius) ===
+        const middleRadius = obstacle.radius * 0.6;
+        const middleGeometry = new THREE.RingGeometry(middleRadius - ringWidth, middleRadius, 64);
+        const middleMaterial = new THREE.MeshBasicMaterial({
+          color: 0x00ffff, // Cyan to match nutrient indicators
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          depthTest: true, // Enable depth testing so rings get occluded properly
+        });
+        const middleRing = new THREE.Mesh(middleGeometry, middleMaterial);
+        middleRing.position.z = 0; // Same plane as outer
         group.add(middleRing);
 
-        // Inner ring (magenta)
-        const innerRing = new THREE.Mesh(
-          new THREE.RingGeometry(obstacle.radius * 0.3 - 3, obstacle.radius * 0.3, 64),
-          new THREE.MeshBasicMaterial({ color: 0xff0088, transparent: true, opacity: 0.8 })
-        );
-        group.add(innerRing);
+        // === LAYER 3: EVENT HORIZON (danger zone, inescapable) ===
+        const horizonGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_EVENT_HORIZON, 32, 32);
+        const horizonMaterial = new THREE.MeshPhysicalMaterial({
+          color: 0xff0088,
+          transparent: true,
+          opacity: 0.35,
+          emissive: 0xff0088,
+          emissiveIntensity: 0.6,
+          roughness: 0.8,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          depthTest: true, // Enable depth testing for proper occlusion
+        });
+        const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);
+        horizonSphere.position.z = 0.05; // Slightly forward
+        horizonSphere.userData.isEventHorizon = true; // Tag for pulsing animation
+        group.add(horizonSphere);
 
-        // Core fill (magenta, low opacity)
-        const coreFill = new THREE.Mesh(
-          new THREE.CircleGeometry(obstacle.radius * 0.3, 64),
-          new THREE.MeshBasicMaterial({ color: 0xff0088, transparent: true, opacity: 0.1 })
-        );
-        group.add(coreFill);
+        // === LAYER 4: SINGULARITY CORE (INSTANT DEATH) ===
+        const coreGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32, 32);
+        const coreMaterial = new THREE.MeshStandardMaterial({
+          color: 0x1a0011,
+          emissive: 0xff00ff,
+          emissiveIntensity: 3.0,
+          roughness: 0.3,
+          depthWrite: false,
+          depthTest: true, // Enable depth testing for proper occlusion
+        });
+        const coreSphere = new THREE.Mesh(coreGeometry, coreMaterial);
+        coreSphere.position.z = 0.1; // Most forward
+        coreSphere.userData.isSingularityCore = true; // Tag for rapid pulsing
+        group.add(coreSphere);
 
-        // Death core (red, solid)
-        const deathCore = new THREE.Mesh(
-          new THREE.CircleGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32),
-          new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.3 })
-        );
-        group.add(deathCore);
+        // === PARTICLE SYSTEM: ACCRETION DISK (spiraling inward) ===
+        const particleCount = 150;
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        const sizes = new Float32Array(particleCount);
 
-        // Death core outline (red)
-        const deathCoreOutline = new THREE.Mesh(
-          new THREE.RingGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS - 4, GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32),
-          new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 1.0 })
-        );
-        group.add(deathCoreOutline);
+        const particles: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; maxLife: number }> = [];
+
+        for (let i = 0; i < particleCount; i++) {
+          // Random point in spherical shell (uniform distribution)
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.random() * Math.PI;
+          const r = obstacle.radius * 0.7 + Math.random() * obstacle.radius * 0.3; // Start in outer 30%
+
+          const x = r * Math.sin(phi) * Math.cos(theta);
+          const y = r * Math.sin(phi) * Math.sin(theta);
+          const z = r * Math.cos(phi) * 0.3; // Flatten z to create disk shape
+
+          positions[i * 3] = x;
+          positions[i * 3 + 1] = y;
+          positions[i * 3 + 2] = z;
+
+          // Initial color: blue-purple (outer edge)
+          colors[i * 3] = 0.4; // R
+          colors[i * 3 + 1] = 0.27; // G
+          colors[i * 3 + 2] = 1.0; // B
+
+          sizes[i] = 2.0 + Math.random() * 2.0;
+
+          // Random initial velocity (slight tangential + inward)
+          const speed = 20 + Math.random() * 30; // pixels per second
+          particles.push({
+            x,
+            y,
+            z,
+            vx: -y / r * speed * 0.3, // Tangential (perpendicular to radius)
+            vy: x / r * speed * 0.3,
+            vz: 0,
+            life: Math.random() * 5, // Stagger particles
+            maxLife: 5.0, // 5 seconds to reach core
+          });
+        }
+
+        const particleGeometry = new THREE.BufferGeometry();
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const particleMaterial = new THREE.PointsMaterial({
+          size: 3.0,
+          sizeAttenuation: false,
+          transparent: true,
+          opacity: 0.8,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+          depthWrite: false,
+        });
+
+        const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+        particleSystem.position.z = 0; // Same depth as outer sphere
+        group.add(particleSystem);
+
+        // Store particle data for animation
+        this.obstacleParticles.set(id, particles);
+
+        // Random phase offset for pulsing animation
+        this.obstaclePulsePhase.set(id, Math.random() * Math.PI * 2);
 
         this.scene.add(group);
         this.obstacleMeshes.set(id, group);
@@ -479,8 +578,8 @@ export class ThreeRenderer implements Renderer {
           emissiveIntensity: 0.8,
           roughness: 1.0,
           side: THREE.DoubleSide,
-          depthWrite: false,
-          depthTest: false, // Bypass depth testing completely - always render on top
+          depthWrite: false, // Don't write depth (standard for transparent objects)
+          depthTest: false, // Bypass depth testing (original fix for obstacle overlap)
         });
         const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
         group.add(outerSphere);
@@ -533,6 +632,7 @@ export class ThreeRenderer implements Renderer {
           opacity: 0.8,
           sizeAttenuation: false,
           blending: THREE.AdditiveBlending, // Additive for energy feel
+          depthWrite: false,
         });
 
         const internalStorm = new THREE.Points(internalGeometry, internalMaterial);
@@ -570,6 +670,7 @@ export class ThreeRenderer implements Renderer {
           transparent: true,
           opacity: 0.9,
           sizeAttenuation: false,
+          depthWrite: false,
         });
 
         const orbitingParticles = new THREE.Points(orbitingGeometry, orbitingMaterial);
@@ -741,6 +842,129 @@ export class ThreeRenderer implements Renderer {
 
         // Mark positions as needing update
         orbitingParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    });
+  }
+
+  private updateObstacleParticles(state: GameState, dt: number): void {
+    const deltaSeconds = dt / 1000;
+    const time = Date.now() * 0.001; // Time in seconds
+
+    this.obstacleMeshes.forEach((group, id) => {
+      const obstacle = state.obstacles.get(id);
+      if (!obstacle) return;
+
+      // === PULSING ANIMATION ===
+      const pulsePhase = this.obstaclePulsePhase.get(id) || 0;
+
+      // Event Horizon (Layer 3): Gentle breathing
+      const horizonSphere = group.children[2] as THREE.Mesh;
+      if (horizonSphere && horizonSphere.userData.isEventHorizon) {
+        const horizonPulseSpeed = 2.0; // Slow, ominous breathing
+        const horizonPulseAmount = 0.05; // Subtle scale change (0.95-1.05)
+        const horizonScale = 1.0 + Math.sin(time * horizonPulseSpeed + pulsePhase) * horizonPulseAmount;
+        horizonSphere.scale.set(horizonScale, horizonScale, horizonScale);
+      }
+
+      // Singularity Core (Layer 4): Rapid pulsing
+      const coreSphere = group.children[3] as THREE.Mesh;
+      if (coreSphere && coreSphere.userData.isSingularityCore) {
+        const corePulseSpeed = 3.5; // Fast, menacing heartbeat
+        const coreEmissiveBase = 3.0;
+        const coreEmissiveRange = 0.5; // Oscillate 2.5-3.5
+        const coreMaterial = coreSphere.material as THREE.MeshStandardMaterial;
+        coreMaterial.emissiveIntensity = coreEmissiveBase + Math.sin(time * corePulseSpeed + pulsePhase) * coreEmissiveRange;
+      }
+
+      // === ACCRETION DISK PARTICLES ===
+      const particleSystem = group.children[4] as THREE.Points;
+      const particleData = this.obstacleParticles.get(id);
+      if (particleSystem && particleData) {
+        const positions = particleSystem.geometry.attributes.position.array as Float32Array;
+        const colors = particleSystem.geometry.attributes.color.array as Float32Array;
+        const sizes = particleSystem.geometry.attributes.size.array as Float32Array;
+
+        // Update each particle
+        for (let i = 0; i < particleData.length; i++) {
+          const p = particleData[i];
+
+          // Age the particle
+          p.life += deltaSeconds;
+
+          // Distance from center
+          const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+
+          // Spiral inward (gravity acceleration toward core)
+          // Speed increases as distance decreases (inverse relationship)
+          const gravityStrength = 200; // Base acceleration toward core
+          const speedFactor = 1.0 + (1.0 - dist / obstacle.radius) * 3.0; // 1x at edge, 4x near core
+          const dx = -p.x / dist;
+          const dy = -p.y / dist;
+          const dz = -p.z / dist;
+
+          p.vx += dx * gravityStrength * speedFactor * deltaSeconds;
+          p.vy += dy * gravityStrength * speedFactor * deltaSeconds;
+          p.vz += dz * gravityStrength * speedFactor * deltaSeconds;
+
+          // Apply velocity
+          p.x += p.vx * deltaSeconds;
+          p.y += p.vy * deltaSeconds;
+          p.z += p.vz * deltaSeconds;
+
+          // Particle reached singularity core - respawn at outer edge
+          if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS || p.life > p.maxLife) {
+            // Respawn at random point in outer shell
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const r = obstacle.radius * 0.7 + Math.random() * obstacle.radius * 0.3;
+
+            p.x = r * Math.sin(phi) * Math.cos(theta);
+            p.y = r * Math.sin(phi) * Math.sin(theta);
+            p.z = r * Math.cos(phi) * 0.3; // Flatten to disk
+
+            // Reset velocity (tangential motion)
+            const speed = 20 + Math.random() * 30;
+            p.vx = -p.y / r * speed * 0.3;
+            p.vy = p.x / r * speed * 0.3;
+            p.vz = 0;
+
+            p.life = 0;
+          }
+
+          // Update color based on distance to core (gradient: blue → magenta → white-hot)
+          const distRatio = dist / obstacle.radius;
+          if (distRatio > 0.5) {
+            // Outer region: Blue-purple (0.4, 0.27, 1.0)
+            colors[i * 3] = 0.4;
+            colors[i * 3 + 1] = 0.27;
+            colors[i * 3 + 2] = 1.0;
+          } else if (distRatio > 0.15) {
+            // Middle region: Magenta (1.0, 0.0, 1.0)
+            const blend = (0.5 - distRatio) / 0.35; // 0 at outer, 1 at inner
+            colors[i * 3] = 0.4 + blend * 0.6; // 0.4 → 1.0
+            colors[i * 3 + 1] = 0.27 - blend * 0.27; // 0.27 → 0.0
+            colors[i * 3 + 2] = 1.0; // Stay at 1.0
+          } else {
+            // Inner region (near core): White-hot (1.0, 0.8, 1.0)
+            const blend = (0.15 - distRatio) / 0.15; // 0 at middle, 1 at core
+            colors[i * 3] = 1.0;
+            colors[i * 3 + 1] = blend * 0.8; // 0.0 → 0.8
+            colors[i * 3 + 2] = 1.0;
+          }
+
+          // Size increases as it approaches core (visual emphasis on danger)
+          sizes[i] = 2.0 + (1.0 - distRatio) * 3.0; // 2px at edge, 5px at core
+
+          // Update geometry
+          positions[i * 3] = p.x;
+          positions[i * 3 + 1] = p.y;
+          positions[i * 3 + 2] = p.z;
+        }
+
+        // Mark attributes as needing update
+        particleSystem.geometry.attributes.position.needsUpdate = true;
+        particleSystem.geometry.attributes.color.needsUpdate = true;
+        particleSystem.geometry.attributes.size.needsUpdate = true;
       }
     });
   }
