@@ -95,6 +95,7 @@ export class HUDOverlay {
       font-weight: bold;
       text-shadow: 1px 1px 2px black;
       pointer-events: none;
+      z-index: 1;
     `;
     healthBarBg.appendChild(this.healthBarText);
 
@@ -132,6 +133,7 @@ export class HUDOverlay {
       font-weight: bold;
       text-shadow: 1px 1px 2px black;
       pointer-events: none;
+      z-index: 1;
     `;
     energyBarBg.appendChild(this.energyBarText);
 

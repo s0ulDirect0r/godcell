@@ -45,6 +45,14 @@ export class ThreeRenderer implements Renderer {
   private dataParticles!: THREE.Points;
   private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
 
+  // Death animations (particle bursts)
+  private deathAnimations: Array<{
+    particles: THREE.Points;
+    particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }>;
+    startTime: number;
+    duration: number;
+  }> = [];
+
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -94,8 +102,35 @@ export class ThreeRenderer implements Renderer {
   }
 
   private setupEventListeners(): void {
-    // No event listeners needed for now
-    // Camera shake is triggered by health changes in render loop
+    // Import eventBus for death animations
+    import('../../core/events/EventBus').then(({ eventBus }) => {
+      eventBus.on('playerDied', (event) => {
+        // Get the player's last known position and color before they're removed
+        const player = this.playerMeshes.get(event.playerId);
+        if (player) {
+          const position = { x: player.position.x, y: player.position.y };
+          const material = player.material as THREE.MeshStandardMaterial;
+          const color = material.color.getHex();
+          this.spawnDeathParticles(position.x, position.y, color);
+
+          // Immediately remove player mesh, outline, and trail
+          this.scene.remove(player);
+          this.playerMeshes.delete(event.playerId);
+
+          const outline = this.playerOutlines.get(event.playerId);
+          if (outline) {
+            this.scene.remove(outline);
+            this.playerOutlines.delete(event.playerId);
+          }
+
+          const trail = this.playerTrailLines.get(event.playerId);
+          if (trail) {
+            this.scene.remove(trail);
+            this.playerTrailLines.delete(event.playerId);
+          }
+        }
+      });
+    });
   }
 
   // ============================================
@@ -134,6 +169,9 @@ export class ThreeRenderer implements Renderer {
 
     // Update background particles
     this.updateDataParticles(dt);
+
+    // Update death animations
+    this.updateDeathAnimations(dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -751,6 +789,112 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  private spawnDeathParticles(x: number, y: number, colorHex: number): void {
+    const particleCount = 30;
+    const duration = 800; // 0.8 seconds
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Random angle for radial burst
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 200; // pixels per second
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = 0.2; // Above everything else
+
+      sizes[i] = 3 + Math.random() * 4;
+
+      particleData.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0, // Start at full life
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: colorHex,
+      size: 4,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.deathAnimations.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+    });
+  }
+
+  private updateDeathAnimations(dt: number): void {
+    const deltaSeconds = dt / 1000;
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.deathAnimations.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions and fade
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Move particle
+        p.x += p.vx * deltaSeconds;
+        p.y += p.vy * deltaSeconds;
+
+        // Update geometry position
+        positions[i * 3] = p.x;
+        positions[i * 3 + 1] = p.y;
+
+        // Fade out life
+        p.life = 1 - progress;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Update material opacity for fade out
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = 1 - progress;
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.deathAnimations[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.deathAnimations.splice(index, 1);
+    }
+  }
+
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
@@ -826,6 +970,14 @@ export class ThreeRenderer implements Renderer {
         material.map.dispose();
       }
     }
+
+    // Clean up death animations
+    this.deathAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.deathAnimations = [];
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());
