@@ -28,7 +28,7 @@ export class HUDOverlay {
     this.container = document.createElement('div');
     this.container.id = 'hud-overlay';
     this.container.style.cssText = `
-      position: fixed;
+      position: absolute;
       top: 0;
       left: 0;
       width: 100%;
@@ -37,7 +37,13 @@ export class HUDOverlay {
       z-index: 1000;
       font-family: monospace;
     `;
-    document.body.appendChild(this.container);
+    // Append to game container instead of body to position relative to canvas
+    const gameContainer = document.getElementById('game-container');
+    if (gameContainer) {
+      gameContainer.appendChild(this.container);
+    } else {
+      document.body.appendChild(this.container);
+    }
 
     this.createBars();
     this.createCountdown();
