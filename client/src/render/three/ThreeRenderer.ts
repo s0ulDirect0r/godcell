@@ -34,9 +34,9 @@ export class ThreeRenderer implements Renderer {
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
 
-  // Trails (using efficient BufferGeometry)
+  // Trails (using tube geometry for thick ribbons)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
-  private playerTrailLines: Map<string, THREE.Line> = new Map();
+  private playerTrailLines: Map<string, THREE.Mesh> = new Map();
 
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
@@ -613,7 +613,8 @@ export class ThreeRenderer implements Renderer {
   }
 
   private updateTrails(state: GameState): void {
-    const maxTrailLength = 60;
+    const maxTrailLength = 50; // Trail point history
+    const maxWidth = 20; // Maximum width at head
 
     state.players.forEach((player, id) => {
       // Get or create trail points array
@@ -634,44 +635,115 @@ export class ThreeRenderer implements Renderer {
         trailPoints.shift();
       }
 
-      // Get or create trail line
-      let trailLine = this.playerTrailLines.get(id);
-      if (!trailLine) {
+      // Get or create trail mesh
+      let trailMesh = this.playerTrailLines.get(id);
+      if (!trailMesh) {
         const geometry = new THREE.BufferGeometry();
         const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const material = new THREE.LineBasicMaterial({
+        const material = new THREE.MeshBasicMaterial({
           color: colorHex,
           transparent: true,
-          opacity: 0.6,
-          linewidth: 3, // Note: linewidth only works in some browsers/WebGL implementations
+          opacity: 1,
+          side: THREE.DoubleSide,
+          vertexColors: true,
         });
-        trailLine = new THREE.Line(geometry, material);
-        trailLine.position.z = -0.5;
-        this.scene.add(trailLine);
-        this.playerTrailLines.set(id, trailLine);
+        trailMesh = new THREE.Mesh(geometry, material);
+        trailMesh.position.z = -0.5;
+        this.scene.add(trailMesh);
+        this.playerTrailLines.set(id, trailMesh);
       }
 
-      // Update trail line geometry with current points
-      if (trailPoints.length > 1) {
-        const positions = new Float32Array(trailPoints.length * 3);
+      // Create tapered ribbon geometry
+      if (trailPoints.length >= 2) {
+        const vertexCount = trailPoints.length * 2; // Two vertices per point (top and bottom of ribbon)
+        const positions = new Float32Array(vertexCount * 3);
+        const colors = new Float32Array(vertexCount * 3);
+        const indices: number[] = [];
+
+        const colorHex = parseInt(player.color.replace('#', ''), 16);
+        const r = ((colorHex >> 16) & 255) / 255;
+        const g = ((colorHex >> 8) & 255) / 255;
+        const b = (colorHex & 255) / 255;
+
         for (let i = 0; i < trailPoints.length; i++) {
-          positions[i * 3] = trailPoints[i].x;
-          positions[i * 3 + 1] = trailPoints[i].y;
-          positions[i * 3 + 2] = 0;
+          const point = trailPoints[i];
+
+          // Calculate width taper: thick at newest (i=length-1), thin at oldest (i=0)
+          const age = i / (trailPoints.length - 1); // 0 = oldest, 1 = newest
+          const width = maxWidth * age; // Taper from 0 to maxWidth
+
+          // Calculate opacity fade
+          const opacity = Math.pow(age, 1.5); // Fade from transparent to bright
+
+          // Get perpendicular direction for ribbon width
+          let perpX = 0, perpY = 1;
+          if (i < trailPoints.length - 1) {
+            const next = trailPoints[i + 1];
+            const dx = next.x - point.x;
+            const dy = next.y - point.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+              perpX = -dy / len;
+              perpY = dx / len;
+            }
+          } else if (i > 0) {
+            const prev = trailPoints[i - 1];
+            const dx = point.x - prev.x;
+            const dy = point.y - prev.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+              perpX = -dy / len;
+              perpY = dx / len;
+            }
+          }
+
+          // Create two vertices (top and bottom of ribbon)
+          const idx = i * 2;
+
+          // Top vertex
+          positions[idx * 3] = point.x + perpX * width;
+          positions[idx * 3 + 1] = point.y + perpY * width;
+          positions[idx * 3 + 2] = 0;
+
+          colors[idx * 3] = r;
+          colors[idx * 3 + 1] = g;
+          colors[idx * 3 + 2] = b;
+
+          // Bottom vertex
+          positions[(idx + 1) * 3] = point.x - perpX * width;
+          positions[(idx + 1) * 3 + 1] = point.y - perpY * width;
+          positions[(idx + 1) * 3 + 2] = 0;
+
+          colors[(idx + 1) * 3] = r * opacity;
+          colors[(idx + 1) * 3 + 1] = g * opacity;
+          colors[(idx + 1) * 3 + 2] = b * opacity;
+
+          // Create triangle indices for ribbon
+          if (i < trailPoints.length - 1) {
+            const current = i * 2;
+            const next = (i + 1) * 2;
+
+            // Two triangles per segment
+            indices.push(current, next, current + 1);
+            indices.push(next, next + 1, current + 1);
+          }
         }
-        trailLine.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        trailLine.geometry.computeBoundingSphere();
+
+        trailMesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        trailMesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        trailMesh.geometry.setIndex(indices);
+        trailMesh.geometry.computeBoundingSphere();
       }
     });
 
     // Clean up trails for disconnected players
     this.playerTrailPoints.forEach((_, id) => {
       if (!state.players.has(id)) {
-        const line = this.playerTrailLines.get(id);
-        if (line) {
-          this.scene.remove(line);
-          line.geometry.dispose();
-          (line.material as THREE.Material).dispose();
+        const mesh = this.playerTrailLines.get(id);
+        if (mesh) {
+          this.scene.remove(mesh);
+          mesh.geometry.dispose();
+          (mesh.material as THREE.Material).dispose();
           this.playerTrailLines.delete(id);
         }
         this.playerTrailPoints.delete(id);
