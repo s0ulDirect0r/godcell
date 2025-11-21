@@ -141,6 +141,8 @@ export class SocketManager {
     });
 
     this.socket.on('playerDied', (data: PlayerDiedMessage) => {
+      // Remove dead player from game state so they don't get rendered
+      this.gameState.removePlayer(data.playerId);
       eventBus.emit(data);
     });
 
@@ -166,6 +168,12 @@ export class SocketManager {
 
     this.socket.on('nutrientCollected', (data: NutrientCollectedMessage) => {
       this.gameState.removeNutrient(data.nutrientId);
+      // Update collector's energy and maxEnergy
+      const player = this.gameState.players.get(data.playerId);
+      if (player) {
+        player.energy = data.collectorEnergy;
+        player.maxEnergy = data.collectorMaxEnergy;
+      }
       eventBus.emit(data);
     });
 
