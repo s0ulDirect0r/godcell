@@ -10,7 +10,9 @@ import type { DeathCause } from '@godcell/shared';
 export class HUDOverlay {
   private container: HTMLDivElement;
   private healthBarFill!: HTMLDivElement;
+  private healthBarText!: HTMLDivElement;
   private energyBarFill!: HTMLDivElement;
+  private energyBarText!: HTMLDivElement;
   private countdown!: HTMLDivElement;
   private deathOverlay?: HTMLElement;
   private gameState?: GameState;
@@ -71,6 +73,25 @@ export class HUDOverlay {
     `;
     healthBarBg.appendChild(this.healthBarFill);
 
+    // Health bar text overlay
+    this.healthBarText = document.createElement('div');
+    this.healthBarText.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px black;
+      pointer-events: none;
+    `;
+    healthBarBg.appendChild(this.healthBarText);
+
     // Energy bar
     const energyBarBg = document.createElement('div');
     energyBarBg.style.cssText = `
@@ -88,6 +109,25 @@ export class HUDOverlay {
       transition: width 0.1s;
     `;
     energyBarBg.appendChild(this.energyBarFill);
+
+    // Energy bar text overlay
+    this.energyBarText = document.createElement('div');
+    this.energyBarText.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px black;
+      pointer-events: none;
+    `;
+    energyBarBg.appendChild(this.energyBarText);
 
     barsContainer.appendChild(healthBarBg);
     barsContainer.appendChild(energyBarBg);
@@ -174,13 +214,15 @@ export class HUDOverlay {
     const myPlayer = state.getMyPlayer();
     if (!myPlayer) return;
 
-    // Update health bar
-    const healthPercent = (myPlayer.health / myPlayer.maxHealth) * 100;
+    // Update health bar (clamp to 0-100%)
+    const healthPercent = Math.max(0, Math.min(100, (myPlayer.health / myPlayer.maxHealth) * 100));
     this.healthBarFill.style.width = `${healthPercent}%`;
+    this.healthBarText.textContent = `${Math.ceil(myPlayer.health)}/${myPlayer.maxHealth}`;
 
-    // Update energy bar
-    const energyPercent = (myPlayer.energy / myPlayer.maxEnergy) * 100;
+    // Update energy bar (clamp to 0-100%)
+    const energyPercent = Math.max(0, Math.min(100, (myPlayer.energy / myPlayer.maxEnergy) * 100));
     this.energyBarFill.style.width = `${energyPercent}%`;
+    this.energyBarText.textContent = `${Math.ceil(myPlayer.energy)}/${myPlayer.maxEnergy}`;
 
     // Update countdown (time until starvation)
     const decayRate = this.getStageDecayRate(myPlayer.stage);
