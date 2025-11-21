@@ -270,6 +270,7 @@ tail -20 server/logs/server.log | jq
 **Workflow:**
 - The repository uses a custom git merge driver for `.beads/beads.jsonl` files
 - Always commit `.beads/beads.left.jsonl` together with related code changes
+- Unless otherwise told, do not make bead-only commits.
 - Issue state should stay synchronized with code state
 - Use feature branches for non-trivial work
 - PR descriptions should include test plan and issue references

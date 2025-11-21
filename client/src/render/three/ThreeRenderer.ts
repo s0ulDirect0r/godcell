@@ -29,7 +29,7 @@ export class ThreeRenderer implements Renderer {
 
   // Entity meshes
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
-  private playerMeshes: Map<string, THREE.Mesh> = new Map();
+  private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include particles
@@ -107,15 +107,30 @@ export class ThreeRenderer implements Renderer {
     import('../../core/events/EventBus').then(({ eventBus }) => {
       eventBus.on('playerDied', (event) => {
         // Get the player's last known position and color before they're removed
-        const player = this.playerMeshes.get(event.playerId);
-        if (player) {
-          const position = { x: player.position.x, y: player.position.y };
-          const material = player.material as THREE.MeshStandardMaterial;
-          const color = material.color.getHex();
+        const playerGroup = this.playerMeshes.get(event.playerId);
+        if (playerGroup) {
+          const position = { x: playerGroup.position.x, y: playerGroup.position.y };
+
+          // Get color from nucleus mesh (fourth child: membrane, cytoplasm, organelles, nucleus)
+          const nucleus = playerGroup.children[3] as THREE.Mesh;
+          const material = nucleus.material as THREE.MeshStandardMaterial;
+          const color = material.emissive.getHex();
+
           this.spawnDeathParticles(position.x, position.y, color);
 
-          // Immediately remove player mesh, outline, and trail
-          this.scene.remove(player);
+          // Immediately remove player group, outline, and trail
+          this.scene.remove(playerGroup);
+
+          // Dispose geometries and materials
+          playerGroup.children.forEach(child => {
+            if (child instanceof THREE.Mesh) {
+              // Don't dispose cached geometries
+              if ((child.material as THREE.Material).dispose) {
+                (child.material as THREE.Material).dispose();
+              }
+            }
+          });
+
           this.playerMeshes.delete(event.playerId);
 
           const outline = this.playerOutlines.get(event.playerId);
@@ -150,6 +165,20 @@ export class ThreeRenderer implements Renderer {
       this.materialCache.set(key, factory());
     }
     return this.materialCache.get(key)!;
+  }
+
+  // ============================================
+  // Helper Methods
+  // ============================================
+
+  /**
+   * Calculate player visual size based on evolution stage
+   */
+  private getPlayerRadius(stage: string): number {
+    if (stage === 'multi_cell' || stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell') {
+      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
+    }
+    return GAME_CONFIG.PLAYER_SIZE;
   }
 
   render(state: GameState, dt: number): void {
@@ -610,11 +639,19 @@ export class ThreeRenderer implements Renderer {
 
   private syncPlayers(state: GameState): void {
     // Remove players that left
-    this.playerMeshes.forEach((mesh, id) => {
+    this.playerMeshes.forEach((group, id) => {
       if (!state.players.has(id)) {
-        this.scene.remove(mesh);
-        // Don't dispose cached geometry
-        // Material is disposed in materialCache during dispose()
+        this.scene.remove(group);
+
+        // Dispose non-cached materials
+        group.children.forEach(child => {
+          if (child instanceof THREE.Mesh) {
+            if ((child.material as THREE.Material).dispose) {
+              (child.material as THREE.Material).dispose();
+            }
+          }
+        });
+
         this.playerMeshes.delete(id);
 
         // Also remove outline if it exists
@@ -628,33 +665,159 @@ export class ThreeRenderer implements Renderer {
 
     // Add or update players
     state.players.forEach((player, id) => {
-      let mesh = this.playerMeshes.get(id);
+      let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === state.myPlayerId;
 
-      if (!mesh) {
-        // Create player mesh with cached geometry and emissive material
-        const geometry = this.getGeometry('circle-player', () =>
-          new THREE.CircleGeometry(GAME_CONFIG.PLAYER_SIZE, 32)
-        );
+      if (!cellGroup) {
+        // Calculate size based on stage
+        const radius = this.getPlayerRadius(player.stage);
 
         // Parse hex color (#RRGGBB → 0xRRGGBB)
         const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const material = this.getMaterial(`player-${player.color}`, () =>
-          new THREE.MeshStandardMaterial({
-            color: colorHex,
-            emissive: colorHex,
-            emissiveIntensity: 0.8, // Strong glow for players (visible with bloom)
-          })
+
+        // Create cell group (membrane + organelle particles + nucleus)
+        cellGroup = new THREE.Group();
+
+        // === OUTER MEMBRANE (Transparent shell) ===
+        const membraneGeometry = this.getGeometry(`sphere-membrane-${radius}`, () =>
+          new THREE.SphereGeometry(radius, 32, 32)
         );
 
-        mesh = new THREE.Mesh(geometry, material);
-        this.scene.add(mesh);
-        this.playerMeshes.set(id, mesh);
+        const membraneMaterial = new THREE.MeshPhysicalMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.15, // Very transparent so you can see inside
+          roughness: 0.1,
+          metalness: 0.05,
+          clearcoat: 0.8, // Glossy outer surface
+        });
+
+        const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
+        cellGroup.add(membrane);
+
+        // === CYTOPLASM (Volumetric jelly with shader) ===
+        const nucleusRadius = radius * 0.3;
+        const cytoplasmGeometry = this.getGeometry(`sphere-cytoplasm-${radius}`, () =>
+          new THREE.SphereGeometry(radius * 0.95, 32, 32)
+        );
+
+        // Custom volumetric shader for jelly effect
+        const cytoplasmMaterial = new THREE.ShaderMaterial({
+          uniforms: {
+            color: { value: new THREE.Color(colorHex) },
+            opacity: { value: 0.5 },
+            nucleusRadius: { value: nucleusRadius },
+            cellRadius: { value: radius * 0.95 },
+          },
+          vertexShader: `
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+
+            void main() {
+              vPosition = position;
+              vNormal = normalize(normalMatrix * normal);
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 color;
+            uniform float opacity;
+            uniform float nucleusRadius;
+            uniform float cellRadius;
+
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+
+            void main() {
+              // Distance from center
+              float dist = length(vPosition);
+
+              // Create gradient: denser near center, fading toward edges
+              float gradient = smoothstep(cellRadius, nucleusRadius * 1.5, dist);
+
+              // Fresnel effect (edges glow more)
+              vec3 viewDir = normalize(cameraPosition - vPosition);
+              float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
+
+              // Combine gradient with fresnel
+              float alpha = mix(0.6, 0.2, gradient) * opacity;
+              alpha += fresnel * 0.15;
+
+              // Add depth-based darkening for volume feel
+              float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
+
+              gl_FragColor = vec4(color * depthDarken, alpha);
+            }
+          `,
+          transparent: true,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.NormalBlending,
+        });
+
+        const cytoplasm = new THREE.Mesh(cytoplasmGeometry, cytoplasmMaterial);
+        cellGroup.add(cytoplasm);
+
+        // === ORGANELLE PARTICLES (Floating in the jelly) ===
+        const particleCount = 15; // Fewer particles since we have volume now
+        const particleGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const sizes = new Float32Array(particleCount);
+
+        const minRadius = nucleusRadius * 1.3;
+        const maxRadius = radius * 0.85;
+
+        for (let i = 0; i < particleCount; i++) {
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.random() * Math.PI;
+          const r = minRadius + Math.random() * (maxRadius - minRadius);
+
+          positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+          positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+          positions[i * 3 + 2] = r * Math.cos(phi);
+
+          sizes[i] = 1.5 + Math.random() * 1.5;
+        }
+
+        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const particleMaterial = new THREE.PointsMaterial({
+          color: colorHex,
+          size: 2.5,
+          transparent: true,
+          opacity: 0.7,
+          sizeAttenuation: false,
+          blending: THREE.AdditiveBlending,
+        });
+
+        const organelles = new THREE.Points(particleGeometry, particleMaterial);
+        cellGroup.add(organelles);
+
+        // === INNER NUCLEUS (Glowing core) ===
+        const nucleusGeometry = this.getGeometry(`sphere-nucleus-${nucleusRadius}`, () =>
+          new THREE.SphereGeometry(nucleusRadius, 16, 16)
+        );
+
+        const nucleusMaterial = new THREE.MeshStandardMaterial({
+          color: colorHex,
+          emissive: colorHex,
+          emissiveIntensity: 2.0, // Bright glow (will vary with energy)
+        });
+
+        const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
+        cellGroup.add(nucleus);
+
+        // Position group at player location
+        cellGroup.position.set(player.position.x, player.position.y, 0);
+
+        this.scene.add(cellGroup);
+        this.playerMeshes.set(id, cellGroup);
 
         // Add white stroke outline for client player
         if (isMyPlayer) {
-          const outlineGeometry = this.getGeometry('ring-outline', () =>
-            new THREE.RingGeometry(GAME_CONFIG.PLAYER_SIZE, GAME_CONFIG.PLAYER_SIZE + 3, 32)
+          const outlineGeometry = this.getGeometry(`ring-outline-${radius}`, () =>
+            new THREE.RingGeometry(radius, radius + 3, 32)
           );
           const outlineMaterial = this.getMaterial('outline-white', () =>
             new THREE.MeshBasicMaterial({
@@ -670,23 +833,26 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
+      // Update nucleus brightness based on energy (diegetic UI)
+      this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy);
+
       // Update position with client-side interpolation
       const target = state.playerTargets.get(id);
       if (target) {
         // Lerp toward server position
         const lerpFactor = 0.3;
-        mesh.position.x += (target.x - mesh.position.x) * lerpFactor;
-        mesh.position.y += (target.y - mesh.position.y) * lerpFactor;
+        cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+        cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          outline.position.x = mesh.position.x;
-          outline.position.y = mesh.position.y;
+          outline.position.x = cellGroup.position.x;
+          outline.position.y = cellGroup.position.y;
         }
       } else {
         // Fallback to direct position if no target
-        mesh.position.set(player.position.x, player.position.y, 0);
+        cellGroup.position.set(player.position.x, player.position.y, 0);
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
@@ -697,9 +863,67 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Update cell visual state based on energy (diegetic UI)
+   * High energy = bright nucleus, visible cytoplasm jelly
+   * Low energy = dim nucleus, faded cytoplasm
+   */
+  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number): void {
+    const energyRatio = energy / maxEnergy;
+
+    // Get cell components (membrane, cytoplasm, organelles, nucleus)
+    const membrane = cellGroup.children[0] as THREE.Mesh;
+    const cytoplasm = cellGroup.children[1] as THREE.Mesh;
+    const organelles = cellGroup.children[2] as THREE.Points;
+    const nucleus = cellGroup.children[3] as THREE.Mesh;
+
+    const membraneMaterial = membrane.material as THREE.MeshPhysicalMaterial;
+    const cytoplasmMaterial = cytoplasm.material as THREE.ShaderMaterial;
+    const organelleMaterial = organelles.material as THREE.PointsMaterial;
+    const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
+
+    // Update based on energy
+    if (energyRatio > 0.5) {
+      // High energy: bright and steady
+      nucleusMaterial.emissiveIntensity = 2.5; // Bright nucleus!
+      cytoplasmMaterial.uniforms.opacity.value = 0.5; // Healthy jelly
+      organelleMaterial.opacity = 0.7; // Visible organelles
+      membraneMaterial.opacity = 0.15; // Subtle membrane
+      nucleus.scale.set(1, 1, 1); // Normal size
+    } else if (energyRatio > 0.2) {
+      // Medium energy: dimming
+      nucleusMaterial.emissiveIntensity = 1.0 + energyRatio * 2; // 1.4-2.0
+      cytoplasmMaterial.uniforms.opacity.value = 0.35 + energyRatio * 0.3; // 0.44-0.5
+      organelleMaterial.opacity = 0.5 + energyRatio * 0.4; // 0.58-0.7
+      membraneMaterial.opacity = 0.12 + energyRatio * 0.06; // 0.13-0.15
+      nucleus.scale.set(1, 1, 1);
+    } else if (energyRatio > 0.1) {
+      // Low energy: dramatic flickering
+      const time = Date.now() * 0.01;
+      const flicker = Math.sin(time) * 0.5 + 0.5; // 0.0-1.0
+      nucleusMaterial.emissiveIntensity = (0.3 + energyRatio * 2) * (0.4 + flicker * 0.6); // 0.12-0.7
+      cytoplasmMaterial.uniforms.opacity.value = (0.25 + energyRatio * 0.3) * (0.7 + flicker * 0.3); // flickering
+      organelleMaterial.opacity = 0.35 + energyRatio * 0.3 * flicker; // 0.35-0.41 flickering
+      membraneMaterial.opacity = 0.1;
+      // Subtle scale pulse
+      const scalePulse = 0.95 + flicker * 0.1;
+      nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+    } else {
+      // Critical energy: URGENT pulsing
+      const time = Date.now() * 0.015;
+      const pulse = Math.sin(time) * 0.6 + 0.4; // 0.0-1.0
+      nucleusMaterial.emissiveIntensity = 0.2 + pulse * 0.8; // 0.2-1.0 pulsing
+      cytoplasmMaterial.uniforms.opacity.value = 0.15 + pulse * 0.2; // 0.15-0.35 pulsing jelly
+      organelleMaterial.opacity = 0.2 + pulse * 0.25; // 0.2-0.45 pulsing
+      membraneMaterial.opacity = 0.05 + pulse * 0.1; // 0.05-0.15 barely visible
+      // Dramatic scale pulse
+      const scalePulse = 0.85 + pulse * 0.25;
+      nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+    }
+  }
+
   private updateTrails(state: GameState): void {
     const maxTrailLength = 50; // Trail point history
-    const maxWidth = 20; // Maximum width at head
 
     state.players.forEach((player, id) => {
       // Get or create trail points array
@@ -709,10 +933,10 @@ export class ThreeRenderer implements Renderer {
         this.playerTrailPoints.set(id, trailPoints);
       }
 
-      // Add current MESH position to trail (not server position!)
-      const mesh = this.playerMeshes.get(id);
-      if (mesh) {
-        trailPoints.push({ x: mesh.position.x, y: mesh.position.y });
+      // Add current GROUP position to trail (not server position!)
+      const cellGroup = this.playerMeshes.get(id);
+      if (cellGroup) {
+        trailPoints.push({ x: cellGroup.position.x, y: cellGroup.position.y });
       }
 
       // Keep only last N points
@@ -737,6 +961,17 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(trailMesh);
         this.playerTrailLines.set(id, trailMesh);
       }
+
+      // Update trail opacity based on energy
+      const energyRatio = player.energy / player.maxEnergy;
+      const trailMaterial = trailMesh.material as THREE.MeshBasicMaterial;
+      // Trail fades out as energy gets low
+      trailMaterial.opacity = Math.max(0.2, energyRatio * 0.8 + 0.2); // 0.2-1.0 range
+
+      // Calculate trail width based on nucleus size (not full cell size)
+      const cellRadius = this.getPlayerRadius(player.stage);
+      const nucleusRadius = cellRadius * 0.3;
+      const maxWidth = nucleusRadius; // Trail width = nucleus radius
 
       // Create tapered ribbon geometry
       if (trailPoints.length >= 2) {
@@ -1002,9 +1237,13 @@ export class ThreeRenderer implements Renderer {
     });
     this.obstacleMeshes.clear();
 
-    this.swarmMeshes.forEach(mesh => {
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
+    this.swarmMeshes.forEach(group => {
+      group.children.forEach(child => {
+        if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
     });
     this.swarmMeshes.clear();
     this.swarmParticleData.clear(); // Clean up particle animation data
