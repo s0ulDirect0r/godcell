@@ -708,6 +708,7 @@ export class ThreeRenderer implements Renderer {
             opacity: { value: 0.5 },
             nucleusRadius: { value: nucleusRadius },
             cellRadius: { value: radius * 0.95 },
+            healthRatio: { value: 1.0 }, // Will darken toward black as health drops
           },
           vertexShader: `
             varying vec3 vPosition;
@@ -724,6 +725,7 @@ export class ThreeRenderer implements Renderer {
             uniform float opacity;
             uniform float nucleusRadius;
             uniform float cellRadius;
+            uniform float healthRatio;
 
             varying vec3 vPosition;
             varying vec3 vNormal;
@@ -746,7 +748,10 @@ export class ThreeRenderer implements Renderer {
               // Add depth-based darkening for volume feel
               float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
 
-              gl_FragColor = vec4(color * depthDarken, alpha);
+              // Darken toward black as health drops
+              vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, healthRatio) * depthDarken;
+
+              gl_FragColor = vec4(finalColor, alpha);
             }
           `,
           transparent: true,
@@ -803,6 +808,9 @@ export class ThreeRenderer implements Renderer {
           color: colorHex,
           emissive: colorHex,
           emissiveIntensity: 2.0, // Bright glow (will vary with energy)
+          transparent: true,
+          opacity: 1.0, // Will fade with health
+          depthWrite: false, // Prevent z-fighting with transparent materials
         });
 
         const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
@@ -819,13 +827,13 @@ export class ThreeRenderer implements Renderer {
           const outlineGeometry = this.getGeometry(`ring-outline-${radius}`, () =>
             new THREE.RingGeometry(radius, radius + 3, 32)
           );
-          const outlineMaterial = this.getMaterial('outline-white', () =>
-            new THREE.MeshBasicMaterial({
-              color: 0xffffff,
-              transparent: true,
-              opacity: 0.8,
-            })
-          );
+          // Don't cache outline material - needs to change opacity based on health
+          const outlineMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 1.0, // Will fade with health
+            depthWrite: false, // Prevent z-fighting with transparent materials
+          });
           const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
           outline.position.z = 0.1; // Slightly above player
           this.scene.add(outline);
@@ -842,7 +850,7 @@ export class ThreeRenderer implements Renderer {
         if (outline) {
           const healthRatio = player.health / player.maxHealth;
           const outlineMaterial = outline.material as THREE.MeshBasicMaterial;
-          outlineMaterial.opacity = 0.5 + healthRatio * 0.5; // 0.5-1.0 based on health
+          outlineMaterial.opacity = healthRatio; // Direct proportion: 1.0 at full health, 0.0 at death
         }
       }
 
@@ -895,7 +903,9 @@ export class ThreeRenderer implements Renderer {
 
     // Nucleus fades based on health
     nucleusMaterial.opacity = 0.3 + healthRatio * 0.7; // 0.3-1.0 based on health
-    nucleusMaterial.transparent = true;
+
+    // Cytoplasm darkens toward black as health drops
+    cytoplasmMaterial.uniforms.healthRatio.value = healthRatio;
 
     // Update based on energy
     if (energyRatio > 0.5) {
