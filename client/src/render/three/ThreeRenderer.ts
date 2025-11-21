@@ -438,18 +438,80 @@ export class ThreeRenderer implements Renderer {
         const horizonMaterial = new THREE.MeshPhysicalMaterial({
           color: 0xff0088,
           transparent: true,
-          opacity: 0.35,
+          opacity: 0.2, // Reduced from 0.35
           emissive: 0xff0088,
           emissiveIntensity: 0.6,
           roughness: 0.8,
           side: THREE.DoubleSide,
           depthWrite: false,
-          depthTest: true, // Enable depth testing for proper occlusion
+          depthTest: false, // Revert to false to prevent rendering under grid
         });
         const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);
         horizonSphere.position.z = 0.05; // Slightly forward
         horizonSphere.userData.isEventHorizon = true; // Tag for pulsing animation
         group.add(horizonSphere);
+
+        // === VORTEX EFFECT: Spiral swirl inward ===
+        const vortexParticleCount = 100; // Total particles in spiral
+        const vortexGeometry = new THREE.BufferGeometry();
+        const vortexPositions = new Float32Array(vortexParticleCount * 3);
+        const vortexSizes = new Float32Array(vortexParticleCount);
+
+        // Create spiral vortex pattern
+        for (let i = 0; i < vortexParticleCount; i++) {
+          const progress = i / vortexParticleCount; // 0 to 1 (outer to inner)
+
+          // Spiral inward: radius decreases as we progress (start at 95%, end at 35%)
+          const radius = GAME_CONFIG.OBSTACLE_EVENT_HORIZON * (0.95 - progress * 0.6); // 95% → 35% radius
+
+          // Angle increases as we spiral inward (creates the swirl)
+          const spiralTurns = 3; // Number of full rotations from edge to center
+          const angle = progress * spiralTurns * Math.PI * 2;
+
+          vortexPositions[i * 3] = Math.cos(angle) * radius;
+          vortexPositions[i * 3 + 1] = Math.sin(angle) * radius;
+          vortexPositions[i * 3 + 2] = 0; // Flat on horizon plane
+
+          // Particles get larger as they spiral inward (visual emphasis)
+          vortexSizes[i] = 2.0 + progress * 3.0; // 2px → 5px
+        }
+
+        vortexGeometry.setAttribute('position', new THREE.BufferAttribute(vortexPositions, 3));
+        vortexGeometry.setAttribute('size', new THREE.BufferAttribute(vortexSizes, 1));
+
+        const vortexMaterial = new THREE.PointsMaterial({
+          color: 0xff00ff, // Bright magenta
+          size: 4.0,
+          transparent: true,
+          opacity: 0.7,
+          sizeAttenuation: false,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+
+        const vortexParticles = new THREE.Points(vortexGeometry, vortexMaterial);
+        vortexParticles.position.z = 0.06; // Just in front of horizon sphere
+        vortexParticles.userData.isVortex = true; // Tag for rotation animation
+        vortexParticles.userData.vortexSpeed = 0.3 + Math.random() * 0.3; // Random rotation speed per obstacle
+        group.add(vortexParticles);
+
+        // === VORTEX LINE: Connect particles with continuous spiral line ===
+        const vortexLineGeometry = new THREE.BufferGeometry();
+        vortexLineGeometry.setAttribute('position', new THREE.BufferAttribute(vortexPositions, 3)); // Reuse same positions
+
+        const vortexLineMaterial = new THREE.LineBasicMaterial({
+          color: 0xff00ff, // Bright magenta
+          transparent: true,
+          opacity: 0.6,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+
+        const vortexLine = new THREE.Line(vortexLineGeometry, vortexLineMaterial);
+        vortexLine.position.z = 0.06; // Same depth as particles
+        vortexLine.userData.isVortex = true; // Tag for rotation animation
+        vortexLine.userData.vortexSpeed = vortexParticles.userData.vortexSpeed; // Same rotation speed
+        group.add(vortexLine);
 
         // === LAYER 4: SINGULARITY CORE (INSTANT DEATH) ===
         const coreGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32, 32);
@@ -861,13 +923,25 @@ export class ThreeRenderer implements Renderer {
       const horizonSphere = group.children[2] as THREE.Mesh;
       if (horizonSphere && horizonSphere.userData.isEventHorizon) {
         const horizonPulseSpeed = 2.0; // Slow, ominous breathing
-        const horizonPulseAmount = 0.05; // Subtle scale change (0.95-1.05)
+        const horizonPulseAmount = 0.02; // Very subtle scale change (0.98-1.02)
         const horizonScale = 1.0 + Math.sin(time * horizonPulseSpeed + pulsePhase) * horizonPulseAmount;
         horizonSphere.scale.set(horizonScale, horizonScale, horizonScale);
       }
 
+      // Vortex Particles & Line (Layer 3.5): Rotate to create whirlpool effect
+      const vortexParticles = group.children[3] as THREE.Points;
+      const vortexLine = group.children[4] as THREE.Line;
+      if (vortexParticles && vortexParticles.userData.isVortex) {
+        const rotationSpeed = vortexParticles.userData.vortexSpeed || 0.5;
+        vortexParticles.rotation.z += rotationSpeed * deltaSeconds; // Continuous rotation
+      }
+      if (vortexLine && vortexLine.userData.isVortex) {
+        const rotationSpeed = vortexLine.userData.vortexSpeed || 0.5;
+        vortexLine.rotation.z += rotationSpeed * deltaSeconds; // Continuous rotation (same as particles)
+      }
+
       // Singularity Core (Layer 4): Rapid pulsing
-      const coreSphere = group.children[3] as THREE.Mesh;
+      const coreSphere = group.children[5] as THREE.Mesh;
       if (coreSphere && coreSphere.userData.isSingularityCore) {
         const corePulseSpeed = 3.5; // Fast, menacing heartbeat
         const coreEmissiveBase = 3.0;
@@ -877,7 +951,7 @@ export class ThreeRenderer implements Renderer {
       }
 
       // === ACCRETION DISK PARTICLES ===
-      const particleSystem = group.children[4] as THREE.Points;
+      const particleSystem = group.children[6] as THREE.Points;
       const particleData = this.obstacleParticles.get(id);
       if (particleSystem && particleData) {
         const positions = particleSystem.geometry.attributes.position.array as Float32Array;
