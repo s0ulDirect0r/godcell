@@ -20,6 +20,7 @@ import type {
   EnergyUpdateMessage,
   PlayerDiedMessage,
   PlayerRespawnedMessage,
+  PlayerEvolutionStartedMessage,
   PlayerEvolvedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
@@ -693,6 +694,16 @@ function checkEvolution(player: Player) {
   // Consume energy (40% of maxEnergy)
   const energyCost = player.maxEnergy * GAME_CONFIG.EVOLUTION_ENERGY_COST_PERCENT;
   player.energy -= energyCost;
+
+  // Broadcast evolution start
+  const startMessage: PlayerEvolutionStartedMessage = {
+    type: 'playerEvolutionStarted',
+    playerId: player.id,
+    currentStage: player.stage,
+    targetStage: nextEvolution.stage,
+    duration: GAME_CONFIG.EVOLUTION_MOLTING_DURATION,
+  };
+  io.emit('playerEvolutionStarted', startMessage);
 
   // Schedule evolution completion after molting duration
   setTimeout(() => {

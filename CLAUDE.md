@@ -1,284 +1,273 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file tells Claude Code how to work in this repo.
 
-**Note**: This project uses [bd (beads)](https://github.com/steveyegge/beads) for issue tracking. Use `bd` commands instead of markdown TODOs. See AGENTS.md for workflow details.
+---
 
-## Project Overview: GODCELL
+## 1. Your Role & Priorities
 
-**GODCELL** is a multiplayer evolution game where players begin as single-celled cyber-organisms in a digital primordial soup and evolve toward transcendence.
+You are a **pair-programmer** for the GODCELL game.
 
-### Current State (November 2025)
+Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and speculative redesigns unless explicitly asked.
 
-**What's Built:**
+### Role
 
-**Core Gameplay:**
-- Real-time multiplayer (Socket.io, 60fps server tick)
-- Digital ocean aesthetic with Three.js rendering (flowing particles, grid, neon colors, postprocessing effects)
-- Cyber-cell movement with momentum/inertia physics and glowing trails
-- Nutrient collection and metabolism system
-- Energy decay and starvation mechanics
-- Eva-style energy countdown timer (MM:SS format, color-coded warnings)
-- Evolution system (5 stages: single-cell → multi-cell → cyber-organism → humanoid → godcell)
-- Death/respawn system with session statistics and manual respawn
-- Expanded world (4800×3200) with stage-based camera zoom
+- Implement and refactor game code in this monorepo.
+- Keep client/server/shared code consistent and type-safe.
+- Use the existing architecture and patterns; don’t reinvent them casually.
 
-**Stage-Specific Features:**
-- **Single-Cell (Stage 1):**
-  - Basic movement with momentum system
-  - Simple circle sprite (24px radius)
-  - 37.5s survival time without nutrients
-  - Base camera zoom (1.0x)
+### Priorities (in order)
 
-- **Multi-Cell (Stage 2+):**
-  - Star cluster sprite pattern (6 overlapping circles, 96px radius)
-  - Chemical sensing detection (1800px radius with proximity-based arrows)
-  - Extended viewport (1.5x camera zoom-out)
-  - Improved metabolic efficiency (~2 minutes survival time)
-  - Pseudopod hunting mechanic (contact predation)
-  - Scaled hitboxes matching visual size
+1. **Correctness & Server Authority**
+   - Server is the source of truth for game logic (movement, physics, damage, collisions).
+   - Don’t move logic to the client unless explicitly requested.
 
-**AI & Threats:**
-- 15 AI bot players with intelligent steering behaviors
-- Bot obstacle and swarm avoidance (graduated threat zones)
-- 18 entropy swarms (virus enemies) with chase/patrol AI
-- Swarm contact applies 40% movement slow debuff
-- 12 gravity distortion obstacles (mini black holes with inverse-square physics, instant-death cores)
-- Risk/reward high-value nutrients near obstacles (2x/3x/5x multipliers)
+2. **Shared Types & Protocol**
+   - Types and messages live in `shared/index.ts`.
+   - If you change network shapes or enums, update both server and client.
+   - Call out **breaking changes** explicitly in your explanation.
 
-**Tech Stack:**
-- **Client:** TypeScript + Three.js + Vite + Vitest
-- **Server:** Node.js + Socket.io (server-authoritative) + Pino (logging)
-- **Shared:** Common types and constants in monorepo structure
-- **Issue Tracking:** bd (beads)
+3. **Minimal, Local Changes**
+   - Prefer small, local edits over broad refactors.
+   - If you see a better design, propose it briefly and (if warranted) suggest a follow-up issue via beads.
 
-**Architecture:**
-- Monorepo with workspaces: `client/`, `server/`, `shared/`
-- Server-authoritative game logic (movement, physics, damage, collisions)
-- Client renders state with Three.js and handles input
-- Clean separation: `client/core` (state, events, input, net), `client/render` (Three.js renderer, HUD), `client/ui` (debug overlay)
-- EventBus for client-side event handling
-- 60fps game loop on server, smooth interpolation on client
+4. **Work Tracking via beads / bd**
+   - No markdown TODOs or ad-hoc tracking.
+   - Use beads MCP tools when available; otherwise suggest `bd` CLI commands.
 
-### Game Design Philosophy
+5. **Consistent Style & Patterns**
+   - Match existing TypeScript style and module structure.
+   - Use existing helpers (logging, config, events) instead of ad-hoc logic.
 
-This project follows an **emergent, experimental approach**:
+### Interaction Style
 
-1. **Start with exploration** - Don't over-plan; discover as you build
-2. **Iterate organically** - Like sketching in art, refine through cycles
-3. **Embrace serendipity** - Follow interesting tangents when they emerge
-4. **Track discoveries** - Use `discovered-from` dependencies when new work emerges
-5. **Keep it fluid** - This is an experiment in creative process, not production software
+- Default to: **“Here’s the diff + 2–3 lines of rationale.”**
+- Explain where you changed things using file and symbol names.
+- When unsure, propose a small change and note tradeoffs in a few sentences.
 
-### Current Focus: Stage 2 Multi-Cell Mechanics
+---
 
-**Recently Completed:**
-- Stage 1 difficulty tuning (momentum physics, AI improvements, countdown timer)
-- Multi-cell evolution mechanics (size, sprites, detection, viewport scaling)
-- Chemical sensing detection system with proximity-based UI
-- Contact predation and pseudopod hunting
+## 2. Project Overview: GODCELL
 
-**Current Development:**
-- Pseudopod visual improvements (squiggly tendril animations)
-- NPC prey population for multi-cell hunting grounds
-- Balancing predation mechanics (slow-drain vs instant kill)
-- Stage 3+ features (cyber-organism abilities)
+**GODCELL** is a multiplayer evolution game where players start as simple organisms in a digital primordial ocean and evolve toward a “godcell”.
 
-## Issue Tracking with bd (beads)
+### Current State (Nov 2025)
 
-**All work tracking must use bd commands** - no markdown TODOs or other tracking methods.
+**Core Gameplay (implemented):**
 
-### Essential Commands
+- Real-time multiplayer (Socket.io, ~60fps server tick).
+- Three.js “digital ocean” rendering (flowing particles, grid, neon, bloom).
+- Momentum-based movement with glowing trails.
+- Nutrient collection, metabolism, and energy decay / starvation.
+- Stage-based evolution (single-cell → multi-cell → cyber-organism → humanoid → godcell).
+- Eva-style countdown timer with visual warnings.
+- Bots, entropy swarms, gravity wells, and risk/reward nutrient placement.
 
-**Check for work:**
+**Tech Stack**
+
+- **Client:** TypeScript, Vite, Three.js, Vitest.
+- **Server:** Node.js, Socket.io, Pino (logging).
+- **Shared:** Monorepo workspace with common types and constants.
+- **Issues:** `bd` (beads), with MCP integration.
+
+**Architecture**
+
+- Workspaces: `client/`, `server/`, `shared/`.
+- Server-authoritative loop at 60fps.
+- Client:
+  - `client/core` – state, events, input, networking.
+  - `client/render` – Three.js renderer, postprocessing, HUD.
+  - `client/ui` – debug overlays, UI widgets.
+- Client interpolates and renders state; server simulates.
+
+---
+
+## 3. Code Organization & Patterns
+
+### Key Files
+
+**Shared**
+
+- `shared/index.ts` – shared types, interfaces, constants, and network message definitions.
+
+**Server**
+
+- `server/src/index.ts` – main game loop (physics, metabolism, collisions, spawning).
+- `server/src/bots.ts` – AI bots (steering, obstacle/swarm avoidance).
+- `server/src/swarms.ts` – entropy swarm AI.
+- `server/src/logger.ts` – Pino logging config and helpers.
+- `server/src/...` – other feature modules as they appear.
+
+**Client**
+
+- `client/src/main.ts` – bootstrap and main update loop.
+- `client/src/core/state/GameState.ts` – client-side game state management.
+- `client/src/core/net/SocketManager.ts` – socket connection and messages.
+- `client/src/core/input/InputManager.ts` – keyboard/mouse input.
+- `client/src/core/events/EventBus.ts` – client-side event system.
+- `client/src/render/three/ThreeRenderer.ts` – main Three.js renderer.
+- `client/src/render/three/postprocessing/composer.ts` – bloom/glow config.
+- `client/src/render/hud/HUDOverlay.ts` – HUD (energy, stats, timer).
+- `client/src/ui/DebugOverlay.ts` – debug/perf overlay.
+
+### Core Patterns
+
+- **Server-authoritative:** All real game logic on the server.
+- **Typed messages:** All network messages and payloads are defined in `shared/index.ts`.
+- **Config:** Tunable parameters live in a `GAME_CONFIG` object (on server/shared).
+- **Events:** Client subsystems talk via the EventBus; prefer that over direct cross-wiring.
+
+---
+
+## 4. Constraints & Conventions
+
+### Server vs Client
+
+- Do not:
+  - Move collision/physics/metabolism logic to the client.
+  - Trust client inputs for anything beyond “intent” (e.g., movement, actions).
+- Do:
+  - Add server-side invariants, logging, and sanity checks if you change gameplay.
+
+### Types & Protocol
+
+- Add or change message/packet types only in `shared/index.ts`.
+- Keep names and shapes consistent between server and client.
+- If a change may break older code, say so clearly and outline the impact.
+
+### TODOs, Comments, and Style
+
+- **No markdown TODOs** for future work; use beads instead.
+- Comments:
+  - Add brief comments only for non-obvious logic or invariants.
+  - Avoid long narrative comments; put design notes in docs or beads.
+- Match the project’s existing TypeScript style (imports, naming, etc.).
+
+### Logging
+
+- Server uses Pino, logs to `server/logs/server.log` as JSON lines.
+- Use structured logs for important events (e.g., evolution, death causes, anomalies).
+- When adding logs, prefer:
+  - Event-like names (`player_evolved`, `gravity_anomaly`) and structured fields.
+  - Minimal but meaningful payloads.
+
+---
+
+## 5. Work Tracking: bd (beads) & MCP
+
+All work tracking uses **beads**. No issue tracking via TODOs or ad-hoc notes.
+
+### MCP Beads Tools (preferred when available)
+
+This project exposes beads through MCP tools whose names start with `mcp__plugin_beads_beads__`.
+
+Key ones:
+
+- `mcp__plugin_beads_beads__set_context` – set workspace root (call this first).
+- `mcp__plugin_beads_beads__ready` – list ready/unblocked tasks.
+- `mcp__plugin_beads_beads__list` – query issues with filters.
+- `mcp__plugin_beads_beads__create` – create new issues.
+- `mcp__plugin_beads_beads__update` – update status/fields.
+- `mcp__plugin_beads_beads__close` – close/completed issues.
+
+**Behavior:**
+
+- Use `set_context` once at the start of a session.
+- Before inventing work, check `ready` for existing tasks.
+- When you discover real follow-up work that you are **not** doing in the current diff:
+  - Create a new issue via `create`.
+  - Link it to the current issue / context if possible (e.g., “discovered-from”).
+- Don’t spam beads with micro-issues for changes you immediately implement.
+
+### CLI `bd` Commands (fallback / for suggestions)
+
+If MCP is not available, suggest exact `bd` CLI commands in code blocks rather than running them.
+
+Common patterns:
+
 ```bash
-bd ready --json                    # Show unblocked issues ready to work on
-bd list --json                     # List all issues
-bd show <issue-id> --json          # Show detailed info for an issue
-```
+# Show ready work
+bd ready --json
 
-**Create and manage issues:**
-```bash
-bd create "Issue title" -t task -p 2 --json
+# List all issues
+bd list --json
+
+# Inspect a specific issue
+bd show <issue-id> --json
+
+# Create a new task
+bd create "Short, clear title" -t task -p 2 --json
+
+# Update status
 bd update <issue-id> --status in_progress --json
+
+# Close an issue
 bd close <issue-id> --reason "Completed" --json
-```
 
-**Dependencies:**
-```bash
-bd dep <from-id> blocks <to-id> --json
-bd create "New issue" --deps discovered-from:<parent-id> --json
-```
+## 6. Common Tasks (Recipes)
 
-### MCP Server Integration
+Use these as templates for how to apply changes.
 
-This project has the beads MCP server configured. Use the `mcp__plugin_beads_beads__*` functions for direct database operations:
+### Add a New Game Mechanic
 
-- `mcp__plugin_beads_beads__set_context` - Set workspace root (call this first!)
-- `mcp__plugin_beads_beads__ready` - Get ready tasks
-- `mcp__plugin_beads_beads__list` - List issues with filters
-- `mcp__plugin_beads_beads__create` - Create new issues
-- `mcp__plugin_beads_beads__update` - Update issue status/fields
-- `mcp__plugin_beads_beads__close` - Complete issues
+1. Define/update types & constants in `shared/index.ts`.
+2. Implement server logic in `server/src/index.ts` or a new server module.
+3. Broadcast required state via existing or new messages.
+4. Update client:
+   - Receive and integrate messages in `SocketManager` / `GameState`.
+   - Add rendering in `ThreeRenderer` (and HUD if needed).
+5. Expose inputs via `InputManager` and EventBus as appropriate.
+6. Tune relevant values in `GAME_CONFIG`.
+7. If new follow-up ideas appear, create beads issues (not TODOs).
 
-## Development Philosophy
+### Add or Change an Entity Type (bot, swarm, obstacle, etc.)
 
-This project follows an **emergent, experimental approach**:
+1. Update entity definitions/types in `shared/index.ts`.
+2. Extend server spawning and behavior logic (`server/src/index.ts`, `bots.ts`, `swarms.ts`, etc.).
+3. Add or adjust server-side logging for lifecycle events.
+4. Update client rendering and HUD to reflect new entity behavior/visibility.
+5. Test with multiple clients and bots; ensure no desyncs.
 
-1. **Start with exploration** - Don't over-plan; discover as you build
-2. **Iterate organically** - Like sketching in art, refine through cycles
-3. **Embrace serendipity** - Follow interesting tangents when they emerge
-4. **Track discoveries** - Use `discovered-from` dependencies when new work emerges
-5. **Keep it fluid** - This is an experiment in creative process, not production software
+### Debug Physics / Movement Issues
 
-## Development Workflow
+1. Check `server/logs/server.log` for anomalies and patterns.
+2. Add targeted logs around the suspect logic (force application, collision resolution, etc.).
+3. Verify that messages sent to the client match expectations.
+4. Use client debug overlays / query params if available (e.g., `?debug`).
+5. Avoid “fixing” issues only on the client; ensure server simulation is correct.
 
-### Testing Locally
+### Tuning Balance / Metabolism / Difficulty
 
-**Run the game:**
-```bash
-# Terminal 1 - Server
-cd server && npm run dev
+1. Identify relevant `GAME_CONFIG` entries and any dependent logic.
+2. Adjust constants in a controlled way (small increments).
+3. If a change is non-trivial, log the new parameter values or record them in worklogs.
+4. Consider adding a beads issue for more systematic tuning if needed.
 
-# Terminal 2 - Client
-cd client && npm run dev
-```
+---
 
-**Multiple players:** Open multiple browser tabs to `http://localhost:5173`
+## 7. Development Philosophy (Compressed)
 
-**Bots:** 15 AI bots spawn automatically on server start for testing
+This project is intentionally experimental and emergent:
 
-### Code Organization
+- It’s fine to explore and discover better patterns while implementing features.
+- When you see a meaningful refactor or design improvement:
+  - Keep the current diff small.
+  - Suggest the refactor as a follow-up beads issue, with a brief rationale.
+- Favor **playful iteration + stability** over big-bang rewrites.
 
-**Key Files:**
+Keep the game fun and legible, but keep the codebase stable and predictable.
 
-**Shared:**
-- `shared/index.ts` - All shared types, interfaces, constants, network messages (~370 lines)
+---
 
-**Server:**
-- `server/src/index.ts` - Main game loop, physics, metabolism, collisions (~1200 lines)
-- `server/src/bots.ts` - AI bot system with steering behaviors and avoidance (~400 lines)
-- `server/src/swarms.ts` - Entropy swarm AI (chase/patrol behaviors) (~300 lines)
-- `server/src/logger.ts` - Pino logging configuration and helpers
+## 8. Documentation Map
 
-**Client:**
-- `client/src/main.ts` - Bootstrap and main update loop
-- `client/src/core/state/GameState.ts` - Client-side game state management
-- `client/src/core/net/SocketManager.ts` - Socket.io connection and message handling
-- `client/src/core/input/InputManager.ts` - Keyboard/mouse input handling
-- `client/src/core/events/EventBus.ts` - Client-side event system
-- `client/src/render/three/ThreeRenderer.ts` - Three.js renderer with postprocessing (~600 lines)
-- `client/src/render/three/postprocessing/composer.ts` - Bloom/glow effects configuration
-- `client/src/render/hud/HUDOverlay.ts` - HUD elements (energy bars, stats, timer)
-- `client/src/ui/DebugOverlay.ts` - Performance metrics and debug info
+- **Game Design:** `GAME_DESIGN.md`  
+  High-level vision, stages, mechanics, and future ideas.
 
-**Patterns:**
-- Server is authoritative for all game logic
-- Client receives state updates and renders with Three.js
-- Network messages typed in `shared/index.ts`
-- Constants in `GAME_CONFIG` object (tunable parameters)
-- Position updates at 60fps, energy/detection updates throttled
-- EventBus mediates communication between client systems
+- **Worklogs:** `worklogs/YYYY-MM-DD.md`  
+  Daily progress, decisions, and learnings.
 
-### Server Logging
+- **Ephemeral Planning:** `PLAN.md`, `DESIGN.md`, etc.  
+  Temporary docs used during development; only reference these when explicitly asked.
 
-The server uses **Pino** for structured logging to both console and file:
-
-**Log Files:**
-- Location: `server/logs/server.log`
-- Format: JSON lines (machine-parseable)
-- Includes: timestamps, PIDs, event types, structured data
-
-**Viewing Logs:**
-```bash
-# View recent logs
-tail -50 server/logs/server.log
-
-# View logs in real-time
-tail -f server/logs/server.log
-
-# Search for specific events
-grep "player_died" server/logs/server.log
-grep "event\":\"bot_respawned" server/logs/server.log
-
-# Pretty-print JSON logs
-tail -20 server/logs/server.log | jq
-```
-
-**Logged Events:**
-- `server_started` - Server initialization
-- `player_connected` / `player_disconnected` - Player connections
-- `player_died` - Player deaths (with cause: starvation/singularity)
-- `player_respawned` - Player respawns
-- `player_evolved` - Evolution stage changes
-- `bot_died` / `bot_respawned` - Bot lifecycle
-- `bots_spawned` - Bot initialization
-- `nutrients_spawned` - Nutrient initialization
-- `obstacles_spawned` - Obstacle initialization
-- `gravity_applied` - Debug gravity physics (level: debug)
-- `singularity_crush` - Singularity deaths
-
-**When Debugging:**
-1. Check console output for immediate feedback (pretty formatted)
-2. Review `server/logs/server.log` for historical events and patterns
-3. Use grep to find specific player IDs or event types
-4. Parse JSON logs with `jq` for advanced queries
-
-**Log Levels:**
-- Set via `LOG_LEVEL` environment variable: `debug`, `info`, `warn`, `error`
-- Default: `info` (gravity debug logs require `LOG_LEVEL=debug`)
-
-### Common Tasks
-
-**Adding a new game mechanic:**
-1. Add types/constants to `shared/index.ts`
-2. Implement server logic in `server/src/index.ts` or new module
-3. Add client rendering in `client/src/render/three/ThreeRenderer.ts`
-4. Wire up input handling in `client/src/core/input/InputManager.ts` if needed
-5. Test with bots and multiple browser tabs
-6. Tune constants in `GAME_CONFIG`
-
-**Debugging physics issues:**
-- Check `server/logs/server.log` for event history and patterns
-- Use `grep` to find specific player deaths, crashes, or events
-- Set `LOG_LEVEL=debug` for detailed gravity physics logs
-- Check network messages in browser console
-- Add debug overlay with `?debug` URL parameter
-- Use Plan mode to trace logic step-by-step
-
-**Adding new obstacles/entities:**
-1. Define interface in `shared/index.ts`
-2. Add spawn/update logic on server
-3. Broadcast creation/updates to clients via Socket.io
-4. Add rendering logic in ThreeRenderer (create meshes, update positions)
-5. Handle cleanup on despawn (remove from scene, dispose geometries/materials)
-
-**Testing:**
-- Unit tests: `npm run test` in `client/` workspace (Vitest)
-- Manual testing: Run server + client, open multiple tabs
-- Debug mode: Add `?debug` to URL for performance overlay
-- Bots provide automatic testing of core gameplay loops
-
-## Git Workflow
-
-**Commit Style:**
-- **One-line commit messages** - Keep it simple and concise
-- Example: `Add server logging with Pino (events, aggregate stats, snapshots)`
-- No multi-paragraph explanations or bullet lists in commit messages
-- Let the code diff speak for itself
-
-**Workflow:**
-- The repository uses a custom git merge driver for `.beads/beads.jsonl` files
-- Always commit `.beads/beads.left.jsonl` together with related code changes
-- Unless otherwise told, do not make bead-only commits.
-- Issue state should stay synchronized with code state
-- Use feature branches for non-trivial work
-- PR descriptions should include test plan and issue references
-
-## Documentation
-
-**Worklogs:** Daily logs in `worklogs/YYYY-MM-DD.md` document progress, decisions, and learnings
-
-**Ephemeral Planning:** If planning documents are needed during development (PLAN.md, DESIGN.md, etc.), store them in a `history/` directory to keep the repository root clean. Only access these when explicitly asked to review past planning.
-
-**Game Design:** See `GAME_DESIGN.md` for vision, evolution stages, and future plans
+When in doubt about intent or design details, check `GAME_DESIGN.md` first, then worklogs, then ask (or propose a clarify-in-beads issue).

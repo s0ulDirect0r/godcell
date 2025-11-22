@@ -10,6 +10,7 @@ import type {
   PlayerMovedMessage,
   PlayerRespawnedMessage,
   PlayerDiedMessage,
+  PlayerEvolutionStartedMessage,
   PlayerEvolvedMessage,
   NutrientSpawnedMessage,
   NutrientCollectedMessage,
@@ -146,12 +147,21 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
+    this.socket.on('playerEvolutionStarted', (data: PlayerEvolutionStartedMessage) => {
+      const player = this.gameState.players.get(data.playerId);
+      if (player) {
+        player.isEvolving = true;
+      }
+      eventBus.emit(data);
+    });
+
     this.socket.on('playerEvolved', (data: PlayerEvolvedMessage) => {
       const player = this.gameState.players.get(data.playerId);
       if (player) {
         player.stage = data.newStage;
         player.maxHealth = data.newMaxHealth;
         player.maxEnergy = data.newMaxEnergy;
+        player.isEvolving = false;
       }
       eventBus.emit(data);
     });
