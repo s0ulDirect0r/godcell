@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 
@@ -1362,7 +1362,7 @@ export class ThreeRenderer implements Renderer {
           player.maxHealth
         );
       } else {
-        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth);
+        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth, player.stage);
       }
 
       // Apply evolution effects if player is evolving
@@ -1432,13 +1432,57 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * Calculate evolution progress (0.0-1.0) based on maxEnergy and stage
+   * Returns 0.0 at 30% of next threshold, 1.0 at 100% of next threshold
+   * Normalized to map 30-100% progress into 0.0-1.0 range
+   */
+  private calculateEvolutionProgress(maxEnergy: number, stage: EvolutionStage): number {
+    // Get next evolution threshold based on current stage
+    let nextThreshold: number;
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        nextThreshold = GAME_CONFIG.EVOLUTION_MULTI_CELL; // 250
+        break;
+      case EvolutionStage.MULTI_CELL:
+        nextThreshold = GAME_CONFIG.EVOLUTION_CYBER_ORGANISM; // 500
+        break;
+      case EvolutionStage.CYBER_ORGANISM:
+        nextThreshold = GAME_CONFIG.EVOLUTION_HUMANOID; // 1000
+        break;
+      case EvolutionStage.HUMANOID:
+        nextThreshold = GAME_CONFIG.EVOLUTION_GODCELL; // 2000
+        break;
+      case EvolutionStage.GODCELL:
+        return 0; // Godcells don't evolve further
+      default:
+        return 0;
+    }
+
+    // Calculate progress toward threshold (0.0-1.0)
+    const rawProgress = maxEnergy / nextThreshold;
+
+    // Map 30-100% into 0.0-1.0 range
+    // If below 30%, return 0 (no visual effects)
+    if (rawProgress < 0.3) return 0;
+
+    // Normalize: (rawProgress - 0.3) / (1.0 - 0.3) = (rawProgress - 0.3) / 0.7
+    return Math.min((rawProgress - 0.3) / 0.7, 1.0);
+  }
+
+  /**
    * Update cell visual state based on energy and health (diegetic UI)
    * Energy affects cytoplasm/organelles brightness
    * Health affects nucleus opacity (fades as health drops)
+   * Evolution progress (30-100%) triggers visual indicators
    */
-  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, health: number, maxHealth: number): void {
+  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, health: number, maxHealth: number, stage: EvolutionStage): void {
     const energyRatio = energy / maxEnergy;
     const healthRatio = health / maxHealth;
+
+    // Calculate evolution progress (0.0 = start, 1.0 = ready to evolve)
+    // Progress starts counting at 30% of next evolution threshold
+    const evolutionProgress = this.calculateEvolutionProgress(maxEnergy, stage);
+    const isApproachingEvolution = evolutionProgress >= 0.3; // 30% threshold
 
     // Get cell components (membrane, cytoplasm, organelles, nucleus)
     const membrane = cellGroup.children[0] as THREE.Mesh;
@@ -1494,6 +1538,163 @@ export class ThreeRenderer implements Renderer {
       // Dramatic scale pulse
       const scalePulse = 0.85 + pulse * 0.25;
       nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+    }
+
+    // ============================================
+    // Evolution Progress Indicators (30-100%)
+    // ============================================
+    if (isApproachingEvolution) {
+      // 1. Pulsing Scale Effect - whole cell breathes
+      const time = Date.now() * 0.003; // Slower pulse for evolution (vs starvation)
+      const pulseIntensity = 0.05 + evolutionProgress * 0.05; // 5-10% size variance
+      const cellPulse = 1.0 + Math.sin(time) * pulseIntensity;
+      cellGroup.scale.set(cellPulse, cellPulse, cellPulse);
+
+      // 2. Particle Corona - orbiting glow particles
+      this.updateEvolutionCorona(cellGroup, evolutionProgress);
+
+      // 3. Glow Ring - shrinking torus around cell
+      this.updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius || 10);
+    } else {
+      // No evolution effects - reset scale and remove corona/ring
+      cellGroup.scale.set(1, 1, 1);
+      this.removeEvolutionEffects(cellGroup);
+    }
+  }
+
+  /**
+   * Update or create orbiting particle corona for evolving cells
+   * Particle count scales from 5 (30%) to 15 (100%)
+   */
+  private updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress: number): void {
+    const radius = cellGroup.userData.radius || 10;
+    const colorHex = cellGroup.userData.colorHex || 0x00ff88;
+    const orbitRadius = radius * 3.0; // Particles orbit at 3.0x cell radius (outside the torus)
+
+    // Calculate particle count based on progress (5 at 0, 15 at 1.0)
+    const targetCount = Math.floor(5 + evolutionProgress * 10);
+
+    // Get or create corona container
+    let corona = cellGroup.userData.evolutionCorona as THREE.Group | undefined;
+    if (!corona) {
+      corona = new THREE.Group();
+      corona.name = 'evolutionCorona';
+      cellGroup.add(corona);
+      cellGroup.userData.evolutionCorona = corona;
+    }
+
+    // Adjust particle count
+    while (corona.children.length < targetCount) {
+      // Create new particle
+      const particleGeometry = new THREE.SphereGeometry(2, 8, 8);
+      const particleMaterial = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.8,
+      });
+      const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+
+      // Random initial angle
+      particle.userData.angle = Math.random() * Math.PI * 2;
+      particle.userData.orbitSpeed = 0.5 + Math.random() * 0.5; // 0.5-1.0 rad/s
+
+      corona.add(particle);
+    }
+
+    while (corona.children.length > targetCount) {
+      const particle = corona.children[corona.children.length - 1];
+      corona.remove(particle);
+    }
+
+    // Update particle positions (orbit around cell)
+    const time = Date.now() * 0.001; // seconds
+    corona.children.forEach((particle, i) => {
+      if (particle instanceof THREE.Mesh) {
+        const orbitSpeed = particle.userData.orbitSpeed || 1.0;
+        const angle = particle.userData.angle + time * orbitSpeed;
+
+        // Position on circular orbit
+        particle.position.x = Math.cos(angle) * orbitRadius;
+        particle.position.y = Math.sin(angle) * orbitRadius;
+        particle.position.z = 0;
+
+        // Brightness pulses with evolution progress
+        const material = particle.material as THREE.MeshBasicMaterial;
+        material.opacity = 0.6 + evolutionProgress * 0.4; // 0.6-1.0
+      }
+    });
+  }
+
+  /**
+   * Update or create glowing torus ring for evolving cells
+   * Ring shrinks from 2.5x → 1.5x radius, brightens from 0.5 → 3.0 intensity
+   */
+  private updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: number, radius: number): void {
+    const colorHex = cellGroup.userData.colorHex || 0x00ff88;
+
+    // Calculate ring size (shrinks as evolution approaches)
+    const ringRadius = radius * (2.5 - evolutionProgress * 1.0); // 2.5x → 1.5x
+    const tubeRadius = 2 + evolutionProgress * 2; // 2 → 4 (thickens)
+
+    // Calculate emissive intensity (brightens)
+    const emissiveIntensity = 0.5 + evolutionProgress * 2.5; // 0.5 → 3.0
+
+    // Get or create ring
+    let ring = cellGroup.userData.evolutionRing as THREE.Mesh | undefined;
+    if (!ring) {
+      const ringGeometry = new THREE.TorusGeometry(ringRadius, tubeRadius, 16, 32);
+      const ringMaterial = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        emissive: colorHex,
+        emissiveIntensity: emissiveIntensity,
+        transparent: true,
+        opacity: 0.0, // Will be set below based on evolutionProgress
+      });
+      ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      ring.name = 'evolutionRing';
+      cellGroup.add(ring);
+      cellGroup.userData.evolutionRing = ring;
+    }
+
+    // Update ring geometry and material
+    const oldGeometry = ring.geometry;
+    ring.geometry = new THREE.TorusGeometry(ringRadius, tubeRadius, 16, 32);
+    oldGeometry.dispose(); // Clean up old geometry
+
+    const material = ring.material as THREE.MeshStandardMaterial;
+    material.emissiveIntensity = emissiveIntensity;
+    // Fade in gradually from 0.0 → 0.8 as evolution approaches
+    material.opacity = evolutionProgress * 0.8;
+
+    // Gentle rotation
+    const time = Date.now() * 0.0005;
+    ring.rotation.z = time;
+  }
+
+  /**
+   * Remove evolution visual effects (corona, ring) when not approaching evolution
+   */
+  private removeEvolutionEffects(cellGroup: THREE.Group): void {
+    // Remove corona
+    const corona = cellGroup.userData.evolutionCorona as THREE.Group | undefined;
+    if (corona) {
+      corona.children.forEach(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+      cellGroup.remove(corona);
+      cellGroup.userData.evolutionCorona = undefined;
+    }
+
+    // Remove ring
+    const ring = cellGroup.userData.evolutionRing as THREE.Mesh | undefined;
+    if (ring) {
+      ring.geometry.dispose();
+      (ring.material as THREE.Material).dispose();
+      cellGroup.remove(ring);
+      cellGroup.userData.evolutionRing = undefined;
     }
   }
 
@@ -1627,6 +1828,10 @@ export class ThreeRenderer implements Renderer {
 
     const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
     cellGroup.add(nucleus);
+
+    // Store metadata for evolution effects
+    cellGroup.userData.radius = radius;
+    cellGroup.userData.colorHex = colorHex;
 
     return cellGroup;
   }
