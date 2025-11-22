@@ -163,6 +163,14 @@ export interface PlayerRespawnedMessage {
   player: Player;
 }
 
+export interface PlayerEvolutionStartedMessage {
+  type: 'playerEvolutionStarted';
+  playerId: string;
+  currentStage: EvolutionStage;
+  targetStage: EvolutionStage;
+  duration: number;
+}
+
 export interface PlayerEvolvedMessage {
   type: 'playerEvolved';
   playerId: string;
@@ -231,6 +239,7 @@ export type ServerMessage =
   | EnergyUpdateMessage
   | PlayerDiedMessage
   | PlayerRespawnedMessage
+  | PlayerEvolutionStartedMessage
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
   | SwarmMovedMessage

@@ -62,6 +62,32 @@ export class ThreeRenderer implements Renderer {
     duration: number;
   }> = [];
 
+  // Evolution animations (orbital particles)
+  private evolutionAnimations: Array<{
+    particles: THREE.Points;
+    particleData: Array<{
+      angle: number;
+      radius: number;
+      radiusVelocity: number;
+      angleVelocity: number;
+      centerX: number;
+      centerY: number;
+    }>;
+    startTime: number;
+    duration: number;
+    colorHex: number;
+  }> = [];
+
+  // Evolution state tracking
+  private playerEvolutionState: Map<string, {
+    startTime: number;
+    duration: number;
+    sourceStage: string;
+    targetStage: string;
+    sourceMesh?: THREE.Group;
+    targetMesh?: THREE.Group;
+  }> = new Map();
+
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -168,6 +194,133 @@ export class ThreeRenderer implements Renderer {
           }
         }
       });
+
+      // Evolution started - track animation state, create target mesh, and spawn particles
+      eventBus.on('playerEvolutionStarted', (event) => {
+        const sourceGroup = this.playerMeshes.get(event.playerId);
+        if (!sourceGroup) return;
+
+        // Calculate target radius
+        const targetRadius = this.getPlayerRadius(event.targetStage as any);
+
+        // Get color from source mesh nucleus
+        let colorHex = 0x00ffff; // Default
+        const firstChild = sourceGroup.children[0];
+        if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
+          // Multi-cell
+          const nucleus = firstChild.children[1] as THREE.Mesh;
+          if (nucleus && nucleus.material) {
+            const material = nucleus.material as THREE.MeshStandardMaterial;
+            colorHex = material.emissive.getHex();
+          }
+        } else if (sourceGroup.children[3]) {
+          // Single-cell
+          const nucleus = sourceGroup.children[3] as THREE.Mesh;
+          if (nucleus && nucleus.material) {
+            const material = nucleus.material as THREE.MeshStandardMaterial;
+            colorHex = material.emissive.getHex();
+          }
+        }
+
+        // Create target mesh for new stage
+        let targetGroup: THREE.Group;
+        if (event.targetStage === 'multi_cell') {
+          targetGroup = createMultiCell({
+            radius: targetRadius,
+            colorHex,
+            style: this.multiCellStyle,
+          });
+        } else {
+          // Create single-cell (or other future stages)
+          targetGroup = this.createSingleCell(targetRadius, colorHex);
+        }
+
+        // Position target at same location as source
+        targetGroup.position.copy(sourceGroup.position);
+        targetGroup.userData.stage = event.targetStage;
+
+        // Start target completely transparent
+        this.setGroupOpacity(targetGroup, 0);
+
+        // Add to scene
+        this.scene.add(targetGroup);
+
+        // Store evolution state
+        this.playerEvolutionState.set(event.playerId, {
+          startTime: Date.now(),
+          duration: event.duration,
+          sourceStage: event.currentStage,
+          targetStage: event.targetStage,
+          sourceMesh: sourceGroup,
+          targetMesh: targetGroup,
+        });
+
+        // Spawn evolution particles
+        const playerGroup = this.playerMeshes.get(event.playerId);
+        if (playerGroup) {
+          // Get color from nucleus
+          let color = 0x00ffff; // Default cyan
+          const firstChild = playerGroup.children[0];
+          if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
+            // Multi-cell: get nucleus from first cell group
+            const nucleus = firstChild.children[1] as THREE.Mesh;
+            if (nucleus && nucleus.material) {
+              const material = nucleus.material as THREE.MeshStandardMaterial;
+              color = material.emissive.getHex();
+            }
+          } else if (playerGroup.children[3]) {
+            // Single-cell: get nucleus directly
+            const nucleus = playerGroup.children[3] as THREE.Mesh;
+            if (nucleus && nucleus.material) {
+              const material = nucleus.material as THREE.MeshStandardMaterial;
+              color = material.emissive.getHex();
+            }
+          }
+
+          this.spawnEvolutionParticles(
+            playerGroup.position.x,
+            playerGroup.position.y,
+            color,
+            event.duration
+          );
+        }
+      });
+
+      // Evolution completed - finalize mesh swap
+      eventBus.on('playerEvolved', (event) => {
+        const evolState = this.playerEvolutionState.get(event.playerId);
+        if (evolState && evolState.targetMesh && evolState.sourceMesh) {
+          // Remove source mesh from scene
+          this.scene.remove(evolState.sourceMesh);
+
+          // Dispose source mesh materials
+          evolState.sourceMesh.children.forEach(child => {
+            if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+              if ((child.material as THREE.Material).dispose) {
+                (child.material as THREE.Material).dispose();
+              }
+            } else if (child instanceof THREE.Group) {
+              child.children.forEach(subChild => {
+                if (subChild instanceof THREE.Mesh && (subChild.material as THREE.Material).dispose) {
+                  (subChild.material as THREE.Material).dispose();
+                }
+              });
+            }
+          });
+
+          // Replace playerMeshes entry with target mesh
+          this.playerMeshes.set(event.playerId, evolState.targetMesh);
+
+          // Reset target mesh opacity and scale to normal
+          this.setGroupOpacity(evolState.targetMesh, 1.0);
+          evolState.targetMesh.scale.setScalar(1.0);
+        }
+
+        // Clean up evolution state
+        setTimeout(() => {
+          this.playerEvolutionState.delete(event.playerId);
+        }, 100);
+      });
     });
   }
 
@@ -224,6 +377,9 @@ export class ThreeRenderer implements Renderer {
 
     // Update death animations
     this.updateDeathAnimations(dt);
+
+    // Update evolution animations
+    this.updateEvolutionAnimations(dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -1147,35 +1303,6 @@ export class ThreeRenderer implements Renderer {
       let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === state.myPlayerId;
 
-      // If stage changed, delete old mesh and recreate
-      if (cellGroup && cellGroup.userData.stage !== player.stage) {
-        this.scene.remove(cellGroup);
-        cellGroup.children.forEach(child => {
-          if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-            if ((child.material as THREE.Material).dispose) {
-              (child.material as THREE.Material).dispose();
-            }
-          } else if (child instanceof THREE.Group) {
-            // Multi-cell has nested groups
-            child.children.forEach(subChild => {
-              if (subChild instanceof THREE.Mesh && (subChild.material as THREE.Material).dispose) {
-                (subChild.material as THREE.Material).dispose();
-              }
-            });
-          }
-        });
-        this.playerMeshes.delete(id);
-
-        // Also remove outline
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          this.scene.remove(outline);
-          this.playerOutlines.delete(id);
-        }
-
-        cellGroup = undefined as any; // Force recreation
-      }
-
       if (!cellGroup) {
         // Calculate size based on stage
         const radius = this.getPlayerRadius(player.stage);
@@ -1193,145 +1320,7 @@ export class ThreeRenderer implements Renderer {
           });
         } else {
           // Single-cell organism
-          cellGroup = new THREE.Group();
-
-        // === OUTER MEMBRANE (Transparent shell) ===
-        const membraneGeometry = this.getGeometry(`sphere-membrane-${radius}`, () =>
-          new THREE.SphereGeometry(radius, 32, 32)
-        );
-
-        const membraneMaterial = new THREE.MeshPhysicalMaterial({
-          color: colorHex,
-          transparent: true,
-          opacity: 0.15, // Very transparent so you can see inside
-          roughness: 0.1,
-          metalness: 0.05,
-          clearcoat: 0.8, // Glossy outer surface
-        });
-
-        const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
-        cellGroup.add(membrane);
-
-        // === CYTOPLASM (Volumetric jelly with shader) ===
-        const nucleusRadius = radius * 0.3;
-        const cytoplasmGeometry = this.getGeometry(`sphere-cytoplasm-${radius}`, () =>
-          new THREE.SphereGeometry(radius * 0.95, 32, 32)
-        );
-
-        // Custom volumetric shader for jelly effect
-        const cytoplasmMaterial = new THREE.ShaderMaterial({
-          uniforms: {
-            color: { value: new THREE.Color(colorHex) },
-            opacity: { value: 0.5 },
-            nucleusRadius: { value: nucleusRadius },
-            cellRadius: { value: radius * 0.95 },
-            healthRatio: { value: 1.0 }, // Will darken toward black as health drops
-          },
-          vertexShader: `
-            varying vec3 vPosition;
-            varying vec3 vNormal;
-
-            void main() {
-              vPosition = position;
-              vNormal = normalize(normalMatrix * normal);
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `,
-          fragmentShader: `
-            uniform vec3 color;
-            uniform float opacity;
-            uniform float nucleusRadius;
-            uniform float cellRadius;
-            uniform float healthRatio;
-
-            varying vec3 vPosition;
-            varying vec3 vNormal;
-
-            void main() {
-              // Distance from center
-              float dist = length(vPosition);
-
-              // Create gradient: denser near center, fading toward edges
-              float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
-
-              // Fresnel effect (edges glow more)
-              vec3 viewDir = normalize(cameraPosition - vPosition);
-              float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
-
-              // Combine gradient with fresnel
-              float alpha = mix(0.6, 0.2, gradient) * opacity;
-              alpha += fresnel * 0.15;
-
-              // Add depth-based darkening for volume feel
-              float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
-
-              // Darken toward black as health drops
-              vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, healthRatio) * depthDarken;
-
-              gl_FragColor = vec4(finalColor, alpha);
-            }
-          `,
-          transparent: true,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          blending: THREE.NormalBlending,
-        });
-
-        const cytoplasm = new THREE.Mesh(cytoplasmGeometry, cytoplasmMaterial);
-        cellGroup.add(cytoplasm);
-
-        // === ORGANELLE PARTICLES (Floating in the jelly) ===
-        const particleCount = 15; // Fewer particles since we have volume now
-        const particleGeometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(particleCount * 3);
-        const sizes = new Float32Array(particleCount);
-
-        const minRadius = nucleusRadius * 1.3;
-        const maxRadius = radius * 0.85;
-
-        for (let i = 0; i < particleCount; i++) {
-          const theta = Math.random() * Math.PI * 2;
-          const phi = Math.random() * Math.PI;
-          const r = minRadius + Math.random() * (maxRadius - minRadius);
-
-          positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-          positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-          positions[i * 3 + 2] = r * Math.cos(phi);
-
-          sizes[i] = 1.5 + Math.random() * 1.5;
-        }
-
-        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-        const particleMaterial = new THREE.PointsMaterial({
-          color: colorHex,
-          size: 2.5,
-          transparent: true,
-          opacity: 0.7,
-          sizeAttenuation: false,
-          blending: THREE.AdditiveBlending,
-        });
-
-        const organelles = new THREE.Points(particleGeometry, particleMaterial);
-        cellGroup.add(organelles);
-
-        // === INNER NUCLEUS (Glowing core) ===
-        const nucleusGeometry = this.getGeometry(`sphere-nucleus-${nucleusRadius}`, () =>
-          new THREE.SphereGeometry(nucleusRadius, 16, 16)
-        );
-
-        const nucleusMaterial = new THREE.MeshStandardMaterial({
-          color: colorHex,
-          emissive: colorHex,
-          emissiveIntensity: 2.0, // Bright glow (will vary with energy)
-          transparent: true,
-          opacity: 1.0, // Will fade with health
-          depthWrite: false, // Prevent z-fighting with transparent materials
-        });
-
-        const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
-        cellGroup.add(nucleus);
+          cellGroup = this.createSingleCell(radius, colorHex);
         }
 
         // Position group at player location
@@ -1374,6 +1363,35 @@ export class ThreeRenderer implements Renderer {
         );
       } else {
         this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth);
+      }
+
+      // Apply evolution effects if player is evolving
+      const evolState = this.playerEvolutionState.get(id);
+      if (evolState) {
+        const elapsed = Date.now() - evolState.startTime;
+        const progress = Math.min(elapsed / evolState.duration, 1.0);
+
+        // Apply glow and pulse to whichever mesh is visible
+        if (evolState.sourceMesh) {
+          this.applyEvolutionEffects(evolState.sourceMesh, evolState.sourceStage, progress);
+        }
+        if (evolState.targetMesh) {
+          this.applyEvolutionEffects(evolState.targetMesh, evolState.targetStage, progress);
+
+          // Crossfade: source fades out, target fades in
+          const sourceOpacity = 1.0 - progress;
+          const targetOpacity = progress;
+
+          this.setGroupOpacity(evolState.sourceMesh!, sourceOpacity);
+          this.setGroupOpacity(evolState.targetMesh, targetOpacity);
+
+          // Scale effects: source shrinks slightly, target grows from smaller
+          evolState.sourceMesh!.scale.setScalar(1.0 - progress * 0.15); // Shrink to 0.85
+          evolState.targetMesh.scale.setScalar(0.7 + progress * 0.3); // Grow from 0.7 to 1.0
+
+          // Keep both meshes at same position
+          evolState.targetMesh.position.copy(cellGroup.position);
+        }
       }
 
       // Update outline opacity for client player based on health
@@ -1476,6 +1494,207 @@ export class ThreeRenderer implements Renderer {
       // Dramatic scale pulse
       const scalePulse = 0.85 + pulse * 0.25;
       nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+    }
+  }
+
+  /**
+   * Create a single-cell organism mesh
+   */
+  private createSingleCell(radius: number, colorHex: number): THREE.Group {
+    const cellGroup = new THREE.Group();
+
+    // === OUTER MEMBRANE (Transparent shell) ===
+    const membraneGeometry = this.getGeometry(`sphere-membrane-${radius}`, () =>
+      new THREE.SphereGeometry(radius, 32, 32)
+    );
+
+    const membraneMaterial = new THREE.MeshPhysicalMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: 0.15,
+      roughness: 0.1,
+      metalness: 0.05,
+      clearcoat: 0.8,
+    });
+
+    const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
+    cellGroup.add(membrane);
+
+    // === CYTOPLASM (Volumetric jelly with shader) ===
+    const nucleusRadius = radius * 0.3;
+    const cytoplasmGeometry = this.getGeometry(`sphere-cytoplasm-${radius}`, () =>
+      new THREE.SphereGeometry(radius * 0.95, 32, 32)
+    );
+
+    const cytoplasmMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        color: { value: new THREE.Color(colorHex) },
+        opacity: { value: 0.5 },
+        nucleusRadius: { value: nucleusRadius },
+        cellRadius: { value: radius * 0.95 },
+        healthRatio: { value: 1.0 },
+      },
+      vertexShader: `
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+
+        void main() {
+          vPosition = position;
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 color;
+        uniform float opacity;
+        uniform float nucleusRadius;
+        uniform float cellRadius;
+        uniform float healthRatio;
+
+        varying vec3 vPosition;
+        varying vec3 vNormal;
+
+        void main() {
+          float dist = length(vPosition);
+          float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
+          vec3 viewDir = normalize(cameraPosition - vPosition);
+          float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
+          float alpha = mix(0.6, 0.2, gradient) * opacity;
+          alpha += fresnel * 0.15;
+          float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
+          vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, healthRatio) * depthDarken;
+          gl_FragColor = vec4(finalColor, alpha);
+        }
+      `,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+
+    const cytoplasm = new THREE.Mesh(cytoplasmGeometry, cytoplasmMaterial);
+    cellGroup.add(cytoplasm);
+
+    // === ORGANELLE PARTICLES ===
+    const particleCount = 15;
+    const particleGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+
+    const minRadius = nucleusRadius * 1.3;
+    const maxRadius = radius * 0.85;
+
+    for (let i = 0; i < particleCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const r = minRadius + Math.random() * (maxRadius - minRadius);
+
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
+
+      sizes[i] = 1.5 + Math.random() * 1.5;
+    }
+
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const particleMaterial = new THREE.PointsMaterial({
+      color: colorHex,
+      size: 2.5,
+      transparent: true,
+      opacity: 0.7,
+      sizeAttenuation: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const organelles = new THREE.Points(particleGeometry, particleMaterial);
+    cellGroup.add(organelles);
+
+    // === INNER NUCLEUS ===
+    const nucleusGeometry = this.getGeometry(`sphere-nucleus-${nucleusRadius}`, () =>
+      new THREE.SphereGeometry(nucleusRadius, 16, 16)
+    );
+
+    const nucleusMaterial = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      emissive: colorHex,
+      emissiveIntensity: 2.0,
+      transparent: true,
+      opacity: 1.0,
+      depthWrite: false,
+    });
+
+    const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
+    cellGroup.add(nucleus);
+
+    return cellGroup;
+  }
+
+  /**
+   * Set opacity for all materials in a group recursively
+   */
+  private setGroupOpacity(group: THREE.Group, opacity: number): void {
+    group.children.forEach(child => {
+      if (child instanceof THREE.Mesh) {
+        const material = child.material as THREE.Material;
+        if ('opacity' in material) {
+          (material as any).opacity = opacity;
+        }
+        if ('uniforms' in material && (material as any).uniforms.opacity) {
+          (material as any).uniforms.opacity.value = opacity;
+        }
+      } else if (child instanceof THREE.Points) {
+        const material = child.material as THREE.PointsMaterial;
+        material.opacity = opacity;
+      } else if (child instanceof THREE.Group) {
+        // Recursively set opacity for nested groups (multi-cell)
+        this.setGroupOpacity(child, opacity);
+      }
+    });
+  }
+
+  /**
+   * Apply evolution visual effects (glow pulse, scale) during molting period
+   */
+  private applyEvolutionEffects(cellGroup: THREE.Group, stage: string, progress: number): void {
+    // Intense glow that peaks at 50% progress (sine wave) - 75% boost
+    const glowIntensity = Math.sin(progress * Math.PI) * 5.0; // 0 → 5 → 0
+
+    // Rapid pulse effect (multiple cycles during evolution) - 150% boost
+    const rapidPulse = Math.sin(progress * Math.PI * 8) * 0.2; // ±0.2
+    const scalePulse = 1.0 + rapidPulse;
+
+    // Apply effects based on stage (different structures)
+    if (stage === 'multi_cell') {
+      // Multi-cell: apply to all cell nuclei
+      const cellCount = cellGroup.userData.cellCount || 7;
+      for (let i = 0; i < cellCount; i++) {
+        const cell = cellGroup.children[i] as THREE.Group;
+        if (cell && cell.children) {
+          const nucleus = cell.children[1] as THREE.Mesh;
+          if (nucleus && nucleus.material) {
+            const material = nucleus.material as THREE.MeshStandardMaterial;
+            // Boost emissive intensity
+            material.emissiveIntensity = (material.emissiveIntensity || 1.5) + glowIntensity;
+          }
+        }
+      }
+
+      // Pulse entire group scale
+      cellGroup.scale.set(scalePulse, scalePulse, scalePulse);
+
+    } else {
+      // Single-cell: apply to nucleus (child 3)
+      const nucleus = cellGroup.children[3] as THREE.Mesh;
+      if (nucleus && nucleus.material) {
+        const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
+        // Boost emissive intensity (additive to current energy state)
+        nucleusMaterial.emissiveIntensity = (nucleusMaterial.emissiveIntensity || 2.0) + glowIntensity;
+      }
+
+      // Pulse entire group scale
+      cellGroup.scale.set(scalePulse, scalePulse, scalePulse);
     }
   }
 
@@ -1681,6 +1900,72 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Spawn evolution particles that orbit outward then spiral back inward
+   */
+  private spawnEvolutionParticles(x: number, y: number, colorHex: number, duration: number): void {
+    const particleCount = 60; // More particles than death for dramatic effect
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{
+      angle: number;
+      radius: number;
+      radiusVelocity: number;
+      angleVelocity: number;
+      centerX: number;
+      centerY: number;
+    }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Evenly distribute particles in a circle
+      const angle = (i / particleCount) * Math.PI * 2;
+      const startRadius = 10; // Start close to cell
+
+      positions[i * 3] = x + Math.cos(angle) * startRadius;
+      positions[i * 3 + 1] = y + Math.sin(angle) * startRadius;
+      positions[i * 3 + 2] = 0.2; // Above everything else
+
+      sizes[i] = 2 + Math.random() * 2;
+
+      // Particle will orbit outward then inward (controlled by update function)
+      particleData.push({
+        angle,
+        radius: startRadius,
+        radiusVelocity: 80, // pixels per second outward
+        angleVelocity: 2.0 + Math.random(), // radians per second (rotation speed)
+        centerX: x,
+        centerY: y,
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: colorHex,
+      size: 3,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+      blending: THREE.AdditiveBlending, // Additive blending for energy feel
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.evolutionAnimations.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+      colorHex,
+    });
+  }
+
   private updateDeathAnimations(dt: number): void {
     const deltaSeconds = dt / 1000;
     const now = Date.now();
@@ -1731,6 +2016,69 @@ export class ThreeRenderer implements Renderer {
       (anim.particles.material as THREE.Material).dispose();
 
       this.deathAnimations.splice(index, 1);
+    }
+  }
+
+  /**
+   * Update evolution particle animations (orbit outward then spiral back)
+   */
+  private updateEvolutionAnimations(dt: number): void {
+    const deltaSeconds = dt / 1000;
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.evolutionAnimations.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Orbit: update angle
+        p.angle += p.angleVelocity * deltaSeconds;
+
+        // Radius: expand to 0.5, then contract back to center
+        // Use smooth sine wave: out → in
+        const radiusProgress = Math.sin(progress * Math.PI); // 0 → 1 → 0
+        const maxRadius = 100;
+        p.radius = 10 + radiusProgress * maxRadius;
+
+        // Calculate new position based on polar coordinates
+        const x = p.centerX + Math.cos(p.angle) * p.radius;
+        const y = p.centerY + Math.sin(p.angle) * p.radius;
+
+        // Update geometry position
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = 0.2;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Fade out near end
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = progress < 0.8 ? 1.0 : (1.0 - (progress - 0.8) / 0.2);
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.evolutionAnimations[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.evolutionAnimations.splice(index, 1);
     }
   }
 
