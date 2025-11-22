@@ -24,6 +24,12 @@ export class ThreeRenderer implements Renderer {
   private cameraShake = 0;
   private lastPlayerHealth: number | null = null;
 
+  // Camera zoom for evolution stages
+  private currentZoom = 1.0; // Current zoom level (1.0 = Stage 1)
+  private targetZoom = 1.0; // Target zoom level (for smooth transitions)
+  private myPlayerId: string | null = null; // Local player ID for event filtering
+  private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
+
   // Multi-cell style
   private multiCellStyle: 'colonial' | 'radial' = 'colonial';
 
@@ -87,6 +93,10 @@ export class ThreeRenderer implements Renderer {
     sourceMesh?: THREE.Group;
     targetMesh?: THREE.Group;
   }> = new Map();
+
+  // Detection system (chemical sensing)
+  private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
+  private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -320,6 +330,53 @@ export class ThreeRenderer implements Renderer {
         setTimeout(() => {
           this.playerEvolutionState.delete(event.playerId);
         }, 100);
+
+        // Update camera zoom if this is the local player
+        if (this.myPlayerId && event.playerId === this.myPlayerId) {
+          // Set target zoom for smooth transition
+          this.targetZoom = this.getStageZoom(event.newStage);
+
+          // Update white outline for new size
+          const oldOutline = this.playerOutlines.get(event.playerId);
+          if (oldOutline) {
+            // Remove old outline
+            this.scene.remove(oldOutline);
+            oldOutline.geometry.dispose();
+            (oldOutline.material as THREE.Material).dispose();
+
+            // Create new outline with evolved radius
+            const newRadius = this.getPlayerRadius(event.newStage);
+            const outlineGeometry = this.getGeometry(`ring-outline-${newRadius}`, () =>
+              new THREE.RingGeometry(newRadius + 16, newRadius + 19, 32)
+            );
+            const outlineMaterial = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 1.0,
+              depthWrite: false,
+            });
+            const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+            newOutline.position.z = 0.1;
+            this.scene.add(newOutline);
+            this.playerOutlines.set(event.playerId, newOutline);
+          }
+        }
+      });
+
+      // Player respawned - reset camera zoom
+      eventBus.on('playerRespawned', (event) => {
+        // Update camera zoom if this is the local player
+        if (this.myPlayerId && event.player.id === this.myPlayerId) {
+          // Set zoom based on respawn stage
+          this.targetZoom = this.getStageZoom(event.player.stage);
+          this.currentZoom = this.targetZoom; // Instant reset (no transition)
+          this.initialZoomSet = false; // Allow re-initialization
+        }
+      });
+
+      // Detection update - chemical sensing for Stage 2+
+      eventBus.on('detectionUpdate', (event) => {
+        this.detectedEntities = event.detected;
       });
     });
   }
@@ -356,10 +413,53 @@ export class ThreeRenderer implements Renderer {
     return GAME_CONFIG.PLAYER_SIZE;
   }
 
+  /**
+   * Get camera scale multiplier for evolution stage
+   * Higher stages scale up to show more of the world
+   */
+  private getStageZoom(stage: EvolutionStage): number {
+    switch (stage) {
+      case EvolutionStage.SINGLE_CELL:
+        return 1.0; // Base scale
+      case EvolutionStage.MULTI_CELL:
+        return 1.5; // 1.5x more visible area
+      case EvolutionStage.CYBER_ORGANISM:
+        return 2.0; // 2x more visible area
+      case EvolutionStage.HUMANOID:
+        return 2.5; // 2.5x more visible area
+      case EvolutionStage.GODCELL:
+        return 3.0; // 3x more visible area
+    }
+  }
+
   render(state: GameState, dt: number): void {
+    // Update local player ID reference (for event filtering)
+    this.myPlayerId = state.myPlayerId;
+
     // Detect damage for camera shake
     const myPlayer = state.getMyPlayer();
     if (myPlayer) {
+      // Set initial zoom based on spawn stage (first frame only)
+      if (!this.initialZoomSet) {
+        const initialZoom = this.getStageZoom(myPlayer.stage);
+        this.currentZoom = initialZoom;
+        this.targetZoom = initialZoom;
+        this.initialZoomSet = true;
+
+        // Apply immediately if not Stage 1
+        if (initialZoom !== 1.0) {
+          const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
+          const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
+          const scaledFrustumSize = baseFrustumSize * this.currentZoom;
+
+          this.camera.left = (scaledFrustumSize * aspect) / -2;
+          this.camera.right = (scaledFrustumSize * aspect) / 2;
+          this.camera.top = scaledFrustumSize / 2;
+          this.camera.bottom = scaledFrustumSize / -2;
+          this.camera.updateProjectionMatrix();
+        }
+      }
+
       // Detect health decrease (damage taken)
       if (this.lastPlayerHealth !== null && myPlayer.health < this.lastPlayerHealth) {
         const damageAmount = this.lastPlayerHealth - myPlayer.health;
@@ -417,6 +517,29 @@ export class ThreeRenderer implements Renderer {
       this.camera.position.x += offsetX;
       this.camera.position.y += offsetY;
       this.cameraShake *= 0.88; // Moderate decay
+    }
+
+    // Update camera zoom (smooth transition to target zoom)
+    if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
+      // Stable lerp - use fixed factor instead of dt-based to avoid oscillation
+      const lerpFactor = 0.1; // 10% per frame - smooth and stable
+      this.currentZoom += (this.targetZoom - this.currentZoom) * lerpFactor;
+
+      // Snap to target when very close
+      if (Math.abs(this.currentZoom - this.targetZoom) < 0.01) {
+        this.currentZoom = this.targetZoom;
+      }
+
+      // Apply new zoom to camera
+      const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
+      const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
+      const scaledFrustumSize = baseFrustumSize * this.currentZoom;
+
+      this.camera.left = (scaledFrustumSize * aspect) / -2;
+      this.camera.right = (scaledFrustumSize * aspect) / 2;
+      this.camera.top = scaledFrustumSize / 2;
+      this.camera.bottom = scaledFrustumSize / -2;
+      this.camera.updateProjectionMatrix();
     }
 
     // Render scene with postprocessing
@@ -1303,9 +1426,10 @@ export class ThreeRenderer implements Renderer {
       let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === state.myPlayerId;
 
+      // Calculate size based on stage (needed for rendering and compass)
+      const radius = this.getPlayerRadius(player.stage);
+
       if (!cellGroup) {
-        // Calculate size based on stage
-        const radius = this.getPlayerRadius(player.stage);
 
         // Parse hex color (#RRGGBB → 0xRRGGBB)
         const colorHex = parseInt(player.color.replace('#', ''), 16);
@@ -1418,6 +1542,15 @@ export class ThreeRenderer implements Renderer {
           outline.position.x = cellGroup.position.x;
           outline.position.y = cellGroup.position.y;
         }
+
+        // Update compass indicators for client player (chemical sensing)
+        if (isMyPlayer) {
+          this.updateCompassIndicators(
+            { x: cellGroup.position.x, y: cellGroup.position.y },
+            radius,
+            player.stage
+          );
+        }
       } else {
         // Fallback to direct position if no target
         cellGroup.position.set(player.position.x, player.position.y, 0);
@@ -1426,6 +1559,15 @@ export class ThreeRenderer implements Renderer {
         const outline = this.playerOutlines.get(id);
         if (outline) {
           outline.position.set(player.position.x, player.position.y, 0.1);
+        }
+
+        // Update compass indicators for client player (chemical sensing)
+        if (isMyPlayer) {
+          this.updateCompassIndicators(
+            { x: player.position.x, y: player.position.y },
+            radius,
+            player.stage
+          );
         }
       }
     });
@@ -1608,7 +1750,7 @@ export class ThreeRenderer implements Renderer {
 
     // Update particle positions (orbit around cell)
     const time = Date.now() * 0.001; // seconds
-    corona.children.forEach((particle, i) => {
+    corona.children.forEach((particle) => {
       if (particle instanceof THREE.Mesh) {
         const orbitSpeed = particle.userData.orbitSpeed || 1.0;
         const angle = particle.userData.angle + time * orbitSpeed;
@@ -1696,6 +1838,87 @@ export class ThreeRenderer implements Renderer {
       cellGroup.remove(ring);
       cellGroup.userData.evolutionRing = undefined;
     }
+  }
+
+  /**
+   * Update compass indicators on white circle (chemical sensing)
+   * Shows colored arrows on the ring edge pointing toward detected entities
+   */
+  private updateCompassIndicators(playerPosition: { x: number; y: number }, radius: number, stage: EvolutionStage): void {
+    // Remove old compass indicators if they exist
+    if (this.compassIndicators) {
+      this.compassIndicators.children.forEach(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+      this.scene.remove(this.compassIndicators);
+      this.compassIndicators = null;
+    }
+
+    // Only show compass for Stage 2+ (multi-cell has chemical sensing)
+    if (stage === EvolutionStage.SINGLE_CELL) return;
+
+    // No detected entities to show
+    if (this.detectedEntities.length === 0) return;
+
+    // Create new compass group
+    this.compassIndicators = new THREE.Group();
+    this.compassIndicators.position.set(playerPosition.x, playerPosition.y, 0.2); // Above outline
+
+    const arrowSize = 12; // Base size of arrow (bigger)
+    const ringRadius = radius + 35; // Position on invisible ring outside the white circle
+
+    // Render arrow for each detected entity
+    for (const entity of this.detectedEntities) {
+      // Calculate angle from player to entity
+      const dx = entity.position.x - playerPosition.x;
+      const dy = entity.position.y - playerPosition.y;
+      const angle = Math.atan2(dy, dx);
+
+      // Choose color based on entity type
+      let arrowColor: number;
+      if (entity.entityType === 'nutrient') {
+        arrowColor = 0x00ff00; // Green
+      } else if (entity.entityType === 'player') {
+        arrowColor = 0xff00ff; // Magenta
+      } else {
+        arrowColor = 0xff0000; // Red for swarms
+      }
+
+      // Create arrow geometry (pointier triangle)
+      const arrowGeometry = new THREE.BufferGeometry();
+      const vertices = new Float32Array([
+        0, arrowSize * 1.2, 0,           // Tip (pointing outward, longer)
+        -arrowSize * 0.35, -arrowSize * 0.4, 0,  // Base left (narrower)
+        arrowSize * 0.35, -arrowSize * 0.4, 0,   // Base right (narrower)
+      ]);
+      arrowGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+
+      const arrowMaterial = new THREE.MeshBasicMaterial({
+        color: arrowColor,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+
+      const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
+
+      // Position arrow on ring edge
+      arrow.position.x = Math.cos(angle) * ringRadius;
+      arrow.position.y = Math.sin(angle) * ringRadius;
+      arrow.position.z = 0;
+
+      // Rotate arrow to point outward from circle center toward entity
+      // Add π/2 to account for arrow's default +Y orientation vs angle's +X reference
+      arrow.rotation.z = angle - Math.PI / 2;
+
+      this.compassIndicators.add(arrow);
+    }
+
+    this.scene.add(this.compassIndicators);
   }
 
   /**
@@ -2291,11 +2514,12 @@ export class ThreeRenderer implements Renderer {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
     const aspect = width / height;
-    const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
-    this.camera.left = (frustumSize * aspect) / -2;
-    this.camera.right = (frustumSize * aspect) / 2;
-    this.camera.top = frustumSize / 2;
-    this.camera.bottom = frustumSize / -2;
+    const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
+    const scaledFrustumSize = baseFrustumSize * this.currentZoom; // Respect current zoom
+    this.camera.left = (scaledFrustumSize * aspect) / -2;
+    this.camera.right = (scaledFrustumSize * aspect) / 2;
+    this.camera.top = scaledFrustumSize / 2;
+    this.camera.bottom = scaledFrustumSize / -2;
     this.camera.updateProjectionMatrix();
   }
 

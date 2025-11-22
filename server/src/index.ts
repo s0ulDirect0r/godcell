@@ -870,7 +870,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
  * Respawn a dead player - reset to single-cell at random location
  */
 function respawnPlayer(player: Player) {
-  // Reset player to single-cell at random spawn
+  // Reset player to Stage 1 (single-cell)
   player.position = randomSpawnPosition();
   player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
   player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
@@ -1045,6 +1045,18 @@ function broadcastDetectionUpdates() {
             id: nutrientId,
             position: nutrient.position,
             entityType: 'nutrient',
+          });
+        }
+      }
+
+      // Detect swarms (potential prey for multi-cells)
+      for (const [swarmId, swarm] of getSwarms()) {
+        const dist = distance(player.position, swarm.position);
+        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+          detected.push({
+            id: swarmId,
+            position: swarm.position,
+            entityType: 'swarm',
           });
         }
       }

@@ -20,6 +20,10 @@ export class HUDOverlay {
     highestStage: EvolutionStage.SINGLE_CELL,
   };
 
+  // Detection indicators moved to ThreeRenderer (compass on white circle)
+  // private detectionCanvas!: HTMLCanvasElement;
+  // private detectionCtx!: CanvasRenderingContext2D;
+
   constructor() {
     this.container = document.createElement('div');
     this.container.id = 'hud-overlay';
@@ -42,6 +46,8 @@ export class HUDOverlay {
     }
 
     this.createCountdown();
+    // Detection canvas moved to ThreeRenderer (compass on white circle)
+    // this.createDetectionCanvas();
     this.setupDeathOverlay();
     this.setupEventHandlers();
   }
@@ -61,6 +67,40 @@ export class HUDOverlay {
     `;
     this.container.appendChild(this.countdown);
   }
+
+  /* Detection canvas moved to ThreeRenderer (compass on white circle)
+  private createDetectionCanvas(): void {
+    this.detectionCanvas = document.createElement('canvas');
+    this.detectionCanvas.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 999;
+    `;
+
+    // Set canvas resolution to match display size
+    const gameContainer = document.getElementById('game-container');
+    if (gameContainer) {
+      this.detectionCanvas.width = gameContainer.clientWidth;
+      this.detectionCanvas.height = gameContainer.clientHeight;
+    } else {
+      this.detectionCanvas.width = window.innerWidth;
+      this.detectionCanvas.height = window.innerHeight;
+    }
+
+    this.container.appendChild(this.detectionCanvas);
+
+    const ctx = this.detectionCanvas.getContext('2d');
+    if (!ctx) {
+      console.error('Failed to get 2D context for detection canvas');
+      return;
+    }
+    this.detectionCtx = ctx;
+  }
+  */
 
   private setupDeathOverlay(): void {
     // Get existing death overlay from HTML (may be null if markup is missing)
@@ -113,6 +153,13 @@ export class HUDOverlay {
     eventBus.on('gameState', () => {
       this.resetSessionStats();
     });
+
+    /* Detection update moved to ThreeRenderer (compass on white circle)
+    // Detection updates (chemical sensing for Stage 2+)
+    eventBus.on('detectionUpdate', (event) => {
+      this.detectedEntities = event.detected;
+    });
+    */
   }
 
   /**
@@ -152,6 +199,8 @@ export class HUDOverlay {
     }
     this.countdown.style.color = timerColor;
     this.countdown.style.textShadow = `0 0 10px ${timerColor}`;
+
+    // Detection indicators now rendered in ThreeRenderer (compass on white circle)
   }
 
   private getStageDecayRate(stage: EvolutionStage): number {
@@ -170,6 +219,8 @@ export class HUDOverlay {
         return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;
     }
   }
+
+  // Detection indicators removed - now rendered in ThreeRenderer as compass on white circle
 
   private showDeathOverlay(cause?: DeathCause): void {
     // No-op if death overlay is not available
