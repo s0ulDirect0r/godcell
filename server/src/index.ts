@@ -786,16 +786,8 @@ function checkEvolution(player: Player) {
   // Check capacity gate (maxEnergy threshold)
   if (player.maxEnergy < nextEvolution.threshold) return;
 
-  // Check fuel gate (80% energy required)
-  const fuelRequired = player.maxEnergy * GAME_CONFIG.EVOLUTION_FUEL_REQUIREMENT_PERCENT;
-  if (player.energy < fuelRequired) return;
-
-  // Both gates met - trigger evolution!
+  // Capacity threshold met - trigger evolution!
   player.isEvolving = true;
-
-  // Consume energy (40% of maxEnergy)
-  const energyCost = player.maxEnergy * GAME_CONFIG.EVOLUTION_ENERGY_COST_PERCENT;
-  player.energy -= energyCost;
 
   // Broadcast evolution start
   const startMessage: PlayerEvolutionStartedMessage = {

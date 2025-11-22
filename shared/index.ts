@@ -256,7 +256,7 @@ export const GAME_CONFIG = {
   // Movement
   PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
   PLAYER_SIZE: 10,   // Radius of single-cell (tiny for order of magnitude evolution jump)
-  MOVEMENT_FRICTION: 0.60, // Velocity decay per second (tighter handling for precise nutrient targeting)
+  MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
 
   // World dimensions
   WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
@@ -288,9 +288,9 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 26,           // Initial spawn count (doubled for stage 1 tuning)
+  NUTRIENT_COUNT: 32,           // Initial spawn count (balanced for stage 1-2)
   NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
-  NUTRIENT_SIZE: 8,             // Radius
+  NUTRIENT_SIZE: 12,            // Radius (balanced for collection difficulty)
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals (base 1x)
   NUTRIENT_ENERGY_VALUE: 25,    // Immediate energy gain
   NUTRIENT_CAPACITY_INCREASE: 10, // Permanent maxEnergy increase
@@ -327,14 +327,12 @@ export const GAME_CONFIG = {
   MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved (start low, tune upward based on playtesting)
 
   // Evolution thresholds (maxEnergy required)
-  EVOLUTION_MULTI_CELL: 250,      // 15 nutrients needed
+  EVOLUTION_MULTI_CELL: 300,      // 20 nutrients needed
   EVOLUTION_CYBER_ORGANISM: 500,  // ~40 nutrients total
   EVOLUTION_HUMANOID: 1000,       // ~90 nutrients total
   EVOLUTION_GODCELL: 2000,        // ~190 nutrients total
 
-  // Evolution costs (% of maxEnergy consumed)
-  EVOLUTION_ENERGY_COST_PERCENT: 0.4, // 40% of maxEnergy
-  EVOLUTION_FUEL_REQUIREMENT_PERCENT: 0.8, // Must be 80% full to evolve
+  // Evolution
   EVOLUTION_MOLTING_DURATION: 2500, // 2.5 seconds invulnerable animation (ms)
 
   // Stage-specific stats multipliers
@@ -368,7 +366,7 @@ export const GAME_CONFIG = {
   SWARM_SPEED: 290,                  // 20% boost to match faster player speed (still slower than players)
   SWARM_SLOW_EFFECT: 0.6,            // Speed multiplier when player is in contact with swarm (40% slow)
   SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
-  SWARM_DAMAGE_RATE: 30,            // Health damage per second on contact (doubled for stage 1 tuning)
+  SWARM_DAMAGE_RATE: 60,            // Health damage per second on contact (brutal - getting caught is deadly)
   SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point
   SWARM_PATROL_CHANGE_INTERVAL: 3000, // Time between random patrol direction changes (ms)
 };
