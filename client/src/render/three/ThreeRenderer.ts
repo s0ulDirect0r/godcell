@@ -8,6 +8,7 @@ import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
+import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -22,6 +23,9 @@ export class ThreeRenderer implements Renderer {
   // Camera effects
   private cameraShake = 0;
   private lastPlayerHealth: number | null = null;
+
+  // Multi-cell style
+  private multiCellStyle: 'colonial' | 'radial' = 'colonial';
 
   // Resource caching for performance
   private geometryCache: Map<string, THREE.BufferGeometry> = new Map();
@@ -115,10 +119,24 @@ export class ThreeRenderer implements Renderer {
         if (playerGroup) {
           const position = { x: playerGroup.position.x, y: playerGroup.position.y };
 
-          // Get color from nucleus mesh (fourth child: membrane, cytoplasm, organelles, nucleus)
-          const nucleus = playerGroup.children[3] as THREE.Mesh;
-          const material = nucleus.material as THREE.MeshStandardMaterial;
-          const color = material.emissive.getHex();
+          // Get color from nucleus mesh (structure varies by stage)
+          let color = 0x00ffff; // Default cyan
+          const firstChild = playerGroup.children[0];
+          if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
+            // Multi-cell: get nucleus from first cell group
+            const nucleus = firstChild.children[1] as THREE.Mesh;
+            if (nucleus && nucleus.material) {
+              const material = nucleus.material as THREE.MeshStandardMaterial;
+              color = material.emissive.getHex();
+            }
+          } else if (playerGroup.children[3]) {
+            // Single-cell: get nucleus directly (fourth child: membrane, cytoplasm, organelles, nucleus)
+            const nucleus = playerGroup.children[3] as THREE.Mesh;
+            if (nucleus && nucleus.material) {
+              const material = nucleus.material as THREE.MeshStandardMaterial;
+              color = material.emissive.getHex();
+            }
+          }
 
           this.spawnDeathParticles(position.x, position.y, color);
 
@@ -1129,6 +1147,35 @@ export class ThreeRenderer implements Renderer {
       let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === state.myPlayerId;
 
+      // If stage changed, delete old mesh and recreate
+      if (cellGroup && cellGroup.userData.stage !== player.stage) {
+        this.scene.remove(cellGroup);
+        cellGroup.children.forEach(child => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+            if ((child.material as THREE.Material).dispose) {
+              (child.material as THREE.Material).dispose();
+            }
+          } else if (child instanceof THREE.Group) {
+            // Multi-cell has nested groups
+            child.children.forEach(subChild => {
+              if (subChild instanceof THREE.Mesh && (subChild.material as THREE.Material).dispose) {
+                (subChild.material as THREE.Material).dispose();
+              }
+            });
+          }
+        });
+        this.playerMeshes.delete(id);
+
+        // Also remove outline
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          this.scene.remove(outline);
+          this.playerOutlines.delete(id);
+        }
+
+        cellGroup = undefined as any; // Force recreation
+      }
+
       if (!cellGroup) {
         // Calculate size based on stage
         const radius = this.getPlayerRadius(player.stage);
@@ -1136,8 +1183,17 @@ export class ThreeRenderer implements Renderer {
         // Parse hex color (#RRGGBB → 0xRRGGBB)
         const colorHex = parseInt(player.color.replace('#', ''), 16);
 
-        // Create cell group (membrane + organelle particles + nucleus)
-        cellGroup = new THREE.Group();
+        // Create cell based on stage
+        if (player.stage === 'multi_cell') {
+          // Multi-cell organism
+          cellGroup = createMultiCell({
+            radius,
+            colorHex,
+            style: this.multiCellStyle,
+          });
+        } else {
+          // Single-cell organism
+          cellGroup = new THREE.Group();
 
         // === OUTER MEMBRANE (Transparent shell) ===
         const membraneGeometry = this.getGeometry(`sphere-membrane-${radius}`, () =>
@@ -1276,9 +1332,13 @@ export class ThreeRenderer implements Renderer {
 
         const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
         cellGroup.add(nucleus);
+        }
 
         // Position group at player location
         cellGroup.position.set(player.position.x, player.position.y, 0);
+
+        // Store stage for change detection
+        cellGroup.userData.stage = player.stage;
 
         this.scene.add(cellGroup);
         this.playerMeshes.set(id, cellGroup);
@@ -1302,8 +1362,19 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Update nucleus brightness based on energy and health (diegetic UI)
-      this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth);
+      // Update cell visuals based on stage, energy, and health (diegetic UI)
+      if (player.stage === 'multi_cell') {
+        updateMultiCellEnergy(
+          cellGroup,
+          this.multiCellStyle,
+          player.energy,
+          player.maxEnergy,
+          player.health,
+          player.maxHealth
+        );
+      } else {
+        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth);
+      }
 
       // Update outline opacity for client player based on health
       if (isMyPlayer) {
