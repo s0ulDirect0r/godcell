@@ -254,9 +254,9 @@ export type ServerMessage =
 
 export const GAME_CONFIG = {
   // Movement
-  PLAYER_SPEED: 336, // Pixels per second (tuned for feel with momentum system)
-  PLAYER_SIZE: 24,   // Radius of cyber-cell (circular)
-  MOVEMENT_FRICTION: 0.70, // Velocity decay per second (0 = instant stop, 1 = no friction) - Lowered for tighter handling
+  PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
+  PLAYER_SIZE: 10,   // Radius of single-cell (tiny for order of magnitude evolution jump)
+  MOVEMENT_FRICTION: 0.60, // Velocity decay per second (tighter handling for precise nutrient targeting)
 
   // World dimensions
   WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
@@ -344,11 +344,11 @@ export const GAME_CONFIG = {
   GODCELL_HEALTH_MULTIPLIER: 5,         // 500 health
 
   // Size multipliers (visual presence and intimidation)
-  SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (24px radius)
-  MULTI_CELL_SIZE_MULTIPLIER: 4,        // 4x larger (96px radius) - multi-cellular organism
-  CYBER_ORGANISM_SIZE_MULTIPLIER: 6,    // 6x larger (144px radius)
-  HUMANOID_SIZE_MULTIPLIER: 8,          // 8x larger (192px radius)
-  GODCELL_SIZE_MULTIPLIER: 12,          // 12x larger (288px radius) - transcendent scale
+  SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (10px radius)
+  MULTI_CELL_SIZE_MULTIPLIER: 10,       // 10x larger (100px radius) - order of magnitude jump!
+  CYBER_ORGANISM_SIZE_MULTIPLIER: 14.4, // 14.4x larger (144px radius)
+  HUMANOID_SIZE_MULTIPLIER: 19.2,       // 19.2x larger (192px radius)
+  GODCELL_SIZE_MULTIPLIER: 28.8,        // 28.8x larger (288px radius) - transcendent scale
 
   // Multi-cell detection (chemical sensing)
   MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)
@@ -365,7 +365,7 @@ export const GAME_CONFIG = {
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)
   SWARM_SIZE: 47,                    // Radius for collision detection (20% larger, more threatening)
-  SWARM_SPEED: 242,                  // Tuned with new player speed (still slower than players)
+  SWARM_SPEED: 290,                  // 20% boost to match faster player speed (still slower than players)
   SWARM_SLOW_EFFECT: 0.6,            // Speed multiplier when player is in contact with swarm (40% slow)
   SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
   SWARM_DAMAGE_RATE: 30,            // Health damage per second on contact (doubled for stage 1 tuning)
