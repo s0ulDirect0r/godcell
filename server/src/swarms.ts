@@ -16,12 +16,53 @@ let swarmIdCounter = 0;
 // Helper Functions
 // ============================================
 
-function randomSpawnPosition(): Position {
+/**
+ * Generate swarm positions with minimum separation for structured distribution
+ * Uses rejection sampling to ensure swarms are evenly spread across the map
+ */
+function generateSwarmPositions(count: number): Position[] {
   const padding = 300; // Keep swarms away from edges
-  return {
-    x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-    y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
-  };
+  const MIN_SWARM_SEPARATION = 600; // Minimum distance between swarms
+  const maxAttempts = 100;
+  const positions: Position[] = [];
+
+  for (let i = 0; i < count; i++) {
+    let placed = false;
+    let attempts = 0;
+
+    while (!placed && attempts < maxAttempts) {
+      const candidate = {
+        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+      };
+
+      // Check distance from all existing swarm positions
+      let tooClose = false;
+      for (const existing of positions) {
+        if (distance(candidate, existing) < MIN_SWARM_SEPARATION) {
+          tooClose = true;
+          break;
+        }
+      }
+
+      if (!tooClose) {
+        positions.push(candidate);
+        placed = true;
+      }
+
+      attempts++;
+    }
+
+    // If we can't find a valid spot, place anyway (better than no swarm)
+    if (!placed) {
+      positions.push({
+        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
+        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+      });
+    }
+  }
+
+  return positions;
 }
 
 function distance(p1: Position, p2: Position): number {
@@ -47,38 +88,32 @@ function generatePatrolTarget(spawnPos: Position): Position {
 // ============================================
 
 /**
- * Spawn a single entropy swarm at a random location
- */
-function spawnSwarm(io: Server): EntropySwarm {
-  const spawnPos = randomSpawnPosition();
-
-  const swarm: EntropySwarm = {
-    id: `swarm-${swarmIdCounter++}`,
-    position: spawnPos,
-    velocity: { x: 0, y: 0 },
-    size: GAME_CONFIG.SWARM_SIZE,
-    state: 'patrol',
-    patrolTarget: generatePatrolTarget(spawnPos),
-  };
-
-  swarms.set(swarm.id, swarm);
-
-  // Broadcast swarm spawn to all clients
-  const spawnMessage: SwarmSpawnedMessage = {
-    type: 'swarmSpawned',
-    swarm: { ...swarm },
-  };
-  io.emit('swarmSpawned', spawnMessage);
-
-  return swarm;
-}
-
-/**
  * Initialize all entropy swarms at server start
+ * Uses structured distribution with 600px minimum separation
  */
 export function initializeSwarms(io: Server) {
-  for (let i = 0; i < GAME_CONFIG.SWARM_COUNT; i++) {
-    spawnSwarm(io);
+  // Generate all swarm positions at once with minimum separation
+  const positions = generateSwarmPositions(GAME_CONFIG.SWARM_COUNT);
+
+  // Create swarms at generated positions
+  for (const position of positions) {
+    const swarm: EntropySwarm = {
+      id: `swarm-${swarmIdCounter++}`,
+      position,
+      velocity: { x: 0, y: 0 },
+      size: GAME_CONFIG.SWARM_SIZE,
+      state: 'patrol',
+      patrolTarget: generatePatrolTarget(position),
+    };
+
+    swarms.set(swarm.id, swarm);
+
+    // Broadcast swarm spawn to all clients
+    const spawnMessage: SwarmSpawnedMessage = {
+      type: 'swarmSpawned',
+      swarm: { ...swarm },
+    };
+    io.emit('swarmSpawned', spawnMessage);
   }
 }
 

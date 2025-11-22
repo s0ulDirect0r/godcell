@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   createMultiCell,
   updateMultiCellEnergy,
@@ -25,7 +25,6 @@ let controls: OrbitControls;
 let models: Array<THREE.Group | THREE.Mesh> = [];
 let currentEntityType: 'single-cell' | 'multi-cell' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
-let nutrientMultiplier: number = 1;
 
 init();
 animate();
@@ -147,25 +146,21 @@ function init() {
   };
 
   n1xBtn.onclick = () => {
-    nutrientMultiplier = 1;
     updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n1xBtn);
     if (currentEntityType === 'nutrient') updateModels();
   };
 
   n2xBtn.onclick = () => {
-    nutrientMultiplier = 2;
     updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n2xBtn);
     if (currentEntityType === 'nutrient') updateModels();
   };
 
   n3xBtn.onclick = () => {
-    nutrientMultiplier = 3;
     updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n3xBtn);
     if (currentEntityType === 'nutrient') updateModels();
   };
 
   n5xBtn.onclick = () => {
-    nutrientMultiplier = 5;
     updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n5xBtn);
     if (currentEntityType === 'nutrient') updateModels();
   };

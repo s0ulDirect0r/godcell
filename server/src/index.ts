@@ -109,74 +109,170 @@ function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position in the digital ocean
- * Ensures position is safe from gravity wells with retry logic
+ * Bridson's Poisson Disc Sampling Algorithm
+ * Guarantees minimum separation between points while efficiently filling space
+ * Returns array of positions with guaranteed minDist separation
  */
-function randomSpawnPosition(): Position {
-  const padding = 100; // Keep cells away from edges
-  const maxAttempts = 20; // Max retries before giving up
-  let attempts = 0;
+function poissonDiscSampling(
+  width: number,
+  height: number,
+  minDist: number,
+  maxPoints: number,
+  existingPoints: Position[] = [],
+  avoidanceZones: Array<{ position: Position; radius: number }> = []
+): Position[] {
+  const k = 30; // Candidates to try per active point
+  const cellSize = minDist / Math.sqrt(2);
+  const gridWidth = Math.ceil(width / cellSize);
+  const gridHeight = Math.ceil(height / cellSize);
 
-  while (attempts < maxAttempts) {
-    const position = {
-      x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-      y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
-    };
+  // Grid for O(1) neighbor lookups
+  const grid: (Position | null)[][] = Array(gridWidth).fill(null).map(() => Array(gridHeight).fill(null));
 
-    // If obstacles haven't been initialized yet, or position is safe, use it
-    if (obstacles.size === 0 || isSpawnSafe(position)) {
-      return position;
+  const points: Position[] = [];
+  const active: Position[] = [];
+
+  // Helper: Check if point is valid (far enough from all existing points and avoidance zones)
+  const isValid = (point: Position): boolean => {
+    // Check bounds
+    if (point.x < 0 || point.x >= width || point.y < 0 || point.y >= height) {
+      return false;
     }
 
-    attempts++;
-  }
+    // Check avoidance zones
+    for (const zone of avoidanceZones) {
+      if (distance(point, zone.position) < zone.radius) {
+        return false;
+      }
+    }
 
-  // Fallback: if we couldn't find a safe position after max attempts,
-  // check if map center is safe, otherwise find the furthest point from all obstacles
-  logger.warn('Could not find safe spawn position after max attempts, using fallback');
+    // Check existing points (from previous runs)
+    for (const existing of existingPoints) {
+      if (distance(point, existing) < minDist) {
+        return false;
+      }
+    }
 
-  const mapCenter = {
-    x: GAME_CONFIG.WORLD_WIDTH / 2,
-    y: GAME_CONFIG.WORLD_HEIGHT / 2,
-  };
+    // Check grid neighbors
+    const gridX = Math.floor(point.x / cellSize);
+    const gridY = Math.floor(point.y / cellSize);
 
-  // If map center is safe, use it
-  if (isSpawnSafe(mapCenter)) {
-    return mapCenter;
-  }
-
-  // Map center isn't safe - find the position furthest from all obstacles
-  let maxMinDistance = 0;
-  let safestPosition = mapCenter;
-
-  // Check a grid of positions to find the safest spot
-  const gridSize = 10; // Check 10x10 grid
-  for (let i = 0; i < gridSize; i++) {
-    for (let j = 0; j < gridSize; j++) {
-      const testPos = {
-        x: (GAME_CONFIG.WORLD_WIDTH / gridSize) * i + padding,
-        y: (GAME_CONFIG.WORLD_HEIGHT / gridSize) * j + padding,
-      };
-
-      // Find minimum distance to any obstacle
-      let minDistToObstacle = Infinity;
-      for (const obstacle of obstacles.values()) {
-        const dist = distance(testPos, obstacle.position);
-        if (dist < minDistToObstacle) {
-          minDistToObstacle = dist;
+    const searchRadius = 2; // Check 5x5 grid around point
+    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+      for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+        const nx = gridX + dx;
+        const ny = gridY + dy;
+        if (nx >= 0 && nx < gridWidth && ny >= 0 && ny < gridHeight) {
+          const neighbor = grid[nx][ny];
+          if (neighbor && distance(point, neighbor) < minDist) {
+            return false;
+          }
         }
       }
+    }
 
-      // Keep the position with the maximum minimum distance (furthest from all obstacles)
-      if (minDistToObstacle > maxMinDistance) {
-        maxMinDistance = minDistToObstacle;
-        safestPosition = testPos;
+    return true;
+  };
+
+  // Start with random initial point (retry if invalid)
+  let initial: Position | null = null;
+  let initialAttempts = 0;
+  const maxInitialAttempts = 100;
+
+  while (initialAttempts < maxInitialAttempts && !initial) {
+    const candidate = {
+      x: Math.random() * width,
+      y: Math.random() * height,
+    };
+
+    if (isValid(candidate)) {
+      initial = candidate;
+      points.push(initial);
+      active.push(initial);
+      const gridX = Math.floor(initial.x / cellSize);
+      const gridY = Math.floor(initial.y / cellSize);
+      grid[gridX][gridY] = initial;
+    }
+
+    initialAttempts++;
+  }
+
+  // If we can't find a valid initial point, the constraints are too tight
+  if (!initial) {
+    return points; // Return empty array
+  }
+
+  // Generate points
+  while (active.length > 0 && points.length < maxPoints) {
+    const randomIndex = Math.floor(Math.random() * active.length);
+    const point = active[randomIndex];
+    let found = false;
+
+    // Try k candidates in annulus around this point
+    for (let i = 0; i < k; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = minDist * (1 + Math.random()); // Between minDist and 2*minDist
+
+      const candidate = {
+        x: point.x + Math.cos(angle) * radius,
+        y: point.y + Math.sin(angle) * radius,
+      };
+
+      if (isValid(candidate)) {
+        points.push(candidate);
+        active.push(candidate);
+        const gridX = Math.floor(candidate.x / cellSize);
+        const gridY = Math.floor(candidate.y / cellSize);
+        grid[gridX][gridY] = candidate;
+        found = true;
+        break;
       }
+    }
+
+    // Remove from active list if no valid candidates found
+    if (!found) {
+      active.splice(randomIndex, 1);
     }
   }
 
-  logger.warn(`Using safest fallback position with ${maxMinDistance.toFixed(0)}px from nearest obstacle`);
-  return safestPosition;
+  return points;
+}
+
+/**
+ * Generate a random spawn position in the digital ocean
+ * Avoids spawning directly in obstacle death zones (200px safety radius)
+ */
+function randomSpawnPosition(): Position {
+  const padding = 100;
+  const MIN_DIST_FROM_OBSTACLE_CORE = 200; // Don't spawn in event horizon
+  const maxAttempts = 20;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const position = {
+      x: padding + Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2),
+      y: padding + Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2),
+    };
+
+    // Check distance from all obstacle cores
+    let tooClose = false;
+    for (const obstacle of obstacles.values()) {
+      if (distance(position, obstacle.position) < MIN_DIST_FROM_OBSTACLE_CORE) {
+        tooClose = true;
+        break;
+      }
+    }
+
+    if (!tooClose) {
+      return position;
+    }
+  }
+
+  // If we can't find a safe spot after maxAttempts, spawn anyway
+  // (extremely unlikely with 12 obstacles on a 4800x3200 map)
+  return {
+    x: padding + Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2),
+    y: padding + Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2),
+  };
 }
 
 /**
@@ -186,22 +282,6 @@ function distance(p1: Position, p2: Position): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * Check if a spawn position is safe (not inside or near gravity wells)
- * Safe distance is 1000px from obstacle center (400px buffer outside gravity influence)
- */
-function isSpawnSafe(position: Position): boolean {
-  const SAFE_DISTANCE = 1000; // Gravity radius (600px) + buffer (400px)
-
-  for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < SAFE_DISTANCE) {
-      return false; // Too close to a gravity well
-    }
-  }
-
-  return true; // Safe from all obstacles
 }
 
 /**
@@ -336,57 +416,75 @@ function respawnNutrient(nutrientId: string) {
 }
 
 /**
- * Initialize nutrients on server start
+ * Initialize nutrients on server start using Bridson's algorithm
+ * Ensures even distribution while allowing clustering near obstacles for risk/reward
  */
 function initializeNutrients() {
-  for (let i = 0; i < GAME_CONFIG.NUTRIENT_COUNT; i++) {
-    spawnNutrient();
+  const MIN_NUTRIENT_SEPARATION = 200; // Good visual spacing across the map
+  const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
+
+  // Create avoidance zones for obstacle inner event horizons only
+  const avoidanceZones = Array.from(obstacles.values()).map(obstacle => ({
+    position: obstacle.position,
+    radius: INNER_EVENT_HORIZON,
+  }));
+
+  // Generate nutrient positions using Bridson's
+  const nutrientPositions = poissonDiscSampling(
+    GAME_CONFIG.WORLD_WIDTH,
+    GAME_CONFIG.WORLD_HEIGHT,
+    MIN_NUTRIENT_SEPARATION,
+    GAME_CONFIG.NUTRIENT_COUNT,
+    [], // No existing points
+    avoidanceZones // Avoid inner event horizons only
+  );
+
+  // Create nutrients from generated positions
+  for (const position of nutrientPositions) {
+    spawnNutrientAt(position);
   }
-  logNutrientsSpawned(GAME_CONFIG.NUTRIENT_COUNT);
+
+  logNutrientsSpawned(nutrients.size);
+
+  if (nutrients.size < GAME_CONFIG.NUTRIENT_COUNT) {
+    logger.warn(`Only placed ${nutrients.size}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
+  }
 }
 
 /**
- * Initialize gravity obstacles with procedural generation
- * Ensures obstacles are spaced apart by OBSTACLE_MIN_SEPARATION
- * Obstacles can spawn near edges to create boundary dynamics
+ * Initialize gravity obstacles using Bridson's Poisson Disc Sampling
+ * Pure spatial distribution - no safe zones, obstacles fill the map naturally
+ * Guarantees 850px separation between obstacles for good coverage
+ * Keeps obstacles away from walls (event horizon + buffer = 330px)
  */
 function initializeObstacles() {
-  // Small padding to prevent gravity center from being exactly on edge
-  // Reduced from 700px to allow edge spawning and prevent edge-camping
-  const padding = 150;
+  const MIN_OBSTACLE_SEPARATION = 850; // Good spacing for 12 obstacles on 4800×3200 map
+  const WALL_PADDING = 330; // Event horizon (180px) + 150px buffer
   let obstacleIdCounter = 0;
 
-  for (let i = 0; i < GAME_CONFIG.OBSTACLE_COUNT; i++) {
-    let position: Position;
-    let attempts = 0;
-    const maxAttempts = 100;
+  // Generate obstacle positions using Bridson's algorithm on a padded area
+  const paddedWidth = GAME_CONFIG.WORLD_WIDTH - WALL_PADDING * 2;
+  const paddedHeight = GAME_CONFIG.WORLD_HEIGHT - WALL_PADDING * 2;
 
-    // Find a valid position with proper separation
-    do {
-      position = {
-        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
-      };
-      attempts++;
+  const obstaclePositions = poissonDiscSampling(
+    paddedWidth,
+    paddedHeight,
+    MIN_OBSTACLE_SEPARATION,
+    GAME_CONFIG.OBSTACLE_COUNT
+  );
 
-      // Check if too close to any existing obstacle
-      let tooClose = false;
-      for (const existingObstacle of obstacles.values()) {
-        const dist = distance(position, existingObstacle.position);
-        if (dist < GAME_CONFIG.OBSTACLE_MIN_SEPARATION) {
-          tooClose = true;
-          break;
-        }
-      }
+  // Offset positions to account for padding
+  const offsetPositions = obstaclePositions.map(pos => ({
+    x: pos.x + WALL_PADDING,
+    y: pos.y + WALL_PADDING,
+  }));
 
-      if (!tooClose) break;
-    } while (attempts < maxAttempts);
-
-    // Create obstacle
+  // Create obstacles from generated positions
+  for (const position of offsetPositions) {
     const obstacle: Obstacle = {
       id: `obstacle-${obstacleIdCounter++}`,
       position,
-      radius: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS, // Full gravity influence (600px)
+      radius: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS,
       strength: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH,
       damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
     };
@@ -395,6 +493,10 @@ function initializeObstacles() {
   }
 
   logObstaclesSpawned(obstacles.size);
+
+  if (obstacles.size < GAME_CONFIG.OBSTACLE_COUNT) {
+    logger.warn(`Only placed ${obstacles.size}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
+  }
 }
 
 /**
@@ -573,7 +675,7 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   // Handle bot death (respawn logic)
   if (isBot(preyId)) {
-    handleBotDeath(preyId, io, players, obstacles);
+    handleBotDeath(preyId, io, players);
   }
 
   logger.info({
@@ -758,7 +860,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
 
   // Auto-respawn bots after delay
   if (isBot(player.id)) {
-    handleBotDeath(player.id, io, players, obstacles);
+    handleBotDeath(player.id, io, players);
   } else {
     logPlayerDeath(player.id, cause);
   }
@@ -1027,9 +1129,10 @@ const io = new Server(PORT, {
 logServerStarted(PORT);
 
 // Initialize game world
+// Pure Bridson's distribution - obstacles and swarms fill map naturally, spawning is random
 initializeObstacles();
 initializeNutrients();
-initializeBots(io, players, playerInputDirections, playerVelocities, obstacles);
+initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
 initializeSwarms(io);
 
 // ============================================
