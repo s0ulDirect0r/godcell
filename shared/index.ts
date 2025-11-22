@@ -218,7 +218,7 @@ export interface PlayerEngulfedMessage {
 export interface DetectedEntity {
   id: string;
   position: Position;
-  entityType: 'player' | 'nutrient';
+  entityType: 'player' | 'nutrient' | 'swarm';
   stage?: EvolutionStage; // For players only
 }
 
