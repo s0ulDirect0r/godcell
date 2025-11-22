@@ -23,6 +23,9 @@ export interface BotController {
 // All AI bots currently in the game
 const bots: Map<string, BotController> = new Map();
 
+// Spawn position generator (injected from main module)
+let spawnPositionGenerator: (() => Position) | null = null;
+
 // Bot configuration
 const BOT_CONFIG = {
   COUNT: 15, // Number of bots to spawn (tripled for stage 1 tuning)
@@ -41,74 +44,20 @@ function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position in the digital ocean
- * Ensures position is safe from gravity wells with retry logic
+ * Generate a random spawn position using the spawn point system from main module
+ * Falls back to map center if spawn generator not set
  */
-function randomSpawnPosition(obstacles: Map<string, Obstacle>): Position {
-  const padding = 100; // Keep cells away from edges
-  const maxAttempts = 20; // Max retries before giving up
-  let attempts = 0;
-
-  while (attempts < maxAttempts) {
-    const position = {
-      x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-      y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
-    };
-
-    // If obstacles haven't been initialized yet, or position is safe, use it
-    if (obstacles.size === 0 || isSpawnSafe(position, obstacles)) {
-      return position;
-    }
-
-    attempts++;
+function randomSpawnPosition(): Position {
+  if (spawnPositionGenerator) {
+    return spawnPositionGenerator();
   }
 
-  // Fallback: if we couldn't find a safe position after max attempts,
-  // check if map center is safe, otherwise find the furthest point from all obstacles
-  logger.warn('Bot: Could not find safe spawn position after max attempts, using fallback');
-
-  const mapCenter = {
+  // Fallback if spawn generator not injected
+  logger.warn('Bot: Spawn position generator not set, using map center fallback');
+  return {
     x: GAME_CONFIG.WORLD_WIDTH / 2,
     y: GAME_CONFIG.WORLD_HEIGHT / 2,
   };
-
-  // If map center is safe, use it
-  if (isSpawnSafe(mapCenter, obstacles)) {
-    return mapCenter;
-  }
-
-  // Map center isn't safe - find the position furthest from all obstacles
-  let maxMinDistance = 0;
-  let safestPosition = mapCenter;
-
-  // Check a grid of positions to find the safest spot
-  const gridSize = 10; // Check 10x10 grid
-  for (let i = 0; i < gridSize; i++) {
-    for (let j = 0; j < gridSize; j++) {
-      const testPos = {
-        x: (GAME_CONFIG.WORLD_WIDTH / gridSize) * i + padding,
-        y: (GAME_CONFIG.WORLD_HEIGHT / gridSize) * j + padding,
-      };
-
-      // Find minimum distance to any obstacle
-      let minDistToObstacle = Infinity;
-      for (const obstacle of obstacles.values()) {
-        const dist = distance(testPos, obstacle.position);
-        if (dist < minDistToObstacle) {
-          minDistToObstacle = dist;
-        }
-      }
-
-      // Keep the position with the maximum minimum distance (furthest from all obstacles)
-      if (minDistToObstacle > maxMinDistance) {
-        maxMinDistance = minDistToObstacle;
-        safestPosition = testPos;
-      }
-    }
-  }
-
-  logger.warn(`Bot: Using safest fallback position with ${maxMinDistance.toFixed(0)}px from nearest obstacle`);
-  return safestPosition;
 }
 
 function distance(p1: Position, p2: Position): number {
@@ -144,8 +93,7 @@ function spawnBot(
   io: Server,
   players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>,
-  obstacles: Map<string, Obstacle>
+  playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
   // Generate unique bot ID (distinct from socket IDs)
   const botId = `bot-${Math.random().toString(36).substr(2, 9)}`;
@@ -153,7 +101,7 @@ function spawnBot(
   // Create bot player (same as human player)
   const botPlayer: Player = {
     id: botId,
-    position: randomSpawnPosition(obstacles),
+    position: randomSpawnPosition(),
     color: randomColor(),
     health: GAME_CONFIG.SINGLE_CELL_HEALTH,
     maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH,
@@ -449,16 +397,20 @@ function updateBotAI(
 
 /**
  * Initialize AI bots on server start
+ * Accepts spawn position generator from main module for consistent spawning
  */
 export function initializeBots(
   io: Server,
   players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>,
-  obstacles: Map<string, Obstacle>
+  getSpawnPosition: () => Position
 ) {
+  // Store spawn position generator for bot respawns
+  spawnPositionGenerator = getSpawnPosition;
+
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
-    spawnBot(io, players, playerInputDirections, playerVelocities, obstacles);
+    spawnBot(io, players, playerInputDirections, playerVelocities);
   }
   logBotsSpawned(BOT_CONFIG.COUNT);
 }
@@ -495,7 +447,7 @@ export function getBotCount(): number {
 /**
  * Handle bot death - schedule auto-respawn after delay
  */
-export function handleBotDeath(botId: string, io: Server, players: Map<string, Player>, obstacles: Map<string, Obstacle>) {
+export function handleBotDeath(botId: string, io: Server, players: Map<string, Player>) {
   const bot = bots.get(botId);
   if (!bot) return;
 
@@ -506,8 +458,8 @@ export function handleBotDeath(botId: string, io: Server, players: Map<string, P
     const player = players.get(botId);
     if (!player) return; // Bot was removed from game
 
-    // Reset to single-cell at random spawn
-    player.position = randomSpawnPosition(obstacles);
+    // Reset to single-cell at random spawn (uses spawn point system)
+    player.position = randomSpawnPosition();
     player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
     player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
     player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;

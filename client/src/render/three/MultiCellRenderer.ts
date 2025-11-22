@@ -51,7 +51,7 @@ function createColonialCluster(baseRadius: number, colorHex: number): THREE.Grou
   }
 
   // Energy tethers connecting cells
-  const tetherGroup = createEnergyTethers(cellRadius, ringRadius, cellCount, colorHex);
+  const tetherGroup = createEnergyTethers(ringRadius, cellCount, colorHex);
   group.add(tetherGroup);
 
   // Store metadata for animation
@@ -92,7 +92,7 @@ function createIndividualCell(radius: number, colorHex: number, intensityMultipl
   return cellGroup;
 }
 
-function createEnergyTethers(cellRadius: number, ringRadius: number, cellCount: number, colorHex: number): THREE.Group {
+function createEnergyTethers(ringRadius: number, cellCount: number, colorHex: number): THREE.Group {
   const tetherGroup = new THREE.Group();
 
   // Connect center to each ring cell
