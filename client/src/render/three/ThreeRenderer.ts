@@ -27,7 +27,6 @@ export class ThreeRenderer implements Renderer {
   // Camera zoom for evolution stages
   private currentZoom = 1.0; // Current zoom level (1.0 = Stage 1)
   private targetZoom = 1.0; // Target zoom level (for smooth transitions)
-  private zoomTransitionSpeed = 2.0; // Zoom transition rate (units per second)
   private myPlayerId: string | null = null; // Local player ID for event filtering
   private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
 
@@ -336,6 +335,31 @@ export class ThreeRenderer implements Renderer {
         if (this.myPlayerId && event.playerId === this.myPlayerId) {
           // Set target zoom for smooth transition
           this.targetZoom = this.getStageZoom(event.newStage);
+
+          // Update white outline for new size
+          const oldOutline = this.playerOutlines.get(event.playerId);
+          if (oldOutline) {
+            // Remove old outline
+            this.scene.remove(oldOutline);
+            oldOutline.geometry.dispose();
+            (oldOutline.material as THREE.Material).dispose();
+
+            // Create new outline with evolved radius
+            const newRadius = this.getPlayerRadius(event.newStage);
+            const outlineGeometry = this.getGeometry(`ring-outline-${newRadius}`, () =>
+              new THREE.RingGeometry(newRadius + 16, newRadius + 19, 32)
+            );
+            const outlineMaterial = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 1.0,
+              depthWrite: false,
+            });
+            const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+            newOutline.position.z = 0.1;
+            this.scene.add(newOutline);
+            this.playerOutlines.set(event.playerId, newOutline);
+          }
         }
       });
 
@@ -497,11 +521,11 @@ export class ThreeRenderer implements Renderer {
 
     // Update camera zoom (smooth transition to target zoom)
     if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
-      // Lerp toward target zoom
-      const zoomDelta = (this.targetZoom - this.currentZoom) * this.zoomTransitionSpeed * dt;
-      this.currentZoom += zoomDelta;
+      // Stable lerp - use fixed factor instead of dt-based to avoid oscillation
+      const lerpFactor = 0.1; // 10% per frame - smooth and stable
+      this.currentZoom += (this.targetZoom - this.currentZoom) * lerpFactor;
 
-      // Clamp to avoid overshooting
+      // Snap to target when very close
       if (Math.abs(this.currentZoom - this.targetZoom) < 0.01) {
         this.currentZoom = this.targetZoom;
       }
@@ -1844,7 +1868,7 @@ export class ThreeRenderer implements Renderer {
     this.compassIndicators.position.set(playerPosition.x, playerPosition.y, 0.2); // Above outline
 
     const arrowSize = 12; // Base size of arrow (bigger)
-    const ringRadius = radius + 15; // Position on invisible ring outside the white circle
+    const ringRadius = radius + 35; // Position on invisible ring outside the white circle
 
     // Render arrow for each detected entity
     for (const entity of this.detectedEntities) {
