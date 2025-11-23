@@ -10,6 +10,7 @@ import type { DeathCause } from '@godcell/shared';
 export class HUDOverlay {
   private container: HTMLDivElement;
   private countdown!: HTMLDivElement;
+  private empCooldown!: HTMLDivElement;
   private deathOverlay?: HTMLElement;
   private gameState?: GameState;
 
@@ -46,6 +47,7 @@ export class HUDOverlay {
     }
 
     this.createCountdown();
+    this.createEMPCooldown();
     // Detection canvas moved to ThreeRenderer (compass on white circle)
     // this.createDetectionCanvas();
     this.setupDeathOverlay();
@@ -66,6 +68,23 @@ export class HUDOverlay {
       font-weight: bold;
     `;
     this.container.appendChild(this.countdown);
+  }
+
+  private createEMPCooldown(): void {
+    this.empCooldown = document.createElement('div');
+    this.empCooldown.style.cssText = `
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 20px;
+      color: #00ffff;
+      text-shadow: 0 0 8px #00ffff;
+      font-family: monospace;
+      font-weight: bold;
+      display: none;
+    `;
+    this.container.appendChild(this.empCooldown);
   }
 
   /* Detection canvas moved to ThreeRenderer (compass on white circle)
@@ -199,6 +218,38 @@ export class HUDOverlay {
     }
     this.countdown.style.color = timerColor;
     this.countdown.style.textShadow = `0 0 10px ${timerColor}`;
+
+    // Update EMP cooldown (Stage 2+ only)
+    if (myPlayer.stage !== EvolutionStage.SINGLE_CELL) {
+      this.empCooldown.style.display = 'block';
+
+      const now = Date.now();
+      const lastUse = myPlayer.lastEMPTime || 0;
+      const cooldownRemaining = Math.max(0, GAME_CONFIG.EMP_COOLDOWN - (now - lastUse));
+
+      if (cooldownRemaining <= 0) {
+        // EMP is ready
+        this.empCooldown.textContent = 'EMP READY [SPACE]';
+        this.empCooldown.style.color = '#00ff00'; // Green
+        this.empCooldown.style.textShadow = '0 0 8px #00ff00';
+      } else {
+        // EMP on cooldown
+        const secondsRemaining = cooldownRemaining / 1000;
+        this.empCooldown.textContent = `EMP: ${secondsRemaining.toFixed(1)}s`;
+
+        // Color based on cooldown progress
+        if (secondsRemaining > 5) {
+          this.empCooldown.style.color = '#ffaa00'; // Orange
+          this.empCooldown.style.textShadow = '0 0 8px #ffaa00';
+        } else {
+          this.empCooldown.style.color = '#ffff00'; // Yellow (almost ready)
+          this.empCooldown.style.textShadow = '0 0 8px #ffff00';
+        }
+      }
+    } else {
+      // Single-cell - hide EMP UI
+      this.empCooldown.style.display = 'none';
+    }
 
     // Detection indicators now rendered in ThreeRenderer (compass on white circle)
   }
