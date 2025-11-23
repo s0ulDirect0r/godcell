@@ -68,6 +68,11 @@ eventBus.on('client:inputRespawn', () => {
   socketManager.sendRespawn();
 });
 
+// Forward EMP activation to server
+eventBus.on('client:empActivate', () => {
+  socketManager.sendEMPActivate();
+});
+
 // ============================================
 // Main Update Loop
 // ============================================
