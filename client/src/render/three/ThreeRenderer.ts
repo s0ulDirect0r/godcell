@@ -98,6 +98,29 @@ export class ThreeRenderer implements Renderer {
   private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
   private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
+  // EMP pulse effects (expanding electromagnetic ring)
+  private empEffects: Array<{
+    particles: THREE.Points;
+    particleData: Array<{
+      angle: number;
+      radius: number;
+      initialRadius: number;
+      life: number;
+    }>;
+    startTime: number;
+    duration: number;
+    centerX: number;
+    centerY: number;
+  }> = [];
+
+  // Swarm death animations (exploding particles)
+  private swarmDeathAnimations: Array<{
+    particles: THREE.Points;
+    particleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }>;
+    startTime: number;
+    duration: number;
+  }> = [];
+
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -378,6 +401,21 @@ export class ThreeRenderer implements Renderer {
       eventBus.on('detectionUpdate', (event) => {
         this.detectedEntities = event.detected;
       });
+
+      // EMP activation - spawn visual pulse effect
+      eventBus.on('empActivated', (event) => {
+        this.spawnEMPPulse(event.position.x, event.position.y);
+      });
+
+      // Swarm consumed - spawn death explosion animation
+      eventBus.on('swarmConsumed', (event) => {
+        const swarmGroup = this.swarmMeshes.get(event.swarmId);
+        if (swarmGroup) {
+          // Capture position before removal
+          const position = { x: swarmGroup.position.x, y: swarmGroup.position.y };
+          this.spawnSwarmDeathExplosion(position.x, position.y);
+        }
+      });
     });
   }
 
@@ -480,6 +518,12 @@ export class ThreeRenderer implements Renderer {
 
     // Update evolution animations
     this.updateEvolutionAnimations(dt);
+
+    // Update EMP pulse animations
+    this.updateEMPEffects(dt);
+
+    // Update swarm death explosions
+    this.updateSwarmDeathAnimations(dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -1059,20 +1103,38 @@ export class ThreeRenderer implements Renderer {
       const orbitingParticles = group.children[2] as THREE.Points;
       const orbitingMaterial = orbitingParticles.material as THREE.PointsMaterial;
 
-      if (swarm.state === 'chase') {
+      // Check for disabled state (hit by EMP)
+      const now = Date.now();
+      if (swarm.disabledUntil && now < swarm.disabledUntil) {
+        // Disabled: gray/static appearance (paralyzed)
+        outerMaterial.color.setHex(0x444444); // Dark gray
+        outerMaterial.emissive.setHex(0x666666); // Dim gray emissive
+        outerMaterial.emissiveIntensity = 0.2;
+        outerMaterial.opacity = 0.2;
+        internalMaterial.color.setHex(0x888888); // Mid gray
+        internalMaterial.opacity = 0.3; // Very dim
+        orbitingMaterial.color.setHex(0x555555); // Dark gray
+        orbitingMaterial.opacity = 0.4;
+      } else if (swarm.state === 'chase') {
         // Chase mode: brighter, more aggressive
         outerMaterial.color.setHex(0xff0044); // Hot red
+        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
         outerMaterial.emissiveIntensity = 1.2;
         outerMaterial.opacity = 0.45;
         internalMaterial.color.setHex(0xff6600); // Bright orange-red
+        internalMaterial.opacity = 0.8; // Full opacity
         orbitingMaterial.color.setHex(0xff0044);
+        orbitingMaterial.opacity = 0.9; // Full opacity
       } else {
         // Patrol mode: dimmer, calmer
         outerMaterial.color.setHex(0xff4400); // Red-orange
+        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
         outerMaterial.emissiveIntensity = 0.8;
         outerMaterial.opacity = 0.3;
         internalMaterial.color.setHex(0xffaa00); // Orange-yellow
+        internalMaterial.opacity = 0.8; // Full opacity
         orbitingMaterial.color.setHex(0xff0088);
+        orbitingMaterial.opacity = 0.9; // Full opacity
       }
     });
   }
@@ -2394,6 +2456,134 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Spawn EMP pulse - expanding blue/white electromagnetic ring
+   */
+  private spawnEMPPulse(x: number, y: number): void {
+    const particleCount = 80; // Dense ring of particles
+    const duration = 600; // 0.6 seconds to expand and fade
+    const initialRadius = 20; // Start small
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{
+      angle: number;
+      radius: number;
+      initialRadius: number;
+      life: number;
+    }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Evenly distribute particles in a circle
+      const angle = (i / particleCount) * Math.PI * 2;
+
+      positions[i * 3] = x + Math.cos(angle) * initialRadius;
+      positions[i * 3 + 1] = y + Math.sin(angle) * initialRadius;
+      positions[i * 3 + 2] = 0.3; // Above everything else (higher than evolution particles)
+
+      sizes[i] = 3 + Math.random() * 2;
+
+      particleData.push({
+        angle,
+        radius: initialRadius,
+        initialRadius,
+        life: 1.0, // Full life at start
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: 0x66ccff, // Blue-white electromagnetic color
+      size: 4,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+      blending: THREE.AdditiveBlending, // Additive blending for energy pulse
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.empEffects.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+      centerX: x,
+      centerY: y,
+    });
+  }
+
+  /**
+   * Spawn swarm death explosion - all particles burst outward and fade
+   */
+  private spawnSwarmDeathExplosion(x: number, y: number): void {
+    const particleCount = 200; // Lots of particles for dramatic effect (orbiting + internal)
+    const duration = 1200; // 1.2 seconds
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }> = [];
+
+    // Create explosion particles radiating outward in all directions (3D sphere)
+    for (let i = 0; i < particleCount; i++) {
+      // Random direction in 3D space
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+
+      // Initial position at center
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = 0.2; // Same layer as swarms
+
+      // Random sizes (mix of large and small)
+      sizes[i] = 2 + Math.random() * 6;
+
+      // Explosion velocity - fast outward burst
+      const speed = 150 + Math.random() * 250; // 150-400 pixels per second
+      const vx = speed * Math.sin(phi) * Math.cos(theta);
+      const vy = speed * Math.sin(phi) * Math.sin(theta);
+      const vz = speed * Math.cos(phi);
+
+      particleData.push({
+        x, y, z: 0.2,
+        vx, vy, vz,
+        life: 1.0, // Full life at start
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    // Orange/red swarm colors for death particles
+    const material = new THREE.PointsMaterial({
+      color: 0xff6600, // Bright orange
+      size: 4,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+      blending: THREE.AdditiveBlending, // Additive for energy burst
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.swarmDeathAnimations.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+    });
+  }
+
   private updateDeathAnimations(dt: number): void {
     const deltaSeconds = dt / 1000;
     const now = Date.now();
@@ -2507,6 +2697,118 @@ export class ThreeRenderer implements Renderer {
       (anim.particles.material as THREE.Material).dispose();
 
       this.evolutionAnimations.splice(index, 1);
+    }
+  }
+
+  /**
+   * Update EMP pulse animations (expanding ring that fades out)
+   */
+  private updateEMPEffects(_dt: number): void {
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.empEffects.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions - expand from initial radius to EMP_RANGE
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+      const maxRadius = GAME_CONFIG.EMP_RANGE; // 384 units
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Expand radius linearly
+        p.radius = p.initialRadius + (maxRadius - p.initialRadius) * progress;
+
+        // Calculate new position based on polar coordinates
+        const x = anim.centerX + Math.cos(p.angle) * p.radius;
+        const y = anim.centerY + Math.sin(p.angle) * p.radius;
+
+        // Update geometry position
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = 0.3;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Fade out as it expands (starts fading at 40% progress)
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = progress < 0.4 ? 1.0 : (1.0 - (progress - 0.4) / 0.6);
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.empEffects[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.empEffects.splice(index, 1);
+    }
+  }
+
+  /**
+   * Update swarm death explosion animations (particles burst outward and fade)
+   */
+  private updateSwarmDeathAnimations(dt: number): void {
+    const deltaSeconds = dt / 1000;
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.swarmDeathAnimations.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions - explode outward
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Move particle based on velocity
+        p.x += p.vx * deltaSeconds;
+        p.y += p.vy * deltaSeconds;
+        p.z += p.vz * deltaSeconds;
+
+        // Update geometry position
+        positions[i * 3] = p.x;
+        positions[i * 3 + 1] = p.y;
+        positions[i * 3 + 2] = p.z;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Fade out over entire duration
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = 1.0 - progress; // Linear fade
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.swarmDeathAnimations[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.swarmDeathAnimations.splice(index, 1);
     }
   }
 

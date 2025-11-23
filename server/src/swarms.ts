@@ -12,6 +12,12 @@ const swarms: Map<string, EntropySwarm> = new Map();
 // Counter for generating unique swarm IDs
 let swarmIdCounter = 0;
 
+// Swarm respawn queue (tracks consumed swarms scheduled for respawn)
+const swarmRespawnQueue: Array<{ respawnTime: number }> = [];
+
+// Respawn delay in milliseconds
+const SWARM_RESPAWN_DELAY = 30000; // 30 seconds
+
 // ============================================
 // Helper Functions
 // ============================================
@@ -221,7 +227,15 @@ export function updateSwarms(
   obstacles: Map<string, Obstacle>,
   deltaTime: number
 ) {
+  const now = Date.now();
+
   for (const swarm of swarms.values()) {
+    // Skip disabled swarms (hit by EMP)
+    if (swarm.disabledUntil && now < swarm.disabledUntil) {
+      swarm.velocity = { x: 0, y: 0 }; // Zero velocity while disabled
+      continue;
+    }
+
     // Check for nearby players
     const nearestPlayer = findNearestPlayer(swarm, players);
 
@@ -310,12 +324,13 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
     swarm.position.x = Math.max(padding, Math.min(GAME_CONFIG.WORLD_WIDTH - padding, swarm.position.x));
     swarm.position.y = Math.max(padding, Math.min(GAME_CONFIG.WORLD_HEIGHT - padding, swarm.position.y));
 
-    // Broadcast position update
+    // Broadcast position update (including disabled state)
     io.emit('swarmMoved', {
       type: 'swarmMoved',
       swarmId: swarm.id,
       position: swarm.position,
       state: swarm.state,
+      disabledUntil: swarm.disabledUntil, // Include EMP stun state
     });
   }
 }
@@ -331,8 +346,12 @@ export function checkSwarmCollisions(
 ): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
   const slowedPlayerIds = new Set<string>();
+  const now = Date.now();
 
   for (const swarm of swarms.values()) {
+    // Skip disabled swarms (hit by EMP)
+    if (swarm.disabledUntil && now < swarm.disabledUntil) continue;
+
     for (const player of players.values()) {
       // Skip dead/evolving players
       if (player.health <= 0 || player.isEvolving) continue;
@@ -379,4 +398,49 @@ export function isSwarm(id: string): boolean {
  */
 export function getSwarms(): Map<string, EntropySwarm> {
   return swarms;
+}
+
+/**
+ * Remove a swarm from the game (consumed by player) and schedule respawn
+ */
+export function removeSwarm(swarmId: string): void {
+  swarms.delete(swarmId);
+  // Schedule respawn to maintain swarm population
+  swarmRespawnQueue.push({
+    respawnTime: Date.now() + SWARM_RESPAWN_DELAY,
+  });
+}
+
+/**
+ * Process swarm respawn queue and spawn new swarms when timers expire
+ * Call this every game tick
+ */
+export function processSwarmRespawns(io: Server): void {
+  const now = Date.now();
+
+  // Process all swarms ready to respawn
+  while (swarmRespawnQueue.length > 0 && swarmRespawnQueue[0].respawnTime <= now) {
+    swarmRespawnQueue.shift(); // Remove from queue
+
+    // Generate new spawn position (random, with spacing from existing swarms)
+    const newPosition = generateSwarmPositions(1)[0];
+
+    const swarm: EntropySwarm = {
+      id: `swarm-${swarmIdCounter++}`,
+      position: newPosition,
+      velocity: { x: 0, y: 0 },
+      size: GAME_CONFIG.SWARM_SIZE,
+      state: 'patrol',
+      patrolTarget: generatePatrolTarget(newPosition),
+    };
+
+    swarms.set(swarm.id, swarm);
+
+    // Broadcast respawn to all clients
+    const spawnMessage: SwarmSpawnedMessage = {
+      type: 'swarmSpawned',
+      swarm: { ...swarm },
+    };
+    io.emit('swarmSpawned', spawnMessage);
+  }
 }

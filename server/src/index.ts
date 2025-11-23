@@ -27,9 +27,12 @@ import type {
   PlayerEngulfedMessage,
   DetectedEntity,
   DetectionUpdateMessage,
+  EMPActivateMessage,
+  EMPActivatedMessage,
+  SwarmConsumedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
 import {
   logger,
   logServerStarted,
@@ -81,6 +84,10 @@ const pseudopods: Map<string, Pseudopod> = new Map();
 // Pseudopod cooldowns (prevent spam)
 // Maps player ID → timestamp of last pseudopod extension
 const playerPseudopodCooldowns: Map<string, number> = new Map();
+
+// EMP cooldowns (prevent spam)
+// Maps player ID → timestamp of last EMP use
+const playerEMPCooldowns: Map<string, number> = new Map();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -1278,6 +1285,83 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // EMP Activation (Multi-cell AoE stun ability)
+  // ============================================
+
+  socket.on('empActivate', (message: EMPActivateMessage) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    // Validation: Only Stage 2+ can use EMP
+    if (player.stage === EvolutionStage.SINGLE_CELL) return;
+    if (player.health <= 0) return; // Dead players can't use abilities
+    if (player.isEvolving) return; // Can't use abilities while molting
+    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't use while stunned
+    if (player.energy < GAME_CONFIG.EMP_ENERGY_COST) return; // Insufficient energy
+
+    // Cooldown check
+    const lastUse = playerEMPCooldowns.get(socket.id) || 0;
+    const now = Date.now();
+    if (now - lastUse < GAME_CONFIG.EMP_COOLDOWN) return;
+
+    // Apply energy cost
+    player.energy -= GAME_CONFIG.EMP_ENERGY_COST;
+
+    // Find affected entities within range
+    const affectedSwarmIds: string[] = [];
+    const affectedPlayerIds: string[] = [];
+
+    // Check swarms
+    for (const [swarmId, swarm] of getSwarms()) {
+      const dist = distance(player.position, swarm.position);
+      if (dist <= GAME_CONFIG.EMP_RANGE) {
+        swarm.disabledUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
+        swarm.currentHealth = GAME_CONFIG.SWARM_INITIAL_HEALTH;
+        affectedSwarmIds.push(swarmId);
+      }
+    }
+
+    // Check other players
+    for (const [playerId, otherPlayer] of players) {
+      if (playerId === socket.id) continue; // Don't affect self
+      if (otherPlayer.health <= 0) continue; // Dead players not affected
+
+      const dist = distance(player.position, otherPlayer.position);
+      if (dist <= GAME_CONFIG.EMP_RANGE) {
+        otherPlayer.stunnedUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
+
+        // Multi-cells also lose energy when hit
+        if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) {
+          otherPlayer.energy = Math.max(0, otherPlayer.energy - GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
+        }
+
+        affectedPlayerIds.push(playerId);
+      }
+    }
+
+    // Update cooldown (track in both Map and player object)
+    playerEMPCooldowns.set(socket.id, now);
+    player.lastEMPTime = now; // Client reads this for HUD
+
+    // Broadcast EMP activation to all clients
+    io.emit('empActivated', {
+      type: 'empActivated',
+      playerId: socket.id,
+      position: player.position,
+      affectedSwarmIds,
+      affectedPlayerIds,
+    } as EMPActivatedMessage);
+
+    logger.info({
+      event: 'emp_activated',
+      playerId: socket.id,
+      swarmsHit: affectedSwarmIds.length,
+      playersHit: affectedPlayerIds.length,
+      energySpent: GAME_CONFIG.EMP_ENERGY_COST,
+    });
+  });
+
+  // ============================================
   // Disconnection Handling
   // ============================================
 
@@ -1487,11 +1571,60 @@ setInterval(() => {
   // Update entropy swarm positions
   updateSwarmPositions(deltaTime, io);
 
+  // Process swarm respawns (maintain population after consumption)
+  processSwarmRespawns(io);
+
   // Update pseudopods (extension, collision, retraction)
   updatePseudopods(deltaTime, io);
 
   // Check for direct collision predation (multi-cells touching Stage 1 players)
   checkPredationCollisions();
+
+  // Check for swarm consumption (multi-cells eating disabled swarms)
+  for (const [playerId, player] of players) {
+    if (player.stage === EvolutionStage.SINGLE_CELL) continue; // Only multi-cells can consume
+    if (player.health <= 0) continue; // Dead players can't consume
+
+    for (const [swarmId, swarm] of getSwarms()) {
+      // Only consume disabled swarms with health remaining
+      if (!swarm.disabledUntil || Date.now() >= swarm.disabledUntil) continue;
+      if (!swarm.currentHealth || swarm.currentHealth <= 0) continue;
+
+      // Check if multi-cell is touching the swarm
+      const dist = distance(player.position, swarm.position);
+      const collisionDist = swarm.size + getPlayerRadius(player.stage);
+
+      if (dist < collisionDist) {
+        // Gradual consumption - drain swarm health over time
+        const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
+        swarm.currentHealth -= damageDealt;
+
+        if (swarm.currentHealth <= 0) {
+          // Swarm fully consumed - grant rewards
+          player.energy = Math.min(player.maxEnergy, player.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
+          player.maxEnergy += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
+
+          // Broadcast consumption event
+          io.emit('swarmConsumed', {
+            type: 'swarmConsumed',
+            swarmId,
+            consumerId: playerId,
+          } as SwarmConsumedMessage);
+
+          logger.info({
+            event: 'swarm_consumed',
+            consumerId: playerId,
+            swarmId,
+            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+            maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
+          });
+
+          // Remove consumed swarm from game
+          removeSwarm(swarmId);
+        }
+      }
+    }
+  }
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
   const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
@@ -1503,6 +1636,16 @@ setInterval(() => {
   for (const [playerId, player] of players) {
     // Skip dead players (waiting for manual respawn)
     if (player.health <= 0) continue;
+
+    // Stunned players can't move (hit by EMP)
+    if (player.stunnedUntil && Date.now() < player.stunnedUntil) {
+      const velocity = playerVelocities.get(playerId);
+      if (velocity) {
+        velocity.x = 0;
+        velocity.y = 0;
+      }
+      continue;
+    }
 
     const inputDirection = playerInputDirections.get(playerId);
     const velocity = playerVelocities.get(playerId);

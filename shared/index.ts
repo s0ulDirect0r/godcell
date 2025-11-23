@@ -36,6 +36,10 @@ export interface Player {
   // Evolution
   stage: EvolutionStage;
   isEvolving: boolean; // True during molting animation
+
+  // EMP Ability (Multi-cell+)
+  lastEMPTime?: number;  // Timestamp of last EMP use (for cooldown tracking)
+  stunnedUntil?: number; // Timestamp when stun expires (if hit by another player's EMP)
 }
 
 // A nutrient (data packet) that players can collect
@@ -66,6 +70,8 @@ export interface EntropySwarm {
   state: 'patrol' | 'chase'; // AI state
   targetPlayerId?: string; // Player being chased (if state === 'chase')
   patrolTarget?: Position; // Where swarm is wandering toward (if state === 'patrol')
+  disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
+  currentHealth?: number; // Health during consumption (starts at SWARM_INITIAL_HEALTH when disabled)
 }
 
 // A pseudopod (hunting tentacle extended by multi-cells)
@@ -100,6 +106,10 @@ export interface PseudopodExtendMessage {
   type: 'pseudopodExtend';
   targetX: number;
   targetY: number;
+}
+
+export interface EMPActivateMessage {
+  type: 'empActivate';
 }
 
 // ============================================
@@ -195,6 +205,7 @@ export interface SwarmMovedMessage {
   swarmId: string;
   position: Position;
   state: 'patrol' | 'chase';
+  disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
 }
 
 export interface PseudopodSpawnedMessage {
@@ -227,6 +238,20 @@ export interface DetectionUpdateMessage {
   detected: DetectedEntity[];
 }
 
+export interface EMPActivatedMessage {
+  type: 'empActivated';
+  playerId: string;
+  position: Position;
+  affectedSwarmIds: string[];
+  affectedPlayerIds: string[];
+}
+
+export interface SwarmConsumedMessage {
+  type: 'swarmConsumed';
+  swarmId: string;
+  consumerId: string;
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -246,7 +271,9 @@ export type ServerMessage =
   | PseudopodSpawnedMessage
   | PseudopodRetractedMessage
   | PlayerEngulfedMessage
-  | DetectionUpdateMessage;
+  | DetectionUpdateMessage
+  | EMPActivatedMessage
+  | SwarmConsumedMessage;
 
 // ============================================
 // Game Constants
@@ -327,8 +354,8 @@ export const GAME_CONFIG = {
   MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved (start low, tune upward based on playtesting)
 
   // Evolution thresholds (maxEnergy required)
-  EVOLUTION_MULTI_CELL: 300,      // 20 nutrients needed
-  EVOLUTION_CYBER_ORGANISM: 500,  // ~40 nutrients total
+  EVOLUTION_MULTI_CELL: 300,      // Stage 1→2: ~20 nutrients (easy access to EMP)
+  EVOLUTION_CYBER_ORGANISM: 800,  // Stage 2→3: Swarm hunting path (+50 maxEnergy per swarm consumed)
   EVOLUTION_HUMANOID: 1000,       // ~90 nutrients total
   EVOLUTION_GODCELL: 2000,        // ~190 nutrients total
 
@@ -369,4 +396,17 @@ export const GAME_CONFIG = {
   SWARM_DAMAGE_RATE: 60,            // Health damage per second on contact (brutal - getting caught is deadly)
   SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point
   SWARM_PATROL_CHANGE_INTERVAL: 3000, // Time between random patrol direction changes (ms)
+
+  // EMP Ability (Multi-cell defensive/offensive pulse)
+  EMP_COOLDOWN: 10000,              // 10 seconds between uses (milliseconds)
+  EMP_RANGE: 768,                   // 8x multi-cell radius (8 * 96px = 768px) - AoE pulse range
+  EMP_DISABLE_DURATION: 3000,       // 3 seconds paralysis for affected entities (milliseconds)
+  EMP_ENERGY_COST: 80,              // Energy cost to activate (27% of 300 pool)
+  EMP_MULTI_CELL_ENERGY_DRAIN: 80,  // Energy drained from hit multi-cells
+
+  // Swarm Consumption (EMP-enabled swarm hunting)
+  SWARM_CONSUMPTION_RATE: 200,      // Health drained per second during engulfment (0.5 seconds to fully consume)
+  SWARM_ENERGY_GAIN: 150,           // Energy gained per swarm consumed (net +70 after 80 cost)
+  SWARM_MAX_ENERGY_GAIN: 50,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
+  SWARM_INITIAL_HEALTH: 100,        // Health pool for swarms (set when disabled by EMP)
 };

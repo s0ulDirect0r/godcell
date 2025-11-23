@@ -96,7 +96,7 @@ Players progress through distinct evolutionary stages:
 
 **Awareness Awakening:** This is where the power shift happens. Viewport expands to 1.5x zoom (you see vastly more of the world). **Chemical sensing** unlocks - 1800px detection radius with proximity-based directional arrows pointing toward detected entities. You can see prey and threats coming from *way* farther away than they can see you. This perceptual asymmetry makes you brutally effective.
 
-**Metabolism:** ~2 minutes to starvation (250 maxEnergy, 2.1/s decay rate). Much better metabolic efficiency than Stage 1. Less frantic, more strategic. You have breathing room to plan and hunt.
+**Metabolism:** ~2 minutes to starvation (300 maxEnergy, 2.1/s decay rate). Much better metabolic efficiency than Stage 1. Less frantic, more strategic. You have breathing room to plan and hunt.
 
 **Predation:** You can now hunt Stage 1 cells (players and AI bots).
 - **Contact Predation**: Touch a single-cell to consume it. Mechanics being refined - instant engulfment vs slow-drain over time (see beads godcell-j6j).
@@ -110,8 +110,77 @@ Players progress through distinct evolutionary stages:
 
 **Predators:**
 - Stage 3+ players (you're now prey to something bigger)
-- Entropy swarms (still dangerous)
+- Entropy swarms (still dangerous... until you EMP them)
 - Gravity distortions (still lethal)
+
+**EMP Pulse Ability - Swarm Hunter Mechanic:**
+
+Multi-cells have unlocked a powerful defensive/offensive tool: the **Electromagnetic Pulse (EMP)**. This ability transforms multi-cells from helpless swarm victims into active hunters.
+
+**Activation:** Press spacebar to emit an EMP pulse
+
+**Cost & Cooldown:**
+- **Energy cost:** 80 units (27% of 300 pool)
+- **Cooldown:** 10 seconds (can't spam it)
+
+**Area of Effect:**
+- **Range:** 4x multi-cell radius (~384 units)
+- **Targets:** All entities within pulse radius
+
+**Effects:**
+- **Entropy Swarms:** Paralyzed for 3 seconds (frozen, vulnerable to consumption)
+- **Other Multi-cells:** Stunned for 3 seconds + 80 energy drained
+- **Single-cells:** Stunned for 3 seconds
+
+**Swarm Consumption (The Hunt):**
+
+This is the game-changer - **multi-cells can devour paralyzed swarms for massive energy gain**.
+
+The combo:
+1. Multi-cell dives toward swarm (risky - taking damage while closing distance)
+2. Fires EMP at close range (80 energy investment)
+3. Swarms freeze for 3 seconds
+4. Multi-cell makes contact with frozen swarm (or uses pseudopod when implemented)
+5. **Gradual engulfment begins** - drains swarm health over time (50 dmg/s)
+6. Swarm fully consumed after ~2 seconds of contact
+7. **Massive payoff:** +150 energy, +50 maxEnergy capacity per swarm eaten
+
+**Risk/Reward Balance:**
+- **High cost:** 80 energy upfront (significant investment)
+- **High risk:** Must get dangerously close to swarms, take damage during approach
+- **High reward:** 150 energy per swarm = net +70 energy profit if successful
+- **Evolution accelerator:** +50 maxEnergy per swarm pushes you toward Stage 3 evolution
+- **Can feast on multiple:** 3-second window allows consuming multiple frozen swarms if positioned well
+
+**Tactical Use Cases:**
+
+**Offensive (Swarm Hunting):**
+- Dive into swarm cloud → EMP → feast on frozen swarms → massive energy gain
+- High-skill, high-reward playstyle for aggressive players
+- Converts deadliest threat into richest resource
+
+**Defensive (Panic Button):**
+- Surrounded by swarms → EMP → escape while they're frozen
+- Can be used while being drained (last-ditch survival tool)
+- Expensive but saves your life
+
+**PvP (Multi-cell Combat):**
+- Stun rival multi-cells, drain their energy, create vulnerability
+- Steal kills (EMP their swarm target, consume it yourself)
+- Opens combo opportunities (stun → pseudopod hunt)
+
+**Visual Feedback:**
+- Expanding blue/white electromagnetic ring from multi-cell center
+- Affected entities freeze with glitch/static effects
+- Blue outline on stunned entities
+- Particle flow from swarms to multi-cell during consumption
+- Screen shake at pulse epicenter
+
+**Design Philosophy:**
+
+*"You're not running from swarms anymore. You're hunting them."*
+
+EMP transforms the multi-cell power fantasy from "I can hunt single-cells" to "I can fight the universe itself." Swarms were Stage 1's nightmare - now they're Stage 2's prey. High-stakes, high-skill, massively rewarding.
 
 **Evolution Vision - Optional Abilities:**
 Evolution stages may unlock *choices* rather than fixed upgrades. Stage 2 could offer:
@@ -121,7 +190,13 @@ Evolution stages may unlock *choices* rather than fixed upgrades. Stage 2 could 
 
 This creates strategic diversity - not all multi-cells play the same way. *Currently pseudopods are default; branching abilities are future design.*
 
-**Goal:** Collect more nutrients to reach 500 maxEnergy (Stage 3 threshold). Hunting accelerates growth but adds risk.
+**Goal:** Reach 800 maxEnergy to evolve to Stage 3 (Cyber-Organism). Multiple paths:
+- Hunt single-cells with pseudopods (when implemented)
+- **Hunt entropy swarms with EMP** (primary path - 50 maxEnergy per swarm)
+- Collect high-value nutrients near gravity wells
+- Hybrid approach (mix of all three)
+
+Evolution threshold increased from original 500 to 800 to accommodate swarm hunting as a viable advancement strategy.
 
 **Feel:** Predator awakening. You're no longer just prey - you have options. The world opens up. Power feels real.
 
