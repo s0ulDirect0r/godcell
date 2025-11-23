@@ -17,6 +17,9 @@ export class InputManager {
   private lastRespawnKeyTime = 0;
   private respawnKeyCooldown = 300; // Prevent key spam
 
+  private lastEMPTime = 0;
+  private empClientCooldown = 300; // Local anti-spam cooldown
+
   // Track previous movement direction to avoid redundant network updates
   private lastMoveDirection = { x: 0, y: 0 };
 
@@ -39,6 +42,7 @@ export class InputManager {
   update(_dt: number): void {
     this.updateMovement();
     this.updateRespawn();
+    this.updateEMP();
     // Pseudopods/other mechanics can be added later
   }
 
@@ -87,6 +91,23 @@ export class InputManager {
       eventBus.emit({ type: 'client:inputRespawn' });
 
       this.lastRespawnKeyTime = now;
+    }
+  }
+
+  private updateEMP(): void {
+    const now = Date.now();
+
+    // Spacebar for EMP (multi-cell ability)
+    if (this.inputState.isKeyDown(' ') || this.inputState.isKeyDown('space')) {
+      // Check cooldown (prevent key-down spam)
+      if (now - this.lastEMPTime < this.empClientCooldown) {
+        return;
+      }
+
+      // Emit EMP intent
+      eventBus.emit({ type: 'client:empActivate' });
+
+      this.lastEMPTime = now;
     }
   }
 
