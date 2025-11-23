@@ -32,7 +32,7 @@ import type {
   SwarmConsumedMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
 import {
   logger,
   logServerStarted,
@@ -1571,6 +1571,9 @@ setInterval(() => {
   // Update entropy swarm positions
   updateSwarmPositions(deltaTime, io);
 
+  // Process swarm respawns (maintain population after consumption)
+  processSwarmRespawns(io);
+
   // Update pseudopods (extension, collision, retraction)
   updatePseudopods(deltaTime, io);
 
@@ -1616,10 +1619,8 @@ setInterval(() => {
             maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
           });
 
-          // Note: Swarm will respawn via normal swarm respawn logic
-          // Mark it as needing respawn by clearing disabled state
-          swarm.disabledUntil = undefined;
-          swarm.currentHealth = undefined;
+          // Remove consumed swarm from game
+          removeSwarm(swarmId);
         }
       }
     }
