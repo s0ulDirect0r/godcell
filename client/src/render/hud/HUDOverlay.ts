@@ -21,6 +21,9 @@ export class HUDOverlay {
     highestStage: EvolutionStage.SINGLE_CELL,
   };
 
+  // Local EMP cooldown tracking
+  private localEMPTime: number = 0;
+
   // Detection indicators moved to ThreeRenderer (compass on white circle)
   // private detectionCanvas!: HTMLCanvasElement;
   // private detectionCtx!: CanvasRenderingContext2D;
@@ -173,6 +176,13 @@ export class HUDOverlay {
       this.resetSessionStats();
     });
 
+    // Track EMP usage for cooldown display
+    eventBus.on('empActivated', (event) => {
+      if (this.gameState && event.playerId === this.gameState.myPlayerId) {
+        this.localEMPTime = Date.now();
+      }
+    });
+
     /* Detection update moved to ThreeRenderer (compass on white circle)
     // Detection updates (chemical sensing for Stage 2+)
     eventBus.on('detectionUpdate', (event) => {
@@ -224,27 +234,31 @@ export class HUDOverlay {
       this.empCooldown.style.display = 'block';
 
       const now = Date.now();
-      const lastUse = myPlayer.lastEMPTime || 0;
+      const lastUse = this.localEMPTime;
       const cooldownRemaining = Math.max(0, GAME_CONFIG.EMP_COOLDOWN - (now - lastUse));
 
       if (cooldownRemaining <= 0) {
-        // EMP is ready
+        // EMP is ready - pulse green
         this.empCooldown.textContent = 'EMP READY [SPACE]';
-        this.empCooldown.style.color = '#00ff00'; // Green
-        this.empCooldown.style.textShadow = '0 0 8px #00ff00';
+
+        // Pulsing effect using sine wave (0.5 - 1.0 opacity range)
+        const pulseSpeed = 3; // Pulses per second
+        const pulsePhase = (now / 1000) * pulseSpeed * Math.PI * 2;
+        const pulseValue = 0.5 + 0.5 * Math.sin(pulsePhase); // 0.0 - 1.0
+        const brightness = 0.5 + 0.5 * pulseValue; // 0.5 - 1.0
+
+        const green = Math.floor(255 * brightness);
+        const color = `rgb(0, ${green}, 0)`;
+        const glowIntensity = 8 + 8 * pulseValue; // 8-16px glow
+
+        this.empCooldown.style.color = color;
+        this.empCooldown.style.textShadow = `0 0 ${glowIntensity}px ${color}`;
       } else {
-        // EMP on cooldown
+        // EMP on cooldown - gray with countdown
         const secondsRemaining = cooldownRemaining / 1000;
         this.empCooldown.textContent = `EMP: ${secondsRemaining.toFixed(1)}s`;
-
-        // Color based on cooldown progress
-        if (secondsRemaining > 5) {
-          this.empCooldown.style.color = '#ffaa00'; // Orange
-          this.empCooldown.style.textShadow = '0 0 8px #ffaa00';
-        } else {
-          this.empCooldown.style.color = '#ffff00'; // Yellow (almost ready)
-          this.empCooldown.style.textShadow = '0 0 8px #ffff00';
-        }
+        this.empCooldown.style.color = '#666666'; // Gray
+        this.empCooldown.style.textShadow = '0 0 4px #666666';
       }
     } else {
       // Single-cell - hide EMP UI
