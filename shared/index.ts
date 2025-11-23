@@ -399,13 +399,13 @@ export const GAME_CONFIG = {
 
   // EMP Ability (Multi-cell defensive/offensive pulse)
   EMP_COOLDOWN: 10000,              // 10 seconds between uses (milliseconds)
-  EMP_RANGE: 384,                   // 4x multi-cell radius (4 * 96px = 384px) - AoE pulse range
+  EMP_RANGE: 768,                   // 8x multi-cell radius (8 * 96px = 768px) - AoE pulse range
   EMP_DISABLE_DURATION: 3000,       // 3 seconds paralysis for affected entities (milliseconds)
   EMP_ENERGY_COST: 80,              // Energy cost to activate (27% of 300 pool)
   EMP_MULTI_CELL_ENERGY_DRAIN: 80,  // Energy drained from hit multi-cells
 
   // Swarm Consumption (EMP-enabled swarm hunting)
-  SWARM_CONSUMPTION_RATE: 50,       // Health drained per second during engulfment (2 seconds to fully consume)
+  SWARM_CONSUMPTION_RATE: 200,      // Health drained per second during engulfment (0.5 seconds to fully consume)
   SWARM_ENERGY_GAIN: 150,           // Energy gained per swarm consumed (net +70 after 80 cost)
   SWARM_MAX_ENERGY_GAIN: 50,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
   SWARM_INITIAL_HEALTH: 100,        // Health pool for swarms (set when disabled by EMP)
