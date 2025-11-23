@@ -98,6 +98,21 @@ export class ThreeRenderer implements Renderer {
   private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
   private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
+  // EMP pulse effects (expanding electromagnetic ring)
+  private empEffects: Array<{
+    particles: THREE.Points;
+    particleData: Array<{
+      angle: number;
+      radius: number;
+      initialRadius: number;
+      life: number;
+    }>;
+    startTime: number;
+    duration: number;
+    centerX: number;
+    centerY: number;
+  }> = [];
+
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -378,6 +393,11 @@ export class ThreeRenderer implements Renderer {
       eventBus.on('detectionUpdate', (event) => {
         this.detectedEntities = event.detected;
       });
+
+      // EMP activation - spawn visual pulse effect
+      eventBus.on('empActivated', (event) => {
+        this.spawnEMPPulse(event.position.x, event.position.y);
+      });
     });
   }
 
@@ -480,6 +500,9 @@ export class ThreeRenderer implements Renderer {
 
     // Update evolution animations
     this.updateEvolutionAnimations(dt);
+
+    // Update EMP pulse animations
+    this.updateEMPEffects(dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -1059,20 +1082,38 @@ export class ThreeRenderer implements Renderer {
       const orbitingParticles = group.children[2] as THREE.Points;
       const orbitingMaterial = orbitingParticles.material as THREE.PointsMaterial;
 
-      if (swarm.state === 'chase') {
+      // Check for disabled state (hit by EMP)
+      const now = Date.now();
+      if (swarm.disabledUntil && now < swarm.disabledUntil) {
+        // Disabled: gray/static appearance (paralyzed)
+        outerMaterial.color.setHex(0x444444); // Dark gray
+        outerMaterial.emissive.setHex(0x666666); // Dim gray emissive
+        outerMaterial.emissiveIntensity = 0.2;
+        outerMaterial.opacity = 0.2;
+        internalMaterial.color.setHex(0x888888); // Mid gray
+        internalMaterial.opacity = 0.3; // Very dim
+        orbitingMaterial.color.setHex(0x555555); // Dark gray
+        orbitingMaterial.opacity = 0.4;
+      } else if (swarm.state === 'chase') {
         // Chase mode: brighter, more aggressive
         outerMaterial.color.setHex(0xff0044); // Hot red
+        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
         outerMaterial.emissiveIntensity = 1.2;
         outerMaterial.opacity = 0.45;
         internalMaterial.color.setHex(0xff6600); // Bright orange-red
+        internalMaterial.opacity = 0.8; // Full opacity
         orbitingMaterial.color.setHex(0xff0044);
+        orbitingMaterial.opacity = 0.9; // Full opacity
       } else {
         // Patrol mode: dimmer, calmer
         outerMaterial.color.setHex(0xff4400); // Red-orange
+        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
         outerMaterial.emissiveIntensity = 0.8;
         outerMaterial.opacity = 0.3;
         internalMaterial.color.setHex(0xffaa00); // Orange-yellow
+        internalMaterial.opacity = 0.8; // Full opacity
         orbitingMaterial.color.setHex(0xff0088);
+        orbitingMaterial.opacity = 0.9; // Full opacity
       }
     });
   }
@@ -2394,6 +2435,69 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Spawn EMP pulse - expanding blue/white electromagnetic ring
+   */
+  private spawnEMPPulse(x: number, y: number): void {
+    const particleCount = 80; // Dense ring of particles
+    const duration = 600; // 0.6 seconds to expand and fade
+    const initialRadius = 20; // Start small
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{
+      angle: number;
+      radius: number;
+      initialRadius: number;
+      life: number;
+    }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Evenly distribute particles in a circle
+      const angle = (i / particleCount) * Math.PI * 2;
+
+      positions[i * 3] = x + Math.cos(angle) * initialRadius;
+      positions[i * 3 + 1] = y + Math.sin(angle) * initialRadius;
+      positions[i * 3 + 2] = 0.3; // Above everything else (higher than evolution particles)
+
+      sizes[i] = 3 + Math.random() * 2;
+
+      particleData.push({
+        angle,
+        radius: initialRadius,
+        initialRadius,
+        life: 1.0, // Full life at start
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: 0x66ccff, // Blue-white electromagnetic color
+      size: 4,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+      blending: THREE.AdditiveBlending, // Additive blending for energy pulse
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.empEffects.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+      centerX: x,
+      centerY: y,
+    });
+  }
+
   private updateDeathAnimations(dt: number): void {
     const deltaSeconds = dt / 1000;
     const now = Date.now();
@@ -2507,6 +2611,63 @@ export class ThreeRenderer implements Renderer {
       (anim.particles.material as THREE.Material).dispose();
 
       this.evolutionAnimations.splice(index, 1);
+    }
+  }
+
+  /**
+   * Update EMP pulse animations (expanding ring that fades out)
+   */
+  private updateEMPEffects(_dt: number): void {
+    const now = Date.now();
+    const finishedAnimations: number[] = [];
+
+    this.empEffects.forEach((anim, index) => {
+      const elapsed = now - anim.startTime;
+      const progress = Math.min(elapsed / anim.duration, 1);
+
+      if (progress >= 1) {
+        // Animation finished - mark for removal
+        finishedAnimations.push(index);
+        return;
+      }
+
+      // Update particle positions - expand from initial radius to EMP_RANGE
+      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+      const maxRadius = GAME_CONFIG.EMP_RANGE; // 384 units
+
+      for (let i = 0; i < anim.particleData.length; i++) {
+        const p = anim.particleData[i];
+
+        // Expand radius linearly
+        p.radius = p.initialRadius + (maxRadius - p.initialRadius) * progress;
+
+        // Calculate new position based on polar coordinates
+        const x = anim.centerX + Math.cos(p.angle) * p.radius;
+        const y = anim.centerY + Math.sin(p.angle) * p.radius;
+
+        // Update geometry position
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = 0.3;
+      }
+
+      anim.particles.geometry.attributes.position.needsUpdate = true;
+
+      // Fade out as it expands (starts fading at 40% progress)
+      const material = anim.particles.material as THREE.PointsMaterial;
+      material.opacity = progress < 0.4 ? 1.0 : (1.0 - (progress - 0.4) / 0.6);
+    });
+
+    // Clean up finished animations (reverse order to avoid index shifting)
+    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+      const index = finishedAnimations[i];
+      const anim = this.empEffects[index];
+
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+
+      this.empEffects.splice(index, 1);
     }
   }
 
