@@ -22,6 +22,8 @@ import type {
   PseudopodRetractedMessage,
   PlayerEngulfedMessage,
   DetectionUpdateMessage,
+  EMPActivatedMessage,
+  SwarmConsumedMessage,
 } from '@godcell/shared';
 import { GameState } from '../state/GameState';
 import { eventBus } from '../events/EventBus';
@@ -79,6 +81,15 @@ export class SocketManager {
   sendRespawn(): void {
     this.socket.emit('playerRespawnRequest', {
       type: 'playerRespawnRequest',
+    });
+  }
+
+  /**
+   * Send EMP activation
+   */
+  sendEMPActivate(): void {
+    this.socket.emit('empActivate', {
+      type: 'empActivate',
     });
   }
 
@@ -209,7 +220,7 @@ export class SocketManager {
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
-      this.gameState.updateSwarmTarget(data.swarmId, data.position.x, data.position.y);
+      this.gameState.updateSwarmTarget(data.swarmId, data.position.x, data.position.y, data.disabledUntil);
       eventBus.emit(data);
     });
 
@@ -226,6 +237,18 @@ export class SocketManager {
 
     // Detection updates (for Stage 2+ chemical sensing)
     this.socket.on('detectionUpdate', (data: DetectionUpdateMessage) => {
+      eventBus.emit(data);
+    });
+
+    // EMP activation (multi-cell AoE stun ability)
+    this.socket.on('empActivated', (data: EMPActivatedMessage) => {
+      eventBus.emit(data);
+    });
+
+    // Swarm consumption (multi-cell eating disabled swarm)
+    this.socket.on('swarmConsumed', (data: SwarmConsumedMessage) => {
+      // Remove consumed swarm from game state
+      this.gameState.removeSwarm(data.swarmId);
       eventBus.emit(data);
     });
   }

@@ -137,11 +137,12 @@ export class GameState {
   /**
    * Update swarm position target (for interpolation)
    */
-  updateSwarmTarget(swarmId: string, x: number, y: number): void {
+  updateSwarmTarget(swarmId: string, x: number, y: number, disabledUntil?: number): void {
     const swarm = this.swarms.get(swarmId);
     if (swarm) {
       swarm.position.x = x;
       swarm.position.y = y;
+      swarm.disabledUntil = disabledUntil; // Update EMP stun state
       this.swarmTargets.set(swarmId, { x, y, timestamp: Date.now() });
     }
   }
