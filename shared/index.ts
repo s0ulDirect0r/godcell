@@ -10,7 +10,7 @@ export interface Position {
 }
 
 // Death causes for players
-export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation';
+export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation' | 'beam';
 
 // Evolution stages
 export enum EvolutionStage {
@@ -74,15 +74,16 @@ export interface EntropySwarm {
   currentHealth?: number; // Health during consumption (starts at SWARM_INITIAL_HEALTH when disabled)
 }
 
-// A pseudopod (hunting tentacle extended by multi-cells)
+// A pseudopod beam (lightning projectile fired by multi-cells)
 export interface Pseudopod {
   id: string;
-  ownerId: string;          // Player who extended it
-  startPosition: Position;  // Origin (player position)
-  endPosition: Position;    // Target position (max range)
-  currentLength: number;    // Animation progress (0 to maxLength)
-  maxLength: number;        // 2x multi-cell radius
-  createdAt: number;        // Timestamp for retraction timing
+  ownerId: string;          // Player who fired it
+  position: Position;       // Current beam position
+  velocity: { x: number; y: number }; // Travel direction and speed
+  width: number;            // Beam collision width
+  maxDistance: number;      // Max travel distance (3x multi-cell radius)
+  distanceTraveled: number; // How far it's traveled
+  createdAt: number;        // Timestamp for tracking
   color: string;            // Owner's color (for rendering)
 }
 
@@ -102,9 +103,9 @@ export interface PlayerRespawnRequestMessage {
   type: 'playerRespawnRequest';
 }
 
-export interface PseudopodExtendMessage {
-  type: 'pseudopodExtend';
-  targetX: number;
+export interface PseudopodFireMessage {
+  type: 'pseudopodFire';
+  targetX: number;  // World position to fire towards
   targetY: number;
 }
 
@@ -213,6 +214,12 @@ export interface PseudopodSpawnedMessage {
   pseudopod: Pseudopod;
 }
 
+export interface PseudopodMovedMessage {
+  type: 'pseudopodMoved';
+  pseudopodId: string;
+  position: Position;
+}
+
 export interface PseudopodRetractedMessage {
   type: 'pseudopodRetracted';
   pseudopodId: string;
@@ -269,6 +276,7 @@ export type ServerMessage =
   | SwarmSpawnedMessage
   | SwarmMovedMessage
   | PseudopodSpawnedMessage
+  | PseudopodMovedMessage
   | PseudopodRetractedMessage
   | PlayerEngulfedMessage
   | DetectionUpdateMessage
@@ -378,14 +386,20 @@ export const GAME_CONFIG = {
   // Multi-cell detection (chemical sensing)
   MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)
 
-  // Pseudopod hunting (phagocytosis)
-  PSEUDOPOD_RANGE: 2.0,                  // Multiplier of multi-cell radius (2x = 192px for Stage 2)
-  PSEUDOPOD_EXTENSION_SPEED: 800,        // Pixels per second extension speed
-  PSEUDOPOD_DURATION: 1500,              // Milliseconds before auto-retract
-  PSEUDOPOD_COOLDOWN: 2000,              // Milliseconds between extensions
-  PSEUDOPOD_WIDTH: 12,                   // Width of tendril in pixels
-  ENGULFMENT_ENERGY_GAIN: 0.5,           // Predator gains 50% of prey's current energy
-  ENGULFMENT_NUTRIENT_DROP: 0.5,         // Prey drops 50% of collected nutrients (maxEnergy → nutrient count)
+  // Contact Predation (multi-cell engulfs single-cell)
+  CONTACT_DRAIN_RATE: 150,               // Energy drained per second on contact (kills in ~1-2s)
+  CONTACT_MAXENERGY_GAIN: 0.3,           // Gain 30% of victim's maxEnergy on kill
+  NUTRIENT_DROP_ON_DEATH: 0.5,           // Victim drops 50% of collected nutrients (maxEnergy → nutrient count)
+
+  // Pseudopod Beam (lightning projectile for PvP)
+  PSEUDOPOD_MODE: 'projectile' as 'hitscan' | 'projectile', // 'hitscan' = instant hit, 'projectile' = travels
+  PSEUDOPOD_RANGE: 9999,                 // Max range in pixels (9999 = unlimited for testing)
+  PSEUDOPOD_PROJECTILE_SPEED: 1800,      // Pixels per second beam travel speed
+  PSEUDOPOD_WIDTH: 20,                   // Beam collision width in pixels
+  PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per shot
+  PSEUDOPOD_DRAIN_RATE: 100,             // Energy drained per hit
+  PSEUDOPOD_COOLDOWN: 1000,              // Milliseconds between beam fires
+  MULTICELL_KILL_ABSORPTION: 0.8,        // Gain 80% of victim's maxEnergy when killing another multi-cell
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

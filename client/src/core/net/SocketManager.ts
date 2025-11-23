@@ -19,6 +19,7 @@ import type {
   SwarmSpawnedMessage,
   SwarmMovedMessage,
   PseudopodSpawnedMessage,
+  PseudopodMovedMessage,
   PseudopodRetractedMessage,
   PlayerEngulfedMessage,
   DetectionUpdateMessage,
@@ -90,6 +91,17 @@ export class SocketManager {
   sendEMPActivate(): void {
     this.socket.emit('empActivate', {
       type: 'empActivate',
+    });
+  }
+
+  /**
+   * Send Pseudopod Beam Fire
+   */
+  sendPseudopodFire(targetX: number, targetY: number): void {
+    this.socket.emit('pseudopodFire', {
+      type: 'pseudopodFire',
+      targetX,
+      targetY,
     });
   }
 
@@ -227,6 +239,11 @@ export class SocketManager {
     // Pseudopod events
     this.socket.on('pseudopodSpawned', (data: PseudopodSpawnedMessage) => {
       this.gameState.upsertPseudopod(data.pseudopod);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('pseudopodMoved', (data: PseudopodMovedMessage) => {
+      this.gameState.updatePseudopodPosition(data.pseudopodId, data.position.x, data.position.y);
       eventBus.emit(data);
     });
 

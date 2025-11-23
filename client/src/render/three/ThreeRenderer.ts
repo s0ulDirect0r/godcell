@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { LightningStrike } from 'three-stdlib';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
@@ -48,6 +49,7 @@ export class ThreeRenderer implements Renderer {
   private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for orbiting particles
   private swarmInternalParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }>> = new Map(); // Internal storm particles
   private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
+  private pseudopodMeshes: Map<string, THREE.Mesh> = new Map(); // Lightning beam projectiles
 
   // Trails (using tube geometry for thick ribbons)
   private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
@@ -530,6 +532,7 @@ export class ThreeRenderer implements Renderer {
     this.syncNutrients(state);
     this.syncObstacles(state);
     this.syncSwarms(state);
+    this.syncPseudopods(state);
 
     // Interpolate swarm positions
     this.interpolateSwarms();
@@ -1135,6 +1138,111 @@ export class ThreeRenderer implements Renderer {
         internalMaterial.opacity = 0.8; // Full opacity
         orbitingMaterial.color.setHex(0xff0088);
         orbitingMaterial.opacity = 0.9; // Full opacity
+      }
+    });
+  }
+
+  private syncPseudopods(state: GameState): void {
+    // Remove pseudopods that no longer exist
+    this.pseudopodMeshes.forEach((mesh, id) => {
+      if (!state.pseudopods.has(id)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+        this.pseudopodMeshes.delete(id);
+      }
+    });
+
+    // Add or update pseudopods
+    state.pseudopods.forEach((beam, id) => {
+      let mesh = this.pseudopodMeshes.get(id);
+
+      if (!mesh) {
+        // Determine if hitscan or projectile mode based on velocity magnitude
+        // Hitscan: velocity holds end position (low magnitude from position)
+        // Projectile: velocity holds actual velocity vector (high magnitude)
+        const vx = beam.velocity.x - beam.position.x;
+        const vy = beam.velocity.y - beam.position.y;
+        const velocityMag = Math.sqrt(vx * vx + vy * vy);
+        const isHitscan = velocityMag < 100; // Hitscan if "velocity" is actually end position
+
+        let startPos: THREE.Vector3;
+        let endPos: THREE.Vector3;
+
+        if (isHitscan) {
+          // Hitscan mode: beam.velocity is the end position
+          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
+          endPos = new THREE.Vector3(beam.velocity.x, beam.velocity.y, 1);
+        } else {
+          // Projectile mode: create short lightning bolt in direction of travel
+          const boltLength = 80; // Fixed visual length
+          const dirX = beam.velocity.x / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
+          const dirY = beam.velocity.y / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
+
+          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
+          endPos = new THREE.Vector3(
+            beam.position.x + dirX * boltLength,
+            beam.position.y + dirY * boltLength,
+            1
+          );
+        }
+
+        // Calculate beam direction and length
+        const direction = new THREE.Vector3().subVectors(endPos, startPos);
+        const length = direction.length();
+
+        // Create lightning bolt geometry
+        const rayParams = {
+          sourceOffset: new THREE.Vector3(0, 0, 0),
+          destOffset: new THREE.Vector3(0, length, 0),
+          radius0: beam.width / 2,
+          radius1: beam.width / 3,
+          minRadius: 2.5,
+          maxIterations: 7,
+          isEternal: true,
+          timeScale: 0.7,
+          propagationTimeFactor: 0.05,
+          vanishingTimeFactor: 0.95,
+          subrayPeriod: 3.5,
+          subrayDutyCycle: 0.6,
+          maxSubrayRecursion: 1,
+          ramification: 3,
+          recursionProbability: 0.4,
+        };
+
+        const lightningGeometry = new LightningStrike(rayParams);
+
+        // Create mesh with lightning geometry
+        const material = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(beam.color),
+          transparent: true,
+          opacity: 0.9,
+        });
+
+        mesh = new THREE.Mesh(lightningGeometry, material);
+
+        // Position at beam start
+        mesh.position.copy(startPos);
+
+        // Rotate to point from start to end
+        const angle = Math.atan2(direction.y, direction.x);
+        mesh.rotation.z = angle - Math.PI / 2;
+
+        this.scene.add(mesh);
+        this.pseudopodMeshes.set(id, mesh);
+      } else {
+        // Update projectile position (projectile mode only - hitscan beams are static)
+        // Check if this is a projectile beam
+        const vx = beam.velocity.x - beam.position.x;
+        const vy = beam.velocity.y - beam.position.y;
+        const velocityMag = Math.sqrt(vx * vx + vy * vy);
+        const isProjectile = velocityMag >= 100;
+
+        if (isProjectile) {
+          // Update position for moving projectile
+          mesh.position.x = beam.position.x;
+          mesh.position.y = beam.position.y;
+        }
       }
     });
   }

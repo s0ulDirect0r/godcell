@@ -162,6 +162,17 @@ export class GameState {
   }
 
   /**
+   * Update pseudopod position
+   */
+  updatePseudopodPosition(pseudopodId: string, x: number, y: number): void {
+    const pseudopod = this.pseudopods.get(pseudopodId);
+    if (pseudopod) {
+      pseudopod.position.x = x;
+      pseudopod.position.y = y;
+    }
+  }
+
+  /**
    * Get local player
    */
   getMyPlayer(): Player | null {
