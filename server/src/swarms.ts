@@ -221,7 +221,15 @@ export function updateSwarms(
   obstacles: Map<string, Obstacle>,
   deltaTime: number
 ) {
+  const now = Date.now();
+
   for (const swarm of swarms.values()) {
+    // Skip disabled swarms (hit by EMP)
+    if (swarm.disabledUntil && now < swarm.disabledUntil) {
+      swarm.velocity = { x: 0, y: 0 }; // Zero velocity while disabled
+      continue;
+    }
+
     // Check for nearby players
     const nearestPlayer = findNearestPlayer(swarm, players);
 
@@ -310,12 +318,13 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
     swarm.position.x = Math.max(padding, Math.min(GAME_CONFIG.WORLD_WIDTH - padding, swarm.position.x));
     swarm.position.y = Math.max(padding, Math.min(GAME_CONFIG.WORLD_HEIGHT - padding, swarm.position.y));
 
-    // Broadcast position update
+    // Broadcast position update (including disabled state)
     io.emit('swarmMoved', {
       type: 'swarmMoved',
       swarmId: swarm.id,
       position: swarm.position,
       state: swarm.state,
+      disabledUntil: swarm.disabledUntil, // Include EMP stun state
     });
   }
 }
@@ -331,8 +340,12 @@ export function checkSwarmCollisions(
 ): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
   const slowedPlayerIds = new Set<string>();
+  const now = Date.now();
 
   for (const swarm of swarms.values()) {
+    // Skip disabled swarms (hit by EMP)
+    if (swarm.disabledUntil && now < swarm.disabledUntil) continue;
+
     for (const player of players.values()) {
       // Skip dead/evolving players
       if (player.health <= 0 || player.isEvolving) continue;
