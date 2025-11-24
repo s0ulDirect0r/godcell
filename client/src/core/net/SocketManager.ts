@@ -21,6 +21,7 @@ import type {
   PseudopodSpawnedMessage,
   PseudopodMovedMessage,
   PseudopodRetractedMessage,
+  PseudopodHitMessage,
   PlayerEngulfedMessage,
   DetectionUpdateMessage,
   EMPActivatedMessage,
@@ -250,6 +251,11 @@ export class SocketManager {
 
     this.socket.on('pseudopodRetracted', (data: PseudopodRetractedMessage) => {
       this.gameState.removePseudopod(data.pseudopodId);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('pseudopodHit', (data: PseudopodHitMessage) => {
+      // Emit to EventBus for visual effects (particle burst, drain aura flash)
       eventBus.emit(data);
     });
 
