@@ -6,6 +6,7 @@ import type {
   Nutrient,
   Obstacle,
   DeathCause,
+  DamageSource,
   Pseudopod,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -106,6 +107,19 @@ const activeDrains: Map<string, string> = new Map();
 // Active swarm consumption (multi-cells eating disabled swarms)
 // Set of swarm IDs currently being consumed
 const activeSwarmDrains: Set<string> = new Set();
+
+// NEW: Damage tracking system for variable-intensity drain auras
+// Track all active damage sources per entity this tick
+interface ActiveDamage {
+  damageRate: number;        // DPS this tick
+  source: DamageSource;      // Which damage source
+  proximityFactor?: number;  // For gravity gradient (0-1, higher = closer to center)
+}
+const activeDamageThisTick = new Map<string, ActiveDamage[]>();
+
+// Pseudopod hit decay timers (for brief aura after beam hits)
+// Maps playerId → {rate, expiresAt}
+const pseudopodHitDecays = new Map<string, { rate: number; expiresAt: number }>();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -787,6 +801,12 @@ function checkBeamCollision(beam: Pseudopod): boolean {
         hitPosition: { x: beam.position.x, y: beam.position.y },
       });
 
+      // Add decay timer for brief drain aura after hit (1.5 seconds)
+      pseudopodHitDecays.set(targetId, {
+        rate: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        expiresAt: Date.now() + 1500, // 1.5 second decay
+      });
+
       // Beam continues traveling, can hit multiple different targets
     }
   }
@@ -883,6 +903,9 @@ function checkPredationCollisions(deltaTime: number) {
 
         // Mark damage source for death tracking
         playerLastDamageSource.set(preyId, 'predation');
+
+        // Record damage for drain aura system
+        recordDamage(preyId, GAME_CONFIG.CONTACT_DRAIN_RATE, 'predation');
 
         // Only one predator can drain a prey at a time (first contact wins)
         break;
@@ -1161,6 +1184,9 @@ function updateMetabolism(deltaTime: number) {
       const damage = GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
       player.health -= damage;
       playerLastDamageSource.set(playerId, 'starvation');
+
+      // Record damage for drain aura system
+      recordDamage(playerId, GAME_CONFIG.STARVATION_DAMAGE_RATE, 'starvation');
     }
 
     // Obstacle damage (escalates exponentially near center)
@@ -1172,8 +1198,14 @@ function updateMetabolism(deltaTime: number) {
         const normalizedDist = dist / obstacle.radius;
         const damageScale = Math.pow(1 - normalizedDist, 2);
 
-        player.health -= obstacle.damageRate * damageScale * deltaTime;
+        const actualDamage = obstacle.damageRate * damageScale;
+        player.health -= actualDamage * deltaTime;
         playerLastDamageSource.set(playerId, 'obstacle');
+
+        // Record damage with proximity factor for gradient aura
+        // proximityFactor = 1.0 at center, 0.0 at edge
+        recordDamage(playerId, obstacle.damageRate * damageScale, 'gravity', 1.0 - normalizedDist);
+
         break; // Only one obstacle damages at a time
       }
     }
@@ -1237,20 +1269,82 @@ function broadcastEnergyUpdates() {
 }
 
 /**
+ * Helper function to record damage for this tick
+ * Used by all damage sources to contribute to drain aura intensity
+ */
+function recordDamage(
+  entityId: string,
+  damageRate: number,
+  source: DamageSource,
+  proximityFactor?: number
+) {
+  if (!activeDamageThisTick.has(entityId)) {
+    activeDamageThisTick.set(entityId, []);
+  }
+  activeDamageThisTick.get(entityId)!.push({ damageRate, source, proximityFactor });
+}
+
+/**
  * Broadcast drain state updates to clients
- * Sends lists of player/swarm IDs currently being drained for visual feedback
+ * Sends comprehensive damage info for variable-intensity drain auras
  */
 function broadcastDrainState() {
-  const drainedPlayerIds = Array.from(activeDrains.keys());
-  const drainedSwarmIds = Array.from(activeSwarmDrains);
+  // Add pseudopod hit decays to active damage (if not expired)
+  const now = Date.now();
+  for (const [playerId, decay] of pseudopodHitDecays) {
+    if (now < decay.expiresAt) {
+      recordDamage(playerId, decay.rate, 'beam');
+    } else {
+      pseudopodHitDecays.delete(playerId); // Clean up expired
+    }
+  }
+
+  // Aggregate damage info per player
+  const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};
+
+  for (const [playerId, damages] of activeDamageThisTick) {
+    // Sum total damage rate
+    const totalDamageRate = damages.reduce((sum, d) => sum + d.damageRate, 0);
+
+    // Find dominant source (highest damage)
+    const sorted = damages.sort((a, b) => b.damageRate - a.damageRate);
+    const primarySource = sorted[0].source;
+
+    // Average proximity factors for gravity (if any)
+    const proximityFactors = damages
+      .filter(d => d.proximityFactor !== undefined)
+      .map(d => d.proximityFactor!);
+    const proximityFactor =
+      proximityFactors.length > 0
+        ? proximityFactors.reduce((sum, p) => sum + p, 0) / proximityFactors.length
+        : undefined;
+
+    damageInfo[playerId] = { totalDamageRate, primarySource, proximityFactor };
+  }
+
+  // Build damage info for swarms being consumed
+  const swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }> = {};
+
+  for (const swarmId of activeSwarmDrains) {
+    // Swarms being consumed are taking damage from predation (multi-cell contact drain)
+    swarmDamageInfo[swarmId] = {
+      totalDamageRate: GAME_CONFIG.SWARM_CONSUMPTION_RATE,
+      primarySource: 'predation',
+    };
+  }
 
   const drainStateMessage: PlayerDrainStateMessage = {
     type: 'playerDrainState',
-    drainedPlayerIds,
-    drainedSwarmIds,
+    drainedPlayerIds: [], // deprecated
+    drainedSwarmIds: [],  // deprecated
+    damageInfo,
+    swarmDamageInfo,
   };
 
   io.emit('playerDrainState', drainStateMessage);
+
+  // Clear for next tick
+  activeDamageThisTick.clear();
 }
 
 // Detection update broadcast counter (chemical sensing for multi-cells)
@@ -1936,7 +2030,7 @@ setInterval(() => {
   currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
-  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
+  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime, recordDamage);
   for (const playerId of damagedPlayerIds) {
     playerLastDamageSource.set(playerId, 'swarm');
   }
