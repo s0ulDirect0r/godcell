@@ -383,7 +383,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
     if (target.stage === EvolutionStage.SINGLE_CELL) continue;
 
     // Skip dead/evolving/stunned players
-    if (target.health <= 0) continue;
+    if (target.energy <= 0) continue;
     if (target.isEvolving) continue;
     if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue;
 
@@ -637,23 +637,53 @@ function initializeObstacles() {
 }
 
 /**
- * Get evolution stage stats based on current stage
+ * Get stage-specific max energy pool
+ * Energy-only system: this is the full health+energy pool combined
  */
-function getStageStats(stage: EvolutionStage): { maxHealth: number } {
-  const baseHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
-
+function getStageMaxEnergy(stage: EvolutionStage): number {
   switch (stage) {
     case EvolutionStage.SINGLE_CELL:
-      return { maxHealth: baseHealth };
+      return GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
     case EvolutionStage.MULTI_CELL:
-      return { maxHealth: baseHealth * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER };
+      return GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
     case EvolutionStage.CYBER_ORGANISM:
-      return { maxHealth: baseHealth * GAME_CONFIG.CYBER_ORGANISM_HEALTH_MULTIPLIER };
+      return GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY;
     case EvolutionStage.HUMANOID:
-      return { maxHealth: baseHealth * GAME_CONFIG.HUMANOID_HEALTH_MULTIPLIER };
+      return GAME_CONFIG.HUMANOID_MAX_ENERGY;
     case EvolutionStage.GODCELL:
-      return { maxHealth: baseHealth * GAME_CONFIG.GODCELL_HEALTH_MULTIPLIER };
+      return GAME_CONFIG.GODCELL_MAX_ENERGY;
   }
+}
+
+/**
+ * Get damage resistance for evolution stage
+ * Higher stages have more stable information structures
+ * Resistance reduces energy drain from external threats (NOT passive decay)
+ */
+function getDamageResistance(stage: EvolutionStage): number {
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      return GAME_CONFIG.SINGLE_CELL_DAMAGE_RESISTANCE;
+    case EvolutionStage.MULTI_CELL:
+      return GAME_CONFIG.MULTI_CELL_DAMAGE_RESISTANCE;
+    case EvolutionStage.CYBER_ORGANISM:
+      return GAME_CONFIG.CYBER_ORGANISM_DAMAGE_RESISTANCE;
+    case EvolutionStage.HUMANOID:
+      return GAME_CONFIG.HUMANOID_DAMAGE_RESISTANCE;
+    case EvolutionStage.GODCELL:
+      return GAME_CONFIG.GODCELL_DAMAGE_RESISTANCE;
+  }
+}
+
+/**
+ * Apply damage to player with resistance factored in
+ * Returns actual damage dealt after resistance
+ */
+function applyDamageWithResistance(player: Player, baseDamage: number): number {
+  const resistance = getDamageResistance(player.stage);
+  const actualDamage = baseDamage * (1 - resistance);
+  player.energy -= actualDamage;
+  return actualDamage;
 }
 
 /**
@@ -764,7 +794,7 @@ function checkBeamCollision(beam: Pseudopod): boolean {
     if (targetId === beam.ownerId) continue; // Can't hit yourself
     if (hitSet.has(targetId)) continue; // Already hit this target
     if (target.stage === EvolutionStage.SINGLE_CELL) continue; // Beams only hit multi-cells
-    if (target.health <= 0) continue; // Skip dead players
+    if (target.energy <= 0) continue; // Skip dead players
     if (target.isEvolving) continue; // Skip evolving players
     if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
 
@@ -828,8 +858,8 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
   const energyGain = prey.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
   predator.energy = Math.min(predator.maxEnergy, predator.energy + energyGain);
 
-  // Kill prey
-  prey.health = 0;
+  // Kill prey (energy-only: set energy to 0)
+  prey.energy = 0;
   playerLastDamageSource.set(preyId, 'predation');
 
   // Broadcast engulfment
@@ -874,7 +904,7 @@ function checkPredationCollisions(deltaTime: number) {
   for (const [predatorId, predator] of players) {
     // Only Stage 2+ can drain via contact
     if (predator.stage === EvolutionStage.SINGLE_CELL) continue;
-    if (predator.health <= 0) continue;
+    if (predator.energy <= 0) continue;
     if (predator.isEvolving) continue;
     if (predator.stunnedUntil && Date.now() < predator.stunnedUntil) continue; // Can't drain while stunned
 
@@ -884,7 +914,7 @@ function checkPredationCollisions(deltaTime: number) {
     for (const [preyId, prey] of players) {
       if (preyId === predatorId) continue; // Don't drain yourself
       if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only drain Stage 1
-      if (prey.health <= 0) continue; // Skip dead prey
+      if (prey.energy <= 0) continue; // Skip dead prey
       if (prey.isEvolving) continue; // Skip evolving prey
 
       const preyRadius = getPlayerRadius(prey.stage);
@@ -892,10 +922,10 @@ function checkPredationCollisions(deltaTime: number) {
       const collisionDist = predatorRadius + preyRadius;
 
       if (dist < collisionDist) {
-        // Contact! Drain energy and health from prey
+        // Contact! Drain energy from prey (energy-only system)
+        // Predation bypasses damage resistance - being engulfed is inescapable
         const damage = GAME_CONFIG.CONTACT_DRAIN_RATE * deltaTime;
         prey.energy -= damage;
-        prey.health -= damage; // Also drain health so death check triggers
         currentDrains.add(preyId);
 
         // Track which predator is draining this prey (for kill credit)
@@ -1015,10 +1045,11 @@ function checkEvolution(player: Player) {
     player.stage = nextEvolution.stage;
     player.isEvolving = false;
 
-    // Update stats for new stage
-    const newStats = getStageStats(player.stage);
-    player.maxHealth = newStats.maxHealth;
-    player.health = player.maxHealth; // Evolution fully heals
+    // Update energy pool for new stage
+    // Evolution grants the new stage's max energy pool (fully restored)
+    const newMaxEnergy = getStageMaxEnergy(player.stage);
+    player.maxEnergy = Math.max(player.maxEnergy, newMaxEnergy);
+    player.energy = player.maxEnergy; // Evolution fully restores energy
 
     // Broadcast evolution event
     const evolveMessage: PlayerEvolvedMessage = {
@@ -1026,7 +1057,6 @@ function checkEvolution(player: Player) {
       playerId: player.id,
       newStage: player.stage,
       newMaxEnergy: player.maxEnergy,
-      newMaxHealth: player.maxHealth,
     };
     io.emit('playerEvolved', evolveMessage);
 
@@ -1098,14 +1128,13 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
     }
   }
 
-  // Send final health update showing 0 before death message
-  const finalHealthUpdate: EnergyUpdateMessage = {
+  // Send final energy update showing 0 before death message
+  const finalEnergyUpdate: EnergyUpdateMessage = {
     type: 'energyUpdate',
     playerId: player.id,
-    energy: player.energy,
-    health: 0, // Ensure client sees health at 0
+    energy: 0, // Ensure client sees energy at 0
   };
-  io.emit('energyUpdate', finalHealthUpdate);
+  io.emit('energyUpdate', finalEnergyUpdate);
 
   // Broadcast death event (for dilution effect)
   const deathMessage: PlayerDiedMessage = {
@@ -1130,9 +1159,8 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
  */
 function respawnPlayer(player: Player) {
   // Reset player to Stage 1 (single-cell)
+  // Energy-only system: energy is the sole resource
   player.position = randomSpawnPosition();
-  player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
-  player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
   player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
   player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
   player.stage = EvolutionStage.SINGLE_CELL;
@@ -1162,77 +1190,57 @@ function respawnPlayer(player: Player) {
 
 /**
  * Update metabolism for all players
- * Handles energy decay, starvation damage, and obstacle damage
- * Tracks damage sources for death cause logging
- * Does NOT handle death - that's checked separately after all damage sources
+ * Energy-only system: handles passive energy decay
+ * When energy hits 0, player dies (no separate starvation damage phase)
+ * Gravity wells are physics-only (no proximity damage)
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
     // Skip dead players (waiting for manual respawn)
-    if (player.health <= 0) continue;
+    if (player.energy <= 0) continue;
 
     // Skip metabolism during evolution molting (invulnerable)
     if (player.isEvolving) continue;
 
     // Energy decay (passive drain) - stage-specific metabolic efficiency
+    // No damage resistance applies to passive decay
     const decayRate = getEnergyDecayRate(player.stage);
     player.energy -= decayRate * deltaTime;
 
-    // Starvation damage when energy depleted
+    // Energy-only: when energy hits 0, mark for death
     if (player.energy <= 0) {
       player.energy = 0;
-      const damage = GAME_CONFIG.STARVATION_DAMAGE_RATE * deltaTime;
-      player.health -= damage;
       playerLastDamageSource.set(playerId, 'starvation');
-
-      // Record damage for drain aura system
-      recordDamage(playerId, GAME_CONFIG.STARVATION_DAMAGE_RATE, 'starvation');
+      // Record for drain aura (shows starvation state)
+      recordDamage(playerId, decayRate, 'starvation');
     }
 
-    // Obstacle damage (escalates exponentially near center)
-    for (const obstacle of obstacles.values()) {
-      const dist = distance(player.position, obstacle.position);
-      if (dist < obstacle.radius) {
-        // Damage scales with proximity: (1 - dist/radius)²
-        // 0% damage at edge, 100% damage at center
-        const normalizedDist = dist / obstacle.radius;
-        const damageScale = Math.pow(1 - normalizedDist, 2);
-
-        const actualDamage = obstacle.damageRate * damageScale;
-        player.health -= actualDamage * deltaTime;
-        playerLastDamageSource.set(playerId, 'obstacle');
-
-        // Record damage with proximity factor for gradient aura
-        // proximityFactor = 1.0 at center, 0.0 at edge
-        // NOTE: Commented out for now - gravity aura doesn't feel right visually
-        // recordDamage(playerId, obstacle.damageRate * damageScale, 'gravity', 1.0 - normalizedDist);
-
-        break; // Only one obstacle damages at a time
-      }
-    }
+    // NOTE: Gravity well proximity damage removed
+    // Gravity wells are physics-only: pull forces + singularity instant death
+    // No gradual energy drain from being near obstacles
 
     // Check for evolution (only if still alive)
-    if (player.health > 0) {
+    if (player.energy > 0) {
       checkEvolution(player);
     }
   }
 }
 
 /**
- * Check all players for death (health <= 0)
- * This runs AFTER all damage sources have applied their damage
+ * Check all players for death (energy <= 0)
+ * Energy-only system: 0 energy = instant death (dilution)
  * Uses tracked damage source to log specific death cause
  * Only processes deaths once (clears damage source after processing)
  */
 function checkPlayerDeaths() {
   for (const [playerId, player] of players) {
     // Only process if:
-    // 1. Health is at or below 0
+    // 1. Energy is at or below 0
     // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
-    if (player.health <= 0 && playerLastDamageSource.has(playerId)) {
+    if (player.energy <= 0 && playerLastDamageSource.has(playerId)) {
       const cause = playerLastDamageSource.get(playerId)!;
 
-      player.health = 0; // Clamp to prevent negative health
+      player.energy = 0; // Clamp to prevent negative energy
       handlePlayerDeath(player, cause);
 
       // Clear damage source to prevent reprocessing same death
@@ -1246,7 +1254,8 @@ let energyUpdateTicks = 0;
 const ENERGY_UPDATE_INTERVAL = 10; // Broadcast every 10 ticks (~6 times/sec)
 
 /**
- * Broadcast energy/health updates to clients (throttled)
+ * Broadcast energy updates to clients (throttled)
+ * Energy-only system: energy is the sole resource
  */
 function broadcastEnergyUpdates() {
   energyUpdateTicks++;
@@ -1256,13 +1265,12 @@ function broadcastEnergyUpdates() {
 
     for (const [playerId, player] of players) {
       // Skip dead players (no need to broadcast their energy)
-      if (player.health <= 0) continue;
+      if (player.energy <= 0) continue;
 
       const updateMessage: EnergyUpdateMessage = {
         type: 'energyUpdate',
         playerId,
         energy: player.energy,
-        health: player.health,
       };
       io.emit('energyUpdate', updateMessage);
     }
@@ -1365,14 +1373,14 @@ function broadcastDetectionUpdates() {
     for (const [playerId, player] of players) {
       // Only multi-cells and above have chemical sensing
       if (player.stage === EvolutionStage.SINGLE_CELL) continue;
-      if (player.health <= 0) continue; // Skip dead players
+      if (player.energy <= 0) continue; // Skip dead players
 
       const detected: DetectedEntity[] = [];
 
       // Detect other players (potential prey or threats)
       for (const [otherId, otherPlayer] of players) {
         if (otherId === playerId) continue; // Don't detect yourself
-        if (otherPlayer.health <= 0) continue; // Skip dead players
+        if (otherPlayer.energy <= 0) continue; // Skip dead players
 
         const dist = distance(player.position, otherPlayer.position);
         if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
@@ -1429,7 +1437,7 @@ function broadcastDetectionUpdates() {
 function checkNutrientCollisions() {
   for (const [playerId, player] of players) {
     // Skip dead players (waiting for manual respawn)
-    if (player.health <= 0) continue;
+    if (player.energy <= 0) continue;
 
     // Skip if player is evolving (invulnerable during molting)
     if (player.isEvolving) continue;
@@ -1503,12 +1511,11 @@ io.on('connection', (socket) => {
   logPlayerConnected(socket.id);
 
   // Create a new player
+  // Energy-only system: energy is the sole resource (life + fuel)
   const newPlayer: Player = {
     id: socket.id,
     position: randomSpawnPosition(),
     color: randomColor(),
-    health: GAME_CONFIG.SINGLE_CELL_HEALTH,
-    maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH,
     energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
     maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
     stage: EvolutionStage.SINGLE_CELL,
@@ -1521,10 +1528,10 @@ io.on('connection', (socket) => {
   playerVelocities.set(socket.id, { x: 0, y: 0 });
 
   // Send current game state to the new player
-  // Filter out dead players (health <= 0) from initial state
+  // Filter out dead players (energy <= 0) from initial state
   const alivePlayers = new Map();
   for (const [id, player] of players) {
-    if (player.health > 0) {
+    if (player.energy > 0) {
       alivePlayers.set(id, player);
     }
   }
@@ -1568,7 +1575,7 @@ io.on('connection', (socket) => {
     if (!player) return;
 
     // Only respawn if player is dead (health <= 0)
-    if (player.health <= 0) {
+    if (player.energy <= 0) {
       respawnPlayer(player);
     }
   });
@@ -1583,7 +1590,7 @@ io.on('connection', (socket) => {
 
     // Validation: Only Stage 2+ can use pseudopod beams
     if (player.stage === EvolutionStage.SINGLE_CELL) return;
-    if (player.health <= 0) return; // Dead players can't attack
+    if (player.energy <= 0) return; // Dead players can't attack
     if (player.isEvolving) return; // Can't attack while molting
     if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't attack while stunned
     if (player.energy < GAME_CONFIG.PSEUDOPOD_ENERGY_COST) return; // Need energy to fire
@@ -1688,7 +1695,7 @@ io.on('connection', (socket) => {
 
     // Validation: Only Stage 2+ can use EMP
     if (player.stage === EvolutionStage.SINGLE_CELL) return;
-    if (player.health <= 0) return; // Dead players can't use abilities
+    if (player.energy <= 0) return; // Dead players can't use abilities
     if (player.isEvolving) return; // Can't use abilities while molting
     if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't use while stunned
     if (player.energy < GAME_CONFIG.EMP_ENERGY_COST) return; // Insufficient energy
@@ -1710,7 +1717,7 @@ io.on('connection', (socket) => {
       const dist = distance(player.position, swarm.position);
       if (dist <= GAME_CONFIG.EMP_RANGE) {
         swarm.disabledUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
-        swarm.currentHealth = GAME_CONFIG.SWARM_INITIAL_HEALTH;
+        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
         affectedSwarmIds.push(swarmId);
       }
     }
@@ -1718,7 +1725,7 @@ io.on('connection', (socket) => {
     // Check other players
     for (const [playerId, otherPlayer] of players) {
       if (playerId === socket.id) continue; // Don't affect self
-      if (otherPlayer.health <= 0) continue; // Dead players not affected
+      if (otherPlayer.energy <= 0) continue; // Dead players not affected
 
       const dist = distance(player.position, otherPlayer.position);
       if (dist <= GAME_CONFIG.EMP_RANGE) {
@@ -1787,7 +1794,7 @@ io.on('connection', (socket) => {
  */
 function applyGravityForces(deltaTime: number) {
   for (const [playerId, player] of players) {
-    if (player.health <= 0 || player.isEvolving) continue;
+    if (player.energy <= 0 || player.isEvolving) continue;
 
     const velocity = playerVelocities.get(playerId);
     if (!velocity) continue;
@@ -1803,10 +1810,10 @@ function applyGravityForces(deltaTime: number) {
       const dist = distance(player.position, obstacle.position);
       if (dist > obstacle.radius) continue; // Outside event horizon
 
-      // Instant death at singularity core
+      // Instant death at singularity core (energy-only: energy = 0)
       if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
         logSingularityCrush(playerId, dist);
-        player.health = 0; // Set health to zero (will be processed by checkPlayerDeaths)
+        player.energy = 0; // Instant energy depletion (will be processed by checkPlayerDeaths)
         playerLastDamageSource.set(playerId, 'singularity');
         continue;
       }
@@ -1980,12 +1987,12 @@ setInterval(() => {
 
   for (const [playerId, player] of players) {
     if (player.stage === EvolutionStage.SINGLE_CELL) continue; // Only multi-cells can consume
-    if (player.health <= 0) continue; // Dead players can't consume
+    if (player.energy <= 0) continue; // Dead players can't consume
 
     for (const [swarmId, swarm] of getSwarms()) {
       // Only consume disabled swarms with health remaining
       if (!swarm.disabledUntil || Date.now() >= swarm.disabledUntil) continue;
-      if (!swarm.currentHealth || swarm.currentHealth <= 0) continue;
+      if (!swarm.energy || swarm.energy <= 0) continue;
 
       // Check if multi-cell is touching the swarm
       const dist = distance(player.position, swarm.position);
@@ -1997,9 +2004,9 @@ setInterval(() => {
 
         // Gradual consumption - drain swarm health over time
         const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
-        swarm.currentHealth -= damageDealt;
+        swarm.energy -= damageDealt;
 
-        if (swarm.currentHealth <= 0) {
+        if (swarm.energy <= 0) {
           // Swarm fully consumed - grant rewards
           player.energy = Math.min(player.maxEnergy, player.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
           player.maxEnergy += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
@@ -2039,7 +2046,7 @@ setInterval(() => {
   // Update each player's position
   for (const [playerId, player] of players) {
     // Skip dead players (waiting for manual respawn)
-    if (player.health <= 0) continue;
+    if (player.energy <= 0) continue;
 
     // Stunned players can't move (hit by EMP)
     if (player.stunnedUntil && Date.now() < player.stunnedUntil) {
@@ -2172,20 +2179,18 @@ setInterval(() => {
 
 /**
  * Calculate aggregate statistics about the game state
+ * Energy-only system: energy is the sole life resource
  */
 function calculateAggregateStats() {
   const allPlayers = Array.from(players.values());
-  const alivePlayers = allPlayers.filter(p => p.health > 0);
-  const deadPlayers = allPlayers.filter(p => p.health <= 0);
+  const alivePlayers = allPlayers.filter(p => p.energy > 0);
+  const deadPlayers = allPlayers.filter(p => p.energy <= 0);
   const bots = allPlayers.filter(p => isBot(p.id));
-  const aliveBots = bots.filter(p => p.health > 0);
+  const aliveBots = bots.filter(p => p.energy > 0);
 
   // Calculate averages for alive players only
   const avgEnergy = alivePlayers.length > 0
     ? alivePlayers.reduce((sum, p) => sum + p.energy, 0) / alivePlayers.length
-    : 0;
-  const avgHealth = alivePlayers.length > 0
-    ? alivePlayers.reduce((sum, p) => sum + p.health, 0) / alivePlayers.length
     : 0;
 
   // Stage distribution
@@ -2201,7 +2206,6 @@ function calculateAggregateStats() {
     totalBots: bots.length,
     aliveBots: aliveBots.length,
     avgPlayerEnergy: avgEnergy,
-    avgPlayerHealth: avgHealth,
     totalNutrients: nutrients.size,
     stageDistribution,
   };
@@ -2209,6 +2213,7 @@ function calculateAggregateStats() {
 
 /**
  * Create a complete game state snapshot
+ * Energy-only system: energy is the sole life resource
  */
 function createGameStateSnapshot() {
   return {
@@ -2217,12 +2222,10 @@ function createGameStateSnapshot() {
       id: p.id,
       isBot: isBot(p.id),
       stage: p.stage,
-      health: p.health,
-      maxHealth: p.maxHealth,
       energy: p.energy,
       maxEnergy: p.maxEnergy,
       position: { x: p.position.x, y: p.position.y },
-      alive: p.health > 0,
+      alive: p.energy > 0,
     })),
     nutrients: Array.from(nutrients.values()).map(n => ({
       id: n.id,

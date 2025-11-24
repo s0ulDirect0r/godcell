@@ -151,6 +151,7 @@ export function logSingularityCrush(playerId: string, distance: number) {
 /**
  * Log aggregate game statistics (lightweight, frequent)
  * Use this for high-level monitoring without overwhelming logs
+ * Energy-only system: energy is the sole life resource
  */
 export function logAggregateStats(stats: {
   totalPlayers: number;
@@ -159,7 +160,6 @@ export function logAggregateStats(stats: {
   totalBots: number;
   aliveBots: number;
   avgPlayerEnergy: number;
-  avgPlayerHealth: number;
   totalNutrients: number;
   stageDistribution: Record<string, number>; // e.g., {"single-cell": 3, "multi-cell": 1}
 }) {
@@ -175,6 +175,7 @@ export function logAggregateStats(stats: {
 /**
  * Log complete game state snapshot (heavy, infrequent)
  * Use this for detailed debugging and post-mortem analysis
+ * Energy-only system: energy is the sole life resource
  */
 export function logGameStateSnapshot(snapshot: {
   timestamp: number;
@@ -182,8 +183,6 @@ export function logGameStateSnapshot(snapshot: {
     id: string;
     isBot: boolean;
     stage: string;
-    health: number;
-    maxHealth: number;
     energy: number;
     maxEnergy: number;
     position: { x: number; y: number };
