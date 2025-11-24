@@ -35,10 +35,10 @@ export interface Player {
   position: Position;
   color: string; // Hex color like "#FF5733"
 
-  // Metabolism & Health
-  health: number;
-  maxHealth: number;
-  energy: number;      // Metabolic energy - decays over time
+  // Energy-Only System
+  // Energy is the sole resource: fuel, life, survival
+  // 0 energy = instant death (dilution)
+  energy: number;      // Current energy - decays over time, drained by threats
   maxEnergy: number;   // Capacity - grows with nutrients collected
 
   // Evolution
@@ -66,7 +66,7 @@ export interface Obstacle {
   position: Position;
   radius: number; // Gravity influence radius (600px - escapable zone)
   strength: number; // Gravity force multiplier
-  damageRate: number; // Health damage per second at center
+  damageRate: number; // UNUSED - gravity wells are physics-only (singularity = instant death)
 }
 
 // An entropy swarm (virus enemy)
@@ -79,7 +79,7 @@ export interface EntropySwarm {
   targetPlayerId?: string; // Player being chased (if state === 'chase')
   patrolTarget?: Position; // Where swarm is wandering toward (if state === 'patrol')
   disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
-  currentHealth?: number; // Health during consumption (starts at SWARM_INITIAL_HEALTH when disabled)
+  energy?: number; // Energy pool during consumption (set to SWARM_ENERGY when disabled by EMP)
 }
 
 // A pseudopod beam (lightning projectile fired by multi-cells)
@@ -166,7 +166,7 @@ export interface EnergyUpdateMessage {
   type: 'energyUpdate';
   playerId: string;
   energy: number;
-  health: number;
+  // health field removed - energy-only system
 }
 
 export interface PlayerDiedMessage {
@@ -195,7 +195,7 @@ export interface PlayerEvolvedMessage {
   playerId: string;
   newStage: EvolutionStage;
   newMaxEnergy: number;
-  newMaxHealth: number;
+  // newMaxHealth removed - energy-only system
 }
 
 export interface NutrientMovedMessage {
@@ -376,40 +376,57 @@ export const GAME_CONFIG = {
   OBSTACLE_EVENT_HORIZON: 180,  // Inescapable zone (magenta filled - 30% of gravity radius)
   OBSTACLE_CORE_RADIUS: 60,     // Instant-death singularity core
   OBSTACLE_GRAVITY_STRENGTH: 0.72, // Force multiplier for inverse-square gravity (12x original to compensate for higher speeds + momentum)
-  OBSTACLE_DAMAGE_RATE: 10,     // Health damage per second at center (scales down with distance)
+  OBSTACLE_DAMAGE_RATE: 10,     // UNUSED - gravity wells are physics-only now
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
 
-  // Metabolism & Health
-  SINGLE_CELL_HEALTH: 100,
-  SINGLE_CELL_MAX_HEALTH: 100,
-  SINGLE_CELL_ENERGY: 100,
-  SINGLE_CELL_MAX_ENERGY: 100,
+  // ============================================
+  // Energy-Only System
+  // Energy is the sole resource: fuel, life, survival
+  // 0 energy = instant death (dilution)
+  // ============================================
+
+  // Stage-specific energy pools (combined old health + energy)
+  SINGLE_CELL_ENERGY: 100,       // Stage 1: 100 energy (harsh, must feed quickly)
+  SINGLE_CELL_MAX_ENERGY: 100,   // No buffer - evolution is the only way to grow capacity
+  MULTI_CELL_ENERGY: 400,        // Stage 2: 400 energy (tankier, can hunt)
+  MULTI_CELL_MAX_ENERGY: 400,
+  CYBER_ORGANISM_ENERGY: 1000,   // Stage 3: 1000 energy
+  CYBER_ORGANISM_MAX_ENERGY: 1000,
+  HUMANOID_ENERGY: 2000,         // Stage 4: 2000 energy
+  HUMANOID_MAX_ENERGY: 2000,
+  GODCELL_ENERGY: 3000,          // Stage 5: 3000 energy (transcendent)
+  GODCELL_MAX_ENERGY: 3000,
 
   // Decay rates (units per second) - stage-specific metabolic efficiency
-  SINGLE_CELL_ENERGY_DECAY_RATE: 2.66,  // ~37.5 seconds to starvation (100 energy / 2.66 = 37.5s)
-  MULTI_CELL_ENERGY_DECAY_RATE: 2.1,    // ~119 seconds to starvation (250 energy / 2.1 = 119s ≈ 2 minutes)
-  CYBER_ORGANISM_ENERGY_DECAY_RATE: 2.8,  // ~178 seconds (500 / 2.8 ≈ 3 minutes)
-  HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~303 seconds (1000 / 3.3 ≈ 5 minutes)
-  GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics (no passive decay)
+  // These drain energy passively - no damage resistance applies
+  SINGLE_CELL_ENERGY_DECAY_RATE: 2.66,    // ~37 seconds to starvation from spawn (100 / 2.66 ≈ 37s) - harsh!
+  MULTI_CELL_ENERGY_DECAY_RATE: 2.1,      // ~190 seconds (400 / 2.1 ≈ 190s ≈ 3 minutes)
+  CYBER_ORGANISM_ENERGY_DECAY_RATE: 2.8,  // ~357 seconds (1000 / 2.8 ≈ 6 minutes)
+  HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~606 seconds (2000 / 3.3 ≈ 10 minutes)
+  GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics
 
-  STARVATION_DAMAGE_RATE: 5,    // Health damage per second when energy = 0
-  MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved (start low, tune upward based on playtesting)
+  // Damage resistance (structural stability at higher evolution stages)
+  // Reduces energy drain from external threats (NOT passive decay)
+  SINGLE_CELL_DAMAGE_RESISTANCE: 0,       // 0% - takes full damage
+  MULTI_CELL_DAMAGE_RESISTANCE: 0.25,     // 25% - takes 75% damage
+  CYBER_ORGANISM_DAMAGE_RESISTANCE: 0.40, // 40% - takes 60% damage
+  HUMANOID_DAMAGE_RESISTANCE: 0.50,       // 50% - takes 50% damage
+  GODCELL_DAMAGE_RESISTANCE: 0.60,        // 60% - takes 40% damage
+
+  MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved
 
   // Evolution thresholds (maxEnergy required)
-  EVOLUTION_MULTI_CELL: 300,      // Stage 1→2: ~20 nutrients (easy access to EMP)
-  EVOLUTION_CYBER_ORGANISM: 800,  // Stage 2→3: Swarm hunting path (+50 maxEnergy per swarm consumed)
-  EVOLUTION_HUMANOID: 1000,       // ~90 nutrients total
-  EVOLUTION_GODCELL: 2000,        // ~190 nutrients total
+  EVOLUTION_MULTI_CELL: 300,       // Stage 1→2: ~20 nutrients (easy access to EMP)
+  EVOLUTION_CYBER_ORGANISM: 3000,  // Stage 2→3: Major grind - swarm hunting essential
+  EVOLUTION_HUMANOID: 6000,        // Stage 3→4: Sustained dominance required
+  EVOLUTION_GODCELL: 10000,        // Stage 4→5: Transcendence is earned
 
   // Evolution
   EVOLUTION_MOLTING_DURATION: 2500, // 2.5 seconds invulnerable animation (ms)
 
-  // Stage-specific stats multipliers
-  MULTI_CELL_HEALTH_MULTIPLIER: 1.5,    // 150 health
-  CYBER_ORGANISM_HEALTH_MULTIPLIER: 2,  // 200 health
-  HUMANOID_HEALTH_MULTIPLIER: 3,        // 300 health
-  GODCELL_HEALTH_MULTIPLIER: 5,         // 500 health
+  // Health multipliers removed - energy-only system
+  // Stage-specific energy pools defined above
 
   // Size multipliers (visual presence and intimidation)
   SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (10px radius)
@@ -442,7 +459,7 @@ export const GAME_CONFIG = {
   SWARM_SPEED: 290,                  // 20% boost to match faster player speed (still slower than players)
   SWARM_SLOW_EFFECT: 0.6,            // Speed multiplier when player is in contact with swarm (40% slow)
   SWARM_DETECTION_RADIUS: 700,       // How far swarms can detect players - extended pursuit range
-  SWARM_DAMAGE_RATE: 60,            // Health damage per second on contact (brutal - getting caught is deadly)
+  SWARM_DAMAGE_RATE: 60,             // Energy drain per second on contact (applies damage resistance)
   SWARM_PATROL_RADIUS: 400,          // How far swarms wander from spawn point
   SWARM_PATROL_CHANGE_INTERVAL: 3000, // Time between random patrol direction changes (ms)
 
@@ -450,12 +467,13 @@ export const GAME_CONFIG = {
   EMP_COOLDOWN: 10000,              // 10 seconds between uses (milliseconds)
   EMP_RANGE: 768,                   // 8x multi-cell radius (8 * 96px = 768px) - AoE pulse range
   EMP_DISABLE_DURATION: 3000,       // 3 seconds paralysis for affected entities (milliseconds)
-  EMP_ENERGY_COST: 80,              // Energy cost to activate (27% of 300 pool)
-  EMP_MULTI_CELL_ENERGY_DRAIN: 80,  // Energy drained from hit multi-cells
+  EMP_ENERGY_COST: 80,              // Energy cost to activate
+  EMP_MULTI_CELL_ENERGY_DRAIN: 80,  // Energy drained from hit multi-cells (applies damage resistance)
+  EMP_SINGLE_CELL_ENERGY_DRAIN: 40, // Energy drained from hit single-cells (20% of their pool)
 
   // Swarm Consumption (EMP-enabled swarm hunting)
-  SWARM_CONSUMPTION_RATE: 200,      // Health drained per second during engulfment (0.5 seconds to fully consume)
+  SWARM_CONSUMPTION_RATE: 200,      // Energy drained per second during engulfment (0.5 seconds to consume)
   SWARM_ENERGY_GAIN: 150,           // Energy gained per swarm consumed (net +70 after 80 cost)
   SWARM_MAX_ENERGY_GAIN: 50,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
-  SWARM_INITIAL_HEALTH: 100,        // Health pool for swarms (set when disabled by EMP)
+  SWARM_ENERGY: 100,                // Swarm energy pool (set when disabled by EMP)
 };
