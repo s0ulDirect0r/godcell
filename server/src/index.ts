@@ -402,7 +402,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   if (closestHit) {
     const target = players.get(closestHit.playerId);
     if (target) {
-      target.energy -= GAME_CONFIG.PSEUDOPOD_DRAIN_RATE;
+      applyDamageWithResistance(target, GAME_CONFIG.PSEUDOPOD_DRAIN_RATE);
       playerLastDamageSource.set(closestHit.playerId, 'beam');
       playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
 
@@ -804,8 +804,8 @@ function checkBeamCollision(beam: Pseudopod): boolean {
     const collisionDist = beam.width / 2 + targetRadius;
 
     if (dist < collisionDist) {
-      // Hit! Drain energy from target (one-time damage per beam)
-      target.energy -= GAME_CONFIG.PSEUDOPOD_DRAIN_RATE;
+      // Hit! Drain energy from target (one-time damage per beam, with resistance)
+      applyDamageWithResistance(target, GAME_CONFIG.PSEUDOPOD_DRAIN_RATE);
       hitSomething = true;
 
       // Track damage source and shooter for kill credit
@@ -1745,9 +1745,9 @@ io.on('connection', (socket) => {
       if (dist <= GAME_CONFIG.EMP_RANGE) {
         otherPlayer.stunnedUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
 
-        // Multi-cells also lose energy when hit
+        // Multi-cells also lose energy when hit (with resistance)
         if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) {
-          otherPlayer.energy = Math.max(0, otherPlayer.energy - GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
+          applyDamageWithResistance(otherPlayer, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
         }
 
         affectedPlayerIds.push(playerId);
