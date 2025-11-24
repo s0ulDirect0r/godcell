@@ -7,7 +7,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { LightningStrike } from 'three-stdlib';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, type DamageSource } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 
@@ -375,8 +375,10 @@ export class ThreeRenderer implements Renderer {
             const outlineGeometry = this.getGeometry(`ring-outline-${newRadius}`, () =>
               new THREE.RingGeometry(newRadius + 16, newRadius + 19, 32)
             );
-            const outlineMaterial = new THREE.MeshBasicMaterial({
+            const outlineMaterial = new THREE.MeshStandardMaterial({
               color: 0xffffff,
+              emissive: 0xffffff,
+              emissiveIntensity: 1.0,
               transparent: true,
               opacity: 1.0,
               depthWrite: false,
@@ -1388,7 +1390,156 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Update drain visual feedback (red aura around drained players)
+   * Create a dual-sphere shell aura for a single cell
+   */
+  private createCellAura(cellRadius: number): THREE.Group {
+    const auraGroup = new THREE.Group();
+
+    const innerRadius = cellRadius * 1.0;  // Inner edge at cell boundary
+    const outerRadius = cellRadius * 1.03;  // Outer edge = 3% beyond boundary (thin shell)
+
+    // Create outer sphere (viewed from inside)
+    const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
+    const outerMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff0000,              // Base red color
+      emissive: 0xff0000,           // Red glow for bloom effect
+      emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
+      transparent: true,
+      opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
+      side: THREE.BackSide,         // Render inside of outer sphere
+      depthWrite: false,
+      depthTest: false,
+    });
+
+    const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+    auraGroup.add(outerMesh);
+
+    // Create inner sphere to carve out hollow (viewed from outside)
+    const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
+    const innerMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff0000,
+      emissive: 0xff0000,
+      emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
+      transparent: true,
+      opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
+      side: THREE.FrontSide,        // Render outside of inner sphere
+      depthWrite: false,
+      depthTest: false,
+    });
+
+    const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
+    auraGroup.add(innerMesh);
+
+    return auraGroup;
+  }
+
+  /**
+   * Calculate aura intensity from damage rate (maps DPS to 0-1 scale)
+   */
+  private calculateAuraIntensity(damageRate: number): number {
+    // Intensity scale:
+    // 0-30 dps   → 0.0-0.3 (subtle)
+    // 30-80 dps  → 0.3-0.6 (moderate)
+    // 80-150 dps → 0.6-0.9 (intense)
+    // 150+ dps   → 0.9-1.0 (critical)
+
+    if (damageRate <= 30) {
+      return (damageRate / 30) * 0.3; // 0.0-0.3
+    } else if (damageRate <= 80) {
+      return 0.3 + ((damageRate - 30) / 50) * 0.3; // 0.3-0.6
+    } else if (damageRate <= 150) {
+      return 0.6 + ((damageRate - 80) / 70) * 0.3; // 0.6-0.9
+    } else {
+      return Math.min(1.0, 0.9 + ((damageRate - 150) / 150) * 0.1); // 0.9-1.0
+    }
+  }
+
+  /**
+   * Get aura color based on damage source
+   */
+  private getAuraColor(source: DamageSource): number {
+    switch (source) {
+      case 'starvation':
+        return 0xffaa00; // Orange/yellow for self-inflicted damage
+      case 'predation':
+      case 'swarm':
+      case 'beam':
+      case 'gravity':
+      default:
+        return 0xff0000; // Red for external threats
+    }
+  }
+
+  /**
+   * Apply intensity-based visuals to drain aura
+   */
+  private applyAuraIntensity(
+    auraMesh: THREE.Group,
+    intensity: number,
+    color: number,
+    time: number,
+    proximityFactor?: number
+  ): void {
+    // Gentle pulsing (much slower and subtler)
+    const pulseSpeed = 1.0 + intensity * 1.5;  // 1-2.5 cycles/sec (slow even at high intensity)
+    const pulseAmount = 0.03 + intensity * 0.05; // ±3-8% scale variation (very subtle)
+    const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
+    auraMesh.scale.set(scale, scale, scale);
+
+    // Opacity scales with intensity
+    const baseOpacity = 0.2 + intensity * 0.4; // 0.2-0.6 base (subtle to moderate)
+    const flickerAmount = 0.05 + intensity * 0.1; // ±5-15% flicker (reduced)
+    let opacity = baseOpacity + Math.sin(time * 3) * flickerAmount; // Slower flicker
+
+    // Emissive (bloom) scales with intensity
+    const baseEmissive = 1.0 + intensity * 2.0; // 1.0-3.0 base (moderate range)
+    const emissiveFlicker = 0.2 + intensity * 0.4; // ±0.2-0.6 variation (reduced)
+    let emissive = baseEmissive + Math.sin(time * 2.5) * emissiveFlicker; // Slower flicker
+
+    // Apply proximity gradient for gravity wells (fades at edges)
+    if (proximityFactor !== undefined) {
+      opacity *= (0.5 + proximityFactor * 0.5); // Fade out at edges
+      emissive *= (0.5 + proximityFactor * 0.5);
+    }
+
+    // Check for hit flash (brief intense brightness boost from pseudopod hit)
+    if (auraMesh.userData.flashTime) {
+      const flashAge = Date.now() - auraMesh.userData.flashTime;
+      const flashDuration = 200; // 200ms flash
+
+      if (flashAge < flashDuration) {
+        // Add extra brightness during flash (fades out over duration)
+        const flashProgress = flashAge / flashDuration; // 0 to 1
+        const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
+        emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
+        opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
+      } else {
+        // Flash expired, clear it
+        delete auraMesh.userData.flashTime;
+      }
+    }
+
+    // Apply to all spheres (handles both single-cell and multi-cell auras)
+    // For multi-cell: auraMesh is a group containing multiple cell aura groups
+    // For single-cell: auraMesh is a group containing one cell aura group
+    const applyToMeshes = (obj: THREE.Object3D) => {
+      if (obj instanceof THREE.Mesh) {
+        const material = obj.material as THREE.MeshStandardMaterial;
+        material.color.setHex(color);
+        material.emissive.setHex(color);
+        material.opacity = opacity;
+        material.emissiveIntensity = emissive;
+      } else if (obj instanceof THREE.Group) {
+        // Recursively apply to nested groups
+        obj.children.forEach(applyToMeshes);
+      }
+    };
+
+    applyToMeshes(auraMesh);
+  }
+
+  /**
+   * Update drain visual feedback (variable-intensity aura around damaged players)
    */
   private updateDrainAuras(state: GameState, _dt: number): void {
     const time = Date.now() * 0.001;
@@ -1398,59 +1549,47 @@ export class ThreeRenderer implements Renderer {
       const playerMesh = this.playerMeshes.get(playerId);
       if (!playerMesh) return;
 
-      const isDrained = state.drainedPlayerIds.has(playerId);
+      const damageInfo = state.playerDamageInfo.get(playerId);
 
-      if (isDrained) {
+      if (damageInfo && damageInfo.totalDamageRate > 0) {
         // Create or update drain aura
         let auraMesh = this.drainAuraMeshes.get(playerId);
 
         if (!auraMesh) {
-          // Create thick shell aura (two spheres to create visible band)
-          // Shell thickness is controlled by the difference between inner/outer radius
-          const playerRadius = GAME_CONFIG.PLAYER_SIZE *
-            (player.stage === EvolutionStage.SINGLE_CELL
-              ? GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER
-              : GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER);
-
-          const innerRadius = playerRadius * 1.0;  // Inner edge at player boundary
-          const outerRadius = playerRadius * 1.1;  // Outer edge = 10% beyond boundary (shell thickness)
-
-          // Create outer sphere (viewed from inside)
-          const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
-          const outerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xff0000,              // Base red color
-            emissive: 0xff0000,           // Red glow for bloom effect
-            emissiveIntensity: 3.0,       // Bloom strength (higher = brighter glow in postprocessing)
-            transparent: true,
-            opacity: 0.6,                 // Base visibility (animated below)
-            side: THREE.BackSide,         // Render inside of outer sphere
-            depthWrite: false,
-            depthTest: false,
-          });
-
-          const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
-
-          // Create inner sphere to carve out hollow (viewed from outside)
-          const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
-          const innerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xff0000,
-            emissive: 0xff0000,
-            emissiveIntensity: 3.0,       // Match outer sphere for consistent glow
-            transparent: true,
-            opacity: 0.6,
-            side: THREE.FrontSide,        // Render outside of inner sphere
-            depthWrite: false,
-            depthTest: false,
-          });
-
-          const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
-
-          // Group them together
           const newAuraMesh = new THREE.Group();
-          newAuraMesh.add(outerMesh);
-          newAuraMesh.add(innerMesh);
-          newAuraMesh.position.z = -1; // Behind player
 
+          // For multi-cell: create auras around each individual cell sphere
+          // For single-cell: create one aura around the whole organism
+          if (player.stage === EvolutionStage.MULTI_CELL) {
+            // Multi-cell: aura around each cell in the organism
+            // Match the exact proportions from MultiCellRenderer.ts
+            const baseRadius = this.getPlayerRadius(player.stage);
+            const cellRadius = baseRadius * 0.35; // Individual cell size (same as multi-cell rendering)
+
+            // Create aura for center cell (at origin)
+            const centerAura = this.createCellAura(cellRadius);
+            newAuraMesh.add(centerAura);
+
+            // Create auras for ring cells (6 cells in hexagonal pattern)
+            const ringRadius = cellRadius * 2.2; // Distance from center (same as multi-cell rendering)
+            const cellCount = 6;
+            for (let i = 0; i < cellCount; i++) {
+              const angle = (i / cellCount) * Math.PI * 2;
+              const x = Math.cos(angle) * ringRadius;
+              const y = Math.sin(angle) * ringRadius;
+
+              const ringAura = this.createCellAura(cellRadius);
+              ringAura.position.set(x, y, 0);
+              newAuraMesh.add(ringAura);
+            }
+          } else {
+            // Single-cell: one aura around the whole organism
+            const playerRadius = this.getPlayerRadius(player.stage);
+            const singleAura = this.createCellAura(playerRadius);
+            newAuraMesh.add(singleAura);
+          }
+
+          newAuraMesh.position.z = -1; // Behind player
           this.drainAuraMeshes.set(playerId, newAuraMesh);
           this.scene.add(newAuraMesh);
           auraMesh = newAuraMesh;
@@ -1459,50 +1598,18 @@ export class ThreeRenderer implements Renderer {
         // Type guard: ensure auraMesh exists after creation
         if (!auraMesh) return;
 
-        // Position aura at player position
-        auraMesh.position.x = playerMesh.position.x;
-        auraMesh.position.y = playerMesh.position.y;
+        // Position aura at player position (copy position and rotation to stay aligned)
+        auraMesh.position.copy(playerMesh.position);
+        auraMesh.rotation.copy(playerMesh.rotation);
 
-        // Pulsing scale animation (aura breathes in/out)
-        const pulseSpeed = 4.0;   // Cycles per second (higher = faster breathing)
-        const pulseAmount = 0.15; // Scale variation (0.15 = ±15% size change)
-        const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
-        auraMesh.scale.set(scale, scale, scale);
+        // Calculate intensity from damage rate
+        const intensity = this.calculateAuraIntensity(damageInfo.totalDamageRate);
 
-        // Animate opacity and bloom intensity for both inner and outer spheres
-        const group = auraMesh as THREE.Group;
-        const outerMesh = group.children[0] as THREE.Mesh;
-        const innerMesh = group.children[1] as THREE.Mesh;
-        const outerMaterial = outerMesh.material as THREE.MeshStandardMaterial;
-        const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
+        // Get color based on primary damage source
+        const color = this.getAuraColor(damageInfo.primarySource);
 
-        // Flickering opacity (makes aura shimmer)
-        let opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
-
-        // Pulsing bloom intensity (makes glow brighter/dimmer)
-        let emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
-
-        // Check for hit flash (brief intense brightness boost)
-        if (auraMesh.userData.flashTime) {
-          const flashAge = Date.now() - auraMesh.userData.flashTime;
-          const flashDuration = 200; // 200ms flash
-
-          if (flashAge < flashDuration) {
-            // Add extra brightness during flash (fades out over duration)
-            const flashProgress = flashAge / flashDuration; // 0 to 1
-            const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
-            emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
-            opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
-          } else {
-            // Flash expired, clear it
-            delete auraMesh.userData.flashTime;
-          }
-        }
-
-        outerMaterial.opacity = opacity;
-        outerMaterial.emissiveIntensity = emissive;
-        innerMaterial.opacity = opacity;
-        innerMaterial.emissiveIntensity = emissive;
+        // Apply intensity-based visuals
+        this.applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time, damageInfo.proximityFactor);
 
       } else {
         // Remove aura if player is no longer drained
@@ -1531,53 +1638,18 @@ export class ThreeRenderer implements Renderer {
       const swarmMesh = this.swarmMeshes.get(swarmId);
       if (!swarmMesh) return;
 
-      const isDrained = state.drainedSwarmIds.has(swarmId);
+      const damageInfo = state.swarmDamageInfo.get(swarmId);
       const auraId = `swarm-${swarmId}`; // Prefix to distinguish from player auras
 
-      if (isDrained) {
+      if (damageInfo) {
         // Create or update drain aura for swarm
         let auraMesh = this.drainAuraMeshes.get(auraId);
 
         if (!auraMesh) {
-          // Create thick shell aura (two spheres to create visible band)
-          // Shell thickness is controlled by the difference between inner/outer radius
-          const innerRadius = swarm.size * 1.0;  // Inner edge at swarm boundary
-          const outerRadius = swarm.size * 1.1;  // Outer edge = 10% beyond boundary (shell thickness)
-
-          // Create outer sphere (viewed from inside)
-          const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
-          const outerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xff0000,              // Base red color
-            emissive: 0xff0000,           // Red glow for bloom effect
-            emissiveIntensity: 3.0,       // Bloom strength (higher = brighter glow in postprocessing)
-            transparent: true,
-            opacity: 0.6,                 // Base visibility (animated below)
-            side: THREE.BackSide,         // Render inside of outer sphere
-            depthWrite: false,
-            depthTest: false,
-          });
-
-          const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
-
-          // Create inner sphere to carve out hollow (viewed from outside)
-          const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
-          const innerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xff0000,
-            emissive: 0xff0000,
-            emissiveIntensity: 3.0,       // Match outer sphere for consistent glow
-            transparent: true,
-            opacity: 0.6,
-            side: THREE.FrontSide,        // Render outside of inner sphere
-            depthWrite: false,
-            depthTest: false,
-          });
-
-          const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
-
-          // Group them together
+          // Create aura using helper (consistent with player auras)
           const newAuraMesh = new THREE.Group();
-          newAuraMesh.add(outerMesh);
-          newAuraMesh.add(innerMesh);
+          const swarmAura = this.createCellAura(swarm.size);
+          newAuraMesh.add(swarmAura);
           newAuraMesh.position.z = -1; // Behind swarm
 
           this.drainAuraMeshes.set(auraId, newAuraMesh);
@@ -1592,46 +1664,14 @@ export class ThreeRenderer implements Renderer {
         auraMesh.position.x = swarmMesh.position.x;
         auraMesh.position.y = swarmMesh.position.y;
 
-        // Pulsing scale animation (aura breathes in/out)
-        const pulseSpeed = 4.0;   // Cycles per second (higher = faster breathing)
-        const pulseAmount = 0.15; // Scale variation (0.15 = ±15% size change)
-        const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
-        auraMesh.scale.set(scale, scale, scale);
+        // Calculate intensity from damage rate
+        const intensity = this.calculateAuraIntensity(damageInfo.totalDamageRate);
 
-        // Animate opacity and bloom intensity for both inner and outer spheres
-        const group = auraMesh as THREE.Group;
-        const outerMesh = group.children[0] as THREE.Mesh;
-        const innerMesh = group.children[1] as THREE.Mesh;
-        const outerMaterial = outerMesh.material as THREE.MeshStandardMaterial;
-        const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
+        // Get color based on primary damage source
+        const color = this.getAuraColor(damageInfo.primarySource);
 
-        // Flickering opacity (makes aura shimmer)
-        let opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
-
-        // Pulsing bloom intensity (makes glow brighter/dimmer)
-        let emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
-
-        // Check for hit flash (brief intense brightness boost)
-        if (auraMesh.userData.flashTime) {
-          const flashAge = Date.now() - auraMesh.userData.flashTime;
-          const flashDuration = 200; // 200ms flash
-
-          if (flashAge < flashDuration) {
-            // Add extra brightness during flash (fades out over duration)
-            const flashProgress = flashAge / flashDuration; // 0 to 1
-            const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
-            emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
-            opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
-          } else {
-            // Flash expired, clear it
-            delete auraMesh.userData.flashTime;
-          }
-        }
-
-        outerMaterial.opacity = opacity;
-        outerMaterial.emissiveIntensity = emissive;
-        innerMaterial.opacity = opacity;
-        innerMaterial.emissiveIntensity = emissive;
+        // Apply intensity-based visuals
+        this.applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time);
 
       } else {
         // Remove aura if swarm is no longer drained
@@ -1947,9 +1987,11 @@ export class ThreeRenderer implements Renderer {
           const outlineGeometry = this.getGeometry(`ring-outline-${radius}`, () =>
             new THREE.RingGeometry(radius, radius + 3, 32)
           );
-          // Don't cache outline material - needs to change opacity based on health
-          const outlineMaterial = new THREE.MeshBasicMaterial({
+          // Don't cache outline material - needs to change color and opacity dynamically
+          const outlineMaterial = new THREE.MeshStandardMaterial({
             color: 0xffffff,
+            emissive: 0xffffff,
+            emissiveIntensity: 1.0,
             transparent: true,
             opacity: 1.0, // Will fade with health
             depthWrite: false, // Prevent z-fighting with transparent materials
@@ -2004,13 +2046,27 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Update outline opacity for client player based on health
+      // Update outline opacity and color for client player based on health and damage
       if (isMyPlayer) {
         const outline = this.playerOutlines.get(id);
         if (outline) {
           const healthRatio = player.health / player.maxHealth;
-          const outlineMaterial = outline.material as THREE.MeshBasicMaterial;
+          const outlineMaterial = outline.material as THREE.MeshStandardMaterial;
           outlineMaterial.opacity = healthRatio; // Direct proportion: 1.0 at full health, 0.0 at death
+
+          // Turn outline red when taking damage
+          const damageInfo = state.playerDamageInfo.get(id);
+          if (damageInfo && damageInfo.totalDamageRate > 0) {
+            // Taking damage - turn red
+            outlineMaterial.color.setRGB(1.0, 0.0, 0.0); // Pure red
+            outlineMaterial.emissive.setRGB(1.0, 0.0, 0.0); // Pure red glow
+            outlineMaterial.emissiveIntensity = 2.0; // Bright
+          } else {
+            // No damage - keep white
+            outlineMaterial.color.setRGB(1.0, 1.0, 1.0);
+            outlineMaterial.emissive.setRGB(1.0, 1.0, 1.0);
+            outlineMaterial.emissiveIntensity = 1.0;
+          }
         }
       }
 

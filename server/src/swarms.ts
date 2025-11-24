@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from '@godcell/shared';
-import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle } from '@godcell/shared';
+import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
 
 // ============================================
@@ -342,7 +342,8 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
  */
 export function checkSwarmCollisions(
   players: Map<string, Player>,
-  deltaTime: number
+  deltaTime: number,
+  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void
 ): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
   const slowedPlayerIds = new Set<string>();
@@ -365,6 +366,11 @@ export function checkSwarmCollisions(
         const damage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
         player.health -= damage;
         damagedPlayerIds.add(player.id);
+
+        // Record damage for drain aura system
+        if (recordDamage) {
+          recordDamage(player.id, GAME_CONFIG.SWARM_DAMAGE_RATE, 'swarm');
+        }
 
         // Apply movement slow debuff
         slowedPlayerIds.add(player.id);

@@ -9,6 +9,7 @@ import type {
   EntropySwarm,
   Pseudopod,
   GameStateMessage,
+  DamageSource,
 } from '@godcell/shared';
 
 export interface InterpolationTarget {
@@ -29,9 +30,21 @@ export class GameState {
   readonly playerTargets: Map<string, InterpolationTarget> = new Map();
   readonly swarmTargets: Map<string, InterpolationTarget> = new Map();
 
-  // Status tracking
+  // Status tracking (DEPRECATED - use damage info maps below)
   readonly drainedPlayerIds: Set<string> = new Set(); // Players currently being drained (for visual feedback)
   readonly drainedSwarmIds: Set<string> = new Set(); // Swarms currently being consumed (for visual feedback)
+
+  // NEW: Damage info for variable-intensity drain auras
+  readonly playerDamageInfo: Map<string, {
+    totalDamageRate: number;
+    primarySource: DamageSource;
+    proximityFactor?: number;
+  }> = new Map();
+
+  readonly swarmDamageInfo: Map<string, {
+    totalDamageRate: number;
+    primarySource: DamageSource;
+  }> = new Map();
 
   // Local player reference
   myPlayerId: string | null = null;
@@ -185,6 +198,7 @@ export class GameState {
 
   /**
    * Update sets of players/swarms being drained (for visual feedback)
+   * DEPRECATED: Use updateDamageInfo instead
    */
   updateDrainedPlayers(playerIds: string[], swarmIds: string[] = []): void {
     this.drainedPlayerIds.clear();
@@ -192,6 +206,24 @@ export class GameState {
 
     this.drainedSwarmIds.clear();
     swarmIds.forEach(id => this.drainedSwarmIds.add(id));
+  }
+
+  /**
+   * Update damage info maps for variable-intensity drain auras
+   */
+  updateDamageInfo(
+    damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }>,
+    swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }>
+  ): void {
+    this.playerDamageInfo.clear();
+    for (const [id, info] of Object.entries(damageInfo)) {
+      this.playerDamageInfo.set(id, info);
+    }
+
+    this.swarmDamageInfo.clear();
+    for (const [id, info] of Object.entries(swarmDamageInfo)) {
+      this.swarmDamageInfo.set(id, info);
+    }
   }
 
   /**
