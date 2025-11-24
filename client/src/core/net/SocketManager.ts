@@ -184,7 +184,6 @@ export class SocketManager {
       const player = this.gameState.players.get(data.playerId);
       if (player) {
         player.stage = data.newStage;
-        player.maxHealth = data.newMaxHealth;
         player.maxEnergy = data.newMaxEnergy;
         player.isEvolving = false;
       }
@@ -217,12 +216,11 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
-    // Energy updates
+    // Energy updates (energy is the sole life resource)
     this.socket.on('energyUpdate', (data: EnergyUpdateMessage) => {
       const player = this.gameState.players.get(data.playerId);
       if (player) {
         player.energy = data.energy;
-        player.health = data.health;
       }
       eventBus.emit(data);
     });

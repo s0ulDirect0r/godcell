@@ -104,12 +104,11 @@ function spawnBot(
   const botId = `bot-${Math.random().toString(36).substr(2, 9)}`;
 
   // Create bot player (same as human player)
+  // Energy-only system: energy is the sole resource
   const botPlayer: Player = {
     id: botId,
     position: randomSpawnPosition(),
     color: randomColor(),
-    health: GAME_CONFIG.SINGLE_CELL_HEALTH,
-    maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH,
     energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
     maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
     stage: EvolutionStage.SINGLE_CELL,
@@ -161,14 +160,13 @@ function spawnMultiCellBot(
   const botId = `bot-multicell-${Math.random().toString(36).substr(2, 9)}`;
 
   // Create multi-cell bot at Stage 2
+  // Energy-only system: use stage-specific energy pool
   const botPlayer: Player = {
     id: botId,
     position: randomSpawnPosition(),
     color: randomColor(),
-    health: GAME_CONFIG.SINGLE_CELL_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER, // 150 health
-    maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER, // 150 max health
-    energy: GAME_CONFIG.EVOLUTION_MULTI_CELL, // Start at 300 energy (evolution threshold)
-    maxEnergy: GAME_CONFIG.EVOLUTION_MULTI_CELL, // 300 max energy
+    energy: GAME_CONFIG.MULTI_CELL_ENERGY, // 400 energy (Stage 2 pool)
+    maxEnergy: GAME_CONFIG.MULTI_CELL_MAX_ENERGY, // 400 max energy
     stage: EvolutionStage.MULTI_CELL,
     isEvolving: false,
   };
@@ -401,7 +399,7 @@ function updateBotAI(
   const player = bot.player;
 
   // Skip dead or evolving bots
-  if (player.health <= 0 || player.isEvolving) {
+  if (player.energy <= 0 || player.isEvolving) {
     bot.inputDirection.x = 0;
     bot.inputDirection.y = 0;
     return;
@@ -498,7 +496,7 @@ function updateMultiCellBotAI(
   const player = bot.player;
 
   // Skip dead or evolving bots
-  if (player.health <= 0 || player.isEvolving) {
+  if (player.energy <= 0 || player.isEvolving) {
     bot.inputDirection.x = 0;
     bot.inputDirection.y = 0;
     return;
@@ -526,7 +524,7 @@ function updateMultiCellBotAI(
   for (const [id, otherPlayer] of players) {
     if (id === player.id) continue; // Don't hunt self
     if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) continue; // Only hunt Stage 1
-    if (otherPlayer.health <= 0) continue; // Skip dead
+    if (otherPlayer.energy <= 0) continue; // Skip dead
 
     const dist = distance(player.position, otherPlayer.position);
     if (dist < nearestPreyDist) {
@@ -634,10 +632,8 @@ export function handleBotDeath(
       const player = players.get(botId);
       if (!player) return; // Bot was removed from game
 
-      // Reset to single-cell at random spawn
+      // Reset to single-cell at random spawn (energy-only system)
       player.position = randomSpawnPosition();
-      player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
-      player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
       player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
       player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
       player.stage = EvolutionStage.SINGLE_CELL;
@@ -676,12 +672,10 @@ export function handleBotDeath(
       const player = players.get(botId);
       if (!player) return; // Bot was removed from game
 
-      // Respawn as multi-cell (Stage 2)
+      // Respawn as multi-cell (Stage 2) - energy-only system
       player.position = randomSpawnPosition();
-      player.health = GAME_CONFIG.SINGLE_CELL_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER;
-      player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER;
-      player.energy = GAME_CONFIG.EVOLUTION_MULTI_CELL;
-      player.maxEnergy = GAME_CONFIG.EVOLUTION_MULTI_CELL;
+      player.energy = GAME_CONFIG.MULTI_CELL_ENERGY;
+      player.maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
       player.stage = EvolutionStage.MULTI_CELL;
       player.isEvolving = false;
 

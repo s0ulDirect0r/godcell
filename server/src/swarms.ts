@@ -136,7 +136,7 @@ function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): P
 
   for (const player of players.values()) {
     // Skip dead players and evolving players
-    if (player.health <= 0 || player.isEvolving) continue;
+    if (player.energy <= 0 || player.isEvolving) continue;
 
     const dist = distance(swarm.position, player.position);
     if (dist < nearestDist) {
@@ -343,7 +343,8 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
 export function checkSwarmCollisions(
   players: Map<string, Player>,
   deltaTime: number,
-  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void
+  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void,
+  applyDamage?: (player: Player, baseDamage: number) => number
 ): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
   const slowedPlayerIds = new Set<string>();
@@ -355,7 +356,7 @@ export function checkSwarmCollisions(
 
     for (const player of players.values()) {
       // Skip dead/evolving players
-      if (player.health <= 0 || player.isEvolving) continue;
+      if (player.energy <= 0 || player.isEvolving) continue;
 
       // Check collision (circle-circle)
       const dist = distance(swarm.position, player.position);
@@ -363,8 +364,13 @@ export function checkSwarmCollisions(
 
       if (dist < collisionDist) {
         // Deal damage over time (death handled by checkPlayerDeaths)
-        const damage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
-        player.health -= damage;
+        // Use applyDamage callback if provided (applies stage-based resistance)
+        const baseDamage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
+        if (applyDamage) {
+          applyDamage(player, baseDamage);
+        } else {
+          player.energy -= baseDamage; // Fallback: raw damage
+        }
         damagedPlayerIds.add(player.id);
 
         // Record damage for drain aura system
