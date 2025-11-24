@@ -325,18 +325,15 @@ export function animateRadialOrganism(group: THREE.Group, time: number, energyRa
 }
 
 /**
- * Update multi-cell based on energy and health
+ * Update multi-cell based on energy (sole life resource)
  */
 export function updateMultiCellEnergy(
   group: THREE.Group,
   style: MultiCellStyle,
   energy: number,
-  maxEnergy: number,
-  health: number,
-  maxHealth: number
+  maxEnergy: number
 ): void {
   const energyRatio = energy / maxEnergy;
-  const healthRatio = health / maxHealth;
   const time = Date.now() * 0.001;
 
   if (style === 'colonial') {
@@ -345,16 +342,16 @@ export function updateMultiCellEnergy(
     animateRadialOrganism(group, time, energyRatio);
   }
 
-  // Health affects overall opacity/dimming (apply to all cells)
+  // Energy affects overall opacity/dimming (apply to all cells)
   const cellCount = style === 'colonial' ? (group.userData.cellCount || 7) : 1;
   for (let i = 0; i < cellCount; i++) {
     const cell = group.children[i] as THREE.Group;
     if (cell && cell.children) {
-      // Dim nucleus based on health
+      // Dim nucleus based on energy
       const nucleus = cell.children[1] as THREE.Mesh;
       if (nucleus) {
         const material = nucleus.material as THREE.MeshStandardMaterial;
-        material.opacity = 0.5 + healthRatio * 0.5; // 0.5-1.0 based on health
+        material.opacity = 0.5 + energyRatio * 0.5; // 0.5-1.0 based on energy
       }
     }
   }

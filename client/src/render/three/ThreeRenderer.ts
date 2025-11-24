@@ -23,7 +23,7 @@ export class ThreeRenderer implements Renderer {
 
   // Camera effects
   private cameraShake = 0;
-  private lastPlayerHealth: number | null = null;
+  private lastPlayerEnergy: number | null = null;
 
   // Camera zoom for evolution stages
   private currentZoom = 1.0; // Current zoom level (1.0 = Stage 1)
@@ -511,16 +511,16 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Detect health decrease (damage taken)
-      if (this.lastPlayerHealth !== null && myPlayer.health < this.lastPlayerHealth) {
-        const damageAmount = this.lastPlayerHealth - myPlayer.health;
+      // Detect energy decrease (damage taken) - energy is sole life resource
+      if (this.lastPlayerEnergy !== null && myPlayer.energy < this.lastPlayerEnergy) {
+        const damageAmount = this.lastPlayerEnergy - myPlayer.energy;
         // Camera shake intensity scales with damage (1 damage = 1.6 shake intensity)
         const shakeIntensity = Math.min(damageAmount * 1.6, 40); // Cap at 40
         this.cameraShake = Math.max(this.cameraShake, shakeIntensity); // Use max so multiple hits don't override
       }
 
-      // Update last health
-      this.lastPlayerHealth = myPlayer.health;
+      // Update last energy
+      this.lastPlayerEnergy = myPlayer.energy;
     }
 
     // Update background particles
@@ -2003,18 +2003,16 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Update cell visuals based on stage, energy, and health (diegetic UI)
+      // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
       if (player.stage === 'multi_cell') {
         updateMultiCellEnergy(
           cellGroup,
           this.multiCellStyle,
           player.energy,
-          player.maxEnergy,
-          player.health,
-          player.maxHealth
+          player.maxEnergy
         );
       } else {
-        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.health, player.maxHealth, player.stage);
+        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.stage);
       }
 
       // Apply evolution effects if player is evolving
@@ -2046,13 +2044,13 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Update outline opacity and color for client player based on health and damage
+      // Update outline opacity and color for client player based on energy and damage
       if (isMyPlayer) {
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          const healthRatio = player.health / player.maxHealth;
+          const energyRatio = player.energy / player.maxEnergy;
           const outlineMaterial = outline.material as THREE.MeshStandardMaterial;
-          outlineMaterial.opacity = healthRatio; // Direct proportion: 1.0 at full health, 0.0 at death
+          outlineMaterial.opacity = energyRatio; // Direct proportion: 1.0 at full energy, 0.0 at death
 
           // Turn outline red when taking damage
           const damageInfo = state.playerDamageInfo.get(id);
@@ -2154,14 +2152,13 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Update cell visual state based on energy and health (diegetic UI)
-   * Energy affects cytoplasm/organelles brightness
-   * Health affects nucleus opacity (fades as health drops)
+   * Update cell visual state based on energy (diegetic UI)
+   * Energy is the sole life resource in the energy-only system
+   * Energy affects all visual feedback: brightness, opacity, and urgency effects
    * Evolution progress (30-100%) triggers visual indicators
    */
-  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, health: number, maxHealth: number, stage: EvolutionStage): void {
+  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, stage: EvolutionStage): void {
     const energyRatio = energy / maxEnergy;
-    const healthRatio = health / maxHealth;
 
     // Calculate evolution progress (0.0 = start, 1.0 = ready to evolve)
     // Progress starts counting at 30% of next evolution threshold
@@ -2179,11 +2176,11 @@ export class ThreeRenderer implements Renderer {
     const organelleMaterial = organelles.material as THREE.PointsMaterial;
     const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
 
-    // Nucleus fades based on health
-    nucleusMaterial.opacity = 0.3 + healthRatio * 0.7; // 0.3-1.0 based on health
+    // Nucleus fades based on energy (sole life resource)
+    nucleusMaterial.opacity = 0.3 + energyRatio * 0.7; // 0.3-1.0 based on energy
 
-    // Cytoplasm darkens toward black as health drops
-    cytoplasmMaterial.uniforms.healthRatio.value = healthRatio;
+    // Cytoplasm darkens toward black as energy drops
+    cytoplasmMaterial.uniforms.energyRatio.value = energyRatio;
 
     // Update based on energy
     if (energyRatio > 0.5) {
@@ -2498,7 +2495,7 @@ export class ThreeRenderer implements Renderer {
         opacity: { value: 0.5 },
         nucleusRadius: { value: nucleusRadius },
         cellRadius: { value: radius * 0.95 },
-        healthRatio: { value: 1.0 },
+        energyRatio: { value: 1.0 },
       },
       vertexShader: `
         varying vec3 vPosition;
@@ -2515,7 +2512,7 @@ export class ThreeRenderer implements Renderer {
         uniform float opacity;
         uniform float nucleusRadius;
         uniform float cellRadius;
-        uniform float healthRatio;
+        uniform float energyRatio;
 
         varying vec3 vPosition;
         varying vec3 vNormal;
@@ -2528,7 +2525,7 @@ export class ThreeRenderer implements Renderer {
           float alpha = mix(0.6, 0.2, gradient) * opacity;
           alpha += fresnel * 0.15;
           float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
-          vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, healthRatio) * depthDarken;
+          vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, energyRatio) * depthDarken;
           gl_FragColor = vec4(finalColor, alpha);
         }
       `,

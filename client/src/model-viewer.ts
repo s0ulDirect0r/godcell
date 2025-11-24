@@ -296,14 +296,14 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Animate multi-cell models
+  // Animate multi-cell models (energy-only system)
   models.forEach((model) => {
     if (model instanceof THREE.Group && model.userData.cellRadius) {
       // It's a colonial cluster
-      updateMultiCellEnergy(model, 'colonial', 100, 100, 100, 100);
+      updateMultiCellEnergy(model, 'colonial', 100, 100);
     } else if (model instanceof THREE.Group && model.userData.coreRadius) {
       // It's a radial organism
-      updateMultiCellEnergy(model, 'radial', 100, 100, 100, 100);
+      updateMultiCellEnergy(model, 'radial', 100, 100);
     }
   });
 
