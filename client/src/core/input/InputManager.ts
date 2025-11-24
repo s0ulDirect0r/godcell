@@ -12,6 +12,7 @@ export interface CameraProjection {
 
 export class InputManager {
   private inputState: InputState;
+  private cameraProjection?: CameraProjection;
 
   // Cooldowns
   private lastRespawnKeyTime = 0;
@@ -20,8 +21,14 @@ export class InputManager {
   private lastEMPTime = 0;
   private empClientCooldown = 300; // Local anti-spam cooldown
 
+  private lastPseudopodTime = 0;
+  private pseudopodClientCooldown = 300; // Local anti-spam cooldown
+
   // Track previous movement direction to avoid redundant network updates
   private lastMoveDirection = { x: 0, y: 0 };
+
+  // Track previous mouse state
+  private wasMouseDown = false;
 
   constructor() {
     this.inputState = new InputState();
@@ -29,10 +36,9 @@ export class InputManager {
 
   /**
    * Set camera projection adapter (for screen ↔ world conversion)
-   * Currently unused but will be needed for pseudopod aiming in future phases
    */
-  setCameraProjection(_projection: CameraProjection): void {
-    // Will be used for pseudopod targeting (screen → world conversion)
+  setCameraProjection(projection: CameraProjection): void {
+    this.cameraProjection = projection;
   }
 
   /**
@@ -43,7 +49,7 @@ export class InputManager {
     this.updateMovement();
     this.updateRespawn();
     this.updateEMP();
-    // Pseudopods/other mechanics can be added later
+    this.updatePseudopod();
   }
 
   private updateMovement(): void {
@@ -109,6 +115,39 @@ export class InputManager {
 
       this.lastEMPTime = now;
     }
+  }
+
+  private updatePseudopod(): void {
+    const now = Date.now();
+    const isMouseDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 0;
+
+    // Detect left-click (rising edge)
+    if (isMouseDown && !this.wasMouseDown) {
+      // Check cooldown
+      if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) {
+        this.wasMouseDown = isMouseDown;
+        return;
+      }
+
+      // Convert screen to world coordinates
+      if (this.cameraProjection) {
+        const worldPos = this.cameraProjection.screenToWorld(
+          this.inputState.pointer.screenX,
+          this.inputState.pointer.screenY
+        );
+
+        // Emit pseudopod fire intent with target position
+        eventBus.emit({
+          type: 'client:pseudopodFire',
+          targetX: worldPos.x,
+          targetY: worldPos.y,
+        });
+
+        this.lastPseudopodTime = now;
+      }
+    }
+
+    this.wasMouseDown = isMouseDown;
   }
 
   /**

@@ -9,8 +9,8 @@ type ClientEvent =
   | { type: 'client:inputMove'; direction: { x: number; y: number } }
   | { type: 'client:inputRespawn' }
   | { type: 'client:empActivate' }
+  | { type: 'client:pseudopodFire'; targetX: number; targetY: number }
   | { type: 'client:cameraZoom'; level: number }
-  | { type: 'client:pseudopodIntent'; targetX: number; targetY: number }
   | { type: 'client:debugToggle'; enabled: boolean }
   | { type: 'client:socketConnected'; socketId: string }
   | { type: 'client:socketDisconnected' }

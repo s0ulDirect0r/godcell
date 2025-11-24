@@ -9,7 +9,7 @@ import type {
   Pseudopod,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
-  PseudopodExtendMessage,
+  PseudopodFireMessage,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -23,6 +23,7 @@ import type {
   PlayerEvolutionStartedMessage,
   PlayerEvolvedMessage,
   PseudopodSpawnedMessage,
+  PseudopodMovedMessage,
   PseudopodRetractedMessage,
   PlayerEngulfedMessage,
   DetectedEntity,
@@ -30,6 +31,7 @@ import type {
   EMPActivateMessage,
   EMPActivatedMessage,
   SwarmConsumedMessage,
+  PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
@@ -77,9 +79,17 @@ const playerVelocities: Map<string, { x: number; y: number }> = new Map();
 // Maps player ID → damage source
 const playerLastDamageSource: Map<string, DeathCause> = new Map();
 
+// Track who fired the beam that last hit each player (for kill rewards)
+// Maps target player ID → shooter player ID
+const playerLastBeamShooter: Map<string, string> = new Map();
+
 // Pseudopods (hunting tentacles extended by multi-cells)
 // Maps pseudopod ID → Pseudopod data
 const pseudopods: Map<string, Pseudopod> = new Map();
+
+// Pseudopod hit tracking (prevent multiple hits on same target per beam)
+// Maps beam ID → Set of player IDs already hit
+const pseudopodHits: Map<string, Set<string>> = new Map();
 
 // Pseudopod cooldowns (prevent spam)
 // Maps player ID → timestamp of last pseudopod extension
@@ -88,6 +98,14 @@ const playerPseudopodCooldowns: Map<string, number> = new Map();
 // EMP cooldowns (prevent spam)
 // Maps player ID → timestamp of last EMP use
 const playerEMPCooldowns: Map<string, number> = new Map();
+
+// Active energy drains (multi-cell draining prey on contact)
+// Maps prey ID → predator ID
+const activeDrains: Map<string, string> = new Map();
+
+// Active swarm consumption (multi-cells eating disabled swarms)
+// Set of swarm IDs currently being consumed
+const activeSwarmDrains: Set<string> = new Set();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -289,6 +307,104 @@ function distance(p1: Position, p2: Position): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Check if a line segment (ray) intersects a circle
+ * Returns the distance along the ray to the intersection, or null if no intersection
+ */
+function rayCircleIntersection(
+  rayStart: Position,
+  rayEnd: Position,
+  circleCenter: Position,
+  circleRadius: number
+): number | null {
+  // Ray direction vector
+  const dx = rayEnd.x - rayStart.x;
+  const dy = rayEnd.y - rayStart.y;
+  const rayLength = Math.sqrt(dx * dx + dy * dy);
+
+  if (rayLength < 0.001) return null; // Degenerate ray
+
+  // Normalized ray direction
+  const dirX = dx / rayLength;
+  const dirY = dy / rayLength;
+
+  // Vector from ray start to circle center
+  const toCircleX = circleCenter.x - rayStart.x;
+  const toCircleY = circleCenter.y - rayStart.y;
+
+  // Project circle center onto ray
+  const projection = toCircleX * dirX + toCircleY * dirY;
+
+  // Find closest point on ray to circle center
+  const closestT = Math.max(0, Math.min(rayLength, projection));
+  const closestX = rayStart.x + dirX * closestT;
+  const closestY = rayStart.y + dirY * closestT;
+
+  // Distance from closest point to circle center
+  const distToCenter = distance({ x: closestX, y: closestY }, circleCenter);
+
+  // Check if intersection occurs
+  if (distToCenter <= circleRadius) {
+    return closestT; // Return distance along ray to intersection
+  }
+
+  return null;
+}
+
+/**
+ * Hitscan raycast for pseudopod beam
+ * Checks line-circle intersection against all multi-cell players
+ * Applies damage to closest hit and returns target ID
+ */
+function checkBeamHitscan(start: Position, end: Position, shooterId: string): string | null {
+  let closestHit: { playerId: string; distance: number } | null = null;
+
+  for (const [playerId, target] of players) {
+    // Skip shooter
+    if (playerId === shooterId) continue;
+
+    // Only multi-cells can be hit by beams
+    if (target.stage === EvolutionStage.SINGLE_CELL) continue;
+
+    // Skip dead/evolving/stunned players
+    if (target.health <= 0) continue;
+    if (target.isEvolving) continue;
+    if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue;
+
+    const targetRadius = getPlayerRadius(target.stage);
+    const hitDist = rayCircleIntersection(start, end, target.position, targetRadius);
+
+    if (hitDist !== null) {
+      // Track closest hit
+      if (!closestHit || hitDist < closestHit.distance) {
+        closestHit = { playerId, distance: hitDist };
+      }
+    }
+  }
+
+  // Apply damage to closest hit
+  if (closestHit) {
+    const target = players.get(closestHit.playerId);
+    if (target) {
+      target.energy -= GAME_CONFIG.PSEUDOPOD_DRAIN_RATE;
+      playerLastDamageSource.set(closestHit.playerId, 'beam');
+      playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
+
+      logger.info({
+        event: 'beam_hit',
+        shooter: shooterId,
+        target: closestHit.playerId,
+        damage: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        targetEnergyRemaining: target.energy.toFixed(0),
+      });
+    }
+
+    return closestHit.playerId;
+  }
+
+  return null;
 }
 
 /**
@@ -612,36 +728,62 @@ function lineCircleIntersection(
 }
 
 /**
- * Check pseudopod collision with prey
- * Returns true if engulfment occurred
+ * Check beam collision with multi-cell players
+ * Drains energy from hit targets
+ * Returns true if hit something
  */
-function checkPseudopodCollision(pseudopod: Pseudopod): boolean {
-  const predator = players.get(pseudopod.ownerId);
-  if (!predator) return false;
+function checkBeamCollision(beam: Pseudopod): boolean {
+  const shooter = players.get(beam.ownerId);
+  if (!shooter) return false;
 
-  // Check collision with all Stage 1 players (including bots)
-  for (const [preyId, prey] of players) {
-    if (preyId === pseudopod.ownerId) continue; // Can't eat yourself
-    if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only Stage 1
-    if (prey.health <= 0) continue; // Already dead
+  // Get or create hit tracking set for this beam
+  let hitSet = pseudopodHits.get(beam.id);
+  if (!hitSet) {
+    hitSet = new Set<string>();
+    pseudopodHits.set(beam.id, hitSet);
+  }
 
-    // Line-circle collision: pseudopod line vs prey circle
-    const preyRadius = getPlayerRadius(prey.stage);
-    const collision = lineCircleIntersection(
-      pseudopod.startPosition,
-      pseudopod.endPosition,
-      prey.position,
-      preyRadius,
-      pseudopod.currentLength
-    );
+  let hitSomething = false;
 
-    if (collision) {
-      engulfPrey(pseudopod.ownerId, preyId, prey.position);
-      return true; // One kill per pseudopod
+  // Check collision with all multi-cell players
+  for (const [targetId, target] of players) {
+    if (targetId === beam.ownerId) continue; // Can't hit yourself
+    if (hitSet.has(targetId)) continue; // Already hit this target
+    if (target.stage === EvolutionStage.SINGLE_CELL) continue; // Beams only hit multi-cells
+    if (target.health <= 0) continue; // Skip dead players
+    if (target.isEvolving) continue; // Skip evolving players
+    if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
+
+    // Circle-circle collision: beam position vs target position
+    const targetRadius = getPlayerRadius(target.stage);
+    const dist = distance(beam.position, target.position);
+    const collisionDist = beam.width / 2 + targetRadius;
+
+    if (dist < collisionDist) {
+      // Hit! Drain energy from target (one-time damage per beam)
+      target.energy -= GAME_CONFIG.PSEUDOPOD_DRAIN_RATE;
+      hitSomething = true;
+
+      // Track damage source and shooter for kill credit
+      playerLastDamageSource.set(targetId, 'beam');
+      playerLastBeamShooter.set(targetId, beam.ownerId);
+
+      // Mark this target as hit by this beam
+      hitSet.add(targetId);
+
+      logger.info({
+        event: 'beam_hit',
+        shooter: beam.ownerId,
+        target: targetId,
+        damage: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        targetEnergyRemaining: target.energy.toFixed(0),
+      });
+
+      // Beam continues traveling, can hit multiple different targets
     }
   }
 
-  return false;
+  return hitSomething;
 }
 
 /**
@@ -695,22 +837,25 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 }
 
 /**
- * Check for direct collision predation (multi-cells touching Stage 1 players)
- * Multi-cells engulf Stage 1 players on contact
+ * Check for contact predation (multi-cells draining energy from touching cells)
+ * Drains energy over time - prey can escape if contact is broken
  */
-function checkPredationCollisions() {
+function checkPredationCollisions(deltaTime: number) {
+  const currentDrains = new Set<string>(); // Track prey being drained this tick
+
   for (const [predatorId, predator] of players) {
-    // Only Stage 2+ can hunt via collision
+    // Only Stage 2+ can drain via contact
     if (predator.stage === EvolutionStage.SINGLE_CELL) continue;
     if (predator.health <= 0) continue;
     if (predator.isEvolving) continue;
+    if (predator.stunnedUntil && Date.now() < predator.stunnedUntil) continue; // Can't drain while stunned
 
     const predatorRadius = getPlayerRadius(predator.stage);
 
-    // Check collision with all Stage 1 players
+    // Check collision with all other players (Stage 1 only)
     for (const [preyId, prey] of players) {
-      if (preyId === predatorId) continue; // Don't eat yourself
-      if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only hunt Stage 1
+      if (preyId === predatorId) continue; // Don't drain yourself
+      if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only drain Stage 1
       if (prey.health <= 0) continue; // Skip dead prey
       if (prey.isEvolving) continue; // Skip evolving prey
 
@@ -719,46 +864,71 @@ function checkPredationCollisions() {
       const collisionDist = predatorRadius + preyRadius;
 
       if (dist < collisionDist) {
-        // Engulf prey on contact
-        engulfPrey(predatorId, preyId, prey.position);
-        // Don't check more prey this tick (only one engulfment per predator per tick)
+        // Contact! Drain energy and health from prey
+        const damage = GAME_CONFIG.CONTACT_DRAIN_RATE * deltaTime;
+        prey.energy -= damage;
+        prey.health -= damage; // Also drain health so death check triggers
+        currentDrains.add(preyId);
+
+        // Track which predator is draining this prey (for kill credit)
+        activeDrains.set(preyId, predatorId);
+
+        // Mark damage source for death tracking
+        playerLastDamageSource.set(preyId, 'predation');
+
+        // Only one predator can drain a prey at a time (first contact wins)
         break;
       }
+    }
+  }
+
+  // Clear drains for prey that escaped contact this tick
+  for (const [preyId, predatorId] of activeDrains) {
+    if (!currentDrains.has(preyId)) {
+      activeDrains.delete(preyId);
     }
   }
 }
 
 /**
- * Update pseudopods (extension animation, collision, retraction)
+ * Update pseudopod beams (projectile movement, collision, despawn)
  * Called every game tick
  */
 function updatePseudopods(deltaTime: number, io: Server) {
-  const now = Date.now();
+  // Skip if using hitscan mode (beams are visual-only and auto-removed)
+  if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;
+
   const toRemove: string[] = [];
 
-  for (const [id, pseudopod] of pseudopods) {
-    // Extend animation
-    if (pseudopod.currentLength < pseudopod.maxLength) {
-      pseudopod.currentLength += GAME_CONFIG.PSEUDOPOD_EXTENSION_SPEED * deltaTime;
-      pseudopod.currentLength = Math.min(pseudopod.currentLength, pseudopod.maxLength);
-    }
+  for (const [id, beam] of pseudopods) {
+    // Move beam (projectile mode)
+    const travelDist = Math.sqrt(beam.velocity.x * beam.velocity.x + beam.velocity.y * beam.velocity.y) * deltaTime;
+    beam.position.x += beam.velocity.x * deltaTime;
+    beam.position.y += beam.velocity.y * deltaTime;
+    beam.distanceTraveled += travelDist;
 
-    // Check collision while extending
-    const engulfed = checkPseudopodCollision(pseudopod);
-    if (engulfed) {
+    // Broadcast position update to clients
+    io.emit('pseudopodMoved', {
+      type: 'pseudopodMoved',
+      pseudopodId: id,
+      position: beam.position,
+    } as PseudopodMovedMessage);
+
+    // Check if beam exceeded max distance
+    if (beam.distanceTraveled >= beam.maxDistance) {
       toRemove.push(id);
       continue;
     }
 
-    // Auto-retract after duration
-    if (now - pseudopod.createdAt > GAME_CONFIG.PSEUDOPOD_DURATION) {
-      toRemove.push(id);
-    }
+    // Check collision with players (multi-cells only)
+    checkBeamCollision(beam);
+    // Beam continues traveling even if it hits (can hit multiple targets)
   }
 
-  // Remove expired/successful pseudopods
+  // Remove beams that exceeded range
   for (const id of toRemove) {
     pseudopods.delete(id);
+    pseudopodHits.delete(id); // Clean up hit tracking
     io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: id } as PseudopodRetractedMessage);
   }
 }
@@ -838,6 +1008,65 @@ function checkEvolution(player: Player) {
  * Bots auto-respawn, human players wait for manual respawn
  */
 function handlePlayerDeath(player: Player, cause: DeathCause) {
+  // Handle predation rewards before death (contact drain)
+  if (cause === 'predation') {
+    const predatorId = activeDrains.get(player.id);
+    if (predatorId) {
+      const predator = players.get(predatorId);
+      if (predator) {
+        // Calculate reward based on victim stage
+        let maxEnergyGain = 0;
+        if (player.stage === EvolutionStage.SINGLE_CELL) {
+          // Killing single-cell: 30% of maxEnergy
+          maxEnergyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
+        } else {
+          // Killing multi-cell: 80% of maxEnergy (huge reward)
+          maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
+        }
+
+        // Award maxEnergy increase to predator
+        predator.maxEnergy += maxEnergyGain;
+        predator.energy = Math.min(predator.maxEnergy, predator.energy); // Clamp current energy
+
+        logger.info({
+          event: 'predation_kill',
+          predatorId,
+          victimId: player.id,
+          victimStage: player.stage,
+          maxEnergyGained: maxEnergyGain.toFixed(1),
+        });
+      }
+      // Clear drain tracking
+      activeDrains.delete(player.id);
+    }
+  }
+
+  // Handle beam kill rewards (pseudopod)
+  if (cause === 'beam') {
+    const shooterId = playerLastBeamShooter.get(player.id);
+    if (shooterId) {
+      const shooter = players.get(shooterId);
+      if (shooter) {
+        // Only multi-cells can be killed by beams, always award 80%
+        const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
+
+        // Award maxEnergy increase to shooter
+        shooter.maxEnergy += maxEnergyGain;
+        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy);
+
+        logger.info({
+          event: 'beam_kill',
+          shooterId,
+          victimId: player.id,
+          victimStage: player.stage,
+          maxEnergyGained: maxEnergyGain.toFixed(1),
+        });
+      }
+      // Clear beam shooter tracking
+      playerLastBeamShooter.delete(player.id);
+    }
+  }
+
   // Send final health update showing 0 before death message
   const finalHealthUpdate: EnergyUpdateMessage = {
     type: 'energyUpdate',
@@ -853,7 +1082,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
     playerId: player.id,
     position: { ...player.position },
     color: player.color,
-    cause: cause as 'starvation' | 'singularity' | 'swarm' | 'obstacle',
+    cause: cause as 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation',
   };
   io.emit('playerDied', deathMessage);
 
@@ -997,6 +1226,23 @@ function broadcastEnergyUpdates() {
       io.emit('energyUpdate', updateMessage);
     }
   }
+}
+
+/**
+ * Broadcast drain state updates to clients
+ * Sends lists of player/swarm IDs currently being drained for visual feedback
+ */
+function broadcastDrainState() {
+  const drainedPlayerIds = Array.from(activeDrains.keys());
+  const drainedSwarmIds = Array.from(activeSwarmDrains);
+
+  const drainStateMessage: PlayerDrainStateMessage = {
+    type: 'playerDrainState',
+    drainedPlayerIds,
+    drainedSwarmIds,
+  };
+
+  io.emit('playerDrainState', drainStateMessage);
 }
 
 // Detection update broadcast counter (chemical sensing for multi-cells)
@@ -1225,63 +1471,108 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
-  // Pseudopod Extension (Predation)
+  // Pseudopod Beam Fire (Lightning Projectile)
   // ============================================
 
-  socket.on('pseudopodExtend', (message: { targetX: number; targetY: number }) => {
+  socket.on('pseudopodFire', (message: PseudopodFireMessage) => {
     const player = players.get(socket.id);
     if (!player) return;
 
-    // Validation: Only Stage 2+ can use pseudopods
+    // Validation: Only Stage 2+ can use pseudopod beams
     if (player.stage === EvolutionStage.SINGLE_CELL) return;
     if (player.health <= 0) return; // Dead players can't attack
     if (player.isEvolving) return; // Can't attack while molting
+    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't attack while stunned
+    if (player.energy < GAME_CONFIG.PSEUDOPOD_ENERGY_COST) return; // Need energy to fire
 
     // Cooldown check
     const lastUse = playerPseudopodCooldowns.get(socket.id) || 0;
     const now = Date.now();
     if (now - lastUse < GAME_CONFIG.PSEUDOPOD_COOLDOWN) return;
 
-    // Calculate pseudopod parameters
-    const playerRadius = getPlayerRadius(player.stage);
-    const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
-
-    // Direction from player to target
+    // Calculate direction from player to target
     const dx = message.targetX - player.position.x;
     const dy = message.targetY - player.position.y;
     const targetDist = Math.sqrt(dx * dx + dy * dy);
 
-    // Clamp to max range
-    const actualDist = Math.min(targetDist, maxRange);
-    const dirX = targetDist > 0 ? dx / targetDist : 0;
-    const dirY = targetDist > 0 ? dy / targetDist : 0;
+    if (targetDist < 1) return; // Too close, invalid shot
 
-    const endX = player.position.x + dirX * actualDist;
-    const endY = player.position.y + dirY * actualDist;
+    // Normalize direction
+    const dirX = dx / targetDist;
+    const dirY = dy / targetDist;
 
-    // Create pseudopod
-    const pseudopod: Pseudopod = {
-      id: `pseudopod-${socket.id}-${now}`,
-      ownerId: socket.id,
-      startPosition: { x: player.position.x, y: player.position.y },
-      endPosition: { x: endX, y: endY },
-      currentLength: 0,
-      maxLength: actualDist,
-      createdAt: now,
-      color: player.color,
-    };
+    // Calculate max range
+    const playerRadius = getPlayerRadius(player.stage);
+    const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
 
-    pseudopods.set(pseudopod.id, pseudopod);
+    // Deduct energy cost
+    player.energy -= GAME_CONFIG.PSEUDOPOD_ENERGY_COST;
+
+    if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
+      // HITSCAN MODE: Instant raycast hit detection
+      const actualDist = Math.min(targetDist, maxRange);
+      const endX = player.position.x + dirX * actualDist;
+      const endY = player.position.y + dirY * actualDist;
+
+      const hitTargetId = checkBeamHitscan(player.position, { x: endX, y: endY }, socket.id);
+
+      // Create visual-only beam (0.5s duration)
+      const pseudopod: Pseudopod = {
+        id: `beam-${socket.id}-${now}`,
+        ownerId: socket.id,
+        position: { x: player.position.x, y: player.position.y },
+        velocity: { x: endX, y: endY }, // End position (reusing velocity field for visual)
+        width: GAME_CONFIG.PSEUDOPOD_WIDTH,
+        maxDistance: actualDist,
+        distanceTraveled: 0,
+        createdAt: now,
+        color: player.color,
+      };
+
+      pseudopods.set(pseudopod.id, pseudopod);
+
+      // Auto-remove beam after visual duration
+      setTimeout(() => {
+        pseudopods.delete(pseudopod.id);
+        pseudopodHits.delete(pseudopod.id); // Clean up hit tracking
+        io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: pseudopod.id } as PseudopodRetractedMessage);
+      }, 500);
+
+      io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
+
+      logger.info({
+        event: 'pseudopod_fired',
+        mode: 'hitscan',
+        playerId: socket.id,
+        targetId: hitTargetId || 'miss',
+        range: actualDist.toFixed(0),
+      });
+    } else {
+      // PROJECTILE MODE: Traveling beam that checks collision each tick
+      const pseudopod: Pseudopod = {
+        id: `beam-${socket.id}-${now}`,
+        ownerId: socket.id,
+        position: { x: player.position.x, y: player.position.y }, // Current position (will move)
+        velocity: { x: dirX * GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED, y: dirY * GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED },
+        width: GAME_CONFIG.PSEUDOPOD_WIDTH,
+        maxDistance: maxRange,
+        distanceTraveled: 0,
+        createdAt: now,
+        color: player.color,
+      };
+
+      pseudopods.set(pseudopod.id, pseudopod);
+      io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
+
+      logger.info({
+        event: 'pseudopod_fired',
+        mode: 'projectile',
+        playerId: socket.id,
+        direction: { x: dirX.toFixed(2), y: dirY.toFixed(2) },
+      });
+    }
+
     playerPseudopodCooldowns.set(socket.id, now);
-
-    // Broadcast to all clients
-    io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
-
-    logger.info({
-      event: 'pseudopod_extended',
-      playerId: socket.id,
-      range: actualDist.toFixed(0),
-    });
   });
 
   // ============================================
@@ -1577,10 +1868,13 @@ setInterval(() => {
   // Update pseudopods (extension, collision, retraction)
   updatePseudopods(deltaTime, io);
 
-  // Check for direct collision predation (multi-cells touching Stage 1 players)
-  checkPredationCollisions();
+  // Check for contact predation (multi-cells draining energy from touching cells)
+  checkPredationCollisions(deltaTime);
 
   // Check for swarm consumption (multi-cells eating disabled swarms)
+  // Track which swarms are currently being consumed this tick
+  const currentSwarmDrains = new Set<string>();
+
   for (const [playerId, player] of players) {
     if (player.stage === EvolutionStage.SINGLE_CELL) continue; // Only multi-cells can consume
     if (player.health <= 0) continue; // Dead players can't consume
@@ -1595,6 +1889,9 @@ setInterval(() => {
       const collisionDist = swarm.size + getPlayerRadius(player.stage);
 
       if (dist < collisionDist) {
+        // Track that this swarm is being drained
+        currentSwarmDrains.add(swarmId);
+
         // Gradual consumption - drain swarm health over time
         const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
         swarm.currentHealth -= damageDealt;
@@ -1625,6 +1922,10 @@ setInterval(() => {
       }
     }
   }
+
+  // Update active swarm drains tracking (clear swarms no longer being consumed)
+  activeSwarmDrains.clear();
+  currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
   const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
@@ -1666,6 +1967,11 @@ setInterval(() => {
       acceleration *= GAME_CONFIG.SWARM_SLOW_EFFECT; // 20% slower when touched by swarm
     }
 
+    // Apply contact drain slow debuff if being drained by a predator
+    if (activeDrains.has(playerId)) {
+      acceleration *= 0.5; // 50% slower when being drained
+    }
+
     velocity.x += inputNormX * acceleration * deltaTime;
     velocity.y += inputNormY * acceleration * deltaTime;
 
@@ -1676,6 +1982,11 @@ setInterval(() => {
     // Apply slow effect to max speed cap as well
     if (slowedPlayerIds.has(playerId)) {
       maxSpeed *= GAME_CONFIG.SWARM_SLOW_EFFECT;
+    }
+
+    // Apply contact drain slow to max speed as well
+    if (activeDrains.has(playerId)) {
+      maxSpeed *= 0.5;
     }
 
     if (currentSpeed > maxSpeed) {
@@ -1737,6 +2048,9 @@ setInterval(() => {
 
   // Broadcast detection updates for multi-cells (chemical sensing)
   broadcastDetectionUpdates();
+
+  // Broadcast drain state for visual feedback
+  broadcastDrainState();
 }, TICK_INTERVAL);
 
 // ============================================

@@ -73,6 +73,11 @@ eventBus.on('client:empActivate', () => {
   socketManager.sendEMPActivate();
 });
 
+// Forward pseudopod beam fire to server
+eventBus.on('client:pseudopodFire', (event) => {
+  socketManager.sendPseudopodFire(event.targetX, event.targetY);
+});
+
 // ============================================
 // Main Update Loop
 // ============================================

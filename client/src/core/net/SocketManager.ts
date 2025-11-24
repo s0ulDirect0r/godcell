@@ -19,11 +19,13 @@ import type {
   SwarmSpawnedMessage,
   SwarmMovedMessage,
   PseudopodSpawnedMessage,
+  PseudopodMovedMessage,
   PseudopodRetractedMessage,
   PlayerEngulfedMessage,
   DetectionUpdateMessage,
   EMPActivatedMessage,
   SwarmConsumedMessage,
+  PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { GameState } from '../state/GameState';
 import { eventBus } from '../events/EventBus';
@@ -90,6 +92,17 @@ export class SocketManager {
   sendEMPActivate(): void {
     this.socket.emit('empActivate', {
       type: 'empActivate',
+    });
+  }
+
+  /**
+   * Send Pseudopod Beam Fire
+   */
+  sendPseudopodFire(targetX: number, targetY: number): void {
+    this.socket.emit('pseudopodFire', {
+      type: 'pseudopodFire',
+      targetX,
+      targetY,
     });
   }
 
@@ -230,6 +243,11 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
+    this.socket.on('pseudopodMoved', (data: PseudopodMovedMessage) => {
+      this.gameState.updatePseudopodPosition(data.pseudopodId, data.position.x, data.position.y);
+      eventBus.emit(data);
+    });
+
     this.socket.on('pseudopodRetracted', (data: PseudopodRetractedMessage) => {
       this.gameState.removePseudopod(data.pseudopodId);
       eventBus.emit(data);
@@ -249,6 +267,12 @@ export class SocketManager {
     this.socket.on('swarmConsumed', (data: SwarmConsumedMessage) => {
       // Remove consumed swarm from game state
       this.gameState.removeSwarm(data.swarmId);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('playerDrainState', (data: PlayerDrainStateMessage) => {
+      // Update game state with which players/swarms are being drained
+      this.gameState.updateDrainedPlayers(data.drainedPlayerIds, data.drainedSwarmIds);
       eventBus.emit(data);
     });
   }
