@@ -1204,7 +1204,8 @@ function updateMetabolism(deltaTime: number) {
 
         // Record damage with proximity factor for gradient aura
         // proximityFactor = 1.0 at center, 0.0 at edge
-        recordDamage(playerId, obstacle.damageRate * damageScale, 'gravity', 1.0 - normalizedDist);
+        // NOTE: Commented out for now - gravity aura doesn't feel right visually
+        // recordDamage(playerId, obstacle.damageRate * damageScale, 'gravity', 1.0 - normalizedDist);
 
         break; // Only one obstacle damages at a time
       }
