@@ -7,9 +7,64 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { LightningStrike } from 'three-stdlib';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
-import { GAME_CONFIG, EvolutionStage, type DamageSource } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
+import { createSingleCell, disposeSingleCellCache } from './SingleCellRenderer';
+import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
+import { updateTrails, disposeAllTrails } from './TrailRenderer';
+import {
+  calculateEvolutionProgress,
+  updateEvolutionCorona,
+  updateEvolutionRing,
+  removeEvolutionEffects,
+  applyEvolutionEffects,
+} from './EvolutionVisuals';
+import {
+  spawnDeathParticles,
+  spawnHitSparks,
+  spawnEvolutionParticles,
+  spawnEMPPulse,
+  spawnSwarmDeathExplosion,
+  type DeathAnimation,
+  type EvolutionAnimation,
+  type EMPEffect,
+  type SwarmDeathAnimation,
+} from './ParticleEffects';
+import {
+  updateDeathAnimations,
+  updateEvolutionAnimations,
+  updateEMPEffects,
+  updateSwarmDeathAnimations,
+} from './AnimationUpdater';
+import {
+  createCellAura,
+  calculateAuraIntensity,
+  getAuraColor,
+  applyAuraIntensity,
+} from './DrainAuraRenderer';
+import {
+  createObstacle,
+  updateObstacleAnimation,
+  disposeObstacle,
+  type AccretionParticle,
+} from './ObstacleRenderer';
+import {
+  createSwarm,
+  updateSwarmState,
+  updateSwarmAnimation,
+  disposeSwarm,
+  type SwarmInternalParticle,
+  type SwarmOrbitingParticle,
+} from './SwarmRenderer';
+import {
+  getStageZoom,
+  calculateDamageShake,
+  applyCameraShake,
+  followTarget,
+  updateZoomTransition,
+  applyCameraZoom,
+} from './CameraEffects';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -44,11 +99,11 @@ export class ThreeRenderer implements Renderer {
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private drainAuraMeshes: Map<string, THREE.Mesh | THREE.Group> = new Map(); // Red aura for players/swarms being drained (Mesh for players, Group for swarms)
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
-  private obstacleParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; maxLife: number }>> = new Map(); // Accretion disk particles
+  private obstacleParticles: Map<string, AccretionParticle[]> = new Map(); // Accretion disk particles
   private obstaclePulsePhase: Map<string, number> = new Map(); // Phase offset for core pulsing animation
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include 3D sphere + particles
-  private swarmParticleData: Map<string, Array<{ angle: number; radius: number; speed: number }>> = new Map(); // Animation data for orbiting particles
-  private swarmInternalParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }>> = new Map(); // Internal storm particles
+  private swarmParticleData: Map<string, SwarmOrbitingParticle[]> = new Map(); // Animation data for orbiting particles
+  private swarmInternalParticles: Map<string, SwarmInternalParticle[]> = new Map(); // Internal storm particles
   private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
   private pseudopodMeshes: Map<string, THREE.Mesh> = new Map(); // Lightning beam projectiles
 
@@ -64,28 +119,10 @@ export class ThreeRenderer implements Renderer {
   private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
 
   // Death animations (particle bursts)
-  private deathAnimations: Array<{
-    particles: THREE.Points;
-    particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }>;
-    startTime: number;
-    duration: number;
-  }> = [];
+  private deathAnimations: DeathAnimation[] = [];
 
   // Evolution animations (orbital particles)
-  private evolutionAnimations: Array<{
-    particles: THREE.Points;
-    particleData: Array<{
-      angle: number;
-      radius: number;
-      radiusVelocity: number;
-      angleVelocity: number;
-      centerX: number;
-      centerY: number;
-    }>;
-    startTime: number;
-    duration: number;
-    colorHex: number;
-  }> = [];
+  private evolutionAnimations: EvolutionAnimation[] = [];
 
   // Evolution state tracking
   private playerEvolutionState: Map<string, {
@@ -102,27 +139,10 @@ export class ThreeRenderer implements Renderer {
   private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
   // EMP pulse effects (expanding electromagnetic ring)
-  private empEffects: Array<{
-    particles: THREE.Points;
-    particleData: Array<{
-      angle: number;
-      radius: number;
-      initialRadius: number;
-      life: number;
-    }>;
-    startTime: number;
-    duration: number;
-    centerX: number;
-    centerY: number;
-  }> = [];
+  private empEffects: EMPEffect[] = [];
 
   // Swarm death animations (exploding particles)
-  private swarmDeathAnimations: Array<{
-    particles: THREE.Points;
-    particleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }>;
-    startTime: number;
-    duration: number;
-  }> = [];
+  private swarmDeathAnimations: SwarmDeathAnimation[] = [];
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -200,7 +220,7 @@ export class ThreeRenderer implements Renderer {
             }
           }
 
-          this.spawnDeathParticles(position.x, position.y, color);
+          this.deathAnimations.push(spawnDeathParticles(this.scene, position.x, position.y, color));
 
           // Immediately remove player group, outline, and trail
           this.scene.remove(playerGroup);
@@ -268,7 +288,7 @@ export class ThreeRenderer implements Renderer {
           });
         } else {
           // Create single-cell (or other future stages)
-          targetGroup = this.createSingleCell(targetRadius, colorHex);
+          targetGroup = createSingleCell(targetRadius, colorHex);
         }
 
         // Position target at same location as source
@@ -313,12 +333,13 @@ export class ThreeRenderer implements Renderer {
             }
           }
 
-          this.spawnEvolutionParticles(
+          this.evolutionAnimations.push(spawnEvolutionParticles(
+            this.scene,
             playerGroup.position.x,
             playerGroup.position.y,
             color,
             event.duration
-          );
+          ));
         }
       });
 
@@ -360,7 +381,7 @@ export class ThreeRenderer implements Renderer {
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.playerId === this.myPlayerId) {
           // Set target zoom for smooth transition
-          this.targetZoom = this.getStageZoom(event.newStage);
+          this.targetZoom = getStageZoom(event.newStage);
 
           // Update white outline for new size
           const oldOutline = this.playerOutlines.get(event.playerId);
@@ -396,7 +417,7 @@ export class ThreeRenderer implements Renderer {
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.player.id === this.myPlayerId) {
           // Set zoom based on respawn stage
-          this.targetZoom = this.getStageZoom(event.player.stage);
+          this.targetZoom = getStageZoom(event.player.stage);
           this.currentZoom = this.targetZoom; // Instant reset (no transition)
           this.initialZoomSet = false; // Allow re-initialization
         }
@@ -409,7 +430,7 @@ export class ThreeRenderer implements Renderer {
 
       // EMP activation - spawn visual pulse effect
       eventBus.on('empActivated', (event) => {
-        this.spawnEMPPulse(event.position.x, event.position.y);
+        this.empEffects.push(spawnEMPPulse(this.scene, event.position.x, event.position.y));
       });
 
       // Swarm consumed - spawn death explosion animation
@@ -418,13 +439,13 @@ export class ThreeRenderer implements Renderer {
         if (swarmGroup) {
           // Capture position before removal
           const position = { x: swarmGroup.position.x, y: swarmGroup.position.y };
-          this.spawnSwarmDeathExplosion(position.x, position.y);
+          this.swarmDeathAnimations.push(spawnSwarmDeathExplosion(this.scene, position.x, position.y));
         }
       });
 
       eventBus.on('pseudopodHit', (event) => {
         // Spawn red spark explosion at hit location
-        this.spawnHitSparks(event.hitPosition.x, event.hitPosition.y);
+        this.deathAnimations.push(spawnHitSparks(this.scene, event.hitPosition.x, event.hitPosition.y));
 
         // Flash the drain aura on the target (if it exists, or briefly create one)
         this.flashDrainAura(event.targetId);
@@ -464,25 +485,6 @@ export class ThreeRenderer implements Renderer {
     return GAME_CONFIG.PLAYER_SIZE;
   }
 
-  /**
-   * Get camera scale multiplier for evolution stage
-   * Higher stages scale up to show more of the world
-   */
-  private getStageZoom(stage: EvolutionStage): number {
-    switch (stage) {
-      case EvolutionStage.SINGLE_CELL:
-        return 1.0; // Base scale
-      case EvolutionStage.MULTI_CELL:
-        return 1.5; // 1.5x more visible area
-      case EvolutionStage.CYBER_ORGANISM:
-        return 2.0; // 2x more visible area
-      case EvolutionStage.HUMANOID:
-        return 2.5; // 2.5x more visible area
-      case EvolutionStage.GODCELL:
-        return 3.0; // 3x more visible area
-    }
-  }
-
   render(state: GameState, dt: number): void {
     // Update local player ID reference (for event filtering)
     this.myPlayerId = state.myPlayerId;
@@ -492,7 +494,7 @@ export class ThreeRenderer implements Renderer {
     if (myPlayer) {
       // Set initial zoom based on spawn stage (first frame only)
       if (!this.initialZoomSet) {
-        const initialZoom = this.getStageZoom(myPlayer.stage);
+        const initialZoom = getStageZoom(myPlayer.stage);
         this.currentZoom = initialZoom;
         this.targetZoom = initialZoom;
         this.initialZoomSet = true;
@@ -500,22 +502,14 @@ export class ThreeRenderer implements Renderer {
         // Apply immediately if not Stage 1
         if (initialZoom !== 1.0) {
           const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
-          const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
-          const scaledFrustumSize = baseFrustumSize * this.currentZoom;
-
-          this.camera.left = (scaledFrustumSize * aspect) / -2;
-          this.camera.right = (scaledFrustumSize * aspect) / 2;
-          this.camera.top = scaledFrustumSize / 2;
-          this.camera.bottom = scaledFrustumSize / -2;
-          this.camera.updateProjectionMatrix();
+          applyCameraZoom(this.camera, this.currentZoom, aspect);
         }
       }
 
       // Detect energy decrease (damage taken) - energy is sole life resource
       if (this.lastPlayerEnergy !== null && myPlayer.energy < this.lastPlayerEnergy) {
         const damageAmount = this.lastPlayerEnergy - myPlayer.energy;
-        // Camera shake intensity scales with damage (1 damage = 1.6 shake intensity)
-        const shakeIntensity = Math.min(damageAmount * 1.6, 40); // Cap at 40
+        const shakeIntensity = calculateDamageShake(damageAmount);
         this.cameraShake = Math.max(this.cameraShake, shakeIntensity); // Use max so multiple hits don't override
       }
 
@@ -527,16 +521,16 @@ export class ThreeRenderer implements Renderer {
     this.updateDataParticles(dt);
 
     // Update death animations
-    this.updateDeathAnimations(dt);
+    updateDeathAnimations(this.scene, this.deathAnimations, dt);
 
     // Update evolution animations
-    this.updateEvolutionAnimations(dt);
+    updateEvolutionAnimations(this.scene, this.evolutionAnimations, dt);
 
     // Update EMP pulse animations
-    this.updateEMPEffects(dt);
+    updateEMPEffects(this.scene, this.empEffects);
 
     // Update swarm death explosions
-    this.updateSwarmDeathAnimations(dt);
+    updateSwarmDeathAnimations(this.scene, this.swarmDeathAnimations, dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -558,50 +552,33 @@ export class ThreeRenderer implements Renderer {
     this.updateObstacleParticles(state, dt);
 
     // Update trails
-    this.updateTrails(state);
+    updateTrails(
+      this.scene,
+      this.playerTrailPoints,
+      this.playerTrailLines,
+      this.playerMeshes,
+      state.players
+    );
 
     // Update camera to follow player's interpolated mesh position
     if (myPlayer) {
       const mesh = this.playerMeshes.get(myPlayer.id);
       if (mesh) {
-        // Lerp camera toward mesh position (which is already interpolated)
-        const lerpFactor = 0.2;
-        this.camera.position.x += (mesh.position.x - this.camera.position.x) * lerpFactor;
-        this.camera.position.y += (mesh.position.y - this.camera.position.y) * lerpFactor;
+        followTarget(this.camera, mesh.position.x, mesh.position.y);
       }
     }
 
     // Apply camera shake effect
-    if (this.cameraShake > 0) {
-      const offsetX = (Math.random() - 0.5) * this.cameraShake;
-      const offsetY = (Math.random() - 0.5) * this.cameraShake;
-      this.camera.position.x += offsetX;
-      this.camera.position.y += offsetY;
-      this.cameraShake *= 0.88; // Moderate decay
-    }
+    this.cameraShake = applyCameraShake(this.camera, this.cameraShake);
 
     // Update camera zoom (smooth transition to target zoom)
-    if (Math.abs(this.currentZoom - this.targetZoom) > 0.01) {
-      // Stable lerp - use fixed factor instead of dt-based to avoid oscillation
-      const lerpFactor = 0.1; // 10% per frame - smooth and stable
-      this.currentZoom += (this.targetZoom - this.currentZoom) * lerpFactor;
-
-      // Snap to target when very close
-      if (Math.abs(this.currentZoom - this.targetZoom) < 0.01) {
-        this.currentZoom = this.targetZoom;
-      }
-
-      // Apply new zoom to camera
-      const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
-      const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
-      const scaledFrustumSize = baseFrustumSize * this.currentZoom;
-
-      this.camera.left = (scaledFrustumSize * aspect) / -2;
-      this.camera.right = (scaledFrustumSize * aspect) / 2;
-      this.camera.top = scaledFrustumSize / 2;
-      this.camera.bottom = scaledFrustumSize / -2;
-      this.camera.updateProjectionMatrix();
-    }
+    const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
+    this.currentZoom = updateZoomTransition(
+      this.camera,
+      this.currentZoom,
+      this.targetZoom,
+      aspect
+    );
 
     // Render scene with postprocessing
     this.composer.render();
@@ -739,15 +716,7 @@ export class ThreeRenderer implements Renderer {
     // Remove obstacles that no longer exist
     this.obstacleMeshes.forEach((group, id) => {
       if (!state.obstacles.has(id)) {
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          } else if (child instanceof THREE.Points) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          }
-        });
+        disposeObstacle(group);
         this.scene.remove(group);
         this.obstacleMeshes.delete(id);
         this.obstacleParticles.delete(id);
@@ -758,195 +727,7 @@ export class ThreeRenderer implements Renderer {
     // Add obstacles (they don't move, so only create once)
     state.obstacles.forEach((obstacle, id) => {
       if (!this.obstacleMeshes.has(id)) {
-        const group = new THREE.Group();
-        group.position.set(obstacle.position.x, obstacle.position.y, -0.4);
-
-        // === LAYER 1: OUTER INFLUENCE ZONE (safe-ish, shows gravity) ===
-        const ringWidth = 3; // Thin ring width in pixels
-        const outerGeometry = new THREE.RingGeometry(obstacle.radius - ringWidth, obstacle.radius, 64);
-        const outerMaterial = new THREE.MeshBasicMaterial({
-          color: 0x6644ff,
-          transparent: true,
-          opacity: 0.5,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          depthTest: true, // Enable depth testing so rings get occluded properly
-        });
-        const outerRing = new THREE.Mesh(outerGeometry, outerMaterial);
-        outerRing.position.z = 0; // Relative to group
-        group.add(outerRing);
-
-        // === LAYER 2: MIDDLE RING (marks 3x gold nutrient spawn zone at 60% radius) ===
-        const middleRadius = obstacle.radius * 0.6;
-        const middleGeometry = new THREE.RingGeometry(middleRadius - ringWidth, middleRadius, 64);
-        const middleMaterial = new THREE.MeshBasicMaterial({
-          color: 0x00ffff, // Cyan to match nutrient indicators
-          transparent: true,
-          opacity: 0.6,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          depthTest: true, // Enable depth testing so rings get occluded properly
-        });
-        const middleRing = new THREE.Mesh(middleGeometry, middleMaterial);
-        middleRing.position.z = 0; // Same plane as outer
-        group.add(middleRing);
-
-        // === LAYER 3: EVENT HORIZON (danger zone, inescapable) ===
-        const horizonGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_EVENT_HORIZON, 32, 32);
-        const horizonMaterial = new THREE.MeshPhysicalMaterial({
-          color: 0xff0088,
-          transparent: true,
-          opacity: 0.2, // Reduced from 0.35
-          emissive: 0xff0088,
-          emissiveIntensity: 0.6,
-          roughness: 0.8,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-          depthTest: false, // Revert to false to prevent rendering under grid
-        });
-        const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);
-        horizonSphere.position.z = 0.05; // Slightly forward
-        horizonSphere.userData.isEventHorizon = true; // Tag for pulsing animation
-        group.add(horizonSphere);
-
-        // === VORTEX EFFECT: Spiral swirl inward ===
-        const vortexParticleCount = 100; // Total particles in spiral
-        const vortexGeometry = new THREE.BufferGeometry();
-        const vortexPositions = new Float32Array(vortexParticleCount * 3);
-        const vortexSizes = new Float32Array(vortexParticleCount);
-
-        // Create spiral vortex pattern
-        for (let i = 0; i < vortexParticleCount; i++) {
-          const progress = i / vortexParticleCount; // 0 to 1 (outer to inner)
-
-          // Spiral inward: radius decreases as we progress (start at 95%, end at 35%)
-          const radius = GAME_CONFIG.OBSTACLE_EVENT_HORIZON * (0.95 - progress * 0.6); // 95% → 35% radius
-
-          // Angle increases as we spiral inward (creates the swirl)
-          const spiralTurns = 3; // Number of full rotations from edge to center
-          const angle = progress * spiralTurns * Math.PI * 2;
-
-          vortexPositions[i * 3] = Math.cos(angle) * radius;
-          vortexPositions[i * 3 + 1] = Math.sin(angle) * radius;
-          vortexPositions[i * 3 + 2] = 0; // Flat on horizon plane
-
-          // Particles get larger as they spiral inward (visual emphasis)
-          vortexSizes[i] = 2.0 + progress * 3.0; // 2px → 5px
-        }
-
-        vortexGeometry.setAttribute('position', new THREE.BufferAttribute(vortexPositions, 3));
-        vortexGeometry.setAttribute('size', new THREE.BufferAttribute(vortexSizes, 1));
-
-        const vortexMaterial = new THREE.PointsMaterial({
-          color: 0xff00ff, // Bright magenta
-          size: 4.0,
-          transparent: true,
-          opacity: 0.7,
-          sizeAttenuation: false,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        });
-
-        const vortexParticles = new THREE.Points(vortexGeometry, vortexMaterial);
-        vortexParticles.position.z = 0.06; // Just in front of horizon sphere
-        vortexParticles.userData.isVortex = true; // Tag for rotation animation
-        vortexParticles.userData.vortexSpeed = 0.3 + Math.random() * 0.3; // Random rotation speed per obstacle
-        group.add(vortexParticles);
-
-        // === VORTEX LINE: Connect particles with continuous spiral line ===
-        const vortexLineGeometry = new THREE.BufferGeometry();
-        vortexLineGeometry.setAttribute('position', new THREE.BufferAttribute(vortexPositions, 3)); // Reuse same positions
-
-        const vortexLineMaterial = new THREE.LineBasicMaterial({
-          color: 0xff00ff, // Bright magenta
-          transparent: true,
-          opacity: 0.6,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        });
-
-        const vortexLine = new THREE.Line(vortexLineGeometry, vortexLineMaterial);
-        vortexLine.position.z = 0.06; // Same depth as particles
-        vortexLine.userData.isVortex = true; // Tag for rotation animation
-        vortexLine.userData.vortexSpeed = vortexParticles.userData.vortexSpeed; // Same rotation speed
-        group.add(vortexLine);
-
-        // === LAYER 4: SINGULARITY CORE (INSTANT DEATH) ===
-        const coreGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32, 32);
-        const coreMaterial = new THREE.MeshStandardMaterial({
-          color: 0x1a0011,
-          emissive: 0xff00ff,
-          emissiveIntensity: 3.0,
-          roughness: 0.3,
-          depthWrite: false,
-          depthTest: true, // Enable depth testing for proper occlusion
-        });
-        const coreSphere = new THREE.Mesh(coreGeometry, coreMaterial);
-        coreSphere.position.z = 0.1; // Most forward
-        coreSphere.userData.isSingularityCore = true; // Tag for rapid pulsing
-        group.add(coreSphere);
-
-        // === PARTICLE SYSTEM: ACCRETION DISK (spiraling inward) ===
-        const particleCount = 150;
-        const positions = new Float32Array(particleCount * 3);
-        const colors = new Float32Array(particleCount * 3);
-        const sizes = new Float32Array(particleCount);
-
-        const particles: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; maxLife: number }> = [];
-
-        for (let i = 0; i < particleCount; i++) {
-          // Random point in spherical shell (uniform distribution)
-          const theta = Math.random() * Math.PI * 2;
-          const phi = Math.random() * Math.PI;
-          const r = obstacle.radius * 0.7 + Math.random() * obstacle.radius * 0.3; // Start in outer 30%
-
-          const x = r * Math.sin(phi) * Math.cos(theta);
-          const y = r * Math.sin(phi) * Math.sin(theta);
-          const z = r * Math.cos(phi) * 0.3; // Flatten z to create disk shape
-
-          positions[i * 3] = x;
-          positions[i * 3 + 1] = y;
-          positions[i * 3 + 2] = z;
-
-          // Initial color: blue-purple (outer edge)
-          colors[i * 3] = 0.4; // R
-          colors[i * 3 + 1] = 0.27; // G
-          colors[i * 3 + 2] = 1.0; // B
-
-          sizes[i] = 2.0 + Math.random() * 2.0;
-
-          // Random initial velocity (slight tangential + inward)
-          const speed = 20 + Math.random() * 30; // pixels per second
-          particles.push({
-            x,
-            y,
-            z,
-            vx: -y / r * speed * 0.3, // Tangential (perpendicular to radius)
-            vy: x / r * speed * 0.3,
-            vz: 0,
-            life: Math.random() * 5, // Stagger particles
-            maxLife: 5.0, // 5 seconds to reach core
-          });
-        }
-
-        const particleGeometry = new THREE.BufferGeometry();
-        particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-        const particleMaterial = new THREE.PointsMaterial({
-          size: 3.0,
-          sizeAttenuation: false,
-          transparent: true,
-          opacity: 0.8,
-          blending: THREE.AdditiveBlending,
-          vertexColors: true,
-          depthWrite: false,
-        });
-
-        const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
-        particleSystem.position.z = 0; // Same depth as outer sphere
-        group.add(particleSystem);
+        const { group, particles, vortexSpeed: _vortexSpeed } = createObstacle(obstacle.position, obstacle.radius);
 
         // Store particle data for animation
         this.obstacleParticles.set(id, particles);
@@ -965,13 +746,7 @@ export class ThreeRenderer implements Renderer {
     this.swarmMeshes.forEach((group, id) => {
       if (!state.swarms.has(id)) {
         this.scene.remove(group);
-        // Dispose all children
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          }
-        });
+        disposeSwarm(group);
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
         this.swarmParticleData.delete(id);
@@ -985,124 +760,16 @@ export class ThreeRenderer implements Renderer {
       let group = this.swarmMeshes.get(id);
 
       if (!group) {
-        // Create 3D energy storm swarm group
-        group = new THREE.Group();
+        // Create swarm visual using extracted renderer
+        const result = createSwarm(swarm.position, swarm.size);
+        group = result.group;
 
-        // === OUTER SPHERE (Semi-transparent boundary) ===
-        const outerGeometry = new THREE.SphereGeometry(swarm.size, 32, 32);
-        const outerMaterial = new THREE.MeshPhysicalMaterial({
-          color: 0xff4400, // Red-orange
-          transparent: true,
-          opacity: 0.3,
-          emissive: 0xff4400,
-          emissiveIntensity: 0.8,
-          roughness: 1.0,
-          side: THREE.DoubleSide,
-          depthWrite: false, // Don't write depth (standard for transparent objects)
-          depthTest: false, // Bypass depth testing (original fix for obstacle overlap)
-        });
-        const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
-        group.add(outerSphere);
-
-        // === INTERNAL PARTICLE STORM ===
-        const internalParticleCount = 200; // 200 particles per swarm
-        const internalGeometry = new THREE.BufferGeometry();
-        const internalPositions = new Float32Array(internalParticleCount * 3);
-        const internalSizes = new Float32Array(internalParticleCount);
-
-        // Random positions inside sphere with random velocities
-        const internalParticleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number }> = [];
-
-        for (let i = 0; i < internalParticleCount; i++) {
-          // Random point inside sphere (uniform distribution)
-          const theta = Math.random() * Math.PI * 2;
-          const phi = Math.random() * Math.PI;
-          const r = Math.cbrt(Math.random()) * swarm.size * 0.9; // Cbrt for uniform volume distribution
-
-          const x = r * Math.sin(phi) * Math.cos(theta);
-          const y = r * Math.sin(phi) * Math.sin(theta);
-          const z = r * Math.cos(phi);
-
-          internalPositions[i * 3] = x;
-          internalPositions[i * 3 + 1] = y;
-          internalPositions[i * 3 + 2] = z;
-
-          internalSizes[i] = 1 + Math.random() * 1.5;
-
-          // Random turbulent velocity (higher speeds for visible chaos)
-          const speed = 60 + Math.random() * 80; // 60-140 pixels per second
-          const vTheta = Math.random() * Math.PI * 2;
-          const vPhi = Math.random() * Math.PI;
-
-          internalParticleData.push({
-            x, y, z,
-            vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
-            vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
-            vz: speed * Math.cos(vPhi),
-          });
-        }
-
-        internalGeometry.setAttribute('position', new THREE.BufferAttribute(internalPositions, 3));
-        internalGeometry.setAttribute('size', new THREE.BufferAttribute(internalSizes, 1));
-
-        const internalMaterial = new THREE.PointsMaterial({
-          color: 0xffaa00, // Bright orange/yellow
-          size: 2,
-          transparent: true,
-          opacity: 0.8,
-          sizeAttenuation: false,
-          blending: THREE.AdditiveBlending, // Additive for energy feel
-          depthWrite: false,
-        });
-
-        const internalStorm = new THREE.Points(internalGeometry, internalMaterial);
-        group.add(internalStorm);
-
-        // Store internal particle data
-        this.swarmInternalParticles.set(id, internalParticleData);
-
-        // === ORBITING PARTICLES (Keep existing system but reduce count) ===
-        const orbitingCount = 6; // Reduced from 30
-        const orbitingGeometry = new THREE.BufferGeometry();
-        const orbitingPositions = new Float32Array(orbitingCount * 3);
-
-        // Store animation data for each orbiting particle (angle, radius, rotation speed)
-        const orbitingAnimData: Array<{ angle: number; radius: number; speed: number }> = [];
-
-        // Scatter particles around swarm with animation data
-        for (let i = 0; i < orbitingCount; i++) {
-          const angle = (i / orbitingCount) * Math.PI * 2; // Evenly spaced
-          const radius = swarm.size * 1.1; // Just outside sphere
-          const speed = (Math.random() - 0.5) * 2; // Random rotation speed (-1 to 1 rad/s)
-
-          orbitingPositions[i * 3] = Math.cos(angle) * radius;
-          orbitingPositions[i * 3 + 1] = Math.sin(angle) * radius;
-          orbitingPositions[i * 3 + 2] = 0;
-
-          orbitingAnimData.push({ angle, radius, speed });
-        }
-
-        orbitingGeometry.setAttribute('position', new THREE.BufferAttribute(orbitingPositions, 3));
-
-        const orbitingMaterial = new THREE.PointsMaterial({
-          color: 0xff0088,
-          size: 8, // Larger particles for orbiting
-          transparent: true,
-          opacity: 0.9,
-          sizeAttenuation: false,
-          depthWrite: false,
-        });
-
-        const orbitingParticles = new THREE.Points(orbitingGeometry, orbitingMaterial);
-        group.add(orbitingParticles);
-
-        // Store orbiting particle animation data
-        this.swarmParticleData.set(id, orbitingAnimData);
+        // Store particle animation data
+        this.swarmInternalParticles.set(id, result.internalParticles);
+        this.swarmParticleData.set(id, result.orbitingParticles);
 
         // Random phase offset for pulsing (so swarms don't pulse in sync)
         this.swarmPulsePhase.set(id, Math.random() * Math.PI * 2);
-
-        group.position.set(swarm.position.x, swarm.position.y, 0.2); // Same depth as players (avoid z-fighting)
 
         this.scene.add(group);
         this.swarmMeshes.set(id, group);
@@ -1113,46 +780,9 @@ export class ThreeRenderer implements Renderer {
       this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
 
       // Update colors and intensity based on state
-      const outerSphere = group.children[0] as THREE.Mesh;
-      const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
-      const internalStorm = group.children[1] as THREE.Points;
-      const internalMaterial = internalStorm.material as THREE.PointsMaterial;
-      const orbitingParticles = group.children[2] as THREE.Points;
-      const orbitingMaterial = orbitingParticles.material as THREE.PointsMaterial;
-
-      // Check for disabled state (hit by EMP)
       const now = Date.now();
-      if (swarm.disabledUntil && now < swarm.disabledUntil) {
-        // Disabled: gray/static appearance (paralyzed)
-        outerMaterial.color.setHex(0x444444); // Dark gray
-        outerMaterial.emissive.setHex(0x666666); // Dim gray emissive
-        outerMaterial.emissiveIntensity = 0.2;
-        outerMaterial.opacity = 0.2;
-        internalMaterial.color.setHex(0x888888); // Mid gray
-        internalMaterial.opacity = 0.3; // Very dim
-        orbitingMaterial.color.setHex(0x555555); // Dark gray
-        orbitingMaterial.opacity = 0.4;
-      } else if (swarm.state === 'chase') {
-        // Chase mode: brighter, more aggressive
-        outerMaterial.color.setHex(0xff0044); // Hot red
-        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
-        outerMaterial.emissiveIntensity = 1.2;
-        outerMaterial.opacity = 0.45;
-        internalMaterial.color.setHex(0xff6600); // Bright orange-red
-        internalMaterial.opacity = 0.8; // Full opacity
-        orbitingMaterial.color.setHex(0xff0044);
-        orbitingMaterial.opacity = 0.9; // Full opacity
-      } else {
-        // Patrol mode: dimmer, calmer
-        outerMaterial.color.setHex(0xff4400); // Red-orange
-        outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
-        outerMaterial.emissiveIntensity = 0.8;
-        outerMaterial.opacity = 0.3;
-        internalMaterial.color.setHex(0xffaa00); // Orange-yellow
-        internalMaterial.opacity = 0.8; // Full opacity
-        orbitingMaterial.color.setHex(0xff0088);
-        orbitingMaterial.opacity = 0.9; // Full opacity
-      }
+      const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
+      updateSwarmState(group, swarm.state, isDisabled);
     });
   }
 
@@ -1274,268 +904,17 @@ export class ThreeRenderer implements Renderer {
   }
 
   private updateSwarmParticles(state: GameState, dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const time = Date.now() * 0.001; // Time in seconds
-
     this.swarmMeshes.forEach((group, id) => {
-      // Get actual swarm state from game state
       const swarm = state.swarms.get(id);
       const swarmState = swarm?.state || 'patrol';
-
-      // === PULSING ANIMATION (Outer Sphere) ===
-      const outerSphere = group.children[0] as THREE.Mesh;
-      const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
       const pulsePhase = this.swarmPulsePhase.get(id) || 0;
+      const internalParticles = this.swarmInternalParticles.get(id);
+      const orbitingParticles = this.swarmParticleData.get(id);
 
-      // Breathing effect: scale oscillates between 0.95 and 1.05
-      const pulseSpeed = swarmState === 'chase' ? 3.0 : 2.0; // Faster pulse in chase mode
-      const pulseAmount = 0.05;
-      const scale = 1.0 + Math.sin(time * pulseSpeed + pulsePhase) * pulseAmount;
-      outerSphere.scale.set(scale, scale, scale);
-
-      // Flicker emissive intensity for unstable energy feel
-      const baseIntensity = swarmState === 'chase' ? 1.2 : 0.8;
-      const flickerAmount = 0.2;
-      outerMaterial.emissiveIntensity = baseIntensity + Math.sin(time * 5 + pulsePhase) * flickerAmount;
-
-      // === INTERNAL PARTICLE STORM ===
-      const internalStorm = group.children[1] as THREE.Points;
-      const internalParticleData = this.swarmInternalParticles.get(id);
-      if (internalStorm && internalParticleData) {
-        const positions = internalStorm.geometry.attributes.position.array as Float32Array;
-
-        // Get swarm size from outer sphere geometry
-        const swarmSize = (outerSphere.geometry as THREE.SphereGeometry).parameters.radius;
-        const speedMultiplier = swarmState === 'chase' ? 1.5 : 1.0;
-
-        // Update each internal particle with turbulent motion
-        for (let i = 0; i < internalParticleData.length; i++) {
-          const p = internalParticleData[i];
-
-          // Apply velocity
-          p.x += p.vx * deltaSeconds * speedMultiplier;
-          p.y += p.vy * deltaSeconds * speedMultiplier;
-          p.z += p.vz * deltaSeconds * speedMultiplier;
-
-          // Distance from center
-          const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-
-          // Bounce particles inside sphere (elastic collision with boundary)
-          if (dist > swarmSize * 0.85) {
-            // Reflect velocity (bounce off boundary)
-            const nx = p.x / dist;
-            const ny = p.y / dist;
-            const nz = p.z / dist;
-
-            // Dot product of velocity and normal
-            const dot = p.vx * nx + p.vy * ny + p.vz * nz;
-
-            // Reflect velocity
-            p.vx -= 2 * dot * nx;
-            p.vy -= 2 * dot * ny;
-            p.vz -= 2 * dot * nz;
-
-            // Push particle back inside
-            const pushBack = swarmSize * 0.85;
-            p.x = nx * pushBack;
-            p.y = ny * pushBack;
-            p.z = nz * pushBack;
-          }
-
-          // Add turbulence (random acceleration for chaotic motion)
-          const turbulence = 150 * speedMultiplier;
-          p.vx += (Math.random() - 0.5) * turbulence * deltaSeconds;
-          p.vy += (Math.random() - 0.5) * turbulence * deltaSeconds;
-          p.vz += (Math.random() - 0.5) * turbulence * deltaSeconds;
-
-          // Damping to prevent runaway speeds but keep it energetic
-          const damping = 0.99;
-          p.vx *= damping;
-          p.vy *= damping;
-          p.vz *= damping;
-
-          // Update geometry positions
-          positions[i * 3] = p.x;
-          positions[i * 3 + 1] = p.y;
-          positions[i * 3 + 2] = p.z;
-        }
-
-        // Mark positions as needing update
-        internalStorm.geometry.attributes.position.needsUpdate = true;
-      }
-
-      // === ORBITING PARTICLES ===
-      const orbitingParticles = group.children[2] as THREE.Points;
-      const orbitingAnimData = this.swarmParticleData.get(id);
-      if (orbitingParticles && orbitingAnimData) {
-        const positions = orbitingParticles.geometry.attributes.position.array as Float32Array;
-
-        // Update each orbiting particle position based on rotation
-        for (let i = 0; i < orbitingAnimData.length; i++) {
-          const data = orbitingAnimData[i];
-
-          // Rotate the particle around the swarm center
-          const rotationSpeed = swarmState === 'chase' ? 1.5 : 1.0;
-          data.angle += data.speed * deltaSeconds * rotationSpeed;
-
-          // Update position based on new angle
-          positions[i * 3] = Math.cos(data.angle) * data.radius;
-          positions[i * 3 + 1] = Math.sin(data.angle) * data.radius;
-        }
-
-        // Mark positions as needing update
-        orbitingParticles.geometry.attributes.position.needsUpdate = true;
+      if (internalParticles && orbitingParticles) {
+        updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt);
       }
     });
-  }
-
-  /**
-   * Create a dual-sphere shell aura for a single cell
-   */
-  private createCellAura(cellRadius: number): THREE.Group {
-    const auraGroup = new THREE.Group();
-
-    const innerRadius = cellRadius * 1.0;  // Inner edge at cell boundary
-    const outerRadius = cellRadius * 1.03;  // Outer edge = 3% beyond boundary (thin shell)
-
-    // Create outer sphere (viewed from inside)
-    const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
-    const outerMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff0000,              // Base red color
-      emissive: 0xff0000,           // Red glow for bloom effect
-      emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
-      transparent: true,
-      opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
-      side: THREE.BackSide,         // Render inside of outer sphere
-      depthWrite: false,
-      depthTest: false,
-    });
-
-    const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
-    auraGroup.add(outerMesh);
-
-    // Create inner sphere to carve out hollow (viewed from outside)
-    const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
-    const innerMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff0000,
-      emissive: 0xff0000,
-      emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
-      transparent: true,
-      opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
-      side: THREE.FrontSide,        // Render outside of inner sphere
-      depthWrite: false,
-      depthTest: false,
-    });
-
-    const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
-    auraGroup.add(innerMesh);
-
-    return auraGroup;
-  }
-
-  /**
-   * Calculate aura intensity from damage rate (maps DPS to 0-1 scale)
-   */
-  private calculateAuraIntensity(damageRate: number): number {
-    // Intensity scale:
-    // 0-30 dps   → 0.0-0.3 (subtle)
-    // 30-80 dps  → 0.3-0.6 (moderate)
-    // 80-150 dps → 0.6-0.9 (intense)
-    // 150+ dps   → 0.9-1.0 (critical)
-
-    if (damageRate <= 30) {
-      return (damageRate / 30) * 0.3; // 0.0-0.3
-    } else if (damageRate <= 80) {
-      return 0.3 + ((damageRate - 30) / 50) * 0.3; // 0.3-0.6
-    } else if (damageRate <= 150) {
-      return 0.6 + ((damageRate - 80) / 70) * 0.3; // 0.6-0.9
-    } else {
-      return Math.min(1.0, 0.9 + ((damageRate - 150) / 150) * 0.1); // 0.9-1.0
-    }
-  }
-
-  /**
-   * Get aura color based on damage source
-   */
-  private getAuraColor(source: DamageSource): number {
-    switch (source) {
-      case 'starvation':
-        return 0xffaa00; // Orange/yellow for self-inflicted damage
-      case 'predation':
-      case 'swarm':
-      case 'beam':
-      case 'gravity':
-      default:
-        return 0xff0000; // Red for external threats
-    }
-  }
-
-  /**
-   * Apply intensity-based visuals to drain aura
-   */
-  private applyAuraIntensity(
-    auraMesh: THREE.Group,
-    intensity: number,
-    color: number,
-    time: number,
-    proximityFactor?: number
-  ): void {
-    // Gentle pulsing (much slower and subtler)
-    const pulseSpeed = 1.0 + intensity * 1.5;  // 1-2.5 cycles/sec (slow even at high intensity)
-    const pulseAmount = 0.03 + intensity * 0.05; // ±3-8% scale variation (very subtle)
-    const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
-    auraMesh.scale.set(scale, scale, scale);
-
-    // Opacity scales with intensity
-    const baseOpacity = 0.2 + intensity * 0.4; // 0.2-0.6 base (subtle to moderate)
-    const flickerAmount = 0.05 + intensity * 0.1; // ±5-15% flicker (reduced)
-    let opacity = baseOpacity + Math.sin(time * 3) * flickerAmount; // Slower flicker
-
-    // Emissive (bloom) scales with intensity
-    const baseEmissive = 1.0 + intensity * 2.0; // 1.0-3.0 base (moderate range)
-    const emissiveFlicker = 0.2 + intensity * 0.4; // ±0.2-0.6 variation (reduced)
-    let emissive = baseEmissive + Math.sin(time * 2.5) * emissiveFlicker; // Slower flicker
-
-    // Apply proximity gradient for gravity wells (fades at edges)
-    if (proximityFactor !== undefined) {
-      opacity *= (0.5 + proximityFactor * 0.5); // Fade out at edges
-      emissive *= (0.5 + proximityFactor * 0.5);
-    }
-
-    // Check for hit flash (brief intense brightness boost from pseudopod hit)
-    if (auraMesh.userData.flashTime) {
-      const flashAge = Date.now() - auraMesh.userData.flashTime;
-      const flashDuration = 200; // 200ms flash
-
-      if (flashAge < flashDuration) {
-        // Add extra brightness during flash (fades out over duration)
-        const flashProgress = flashAge / flashDuration; // 0 to 1
-        const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
-        emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
-        opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
-      } else {
-        // Flash expired, clear it
-        delete auraMesh.userData.flashTime;
-      }
-    }
-
-    // Apply to all spheres (handles both single-cell and multi-cell auras)
-    // For multi-cell: auraMesh is a group containing multiple cell aura groups
-    // For single-cell: auraMesh is a group containing one cell aura group
-    const applyToMeshes = (obj: THREE.Object3D) => {
-      if (obj instanceof THREE.Mesh) {
-        const material = obj.material as THREE.MeshStandardMaterial;
-        material.color.setHex(color);
-        material.emissive.setHex(color);
-        material.opacity = opacity;
-        material.emissiveIntensity = emissive;
-      } else if (obj instanceof THREE.Group) {
-        // Recursively apply to nested groups
-        obj.children.forEach(applyToMeshes);
-      }
-    };
-
-    applyToMeshes(auraMesh);
   }
 
   /**
@@ -1567,7 +946,7 @@ export class ThreeRenderer implements Renderer {
             const cellRadius = baseRadius * 0.35; // Individual cell size (same as multi-cell rendering)
 
             // Create aura for center cell (at origin)
-            const centerAura = this.createCellAura(cellRadius);
+            const centerAura = createCellAura(cellRadius);
             newAuraMesh.add(centerAura);
 
             // Create auras for ring cells (6 cells in hexagonal pattern)
@@ -1578,14 +957,14 @@ export class ThreeRenderer implements Renderer {
               const x = Math.cos(angle) * ringRadius;
               const y = Math.sin(angle) * ringRadius;
 
-              const ringAura = this.createCellAura(cellRadius);
+              const ringAura = createCellAura(cellRadius);
               ringAura.position.set(x, y, 0);
               newAuraMesh.add(ringAura);
             }
           } else {
             // Single-cell: one aura around the whole organism
             const playerRadius = this.getPlayerRadius(player.stage);
-            const singleAura = this.createCellAura(playerRadius);
+            const singleAura = createCellAura(playerRadius);
             newAuraMesh.add(singleAura);
           }
 
@@ -1603,13 +982,13 @@ export class ThreeRenderer implements Renderer {
         auraMesh.rotation.copy(playerMesh.rotation);
 
         // Calculate intensity from damage rate
-        const intensity = this.calculateAuraIntensity(damageInfo.totalDamageRate);
+        const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
 
         // Get color based on primary damage source
-        const color = this.getAuraColor(damageInfo.primarySource);
+        const color = getAuraColor(damageInfo.primarySource);
 
         // Apply intensity-based visuals
-        this.applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time, damageInfo.proximityFactor);
+        applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time, damageInfo.proximityFactor);
 
       } else {
         // Remove aura if player is no longer drained
@@ -1648,7 +1027,7 @@ export class ThreeRenderer implements Renderer {
         if (!auraMesh) {
           // Create aura using helper (consistent with player auras)
           const newAuraMesh = new THREE.Group();
-          const swarmAura = this.createCellAura(swarm.size);
+          const swarmAura = createCellAura(swarm.size);
           newAuraMesh.add(swarmAura);
           newAuraMesh.position.z = -1; // Behind swarm
 
@@ -1665,13 +1044,13 @@ export class ThreeRenderer implements Renderer {
         auraMesh.position.y = swarmMesh.position.y;
 
         // Calculate intensity from damage rate
-        const intensity = this.calculateAuraIntensity(damageInfo.totalDamageRate);
+        const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
 
         // Get color based on primary damage source
-        const color = this.getAuraColor(damageInfo.primarySource);
+        const color = getAuraColor(damageInfo.primarySource);
 
         // Apply intensity-based visuals
-        this.applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time);
+        applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time);
 
       } else {
         // Remove aura if swarm is no longer drained
@@ -1732,136 +1111,15 @@ export class ThreeRenderer implements Renderer {
   }
 
   private updateObstacleParticles(state: GameState, dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const time = Date.now() * 0.001; // Time in seconds
-
     this.obstacleMeshes.forEach((group, id) => {
       const obstacle = state.obstacles.get(id);
       if (!obstacle) return;
 
-      // === PULSING ANIMATION ===
+      const particleData = this.obstacleParticles.get(id);
       const pulsePhase = this.obstaclePulsePhase.get(id) || 0;
 
-      // Event Horizon (Layer 3): Gentle breathing
-      const horizonSphere = group.children[2] as THREE.Mesh;
-      if (horizonSphere && horizonSphere.userData.isEventHorizon) {
-        const horizonPulseSpeed = 2.0; // Slow, ominous breathing
-        const horizonPulseAmount = 0.02; // Very subtle scale change (0.98-1.02)
-        const horizonScale = 1.0 + Math.sin(time * horizonPulseSpeed + pulsePhase) * horizonPulseAmount;
-        horizonSphere.scale.set(horizonScale, horizonScale, horizonScale);
-      }
-
-      // Vortex Particles & Line (Layer 3.5): Rotate to create whirlpool effect
-      const vortexParticles = group.children[3] as THREE.Points;
-      const vortexLine = group.children[4] as THREE.Line;
-      if (vortexParticles && vortexParticles.userData.isVortex) {
-        const rotationSpeed = vortexParticles.userData.vortexSpeed || 0.5;
-        vortexParticles.rotation.z += rotationSpeed * deltaSeconds; // Continuous rotation
-      }
-      if (vortexLine && vortexLine.userData.isVortex) {
-        const rotationSpeed = vortexLine.userData.vortexSpeed || 0.5;
-        vortexLine.rotation.z += rotationSpeed * deltaSeconds; // Continuous rotation (same as particles)
-      }
-
-      // Singularity Core (Layer 4): Rapid pulsing
-      const coreSphere = group.children[5] as THREE.Mesh;
-      if (coreSphere && coreSphere.userData.isSingularityCore) {
-        const corePulseSpeed = 3.5; // Fast, menacing heartbeat
-        const coreEmissiveBase = 3.0;
-        const coreEmissiveRange = 0.5; // Oscillate 2.5-3.5
-        const coreMaterial = coreSphere.material as THREE.MeshStandardMaterial;
-        coreMaterial.emissiveIntensity = coreEmissiveBase + Math.sin(time * corePulseSpeed + pulsePhase) * coreEmissiveRange;
-      }
-
-      // === ACCRETION DISK PARTICLES ===
-      const particleSystem = group.children[6] as THREE.Points;
-      const particleData = this.obstacleParticles.get(id);
-      if (particleSystem && particleData) {
-        const positions = particleSystem.geometry.attributes.position.array as Float32Array;
-        const colors = particleSystem.geometry.attributes.color.array as Float32Array;
-        const sizes = particleSystem.geometry.attributes.size.array as Float32Array;
-
-        // Update each particle
-        for (let i = 0; i < particleData.length; i++) {
-          const p = particleData[i];
-
-          // Age the particle
-          p.life += deltaSeconds;
-
-          // Distance from center
-          const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-
-          // Spiral inward (gravity acceleration toward core)
-          // Speed increases as distance decreases (inverse relationship)
-          const gravityStrength = 200; // Base acceleration toward core
-          const speedFactor = 1.0 + (1.0 - dist / obstacle.radius) * 3.0; // 1x at edge, 4x near core
-          const dx = -p.x / dist;
-          const dy = -p.y / dist;
-          const dz = -p.z / dist;
-
-          p.vx += dx * gravityStrength * speedFactor * deltaSeconds;
-          p.vy += dy * gravityStrength * speedFactor * deltaSeconds;
-          p.vz += dz * gravityStrength * speedFactor * deltaSeconds;
-
-          // Apply velocity
-          p.x += p.vx * deltaSeconds;
-          p.y += p.vy * deltaSeconds;
-          p.z += p.vz * deltaSeconds;
-
-          // Particle reached singularity core - respawn at outer edge
-          if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS || p.life > p.maxLife) {
-            // Respawn at random point in outer shell
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.random() * Math.PI;
-            const r = obstacle.radius * 0.7 + Math.random() * obstacle.radius * 0.3;
-
-            p.x = r * Math.sin(phi) * Math.cos(theta);
-            p.y = r * Math.sin(phi) * Math.sin(theta);
-            p.z = r * Math.cos(phi) * 0.3; // Flatten to disk
-
-            // Reset velocity (tangential motion)
-            const speed = 20 + Math.random() * 30;
-            p.vx = -p.y / r * speed * 0.3;
-            p.vy = p.x / r * speed * 0.3;
-            p.vz = 0;
-
-            p.life = 0;
-          }
-
-          // Update color based on distance to core (gradient: blue → magenta → white-hot)
-          const distRatio = dist / obstacle.radius;
-          if (distRatio > 0.5) {
-            // Outer region: Blue-purple (0.4, 0.27, 1.0)
-            colors[i * 3] = 0.4;
-            colors[i * 3 + 1] = 0.27;
-            colors[i * 3 + 2] = 1.0;
-          } else if (distRatio > 0.15) {
-            // Middle region: Magenta (1.0, 0.0, 1.0)
-            const blend = (0.5 - distRatio) / 0.35; // 0 at outer, 1 at inner
-            colors[i * 3] = 0.4 + blend * 0.6; // 0.4 → 1.0
-            colors[i * 3 + 1] = 0.27 - blend * 0.27; // 0.27 → 0.0
-            colors[i * 3 + 2] = 1.0; // Stay at 1.0
-          } else {
-            // Inner region (near core): White-hot (1.0, 0.8, 1.0)
-            const blend = (0.15 - distRatio) / 0.15; // 0 at middle, 1 at core
-            colors[i * 3] = 1.0;
-            colors[i * 3 + 1] = blend * 0.8; // 0.0 → 0.8
-            colors[i * 3 + 2] = 1.0;
-          }
-
-          // Size increases as it approaches core (visual emphasis on danger)
-          sizes[i] = 2.0 + (1.0 - distRatio) * 3.0; // 2px at edge, 5px at core
-
-          // Update geometry
-          positions[i * 3] = p.x;
-          positions[i * 3 + 1] = p.y;
-          positions[i * 3 + 2] = p.z;
-        }
-
-        // Mark attributes as needing update
-        particleSystem.geometry.attributes.position.needsUpdate = true;
-        particleSystem.geometry.attributes.color.needsUpdate = true;
-        particleSystem.geometry.attributes.size.needsUpdate = true;
+      if (particleData) {
+        updateObstacleAnimation(group, particleData, obstacle.radius, pulsePhase, dt);
       }
     });
   }
@@ -1970,7 +1228,7 @@ export class ThreeRenderer implements Renderer {
           });
         } else {
           // Single-cell organism
-          cellGroup = this.createSingleCell(radius, colorHex);
+          cellGroup = createSingleCell(radius, colorHex);
         }
 
         // Position group at player location
@@ -2023,10 +1281,10 @@ export class ThreeRenderer implements Renderer {
 
         // Apply glow and pulse to whichever mesh is visible
         if (evolState.sourceMesh) {
-          this.applyEvolutionEffects(evolState.sourceMesh, evolState.sourceStage, progress);
+          applyEvolutionEffects(evolState.sourceMesh, evolState.sourceStage, progress);
         }
         if (evolState.targetMesh) {
-          this.applyEvolutionEffects(evolState.targetMesh, evolState.targetStage, progress);
+          applyEvolutionEffects(evolState.targetMesh, evolState.targetStage, progress);
 
           // Crossfade: source fades out, target fades in
           const sourceOpacity = 1.0 - progress;
@@ -2085,7 +1343,10 @@ export class ThreeRenderer implements Renderer {
 
         // Update compass indicators for client player (chemical sensing)
         if (isMyPlayer) {
-          this.updateCompassIndicators(
+          this.compassIndicators = updateCompassIndicators(
+            this.scene,
+            this.compassIndicators,
+            this.detectedEntities,
             { x: cellGroup.position.x, y: cellGroup.position.y },
             radius,
             player.stage
@@ -2103,7 +1364,10 @@ export class ThreeRenderer implements Renderer {
 
         // Update compass indicators for client player (chemical sensing)
         if (isMyPlayer) {
-          this.updateCompassIndicators(
+          this.compassIndicators = updateCompassIndicators(
+            this.scene,
+            this.compassIndicators,
+            this.detectedEntities,
             { x: player.position.x, y: player.position.y },
             radius,
             player.stage
@@ -2111,44 +1375,6 @@ export class ThreeRenderer implements Renderer {
         }
       }
     });
-  }
-
-  /**
-   * Calculate evolution progress (0.0-1.0) based on maxEnergy and stage
-   * Returns 0.0 at 30% of next threshold, 1.0 at 100% of next threshold
-   * Normalized to map 30-100% progress into 0.0-1.0 range
-   */
-  private calculateEvolutionProgress(maxEnergy: number, stage: EvolutionStage): number {
-    // Get next evolution threshold based on current stage
-    let nextThreshold: number;
-    switch (stage) {
-      case EvolutionStage.SINGLE_CELL:
-        nextThreshold = GAME_CONFIG.EVOLUTION_MULTI_CELL; // 250
-        break;
-      case EvolutionStage.MULTI_CELL:
-        nextThreshold = GAME_CONFIG.EVOLUTION_CYBER_ORGANISM; // 500
-        break;
-      case EvolutionStage.CYBER_ORGANISM:
-        nextThreshold = GAME_CONFIG.EVOLUTION_HUMANOID; // 1000
-        break;
-      case EvolutionStage.HUMANOID:
-        nextThreshold = GAME_CONFIG.EVOLUTION_GODCELL; // 2000
-        break;
-      case EvolutionStage.GODCELL:
-        return 0; // Godcells don't evolve further
-      default:
-        return 0;
-    }
-
-    // Calculate progress toward threshold (0.0-1.0)
-    const rawProgress = maxEnergy / nextThreshold;
-
-    // Map 30-100% into 0.0-1.0 range
-    // If below 30%, return 0 (no visual effects)
-    if (rawProgress < 0.3) return 0;
-
-    // Normalize: (rawProgress - 0.3) / (1.0 - 0.3) = (rawProgress - 0.3) / 0.7
-    return Math.min((rawProgress - 0.3) / 0.7, 1.0);
   }
 
   /**
@@ -2162,7 +1388,7 @@ export class ThreeRenderer implements Renderer {
 
     // Calculate evolution progress (0.0 = start, 1.0 = ready to evolve)
     // Progress starts counting at 30% of next evolution threshold
-    const evolutionProgress = this.calculateEvolutionProgress(maxEnergy, stage);
+    const evolutionProgress = calculateEvolutionProgress(maxEnergy, stage);
     const isApproachingEvolution = evolutionProgress >= 0.3; // 30% threshold
 
     // Get cell components (membrane, cytoplasm, organelles, nucleus)
@@ -2232,370 +1458,15 @@ export class ThreeRenderer implements Renderer {
       cellGroup.scale.set(cellPulse, cellPulse, cellPulse);
 
       // 2. Particle Corona - orbiting glow particles
-      this.updateEvolutionCorona(cellGroup, evolutionProgress);
+      updateEvolutionCorona(cellGroup, evolutionProgress);
 
       // 3. Glow Ring - shrinking torus around cell
-      this.updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius || 10);
+      updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius || 10);
     } else {
       // No evolution effects - reset scale and remove corona/ring
       cellGroup.scale.set(1, 1, 1);
-      this.removeEvolutionEffects(cellGroup);
+      removeEvolutionEffects(cellGroup);
     }
-  }
-
-  /**
-   * Update or create orbiting particle corona for evolving cells
-   * Particle count scales from 5 (30%) to 15 (100%)
-   */
-  private updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress: number): void {
-    const radius = cellGroup.userData.radius || 10;
-    const colorHex = cellGroup.userData.colorHex || 0x00ff88;
-    const orbitRadius = radius * 3.0; // Particles orbit at 3.0x cell radius (outside the torus)
-
-    // Calculate particle count based on progress (5 at 0, 15 at 1.0)
-    const targetCount = Math.floor(5 + evolutionProgress * 10);
-
-    // Get or create corona container
-    let corona = cellGroup.userData.evolutionCorona as THREE.Group | undefined;
-    if (!corona) {
-      corona = new THREE.Group();
-      corona.name = 'evolutionCorona';
-      cellGroup.add(corona);
-      cellGroup.userData.evolutionCorona = corona;
-    }
-
-    // Adjust particle count
-    while (corona.children.length < targetCount) {
-      // Create new particle
-      const particleGeometry = new THREE.SphereGeometry(2, 8, 8);
-      const particleMaterial = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.8,
-      });
-      const particle = new THREE.Mesh(particleGeometry, particleMaterial);
-
-      // Random initial angle
-      particle.userData.angle = Math.random() * Math.PI * 2;
-      particle.userData.orbitSpeed = 0.5 + Math.random() * 0.5; // 0.5-1.0 rad/s
-
-      corona.add(particle);
-    }
-
-    while (corona.children.length > targetCount) {
-      const particle = corona.children[corona.children.length - 1];
-      corona.remove(particle);
-    }
-
-    // Update particle positions (orbit around cell)
-    const time = Date.now() * 0.001; // seconds
-    corona.children.forEach((particle) => {
-      if (particle instanceof THREE.Mesh) {
-        const orbitSpeed = particle.userData.orbitSpeed || 1.0;
-        const angle = particle.userData.angle + time * orbitSpeed;
-
-        // Position on circular orbit
-        particle.position.x = Math.cos(angle) * orbitRadius;
-        particle.position.y = Math.sin(angle) * orbitRadius;
-        particle.position.z = 0;
-
-        // Brightness pulses with evolution progress
-        const material = particle.material as THREE.MeshBasicMaterial;
-        material.opacity = 0.6 + evolutionProgress * 0.4; // 0.6-1.0
-      }
-    });
-  }
-
-  /**
-   * Update or create glowing torus ring for evolving cells
-   * Ring shrinks from 2.5x → 1.5x radius, brightens from 0.5 → 3.0 intensity
-   */
-  private updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: number, radius: number): void {
-    const colorHex = cellGroup.userData.colorHex || 0x00ff88;
-
-    // Calculate ring size (shrinks as evolution approaches)
-    const ringRadius = radius * (2.5 - evolutionProgress * 1.0); // 2.5x → 1.5x
-    const tubeRadius = 2 + evolutionProgress * 2; // 2 → 4 (thickens)
-
-    // Calculate emissive intensity (brightens)
-    const emissiveIntensity = 0.5 + evolutionProgress * 2.5; // 0.5 → 3.0
-
-    // Get or create ring
-    let ring = cellGroup.userData.evolutionRing as THREE.Mesh | undefined;
-    if (!ring) {
-      const ringGeometry = new THREE.TorusGeometry(ringRadius, tubeRadius, 16, 32);
-      const ringMaterial = new THREE.MeshStandardMaterial({
-        color: colorHex,
-        emissive: colorHex,
-        emissiveIntensity: emissiveIntensity,
-        transparent: true,
-        opacity: 0.0, // Will be set below based on evolutionProgress
-      });
-      ring = new THREE.Mesh(ringGeometry, ringMaterial);
-      ring.name = 'evolutionRing';
-      cellGroup.add(ring);
-      cellGroup.userData.evolutionRing = ring;
-    }
-
-    // Update ring geometry and material
-    const oldGeometry = ring.geometry;
-    ring.geometry = new THREE.TorusGeometry(ringRadius, tubeRadius, 16, 32);
-    oldGeometry.dispose(); // Clean up old geometry
-
-    const material = ring.material as THREE.MeshStandardMaterial;
-    material.emissiveIntensity = emissiveIntensity;
-    // Fade in gradually from 0.0 → 0.8 as evolution approaches
-    material.opacity = evolutionProgress * 0.8;
-
-    // Gentle rotation
-    const time = Date.now() * 0.0005;
-    ring.rotation.z = time;
-  }
-
-  /**
-   * Remove evolution visual effects (corona, ring) when not approaching evolution
-   */
-  private removeEvolutionEffects(cellGroup: THREE.Group): void {
-    // Remove corona
-    const corona = cellGroup.userData.evolutionCorona as THREE.Group | undefined;
-    if (corona) {
-      corona.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-      cellGroup.remove(corona);
-      cellGroup.userData.evolutionCorona = undefined;
-    }
-
-    // Remove ring
-    const ring = cellGroup.userData.evolutionRing as THREE.Mesh | undefined;
-    if (ring) {
-      ring.geometry.dispose();
-      (ring.material as THREE.Material).dispose();
-      cellGroup.remove(ring);
-      cellGroup.userData.evolutionRing = undefined;
-    }
-  }
-
-  /**
-   * Update compass indicators on white circle (chemical sensing)
-   * Shows colored arrows on the ring edge pointing toward detected entities
-   */
-  private updateCompassIndicators(playerPosition: { x: number; y: number }, radius: number, stage: EvolutionStage): void {
-    // Remove old compass indicators if they exist
-    if (this.compassIndicators) {
-      this.compassIndicators.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-      this.scene.remove(this.compassIndicators);
-      this.compassIndicators = null;
-    }
-
-    // Only show compass for Stage 2+ (multi-cell has chemical sensing)
-    if (stage === EvolutionStage.SINGLE_CELL) return;
-
-    // No detected entities to show
-    if (this.detectedEntities.length === 0) return;
-
-    // Create new compass group
-    this.compassIndicators = new THREE.Group();
-    this.compassIndicators.position.set(playerPosition.x, playerPosition.y, 0.2); // Above outline
-
-    const arrowSize = 12; // Base size of arrow (bigger)
-    const ringRadius = radius + 35; // Position on invisible ring outside the white circle
-
-    // Render arrow for each detected entity
-    for (const entity of this.detectedEntities) {
-      // Calculate angle from player to entity
-      const dx = entity.position.x - playerPosition.x;
-      const dy = entity.position.y - playerPosition.y;
-      const angle = Math.atan2(dy, dx);
-
-      // Choose color based on entity type
-      let arrowColor: number;
-      if (entity.entityType === 'nutrient') {
-        arrowColor = 0x00ff00; // Green
-      } else if (entity.entityType === 'player') {
-        arrowColor = 0xff00ff; // Magenta
-      } else {
-        arrowColor = 0xff0000; // Red for swarms
-      }
-
-      // Create arrow geometry (pointier triangle)
-      const arrowGeometry = new THREE.BufferGeometry();
-      const vertices = new Float32Array([
-        0, arrowSize * 1.2, 0,           // Tip (pointing outward, longer)
-        -arrowSize * 0.35, -arrowSize * 0.4, 0,  // Base left (narrower)
-        arrowSize * 0.35, -arrowSize * 0.4, 0,   // Base right (narrower)
-      ]);
-      arrowGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-
-      const arrowMaterial = new THREE.MeshBasicMaterial({
-        color: arrowColor,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      });
-
-      const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
-
-      // Position arrow on ring edge
-      arrow.position.x = Math.cos(angle) * ringRadius;
-      arrow.position.y = Math.sin(angle) * ringRadius;
-      arrow.position.z = 0;
-
-      // Rotate arrow to point outward from circle center toward entity
-      // Add π/2 to account for arrow's default +Y orientation vs angle's +X reference
-      arrow.rotation.z = angle - Math.PI / 2;
-
-      this.compassIndicators.add(arrow);
-    }
-
-    this.scene.add(this.compassIndicators);
-  }
-
-  /**
-   * Create a single-cell organism mesh
-   */
-  private createSingleCell(radius: number, colorHex: number): THREE.Group {
-    const cellGroup = new THREE.Group();
-
-    // === OUTER MEMBRANE (Transparent shell) ===
-    const membraneGeometry = this.getGeometry(`sphere-membrane-${radius}`, () =>
-      new THREE.SphereGeometry(radius, 32, 32)
-    );
-
-    const membraneMaterial = new THREE.MeshPhysicalMaterial({
-      color: colorHex,
-      transparent: true,
-      opacity: 0.15,
-      roughness: 0.1,
-      metalness: 0.05,
-      clearcoat: 0.8,
-    });
-
-    const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
-    cellGroup.add(membrane);
-
-    // === CYTOPLASM (Volumetric jelly with shader) ===
-    const nucleusRadius = radius * 0.3;
-    const cytoplasmGeometry = this.getGeometry(`sphere-cytoplasm-${radius}`, () =>
-      new THREE.SphereGeometry(radius * 0.95, 32, 32)
-    );
-
-    const cytoplasmMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        color: { value: new THREE.Color(colorHex) },
-        opacity: { value: 0.5 },
-        nucleusRadius: { value: nucleusRadius },
-        cellRadius: { value: radius * 0.95 },
-        energyRatio: { value: 1.0 },
-      },
-      vertexShader: `
-        varying vec3 vPosition;
-        varying vec3 vNormal;
-
-        void main() {
-          vPosition = position;
-          vNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 color;
-        uniform float opacity;
-        uniform float nucleusRadius;
-        uniform float cellRadius;
-        uniform float energyRatio;
-
-        varying vec3 vPosition;
-        varying vec3 vNormal;
-
-        void main() {
-          float dist = length(vPosition);
-          float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
-          vec3 viewDir = normalize(cameraPosition - vPosition);
-          float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
-          float alpha = mix(0.6, 0.2, gradient) * opacity;
-          alpha += fresnel * 0.15;
-          float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
-          vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, energyRatio) * depthDarken;
-          gl_FragColor = vec4(finalColor, alpha);
-        }
-      `,
-      transparent: true,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.NormalBlending,
-    });
-
-    const cytoplasm = new THREE.Mesh(cytoplasmGeometry, cytoplasmMaterial);
-    cellGroup.add(cytoplasm);
-
-    // === ORGANELLE PARTICLES ===
-    const particleCount = 15;
-    const particleGeometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-
-    const minRadius = nucleusRadius * 1.3;
-    const maxRadius = radius * 0.85;
-
-    for (let i = 0; i < particleCount; i++) {
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * Math.PI;
-      const r = minRadius + Math.random() * (maxRadius - minRadius);
-
-      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-      positions[i * 3 + 2] = r * Math.cos(phi);
-
-      sizes[i] = 1.5 + Math.random() * 1.5;
-    }
-
-    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    const particleMaterial = new THREE.PointsMaterial({
-      color: colorHex,
-      size: 2.5,
-      transparent: true,
-      opacity: 0.7,
-      sizeAttenuation: false,
-      blending: THREE.AdditiveBlending,
-    });
-
-    const organelles = new THREE.Points(particleGeometry, particleMaterial);
-    cellGroup.add(organelles);
-
-    // === INNER NUCLEUS ===
-    const nucleusGeometry = this.getGeometry(`sphere-nucleus-${nucleusRadius}`, () =>
-      new THREE.SphereGeometry(nucleusRadius, 16, 16)
-    );
-
-    const nucleusMaterial = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      emissive: colorHex,
-      emissiveIntensity: 2.0,
-      transparent: true,
-      opacity: 1.0,
-      depthWrite: false,
-    });
-
-    const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
-    cellGroup.add(nucleus);
-
-    // Store metadata for evolution effects
-    cellGroup.userData.radius = radius;
-    cellGroup.userData.colorHex = colorHex;
-
-    return cellGroup;
   }
 
   /**
@@ -2622,309 +1493,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Apply evolution visual effects (glow pulse, scale) during molting period
-   */
-  private applyEvolutionEffects(cellGroup: THREE.Group, stage: string, progress: number): void {
-    // Intense glow that peaks at 50% progress (sine wave) - 75% boost
-    const glowIntensity = Math.sin(progress * Math.PI) * 5.0; // 0 → 5 → 0
-
-    // Rapid pulse effect (multiple cycles during evolution) - 150% boost
-    const rapidPulse = Math.sin(progress * Math.PI * 8) * 0.2; // ±0.2
-    const scalePulse = 1.0 + rapidPulse;
-
-    // Apply effects based on stage (different structures)
-    if (stage === 'multi_cell') {
-      // Multi-cell: apply to all cell nuclei
-      const cellCount = cellGroup.userData.cellCount || 7;
-      for (let i = 0; i < cellCount; i++) {
-        const cell = cellGroup.children[i] as THREE.Group;
-        if (cell && cell.children) {
-          const nucleus = cell.children[1] as THREE.Mesh;
-          if (nucleus && nucleus.material) {
-            const material = nucleus.material as THREE.MeshStandardMaterial;
-            // Boost emissive intensity
-            material.emissiveIntensity = (material.emissiveIntensity || 1.5) + glowIntensity;
-          }
-        }
-      }
-
-      // Pulse entire group scale
-      cellGroup.scale.set(scalePulse, scalePulse, scalePulse);
-
-    } else {
-      // Single-cell: apply to nucleus (child 3)
-      const nucleus = cellGroup.children[3] as THREE.Mesh;
-      if (nucleus && nucleus.material) {
-        const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
-        // Boost emissive intensity (additive to current energy state)
-        nucleusMaterial.emissiveIntensity = (nucleusMaterial.emissiveIntensity || 2.0) + glowIntensity;
-      }
-
-      // Pulse entire group scale
-      cellGroup.scale.set(scalePulse, scalePulse, scalePulse);
-    }
-  }
-
-  private updateTrails(state: GameState): void {
-    const maxTrailLength = 50; // Trail point history
-
-    state.players.forEach((player, id) => {
-      // Get or create trail points array
-      let trailPoints = this.playerTrailPoints.get(id);
-      if (!trailPoints) {
-        trailPoints = [];
-        this.playerTrailPoints.set(id, trailPoints);
-      }
-
-      // Add current GROUP position to trail (not server position!)
-      const cellGroup = this.playerMeshes.get(id);
-      if (cellGroup) {
-        trailPoints.push({ x: cellGroup.position.x, y: cellGroup.position.y });
-      }
-
-      // Keep only last N points
-      if (trailPoints.length > maxTrailLength) {
-        trailPoints.shift();
-      }
-
-      // Get or create trail mesh
-      let trailMesh = this.playerTrailLines.get(id);
-      if (!trailMesh) {
-        const geometry = new THREE.BufferGeometry();
-        const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const material = new THREE.MeshBasicMaterial({
-          color: colorHex,
-          transparent: true,
-          opacity: 1,
-          side: THREE.DoubleSide,
-          vertexColors: true,
-        });
-        trailMesh = new THREE.Mesh(geometry, material);
-        trailMesh.position.z = -0.5;
-        this.scene.add(trailMesh);
-        this.playerTrailLines.set(id, trailMesh);
-      }
-
-      // Update trail opacity based on energy
-      const energyRatio = player.energy / player.maxEnergy;
-      const trailMaterial = trailMesh.material as THREE.MeshBasicMaterial;
-      // Trail fades out as energy gets low
-      trailMaterial.opacity = Math.max(0.2, energyRatio * 0.8 + 0.2); // 0.2-1.0 range
-
-      // Calculate trail width based on nucleus size (not full cell size)
-      const cellRadius = this.getPlayerRadius(player.stage);
-      const nucleusRadius = cellRadius * 0.3;
-      const maxWidth = nucleusRadius; // Trail width = nucleus radius
-
-      // Create tapered ribbon geometry
-      if (trailPoints.length >= 2) {
-        const vertexCount = trailPoints.length * 2; // Two vertices per point (top and bottom of ribbon)
-        const positions = new Float32Array(vertexCount * 3);
-        const colors = new Float32Array(vertexCount * 3);
-        const indices: number[] = [];
-
-        const colorHex = parseInt(player.color.replace('#', ''), 16);
-        const r = ((colorHex >> 16) & 255) / 255;
-        const g = ((colorHex >> 8) & 255) / 255;
-        const b = (colorHex & 255) / 255;
-
-        for (let i = 0; i < trailPoints.length; i++) {
-          const point = trailPoints[i];
-
-          // Calculate width taper: thick at newest (i=length-1), thin at oldest (i=0)
-          const age = i / (trailPoints.length - 1); // 0 = oldest, 1 = newest
-          const width = maxWidth * age; // Taper from 0 to maxWidth
-
-          // Calculate opacity fade
-          const opacity = Math.pow(age, 1.5); // Fade from transparent to bright
-
-          // Get perpendicular direction for ribbon width
-          let perpX = 0, perpY = 1;
-          if (i < trailPoints.length - 1) {
-            const next = trailPoints[i + 1];
-            const dx = next.x - point.x;
-            const dy = next.y - point.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-              perpX = -dy / len;
-              perpY = dx / len;
-            }
-          } else if (i > 0) {
-            const prev = trailPoints[i - 1];
-            const dx = point.x - prev.x;
-            const dy = point.y - prev.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-              perpX = -dy / len;
-              perpY = dx / len;
-            }
-          }
-
-          // Create two vertices (top and bottom of ribbon)
-          const idx = i * 2;
-
-          // Top vertex
-          positions[idx * 3] = point.x + perpX * width;
-          positions[idx * 3 + 1] = point.y + perpY * width;
-          positions[idx * 3 + 2] = 0;
-
-          colors[idx * 3] = r;
-          colors[idx * 3 + 1] = g;
-          colors[idx * 3 + 2] = b;
-
-          // Bottom vertex
-          positions[(idx + 1) * 3] = point.x - perpX * width;
-          positions[(idx + 1) * 3 + 1] = point.y - perpY * width;
-          positions[(idx + 1) * 3 + 2] = 0;
-
-          colors[(idx + 1) * 3] = r * opacity;
-          colors[(idx + 1) * 3 + 1] = g * opacity;
-          colors[(idx + 1) * 3 + 2] = b * opacity;
-
-          // Create triangle indices for ribbon
-          if (i < trailPoints.length - 1) {
-            const current = i * 2;
-            const next = (i + 1) * 2;
-
-            // Two triangles per segment
-            indices.push(current, next, current + 1);
-            indices.push(next, next + 1, current + 1);
-          }
-        }
-
-        trailMesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        trailMesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        trailMesh.geometry.setIndex(indices);
-        trailMesh.geometry.computeBoundingSphere();
-      }
-    });
-
-    // Clean up trails for disconnected players
-    this.playerTrailPoints.forEach((_, id) => {
-      if (!state.players.has(id)) {
-        const mesh = this.playerTrailLines.get(id);
-        if (mesh) {
-          this.scene.remove(mesh);
-          mesh.geometry.dispose();
-          (mesh.material as THREE.Material).dispose();
-          this.playerTrailLines.delete(id);
-        }
-        this.playerTrailPoints.delete(id);
-      }
-    });
-  }
-
-  private spawnDeathParticles(x: number, y: number, colorHex: number): void {
-    const particleCount = 30;
-    const duration = 800; // 0.8 seconds
-
-    // Create particle geometry and material
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }> = [];
-
-    for (let i = 0; i < particleCount; i++) {
-      // Random angle for radial burst
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 100 + Math.random() * 200; // pixels per second
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.2; // Above everything else
-
-      sizes[i] = 3 + Math.random() * 4;
-
-      particleData.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 1.0, // Start at full life
-      });
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    const material = new THREE.PointsMaterial({
-      color: colorHex,
-      size: 4,
-      transparent: true,
-      opacity: 1,
-      sizeAttenuation: false,
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
-
-    // Track this animation
-    this.deathAnimations.push({
-      particles,
-      particleData,
-      startTime: Date.now(),
-      duration,
-    });
-  }
-
-  /**
-   * Spawn hit sparks when pseudopod beam strikes a target
-   * Red particle burst with higher velocity than death particles
-   */
-  private spawnHitSparks(x: number, y: number): void {
-    const particleCount = 40; // More particles than death for intense effect
-    const duration = 500; // 0.5 seconds - quick and punchy
-
-    // Create particle geometry and material
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }> = [];
-
-    for (let i = 0; i < particleCount; i++) {
-      // Random angle for radial burst
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 200 + Math.random() * 400; // Higher speed than death particles (more explosive)
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.2; // Above everything else
-
-      sizes[i] = 2 + Math.random() * 3; // Slightly smaller than death particles
-
-      particleData.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 1.0, // Start at full life
-      });
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    const material = new THREE.PointsMaterial({
-      color: 0xff0000, // Red color for damage indication
-      size: 3,
-      transparent: true,
-      opacity: 1,
-      sizeAttenuation: false,
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
-
-    // Track this animation
-    this.deathAnimations.push({
-      particles,
-      particleData,
-      startTime: Date.now(),
-      duration,
-    });
-  }
-
-  /**
    * Flash the drain aura on a target when hit by pseudopod beam
    * Temporarily increases brightness/scale for impact feedback
    */
@@ -2942,439 +1510,11 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
-  /**
-   * Spawn evolution particles that orbit outward then spiral back inward
-   */
-  private spawnEvolutionParticles(x: number, y: number, colorHex: number, duration: number): void {
-    const particleCount = 60; // More particles than death for dramatic effect
-
-    // Create particle geometry and material
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const particleData: Array<{
-      angle: number;
-      radius: number;
-      radiusVelocity: number;
-      angleVelocity: number;
-      centerX: number;
-      centerY: number;
-    }> = [];
-
-    for (let i = 0; i < particleCount; i++) {
-      // Evenly distribute particles in a circle
-      const angle = (i / particleCount) * Math.PI * 2;
-      const startRadius = 10; // Start close to cell
-
-      positions[i * 3] = x + Math.cos(angle) * startRadius;
-      positions[i * 3 + 1] = y + Math.sin(angle) * startRadius;
-      positions[i * 3 + 2] = 0.2; // Above everything else
-
-      sizes[i] = 2 + Math.random() * 2;
-
-      // Particle will orbit outward then inward (controlled by update function)
-      particleData.push({
-        angle,
-        radius: startRadius,
-        radiusVelocity: 80, // pixels per second outward
-        angleVelocity: 2.0 + Math.random(), // radians per second (rotation speed)
-        centerX: x,
-        centerY: y,
-      });
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    const material = new THREE.PointsMaterial({
-      color: colorHex,
-      size: 3,
-      transparent: true,
-      opacity: 1,
-      sizeAttenuation: false,
-      blending: THREE.AdditiveBlending, // Additive blending for energy feel
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
-
-    // Track this animation
-    this.evolutionAnimations.push({
-      particles,
-      particleData,
-      startTime: Date.now(),
-      duration,
-      colorHex,
-    });
-  }
-
-  /**
-   * Spawn EMP pulse - expanding blue/white electromagnetic ring
-   */
-  private spawnEMPPulse(x: number, y: number): void {
-    const particleCount = 80; // Dense ring of particles
-    const duration = 600; // 0.6 seconds to expand and fade
-    const initialRadius = 20; // Start small
-
-    // Create particle geometry and material
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const particleData: Array<{
-      angle: number;
-      radius: number;
-      initialRadius: number;
-      life: number;
-    }> = [];
-
-    for (let i = 0; i < particleCount; i++) {
-      // Evenly distribute particles in a circle
-      const angle = (i / particleCount) * Math.PI * 2;
-
-      positions[i * 3] = x + Math.cos(angle) * initialRadius;
-      positions[i * 3 + 1] = y + Math.sin(angle) * initialRadius;
-      positions[i * 3 + 2] = 0.3; // Above everything else (higher than evolution particles)
-
-      sizes[i] = 3 + Math.random() * 2;
-
-      particleData.push({
-        angle,
-        radius: initialRadius,
-        initialRadius,
-        life: 1.0, // Full life at start
-      });
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    const material = new THREE.PointsMaterial({
-      color: 0x66ccff, // Blue-white electromagnetic color
-      size: 4,
-      transparent: true,
-      opacity: 1,
-      sizeAttenuation: false,
-      blending: THREE.AdditiveBlending, // Additive blending for energy pulse
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
-
-    // Track this animation
-    this.empEffects.push({
-      particles,
-      particleData,
-      startTime: Date.now(),
-      duration,
-      centerX: x,
-      centerY: y,
-    });
-  }
-
-  /**
-   * Spawn swarm death explosion - all particles burst outward and fade
-   */
-  private spawnSwarmDeathExplosion(x: number, y: number): void {
-    const particleCount = 200; // Lots of particles for dramatic effect (orbiting + internal)
-    const duration = 1200; // 1.2 seconds
-
-    // Create particle geometry and material
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const particleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }> = [];
-
-    // Create explosion particles radiating outward in all directions (3D sphere)
-    for (let i = 0; i < particleCount; i++) {
-      // Random direction in 3D space
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * Math.PI;
-
-      // Initial position at center
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.2; // Same layer as swarms
-
-      // Random sizes (mix of large and small)
-      sizes[i] = 2 + Math.random() * 6;
-
-      // Explosion velocity - fast outward burst
-      const speed = 150 + Math.random() * 250; // 150-400 pixels per second
-      const vx = speed * Math.sin(phi) * Math.cos(theta);
-      const vy = speed * Math.sin(phi) * Math.sin(theta);
-      const vz = speed * Math.cos(phi);
-
-      particleData.push({
-        x, y, z: 0.2,
-        vx, vy, vz,
-        life: 1.0, // Full life at start
-      });
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    // Orange/red swarm colors for death particles
-    const material = new THREE.PointsMaterial({
-      color: 0xff6600, // Bright orange
-      size: 4,
-      transparent: true,
-      opacity: 1,
-      sizeAttenuation: false,
-      blending: THREE.AdditiveBlending, // Additive for energy burst
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    this.scene.add(particles);
-
-    // Track this animation
-    this.swarmDeathAnimations.push({
-      particles,
-      particleData,
-      startTime: Date.now(),
-      duration,
-    });
-  }
-
-  private updateDeathAnimations(dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const now = Date.now();
-    const finishedAnimations: number[] = [];
-
-    this.deathAnimations.forEach((anim, index) => {
-      const elapsed = now - anim.startTime;
-      const progress = Math.min(elapsed / anim.duration, 1);
-
-      if (progress >= 1) {
-        // Animation finished - mark for removal
-        finishedAnimations.push(index);
-        return;
-      }
-
-      // Update particle positions and fade
-      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
-
-      for (let i = 0; i < anim.particleData.length; i++) {
-        const p = anim.particleData[i];
-
-        // Move particle
-        p.x += p.vx * deltaSeconds;
-        p.y += p.vy * deltaSeconds;
-
-        // Update geometry position
-        positions[i * 3] = p.x;
-        positions[i * 3 + 1] = p.y;
-
-        // Fade out life
-        p.life = 1 - progress;
-      }
-
-      anim.particles.geometry.attributes.position.needsUpdate = true;
-
-      // Update material opacity for fade out
-      const material = anim.particles.material as THREE.PointsMaterial;
-      material.opacity = 1 - progress;
-    });
-
-    // Clean up finished animations (reverse order to avoid index shifting)
-    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
-      const index = finishedAnimations[i];
-      const anim = this.deathAnimations[index];
-
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-
-      this.deathAnimations.splice(index, 1);
-    }
-  }
-
-  /**
-   * Update evolution particle animations (orbit outward then spiral back)
-   */
-  private updateEvolutionAnimations(dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const now = Date.now();
-    const finishedAnimations: number[] = [];
-
-    this.evolutionAnimations.forEach((anim, index) => {
-      const elapsed = now - anim.startTime;
-      const progress = Math.min(elapsed / anim.duration, 1);
-
-      if (progress >= 1) {
-        // Animation finished - mark for removal
-        finishedAnimations.push(index);
-        return;
-      }
-
-      // Update particle positions
-      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
-
-      for (let i = 0; i < anim.particleData.length; i++) {
-        const p = anim.particleData[i];
-
-        // Orbit: update angle
-        p.angle += p.angleVelocity * deltaSeconds;
-
-        // Radius: expand to 0.5, then contract back to center
-        // Use smooth sine wave: out → in
-        const radiusProgress = Math.sin(progress * Math.PI); // 0 → 1 → 0
-        const maxRadius = 100;
-        p.radius = 10 + radiusProgress * maxRadius;
-
-        // Calculate new position based on polar coordinates
-        const x = p.centerX + Math.cos(p.angle) * p.radius;
-        const y = p.centerY + Math.sin(p.angle) * p.radius;
-
-        // Update geometry position
-        positions[i * 3] = x;
-        positions[i * 3 + 1] = y;
-        positions[i * 3 + 2] = 0.2;
-      }
-
-      anim.particles.geometry.attributes.position.needsUpdate = true;
-
-      // Fade out near end
-      const material = anim.particles.material as THREE.PointsMaterial;
-      material.opacity = progress < 0.8 ? 1.0 : (1.0 - (progress - 0.8) / 0.2);
-    });
-
-    // Clean up finished animations (reverse order to avoid index shifting)
-    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
-      const index = finishedAnimations[i];
-      const anim = this.evolutionAnimations[index];
-
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-
-      this.evolutionAnimations.splice(index, 1);
-    }
-  }
-
-  /**
-   * Update EMP pulse animations (expanding ring that fades out)
-   */
-  private updateEMPEffects(_dt: number): void {
-    const now = Date.now();
-    const finishedAnimations: number[] = [];
-
-    this.empEffects.forEach((anim, index) => {
-      const elapsed = now - anim.startTime;
-      const progress = Math.min(elapsed / anim.duration, 1);
-
-      if (progress >= 1) {
-        // Animation finished - mark for removal
-        finishedAnimations.push(index);
-        return;
-      }
-
-      // Update particle positions - expand from initial radius to EMP_RANGE
-      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
-      const maxRadius = GAME_CONFIG.EMP_RANGE; // 384 units
-
-      for (let i = 0; i < anim.particleData.length; i++) {
-        const p = anim.particleData[i];
-
-        // Expand radius linearly
-        p.radius = p.initialRadius + (maxRadius - p.initialRadius) * progress;
-
-        // Calculate new position based on polar coordinates
-        const x = anim.centerX + Math.cos(p.angle) * p.radius;
-        const y = anim.centerY + Math.sin(p.angle) * p.radius;
-
-        // Update geometry position
-        positions[i * 3] = x;
-        positions[i * 3 + 1] = y;
-        positions[i * 3 + 2] = 0.3;
-      }
-
-      anim.particles.geometry.attributes.position.needsUpdate = true;
-
-      // Fade out as it expands (starts fading at 40% progress)
-      const material = anim.particles.material as THREE.PointsMaterial;
-      material.opacity = progress < 0.4 ? 1.0 : (1.0 - (progress - 0.4) / 0.6);
-    });
-
-    // Clean up finished animations (reverse order to avoid index shifting)
-    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
-      const index = finishedAnimations[i];
-      const anim = this.empEffects[index];
-
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-
-      this.empEffects.splice(index, 1);
-    }
-  }
-
-  /**
-   * Update swarm death explosion animations (particles burst outward and fade)
-   */
-  private updateSwarmDeathAnimations(dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const now = Date.now();
-    const finishedAnimations: number[] = [];
-
-    this.swarmDeathAnimations.forEach((anim, index) => {
-      const elapsed = now - anim.startTime;
-      const progress = Math.min(elapsed / anim.duration, 1);
-
-      if (progress >= 1) {
-        // Animation finished - mark for removal
-        finishedAnimations.push(index);
-        return;
-      }
-
-      // Update particle positions - explode outward
-      const positions = anim.particles.geometry.attributes.position.array as Float32Array;
-
-      for (let i = 0; i < anim.particleData.length; i++) {
-        const p = anim.particleData[i];
-
-        // Move particle based on velocity
-        p.x += p.vx * deltaSeconds;
-        p.y += p.vy * deltaSeconds;
-        p.z += p.vz * deltaSeconds;
-
-        // Update geometry position
-        positions[i * 3] = p.x;
-        positions[i * 3 + 1] = p.y;
-        positions[i * 3 + 2] = p.z;
-      }
-
-      anim.particles.geometry.attributes.position.needsUpdate = true;
-
-      // Fade out over entire duration
-      const material = anim.particles.material as THREE.PointsMaterial;
-      material.opacity = 1.0 - progress; // Linear fade
-    });
-
-    // Clean up finished animations (reverse order to avoid index shifting)
-    for (let i = finishedAnimations.length - 1; i >= 0; i--) {
-      const index = finishedAnimations[i];
-      const anim = this.swarmDeathAnimations[index];
-
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-
-      this.swarmDeathAnimations.splice(index, 1);
-    }
-  }
-
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
     const aspect = width / height;
-    const baseFrustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
-    const scaledFrustumSize = baseFrustumSize * this.currentZoom; // Respect current zoom
-    this.camera.left = (scaledFrustumSize * aspect) / -2;
-    this.camera.right = (scaledFrustumSize * aspect) / 2;
-    this.camera.top = scaledFrustumSize / 2;
-    this.camera.bottom = scaledFrustumSize / -2;
-    this.camera.updateProjectionMatrix();
+    applyCameraZoom(this.camera, this.currentZoom, aspect);
   }
 
   getCameraCapabilities(): CameraCapabilities {
@@ -3415,6 +1555,9 @@ export class ThreeRenderer implements Renderer {
     this.nutrientMeshes.clear();
     this.playerMeshes.clear();
     this.playerOutlines.clear();
+
+    // Clean up player trails
+    disposeAllTrails(this.scene, this.playerTrailPoints, this.playerTrailLines);
 
     // Clean up drain auras (both Mesh for players and Group for swarms)
     this.drainAuraMeshes.forEach(auraMesh => {
@@ -3481,6 +1624,16 @@ export class ThreeRenderer implements Renderer {
     // Dispose cached materials
     this.materialCache.forEach(mat => mat.dispose());
     this.materialCache.clear();
+
+    // Clean up compass indicators
+    if (this.compassIndicators) {
+      disposeCompassIndicators(this.compassIndicators);
+      this.scene.remove(this.compassIndicators);
+      this.compassIndicators = null;
+    }
+
+    // Dispose extracted module caches
+    disposeSingleCellCache();
 
     // Dispose composer
     this.composer.dispose();
