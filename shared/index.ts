@@ -12,6 +12,14 @@ export interface Position {
 // Death causes for players
 export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation' | 'beam';
 
+// Damage sources for visual feedback (drain auras)
+export type DamageSource =
+  | 'predation'   // Red (multi-cell contact drain)
+  | 'swarm'       // Red (entropy swarm attacks)
+  | 'beam'        // Red (pseudopod projectiles)
+  | 'gravity'     // Red (gravity well crushing)
+  | 'starvation'; // Yellow/orange (zero energy)
+
 // Evolution stages
 export enum EvolutionStage {
   SINGLE_CELL = 'single_cell',
@@ -261,8 +269,20 @@ export interface SwarmConsumedMessage {
 
 export interface PlayerDrainStateMessage {
   type: 'playerDrainState';
-  drainedPlayerIds: string[]; // Array of player IDs currently being drained
-  drainedSwarmIds: string[]; // Array of swarm IDs currently being consumed
+  drainedPlayerIds: string[]; // DEPRECATED - kept for backward compat
+  drainedSwarmIds: string[]; // DEPRECATED - kept for backward compat
+
+  // NEW: Comprehensive damage tracking per entity
+  damageInfo: Record<string, {
+    totalDamageRate: number;    // Combined damage per second from all sources
+    primarySource: DamageSource; // Dominant damage source (for color)
+    proximityFactor?: number;    // 0-1 for gradient effects (gravity wells)
+  }>;
+
+  swarmDamageInfo: Record<string, {
+    totalDamageRate: number;
+    primarySource: DamageSource;
+  }>;
 }
 
 export interface PseudopodHitMessage {
