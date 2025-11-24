@@ -29,6 +29,10 @@ export class GameState {
   readonly playerTargets: Map<string, InterpolationTarget> = new Map();
   readonly swarmTargets: Map<string, InterpolationTarget> = new Map();
 
+  // Status tracking
+  readonly drainedPlayerIds: Set<string> = new Set(); // Players currently being drained (for visual feedback)
+  readonly drainedSwarmIds: Set<string> = new Set(); // Swarms currently being consumed (for visual feedback)
+
   // Local player reference
   myPlayerId: string | null = null;
 
@@ -180,6 +184,17 @@ export class GameState {
   }
 
   /**
+   * Update sets of players/swarms being drained (for visual feedback)
+   */
+  updateDrainedPlayers(playerIds: string[], swarmIds: string[] = []): void {
+    this.drainedPlayerIds.clear();
+    playerIds.forEach(id => this.drainedPlayerIds.add(id));
+
+    this.drainedSwarmIds.clear();
+    swarmIds.forEach(id => this.drainedSwarmIds.add(id));
+  }
+
+  /**
    * Reset all state (for cleanup/testing)
    */
   reset(): void {
@@ -190,6 +205,8 @@ export class GameState {
     this.pseudopods.clear();
     this.playerTargets.clear();
     this.swarmTargets.clear();
+    this.drainedPlayerIds.clear();
+    this.drainedSwarmIds.clear();
     this.myPlayerId = null;
   }
 }

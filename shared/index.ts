@@ -259,6 +259,12 @@ export interface SwarmConsumedMessage {
   consumerId: string;
 }
 
+export interface PlayerDrainStateMessage {
+  type: 'playerDrainState';
+  drainedPlayerIds: string[]; // Array of player IDs currently being drained
+  drainedSwarmIds: string[]; // Array of swarm IDs currently being consumed
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -281,7 +287,8 @@ export type ServerMessage =
   | PlayerEngulfedMessage
   | DetectionUpdateMessage
   | EMPActivatedMessage
-  | SwarmConsumedMessage;
+  | SwarmConsumedMessage
+  | PlayerDrainStateMessage;
 
 // ============================================
 // Game Constants

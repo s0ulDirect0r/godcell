@@ -25,6 +25,7 @@ import type {
   DetectionUpdateMessage,
   EMPActivatedMessage,
   SwarmConsumedMessage,
+  PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { GameState } from '../state/GameState';
 import { eventBus } from '../events/EventBus';
@@ -266,6 +267,12 @@ export class SocketManager {
     this.socket.on('swarmConsumed', (data: SwarmConsumedMessage) => {
       // Remove consumed swarm from game state
       this.gameState.removeSwarm(data.swarmId);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('playerDrainState', (data: PlayerDrainStateMessage) => {
+      // Update game state with which players/swarms are being drained
+      this.gameState.updateDrainedPlayers(data.drainedPlayerIds, data.drainedSwarmIds);
       eventBus.emit(data);
     });
   }

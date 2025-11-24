@@ -141,7 +141,12 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 - Comments:
   - Add brief comments only for non-obvious logic or invariants.
   - Avoid long narrative comments; put design notes in docs or beads.
-- Match the project’s existing TypeScript style (imports, naming, etc.).
+  - **Visual/Rendering Parameters:** When creating or modifying visual effects (Three.js meshes, materials, animations), add inline comments explaining:
+    - What each parameter controls (e.g., "shell thickness", "bloom strength", "breathing frequency")
+    - The value range and its effect (e.g., "Range: 0.4 - 0.8", "higher = brighter glow")
+    - Why specific values were chosen when non-obvious
+    - This makes visual tuning much easier later.
+- Match the project's existing TypeScript style (imports, naming, etc.).
 
 ### Logging
 

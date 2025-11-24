@@ -42,6 +42,7 @@ export class ThreeRenderer implements Renderer {
   private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
+  private drainAuraMeshes: Map<string, THREE.Mesh | THREE.Group> = new Map(); // Red aura for players/swarms being drained (Mesh for players, Group for swarms)
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private obstacleParticles: Map<string, Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; maxLife: number }>> = new Map(); // Accretion disk particles
   private obstaclePulsePhase: Map<string, number> = new Map(); // Phase offset for core pulsing animation
@@ -539,6 +540,9 @@ export class ThreeRenderer implements Renderer {
 
     // Animate swarm particles
     this.updateSwarmParticles(state, dt);
+
+    // Update drain visual feedback (red auras)
+    this.updateDrainAuras(state, dt);
 
     // Animate obstacle particles
     this.updateObstacleParticles(state, dt);
@@ -1371,6 +1375,268 @@ export class ThreeRenderer implements Renderer {
 
         // Mark positions as needing update
         orbitingParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    });
+  }
+
+  /**
+   * Update drain visual feedback (red aura around drained players)
+   */
+  private updateDrainAuras(state: GameState, dt: number): void {
+    const time = Date.now() * 0.001;
+
+    // For each player, check if they should have a drain aura
+    state.players.forEach((player, playerId) => {
+      const playerMesh = this.playerMeshes.get(playerId);
+      if (!playerMesh) return;
+
+      const isDrained = state.drainedPlayerIds.has(playerId);
+
+      if (isDrained) {
+        // Create or update drain aura
+        let auraMesh = this.drainAuraMeshes.get(playerId);
+
+        if (!auraMesh) {
+          // Create thick shell aura (two spheres to create visible band)
+          // Shell thickness is controlled by the difference between inner/outer radius
+          const playerRadius = GAME_CONFIG.PLAYER_SIZE *
+            (player.stage === EvolutionStage.SINGLE_CELL
+              ? GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER
+              : GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER);
+
+          const innerRadius = playerRadius * 1.0;  // Inner edge at player boundary
+          const outerRadius = playerRadius * 1.1;  // Outer edge = 10% beyond boundary (shell thickness)
+
+          // Create outer sphere (viewed from inside)
+          const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
+          const outerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,              // Base red color
+            emissive: 0xff0000,           // Red glow for bloom effect
+            emissiveIntensity: 3.0,       // Bloom strength (higher = brighter glow in postprocessing)
+            transparent: true,
+            opacity: 0.6,                 // Base visibility (animated below)
+            side: THREE.BackSide,         // Render inside of outer sphere
+            depthWrite: false,
+            depthTest: false,
+          });
+
+          const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+
+          // Create inner sphere to carve out hollow (viewed from outside)
+          const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
+          const innerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,
+            emissive: 0xff0000,
+            emissiveIntensity: 3.0,       // Match outer sphere for consistent glow
+            transparent: true,
+            opacity: 0.6,
+            side: THREE.FrontSide,        // Render outside of inner sphere
+            depthWrite: false,
+            depthTest: false,
+          });
+
+          const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
+
+          // Group them together
+          auraMesh = new THREE.Group() as any;
+          auraMesh.add(outerMesh);
+          auraMesh.add(innerMesh);
+          auraMesh.position.z = -1; // Behind player
+
+          this.drainAuraMeshes.set(playerId, auraMesh);
+          this.scene.add(auraMesh);
+        }
+
+        // Position aura at player position
+        auraMesh.position.x = playerMesh.position.x;
+        auraMesh.position.y = playerMesh.position.y;
+
+        // Pulsing scale animation (aura breathes in/out)
+        const pulseSpeed = 4.0;   // Cycles per second (higher = faster breathing)
+        const pulseAmount = 0.15; // Scale variation (0.15 = ±15% size change)
+        const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
+        auraMesh.scale.set(scale, scale, scale);
+
+        // Animate opacity and bloom intensity for both inner and outer spheres
+        const group = auraMesh as THREE.Group;
+        const outerMesh = group.children[0] as THREE.Mesh;
+        const innerMesh = group.children[1] as THREE.Mesh;
+        const outerMaterial = outerMesh.material as THREE.MeshStandardMaterial;
+        const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
+
+        // Flickering opacity (makes aura shimmer)
+        const opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
+
+        // Pulsing bloom intensity (makes glow brighter/dimmer)
+        const emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+
+        outerMaterial.opacity = opacity;
+        outerMaterial.emissiveIntensity = emissive;
+        innerMaterial.opacity = opacity;
+        innerMaterial.emissiveIntensity = emissive;
+
+      } else {
+        // Remove aura if player is no longer drained
+        const auraMesh = this.drainAuraMeshes.get(playerId);
+        if (auraMesh) {
+          this.scene.remove(auraMesh);
+          // Dispose group meshes (auras are groups with two spheres)
+          if (auraMesh instanceof THREE.Group) {
+            auraMesh.children.forEach(child => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+              }
+            });
+          } else if (auraMesh instanceof THREE.Mesh) {
+            auraMesh.geometry.dispose();
+            (auraMesh.material as THREE.Material).dispose();
+          }
+          this.drainAuraMeshes.delete(playerId);
+        }
+      }
+    });
+
+    // For each swarm, check if they should have a drain aura
+    state.swarms.forEach((swarm, swarmId) => {
+      const swarmMesh = this.swarmMeshes.get(swarmId);
+      if (!swarmMesh) return;
+
+      const isDrained = state.drainedSwarmIds.has(swarmId);
+      const auraId = `swarm-${swarmId}`; // Prefix to distinguish from player auras
+
+      if (isDrained) {
+        // Create or update drain aura for swarm
+        let auraMesh = this.drainAuraMeshes.get(auraId);
+
+        if (!auraMesh) {
+          // Create thick shell aura (two spheres to create visible band)
+          // Shell thickness is controlled by the difference between inner/outer radius
+          const innerRadius = swarm.size * 1.0;  // Inner edge at swarm boundary
+          const outerRadius = swarm.size * 1.1;  // Outer edge = 10% beyond boundary (shell thickness)
+
+          // Create outer sphere (viewed from inside)
+          const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
+          const outerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,              // Base red color
+            emissive: 0xff0000,           // Red glow for bloom effect
+            emissiveIntensity: 3.0,       // Bloom strength (higher = brighter glow in postprocessing)
+            transparent: true,
+            opacity: 0.6,                 // Base visibility (animated below)
+            side: THREE.BackSide,         // Render inside of outer sphere
+            depthWrite: false,
+            depthTest: false,
+          });
+
+          const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+
+          // Create inner sphere to carve out hollow (viewed from outside)
+          const innerGeometry = new THREE.SphereGeometry(innerRadius, 32, 32);
+          const innerMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff0000,
+            emissive: 0xff0000,
+            emissiveIntensity: 3.0,       // Match outer sphere for consistent glow
+            transparent: true,
+            opacity: 0.6,
+            side: THREE.FrontSide,        // Render outside of inner sphere
+            depthWrite: false,
+            depthTest: false,
+          });
+
+          const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
+
+          // Group them together
+          auraMesh = new THREE.Group() as any;
+          auraMesh.add(outerMesh);
+          auraMesh.add(innerMesh);
+          auraMesh.position.z = -1; // Behind swarm
+
+          this.drainAuraMeshes.set(auraId, auraMesh);
+          this.scene.add(auraMesh);
+        }
+
+        // Position aura at swarm position
+        auraMesh.position.x = swarmMesh.position.x;
+        auraMesh.position.y = swarmMesh.position.y;
+
+        // Pulsing scale animation (aura breathes in/out)
+        const pulseSpeed = 4.0;   // Cycles per second (higher = faster breathing)
+        const pulseAmount = 0.15; // Scale variation (0.15 = ±15% size change)
+        const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
+        auraMesh.scale.set(scale, scale, scale);
+
+        // Animate opacity and bloom intensity for both inner and outer spheres
+        const group = auraMesh as THREE.Group;
+        const outerMesh = group.children[0] as THREE.Mesh;
+        const innerMesh = group.children[1] as THREE.Mesh;
+        const outerMaterial = outerMesh.material as THREE.MeshStandardMaterial;
+        const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
+
+        // Flickering opacity (makes aura shimmer)
+        const opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
+
+        // Pulsing bloom intensity (makes glow brighter/dimmer)
+        const emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+
+        outerMaterial.opacity = opacity;
+        outerMaterial.emissiveIntensity = emissive;
+        innerMaterial.opacity = opacity;
+        innerMaterial.emissiveIntensity = emissive;
+
+      } else {
+        // Remove aura if swarm is no longer drained
+        const auraMesh = this.drainAuraMeshes.get(auraId);
+        if (auraMesh) {
+          this.scene.remove(auraMesh);
+          // Dispose group meshes (swarm auras are groups with two spheres)
+          if (auraMesh instanceof THREE.Group) {
+            auraMesh.children.forEach(child => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry.dispose();
+                (child.material as THREE.Material).dispose();
+              }
+            });
+          } else if (auraMesh instanceof THREE.Mesh) {
+            auraMesh.geometry.dispose();
+            (auraMesh.material as THREE.Material).dispose();
+          }
+          this.drainAuraMeshes.delete(auraId);
+        }
+      }
+    });
+
+    // Clean up auras for players/swarms that no longer exist
+    this.drainAuraMeshes.forEach((auraMesh, id) => {
+      let shouldCleanup = false;
+
+      // Check if it's a player aura (no prefix) or swarm aura (has prefix)
+      if (id.startsWith('swarm-')) {
+        const swarmId = id.substring(6); // Remove "swarm-" prefix
+        if (!state.swarms.has(swarmId)) {
+          shouldCleanup = true;
+        }
+      } else {
+        // Player aura
+        if (!state.players.has(id)) {
+          shouldCleanup = true;
+        }
+      }
+
+      if (shouldCleanup) {
+        this.scene.remove(auraMesh);
+        // Dispose group meshes (swarm auras) or single mesh (player auras)
+        if (auraMesh instanceof THREE.Group) {
+          auraMesh.children.forEach(child => {
+            if (child instanceof THREE.Mesh) {
+              child.geometry.dispose();
+              (child.material as THREE.Material).dispose();
+            }
+          });
+        } else if (auraMesh instanceof THREE.Mesh) {
+          auraMesh.geometry.dispose();
+          (auraMesh.material as THREE.Material).dispose();
+        }
+        this.drainAuraMeshes.delete(id);
       }
     });
   }
@@ -2970,6 +3236,24 @@ export class ThreeRenderer implements Renderer {
     // Clean up meshes (geometries are cached, so don't dispose them here)
     this.nutrientMeshes.clear();
     this.playerMeshes.clear();
+    this.playerOutlines.clear();
+
+    // Clean up drain auras (both Mesh for players and Group for swarms)
+    this.drainAuraMeshes.forEach(auraMesh => {
+      this.scene.remove(auraMesh);
+      if (auraMesh instanceof THREE.Group) {
+        auraMesh.children.forEach(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
+      } else if (auraMesh instanceof THREE.Mesh) {
+        auraMesh.geometry.dispose();
+        (auraMesh.material as THREE.Material).dispose();
+      }
+    });
+    this.drainAuraMeshes.clear();
 
     this.obstacleMeshes.forEach(group => {
       group.children.forEach(child => {

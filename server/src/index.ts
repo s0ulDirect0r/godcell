@@ -31,6 +31,7 @@ import type {
   EMPActivateMessage,
   EMPActivatedMessage,
   SwarmConsumedMessage,
+  PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
@@ -101,6 +102,10 @@ const playerEMPCooldowns: Map<string, number> = new Map();
 // Active energy drains (multi-cell draining prey on contact)
 // Maps prey ID → predator ID
 const activeDrains: Map<string, string> = new Map();
+
+// Active swarm consumption (multi-cells eating disabled swarms)
+// Set of swarm IDs currently being consumed
+const activeSwarmDrains: Set<string> = new Set();
 
 // All nutrients currently in the world
 // Maps nutrient ID → Nutrient data
@@ -859,9 +864,10 @@ function checkPredationCollisions(deltaTime: number) {
       const collisionDist = predatorRadius + preyRadius;
 
       if (dist < collisionDist) {
-        // Contact! Drain energy from prey
+        // Contact! Drain energy and health from prey
         const damage = GAME_CONFIG.CONTACT_DRAIN_RATE * deltaTime;
         prey.energy -= damage;
+        prey.health -= damage; // Also drain health so death check triggers
         currentDrains.add(preyId);
 
         // Track which predator is draining this prey (for kill credit)
@@ -1220,6 +1226,23 @@ function broadcastEnergyUpdates() {
       io.emit('energyUpdate', updateMessage);
     }
   }
+}
+
+/**
+ * Broadcast drain state updates to clients
+ * Sends lists of player/swarm IDs currently being drained for visual feedback
+ */
+function broadcastDrainState() {
+  const drainedPlayerIds = Array.from(activeDrains.keys());
+  const drainedSwarmIds = Array.from(activeSwarmDrains);
+
+  const drainStateMessage: PlayerDrainStateMessage = {
+    type: 'playerDrainState',
+    drainedPlayerIds,
+    drainedSwarmIds,
+  };
+
+  io.emit('playerDrainState', drainStateMessage);
 }
 
 // Detection update broadcast counter (chemical sensing for multi-cells)
@@ -1849,6 +1872,9 @@ setInterval(() => {
   checkPredationCollisions(deltaTime);
 
   // Check for swarm consumption (multi-cells eating disabled swarms)
+  // Track which swarms are currently being consumed this tick
+  const currentSwarmDrains = new Set<string>();
+
   for (const [playerId, player] of players) {
     if (player.stage === EvolutionStage.SINGLE_CELL) continue; // Only multi-cells can consume
     if (player.health <= 0) continue; // Dead players can't consume
@@ -1863,6 +1889,9 @@ setInterval(() => {
       const collisionDist = swarm.size + getPlayerRadius(player.stage);
 
       if (dist < collisionDist) {
+        // Track that this swarm is being drained
+        currentSwarmDrains.add(swarmId);
+
         // Gradual consumption - drain swarm health over time
         const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
         swarm.currentHealth -= damageDealt;
@@ -1893,6 +1922,10 @@ setInterval(() => {
       }
     }
   }
+
+  // Update active swarm drains tracking (clear swarms no longer being consumed)
+  activeSwarmDrains.clear();
+  currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
   const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime);
@@ -1934,6 +1967,11 @@ setInterval(() => {
       acceleration *= GAME_CONFIG.SWARM_SLOW_EFFECT; // 20% slower when touched by swarm
     }
 
+    // Apply contact drain slow debuff if being drained by a predator
+    if (activeDrains.has(playerId)) {
+      acceleration *= 0.5; // 50% slower when being drained
+    }
+
     velocity.x += inputNormX * acceleration * deltaTime;
     velocity.y += inputNormY * acceleration * deltaTime;
 
@@ -1944,6 +1982,11 @@ setInterval(() => {
     // Apply slow effect to max speed cap as well
     if (slowedPlayerIds.has(playerId)) {
       maxSpeed *= GAME_CONFIG.SWARM_SLOW_EFFECT;
+    }
+
+    // Apply contact drain slow to max speed as well
+    if (activeDrains.has(playerId)) {
+      maxSpeed *= 0.5;
     }
 
     if (currentSpeed > maxSpeed) {
@@ -2005,6 +2048,9 @@ setInterval(() => {
 
   // Broadcast detection updates for multi-cells (chemical sensing)
   broadcastDetectionUpdates();
+
+  // Broadcast drain state for visual feedback
+  broadcastDrainState();
 }, TICK_INTERVAL);
 
 // ============================================
