@@ -1196,8 +1196,15 @@ function respawnPlayer(player: Player) {
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
-    // Skip dead players (waiting for manual respawn)
-    if (player.energy <= 0) continue;
+    // Catch-all: if energy is 0 but no death cause tracked (e.g., from movement/ability costs),
+    // set 'starvation' as default cause so checkPlayerDeaths will process them
+    if (player.energy <= 0) {
+      if (!playerLastDamageSource.has(playerId)) {
+        player.energy = 0;
+        playerLastDamageSource.set(playerId, 'starvation');
+      }
+      continue;
+    }
 
     // Skip metabolism during evolution molting (invulnerable)
     if (player.isEvolving) continue;
