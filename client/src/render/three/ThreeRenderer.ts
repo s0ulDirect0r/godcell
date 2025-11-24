@@ -419,6 +419,14 @@ export class ThreeRenderer implements Renderer {
           this.spawnSwarmDeathExplosion(position.x, position.y);
         }
       });
+
+      eventBus.on('pseudopodHit', (event) => {
+        // Spawn red spark explosion at hit location
+        this.spawnHitSparks(event.hitPosition.x, event.hitPosition.y);
+
+        // Flash the drain aura on the target (if it exists, or briefly create one)
+        this.flashDrainAura(event.targetId);
+      });
     });
   }
 
@@ -1382,7 +1390,7 @@ export class ThreeRenderer implements Renderer {
   /**
    * Update drain visual feedback (red aura around drained players)
    */
-  private updateDrainAuras(state: GameState, dt: number): void {
+  private updateDrainAuras(state: GameState, _dt: number): void {
     const time = Date.now() * 0.001;
 
     // For each player, check if they should have a drain aura
@@ -1438,14 +1446,18 @@ export class ThreeRenderer implements Renderer {
           const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
 
           // Group them together
-          auraMesh = new THREE.Group() as any;
-          auraMesh.add(outerMesh);
-          auraMesh.add(innerMesh);
-          auraMesh.position.z = -1; // Behind player
+          const newAuraMesh = new THREE.Group();
+          newAuraMesh.add(outerMesh);
+          newAuraMesh.add(innerMesh);
+          newAuraMesh.position.z = -1; // Behind player
 
-          this.drainAuraMeshes.set(playerId, auraMesh);
-          this.scene.add(auraMesh);
+          this.drainAuraMeshes.set(playerId, newAuraMesh);
+          this.scene.add(newAuraMesh);
+          auraMesh = newAuraMesh;
         }
+
+        // Type guard: ensure auraMesh exists after creation
+        if (!auraMesh) return;
 
         // Position aura at player position
         auraMesh.position.x = playerMesh.position.x;
@@ -1465,10 +1477,27 @@ export class ThreeRenderer implements Renderer {
         const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
 
         // Flickering opacity (makes aura shimmer)
-        const opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
+        let opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
 
         // Pulsing bloom intensity (makes glow brighter/dimmer)
-        const emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+        let emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+
+        // Check for hit flash (brief intense brightness boost)
+        if (auraMesh.userData.flashTime) {
+          const flashAge = Date.now() - auraMesh.userData.flashTime;
+          const flashDuration = 200; // 200ms flash
+
+          if (flashAge < flashDuration) {
+            // Add extra brightness during flash (fades out over duration)
+            const flashProgress = flashAge / flashDuration; // 0 to 1
+            const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
+            emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
+            opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
+          } else {
+            // Flash expired, clear it
+            delete auraMesh.userData.flashTime;
+          }
+        }
 
         outerMaterial.opacity = opacity;
         outerMaterial.emissiveIntensity = emissive;
@@ -1546,14 +1575,18 @@ export class ThreeRenderer implements Renderer {
           const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
 
           // Group them together
-          auraMesh = new THREE.Group() as any;
-          auraMesh.add(outerMesh);
-          auraMesh.add(innerMesh);
-          auraMesh.position.z = -1; // Behind swarm
+          const newAuraMesh = new THREE.Group();
+          newAuraMesh.add(outerMesh);
+          newAuraMesh.add(innerMesh);
+          newAuraMesh.position.z = -1; // Behind swarm
 
-          this.drainAuraMeshes.set(auraId, auraMesh);
-          this.scene.add(auraMesh);
+          this.drainAuraMeshes.set(auraId, newAuraMesh);
+          this.scene.add(newAuraMesh);
+          auraMesh = newAuraMesh;
         }
+
+        // Type guard: ensure auraMesh exists after creation
+        if (!auraMesh) return;
 
         // Position aura at swarm position
         auraMesh.position.x = swarmMesh.position.x;
@@ -1573,10 +1606,27 @@ export class ThreeRenderer implements Renderer {
         const innerMaterial = innerMesh.material as THREE.MeshStandardMaterial;
 
         // Flickering opacity (makes aura shimmer)
-        const opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
+        let opacity = 0.6 + Math.sin(time * 6) * 0.2; // Range: 0.4 - 0.8 (base ± variation)
 
         // Pulsing bloom intensity (makes glow brighter/dimmer)
-        const emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+        let emissive = 3.0 + Math.sin(time * 5) * 0.5; // Range: 2.5 - 3.5 (base ± variation)
+
+        // Check for hit flash (brief intense brightness boost)
+        if (auraMesh.userData.flashTime) {
+          const flashAge = Date.now() - auraMesh.userData.flashTime;
+          const flashDuration = 200; // 200ms flash
+
+          if (flashAge < flashDuration) {
+            // Add extra brightness during flash (fades out over duration)
+            const flashProgress = flashAge / flashDuration; // 0 to 1
+            const flashIntensity = 1.0 - flashProgress; // 1 to 0 (fade out)
+            emissive += 4.0 * flashIntensity; // Boost by up to 4.0 (makes it very bright)
+            opacity = Math.min(1.0, opacity + 0.3 * flashIntensity); // Also boost opacity
+          } else {
+            // Flash expired, clear it
+            delete auraMesh.userData.flashTime;
+          }
+        }
 
         outerMaterial.opacity = opacity;
         outerMaterial.emissiveIntensity = emissive;
@@ -2762,6 +2812,81 @@ export class ThreeRenderer implements Renderer {
       startTime: Date.now(),
       duration,
     });
+  }
+
+  /**
+   * Spawn hit sparks when pseudopod beam strikes a target
+   * Red particle burst with higher velocity than death particles
+   */
+  private spawnHitSparks(x: number, y: number): void {
+    const particleCount = 40; // More particles than death for intense effect
+    const duration = 500; // 0.5 seconds - quick and punchy
+
+    // Create particle geometry and material
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }> = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Random angle for radial burst
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 200 + Math.random() * 400; // Higher speed than death particles (more explosive)
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = 0.2; // Above everything else
+
+      sizes[i] = 2 + Math.random() * 3; // Slightly smaller than death particles
+
+      particleData.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0, // Start at full life
+      });
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: 0xff0000, // Red color for damage indication
+      size: 3,
+      transparent: true,
+      opacity: 1,
+      sizeAttenuation: false,
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Track this animation
+    this.deathAnimations.push({
+      particles,
+      particleData,
+      startTime: Date.now(),
+      duration,
+    });
+  }
+
+  /**
+   * Flash the drain aura on a target when hit by pseudopod beam
+   * Temporarily increases brightness/scale for impact feedback
+   */
+  private flashDrainAura(targetId: string): void {
+    const auraMesh = this.drainAuraMeshes.get(targetId);
+    if (!auraMesh) return; // No aura to flash (target may not be currently drained)
+
+    // Boost emissive intensity for a brief flash (handled by existing animation)
+    // We'll store a flash timestamp and check it in updateDrainAuras
+    if (!auraMesh.userData.flashTime) {
+      auraMesh.userData.flashTime = Date.now();
+    } else {
+      // Refresh flash
+      auraMesh.userData.flashTime = Date.now();
+    }
   }
 
   /**

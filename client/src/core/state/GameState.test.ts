@@ -273,10 +273,11 @@ describe('GameState', () => {
       const pseudopod: Pseudopod = {
         id: 'ps1',
         ownerId: 'p1',
-        startPosition: { x: 100, y: 200 },
-        endPosition: { x: 150, y: 250 },
-        currentLength: 0,
-        maxLength: 200,
+        position: { x: 100, y: 200 },
+        velocity: { x: 1, y: 0 },
+        width: 20,
+        maxDistance: 300,
+        distanceTraveled: 0,
         createdAt: Date.now(),
         color: '#ff0000',
       };
@@ -289,10 +290,11 @@ describe('GameState', () => {
       state.upsertPseudopod({
         id: 'ps1',
         ownerId: 'p1',
-        startPosition: { x: 100, y: 200 },
-        endPosition: { x: 150, y: 250 },
-        currentLength: 0,
-        maxLength: 200,
+        position: { x: 100, y: 200 },
+        velocity: { x: 1, y: 0 },
+        width: 20,
+        maxDistance: 300,
+        distanceTraveled: 0,
         createdAt: Date.now(),
         color: '#ff0000',
       });

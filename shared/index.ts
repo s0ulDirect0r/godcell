@@ -265,6 +265,13 @@ export interface PlayerDrainStateMessage {
   drainedSwarmIds: string[]; // Array of swarm IDs currently being consumed
 }
 
+export interface PseudopodHitMessage {
+  type: 'pseudopodHit';
+  beamId: string;       // Which beam hit
+  targetId: string;     // Which entity was hit
+  hitPosition: Position; // Where the hit occurred
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -288,7 +295,8 @@ export type ServerMessage =
   | DetectionUpdateMessage
   | EMPActivatedMessage
   | SwarmConsumedMessage
-  | PlayerDrainStateMessage;
+  | PlayerDrainStateMessage
+  | PseudopodHitMessage;
 
 // ============================================
 // Game Constants

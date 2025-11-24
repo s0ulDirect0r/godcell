@@ -779,6 +779,14 @@ function checkBeamCollision(beam: Pseudopod): boolean {
         targetEnergyRemaining: target.energy.toFixed(0),
       });
 
+      // Emit hit event for visual effects
+      io.emit('pseudopodHit', {
+        type: 'pseudopodHit',
+        beamId: beam.id,
+        targetId,
+        hitPosition: { x: beam.position.x, y: beam.position.y },
+      });
+
       // Beam continues traveling, can hit multiple different targets
     }
   }
