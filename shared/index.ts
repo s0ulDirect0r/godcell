@@ -401,7 +401,7 @@ export const GAME_CONFIG = {
   // Pseudopod Beam (lightning projectile for PvP)
   PSEUDOPOD_MODE: 'projectile' as 'hitscan' | 'projectile', // 'hitscan' = instant hit, 'projectile' = travels
   PSEUDOPOD_RANGE: 9999,                 // Max range in pixels (9999 = unlimited for testing)
-  PSEUDOPOD_PROJECTILE_SPEED: 1800,      // Pixels per second beam travel speed
+  PSEUDOPOD_PROJECTILE_SPEED: 3600,      // Pixels per second beam travel speed (2x faster)
   PSEUDOPOD_WIDTH: 20,                   // Beam collision width in pixels
   PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per shot
   PSEUDOPOD_DRAIN_RATE: 100,             // Energy drained per hit
