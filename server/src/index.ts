@@ -1196,14 +1196,18 @@ function respawnPlayer(player: Player) {
  */
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
-    // Catch-all: if energy is 0 but no death cause tracked (e.g., from movement/ability costs),
+    // Skip dead players waiting for respawn (energy < 0 means death already processed)
+    // Catch-all: if energy is exactly 0 but no death cause tracked (e.g., from movement/ability costs),
     // set 'starvation' as default cause so checkPlayerDeaths will process them
-    if (player.energy <= 0) {
-      if (!playerLastDamageSource.has(playerId)) {
-        player.energy = 0;
-        playerLastDamageSource.set(playerId, 'starvation');
-      }
+    if (player.energy < 0) {
+      continue; // Already dead, waiting for respawn
+    }
+    if (player.energy === 0 && !playerLastDamageSource.has(playerId)) {
+      playerLastDamageSource.set(playerId, 'starvation');
       continue;
+    }
+    if (player.energy === 0) {
+      continue; // Death already tracked, will be processed by checkPlayerDeaths
     }
 
     // Skip metabolism during evolution molting (invulnerable)
@@ -1247,8 +1251,11 @@ function checkPlayerDeaths() {
     if (player.energy <= 0 && playerLastDamageSource.has(playerId)) {
       const cause = playerLastDamageSource.get(playerId)!;
 
-      player.energy = 0; // Clamp to prevent negative energy
       handlePlayerDeath(player, cause);
+
+      // Mark as "death processed" - sentinel value prevents catch-all from re-triggering
+      // Respawn will set energy back to positive value
+      player.energy = -1;
 
       // Clear damage source to prevent reprocessing same death
       playerLastDamageSource.delete(playerId);
@@ -2045,7 +2052,8 @@ setInterval(() => {
   currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
 
   // Check for swarm collisions BEFORE movement - get slowed players for this frame
-  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime, recordDamage);
+  // Pass applyDamageWithResistance so swarm damage respects stage-based resistance
+  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime, recordDamage, applyDamageWithResistance);
   for (const playerId of damagedPlayerIds) {
     playerLastDamageSource.set(playerId, 'swarm');
   }
