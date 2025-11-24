@@ -277,8 +277,12 @@ export class SocketManager {
     });
 
     this.socket.on('playerDrainState', (data: PlayerDrainStateMessage) => {
-      // Update game state with which players/swarms are being drained
+      // Update game state with damage info for variable-intensity drain auras
+      this.gameState.updateDamageInfo(data.damageInfo, data.swarmDamageInfo);
+
+      // DEPRECATED: Also update old drain sets for backwards compatibility
       this.gameState.updateDrainedPlayers(data.drainedPlayerIds, data.drainedSwarmIds);
+
       eventBus.emit(data);
     });
   }
