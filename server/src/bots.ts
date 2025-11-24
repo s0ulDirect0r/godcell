@@ -21,18 +21,23 @@ export interface BotController {
 }
 
 // All AI bots currently in the game
-const bots: Map<string, BotController> = new Map();
+const singleCellBots: Map<string, BotController> = new Map();
+
+// Multi-cell bots (separate tracking for population management)
+const multiCellBots: Map<string, BotController> = new Map();
 
 // Spawn position generator (injected from main module)
 let spawnPositionGenerator: (() => Position) | null = null;
 
 // Bot configuration
 const BOT_CONFIG = {
-  COUNT: 15, // Number of bots to spawn (tripled for stage 1 tuning)
+  COUNT: 15, // Number of Stage 1 bots to spawn (tripled for stage 1 tuning)
+  STAGE2_COUNT: 2, // Number of Stage 2 multi-cell bots (constant presence)
   SEARCH_RADIUS: 400, // How far bots can see nutrients (pixels)
   WANDER_CHANGE_MIN: 1000, // Min time between direction changes (ms)
   WANDER_CHANGE_MAX: 3000, // Max time between direction changes (ms)
-  RESPAWN_DELAY: 3000, // How long to wait before respawning dead bots (ms)
+  RESPAWN_DELAY: 3000, // How long to wait before respawning dead Stage 1 bots (ms)
+  STAGE2_RESPAWN_DELAY: 5000, // How long to wait before respawning dead Stage 2 bots (ms)
 };
 
 // ============================================
@@ -131,9 +136,66 @@ function spawnBot(
   players.set(botId, botPlayer);
   playerInputDirections.set(botId, botInputDirection);
   playerVelocities.set(botId, botVelocity);
-  bots.set(botId, bot);
+  singleCellBots.set(botId, bot);
 
   // Broadcast to all clients (bots appear as regular players)
+  const joinMessage: PlayerJoinedMessage = {
+    type: 'playerJoined',
+    player: botPlayer,
+  };
+  io.emit('playerJoined', joinMessage);
+
+  return bot;
+}
+
+/**
+ * Spawn a multi-cell bot (Stage 2)
+ */
+function spawnMultiCellBot(
+  io: Server,
+  players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
+  playerVelocities: Map<string, { x: number; y: number }>
+): BotController {
+  // Generate unique bot ID
+  const botId = `bot-multicell-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Create multi-cell bot at Stage 2
+  const botPlayer: Player = {
+    id: botId,
+    position: randomSpawnPosition(),
+    color: randomColor(),
+    health: GAME_CONFIG.SINGLE_CELL_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER, // 150 health
+    maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER, // 150 max health
+    energy: GAME_CONFIG.EVOLUTION_MULTI_CELL, // Start at 300 energy (evolution threshold)
+    maxEnergy: GAME_CONFIG.EVOLUTION_MULTI_CELL, // 300 max energy
+    stage: EvolutionStage.MULTI_CELL,
+    isEvolving: false,
+  };
+
+  // Create input direction and velocity objects
+  const botInputDirection = { x: 0, y: 0 };
+  const botVelocity = { x: 0, y: 0 };
+
+  // Create bot controller with simple AI state (just wander for now)
+  const bot: BotController = {
+    player: botPlayer,
+    inputDirection: botInputDirection,
+    velocity: botVelocity,
+    ai: {
+      state: 'wander',
+      wanderDirection: { x: 0, y: 0 },
+      nextWanderChange: Date.now(),
+    },
+  };
+
+  // Add to game state
+  players.set(botId, botPlayer);
+  playerInputDirections.set(botId, botInputDirection);
+  playerVelocities.set(botId, botVelocity);
+  multiCellBots.set(botId, bot);
+
+  // Broadcast to all clients
   const joinMessage: PlayerJoinedMessage = {
     type: 'playerJoined',
     player: botPlayer,
@@ -409,10 +471,111 @@ export function initializeBots(
   // Store spawn position generator for bot respawns
   spawnPositionGenerator = getSpawnPosition;
 
+  // Spawn Stage 1 bots
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
     spawnBot(io, players, playerInputDirections, playerVelocities);
   }
-  logBotsSpawned(BOT_CONFIG.COUNT);
+
+  // Spawn multi-cell bots
+  for (let i = 0; i < BOT_CONFIG.STAGE2_COUNT; i++) {
+    spawnMultiCellBot(io, players, playerInputDirections, playerVelocities);
+  }
+
+  logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT);
+}
+
+/**
+ * Update multi-cell bot AI - hunts single-cells, uses EMP, devours swarms
+ */
+function updateMultiCellBotAI(
+  bot: BotController,
+  currentTime: number,
+  nutrients: Map<string, Nutrient>,
+  obstacles: Map<string, Obstacle>,
+  swarms: EntropySwarm[],
+  players: Map<string, Player>
+) {
+  const player = bot.player;
+
+  // Skip dead or evolving bots
+  if (player.health <= 0 || player.isEvolving) {
+    bot.inputDirection.x = 0;
+    bot.inputDirection.y = 0;
+    return;
+  }
+
+  // Multi-cells hunt single-cells and nutrients
+  // Priority: 1. Disabled swarms (easy energy), 2. Single-cells (prey), 3. Nutrients
+
+  // Find nearest disabled swarm (from EMP or other source)
+  let nearestDisabledSwarm: EntropySwarm | null = null;
+  let nearestDisabledSwarmDist = 600; // Detection range
+  for (const swarm of swarms) {
+    if (swarm.disabledUntil && swarm.disabledUntil > Date.now()) {
+      const dist = distance(player.position, swarm.position);
+      if (dist < nearestDisabledSwarmDist) {
+        nearestDisabledSwarm = swarm;
+        nearestDisabledSwarmDist = dist;
+      }
+    }
+  }
+
+  // Find nearest single-cell (prey)
+  let nearestPrey: Player | null = null;
+  let nearestPreyDist = 800; // Hunting range
+  for (const [id, otherPlayer] of players) {
+    if (id === player.id) continue; // Don't hunt self
+    if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) continue; // Only hunt Stage 1
+    if (otherPlayer.health <= 0) continue; // Skip dead
+
+    const dist = distance(player.position, otherPlayer.position);
+    if (dist < nearestPreyDist) {
+      nearestPrey = otherPlayer;
+      nearestPreyDist = dist;
+    }
+  }
+
+  // Calculate obstacle avoidance (multi-cells still avoid gravity wells)
+  const obstacleAvoidance = avoidObstacles(player.position, obstacles);
+
+  // Decision tree: disabled swarm > prey > nutrient
+  if (nearestDisabledSwarm) {
+    // Hunt disabled swarm (easy energy)
+    const seekDirection = steerTowards(player.position, nearestDisabledSwarm.position, bot.inputDirection);
+    bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
+    bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
+  } else if (nearestPrey) {
+    // Hunt single-cell prey
+    const seekDirection = steerTowards(player.position, nearestPrey.position, bot.inputDirection);
+    bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
+    bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
+  } else {
+    // Seek nutrients (fallback behavior)
+    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    if (nearestNutrient) {
+      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+      bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
+      bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
+    } else {
+      // Wander if nothing to hunt
+      updateBotWander(bot, currentTime);
+      bot.inputDirection.x += obstacleAvoidance.x;
+      bot.inputDirection.y += obstacleAvoidance.y;
+    }
+  }
+
+  // Normalize direction
+  const dirLength = Math.sqrt(
+    bot.inputDirection.x * bot.inputDirection.x +
+    bot.inputDirection.y * bot.inputDirection.y
+  );
+  if (dirLength > 1) {
+    bot.inputDirection.x /= dirLength;
+    bot.inputDirection.y /= dirLength;
+  }
+
+  // TODO: Add EMP usage logic (when surrounded by swarms or near high-value targets)
+  // TODO: Add pseudopod beam firing logic (when near prey)
 }
 
 /**
@@ -423,10 +586,17 @@ export function updateBots(
   currentTime: number,
   nutrients: Map<string, Nutrient>,
   obstacles: Map<string, Obstacle>,
-  swarms: EntropySwarm[]
+  swarms: EntropySwarm[],
+  players: Map<string, Player>
 ) {
-  for (const [botId, bot] of bots) {
+  // Update single-cell bots
+  for (const [botId, bot] of singleCellBots) {
     updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
+  }
+
+  // Update multi-cell bots (hunter AI)
+  for (const [botId, bot] of multiCellBots) {
+    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players);
   }
 }
 
@@ -441,50 +611,100 @@ export function isBot(playerId: string): boolean {
  * Get bot count for debugging
  */
 export function getBotCount(): number {
-  return bots.size;
+  return singleCellBots.size + multiCellBots.size;
 }
 
 /**
  * Handle bot death - schedule auto-respawn after delay
  */
-export function handleBotDeath(botId: string, io: Server, players: Map<string, Player>) {
-  const bot = bots.get(botId);
-  if (!bot) return;
+export function handleBotDeath(
+  botId: string,
+  io: Server,
+  players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
+  playerVelocities: Map<string, { x: number; y: number }>
+) {
+  // Check if it's a single-cell bot
+  const singleCellBot = singleCellBots.get(botId);
+  if (singleCellBot) {
+    logBotDeath(botId);
 
-  logBotDeath(botId);
+    // Schedule single-cell bot respawn
+    setTimeout(() => {
+      const player = players.get(botId);
+      if (!player) return; // Bot was removed from game
 
-  // Schedule respawn
-  setTimeout(() => {
-    const player = players.get(botId);
-    if (!player) return; // Bot was removed from game
+      // Reset to single-cell at random spawn
+      player.position = randomSpawnPosition();
+      player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
+      player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
+      player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
+      player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+      player.stage = EvolutionStage.SINGLE_CELL;
+      player.isEvolving = false;
 
-    // Reset to single-cell at random spawn (uses spawn point system)
-    player.position = randomSpawnPosition();
-    player.health = GAME_CONFIG.SINGLE_CELL_HEALTH;
-    player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH;
-    player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
-    player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-    player.stage = EvolutionStage.SINGLE_CELL;
-    player.isEvolving = false;
+      // Reset input direction and velocity
+      singleCellBot.inputDirection.x = 0;
+      singleCellBot.inputDirection.y = 0;
+      singleCellBot.velocity.x = 0;
+      singleCellBot.velocity.y = 0;
 
-    // Reset input direction and velocity
-    bot.inputDirection.x = 0;
-    bot.inputDirection.y = 0;
-    bot.velocity.x = 0;
-    bot.velocity.y = 0;
+      // Reset AI state
+      singleCellBot.ai.state = 'wander';
+      singleCellBot.ai.targetNutrient = undefined;
+      singleCellBot.ai.nextWanderChange = Date.now();
 
-    // Reset AI state
-    bot.ai.state = 'wander';
-    bot.ai.targetNutrient = undefined;
-    bot.ai.nextWanderChange = Date.now();
+      // Broadcast respawn to all clients
+      const respawnMessage: PlayerRespawnedMessage = {
+        type: 'playerRespawned',
+        player: { ...player },
+      };
+      io.emit('playerRespawned', respawnMessage);
 
-    // Broadcast respawn to all clients
-    const respawnMessage: PlayerRespawnedMessage = {
-      type: 'playerRespawned',
-      player: { ...player },
-    };
-    io.emit('playerRespawned', respawnMessage);
+      logBotRespawn(botId);
+    }, BOT_CONFIG.RESPAWN_DELAY);
+    return;
+  }
 
-    logBotRespawn(botId);
-  }, BOT_CONFIG.RESPAWN_DELAY);
+  // Check if it's a multi-cell bot
+  const multiCellBot = multiCellBots.get(botId);
+  if (multiCellBot) {
+    logBotDeath(botId);
+
+    // Schedule multi-cell bot respawn (longer delay)
+    setTimeout(() => {
+      const player = players.get(botId);
+      if (!player) return; // Bot was removed from game
+
+      // Respawn as multi-cell (Stage 2)
+      player.position = randomSpawnPosition();
+      player.health = GAME_CONFIG.SINGLE_CELL_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER;
+      player.maxHealth = GAME_CONFIG.SINGLE_CELL_MAX_HEALTH * GAME_CONFIG.MULTI_CELL_HEALTH_MULTIPLIER;
+      player.energy = GAME_CONFIG.EVOLUTION_MULTI_CELL;
+      player.maxEnergy = GAME_CONFIG.EVOLUTION_MULTI_CELL;
+      player.stage = EvolutionStage.MULTI_CELL;
+      player.isEvolving = false;
+
+      // Reset input direction and velocity
+      multiCellBot.inputDirection.x = 0;
+      multiCellBot.inputDirection.y = 0;
+      multiCellBot.velocity.x = 0;
+      multiCellBot.velocity.y = 0;
+
+      // Reset AI state
+      multiCellBot.ai.state = 'wander';
+      multiCellBot.ai.targetNutrient = undefined;
+      multiCellBot.ai.nextWanderChange = Date.now();
+
+      // Broadcast respawn to all clients
+      const respawnMessage: PlayerRespawnedMessage = {
+        type: 'playerRespawned',
+        player: { ...player },
+      };
+      io.emit('playerRespawned', respawnMessage);
+
+      logBotRespawn(botId);
+    }, BOT_CONFIG.STAGE2_RESPAWN_DELAY);
+    return;
+  }
 }

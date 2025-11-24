@@ -796,8 +796,8 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   if (!predator || !prey) return;
 
-  // Calculate rewards
-  const energyGain = prey.energy * GAME_CONFIG.ENGULFMENT_ENERGY_GAIN;
+  // Calculate rewards (gain % of victim's maxEnergy)
+  const energyGain = prey.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
   predator.energy = Math.min(predator.maxEnergy, predator.energy + energyGain);
 
   // Kill prey
@@ -824,7 +824,7 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   // Handle bot death (respawn logic)
   if (isBot(preyId)) {
-    handleBotDeath(preyId, io, players);
+    handleBotDeath(preyId, io, players, playerInputDirections, playerVelocities);
   }
 
   logger.info({
@@ -1088,7 +1088,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
 
   // Auto-respawn bots after delay
   if (isBot(player.id)) {
-    handleBotDeath(player.id, io, players);
+    handleBotDeath(player.id, io, players, playerInputDirections, playerVelocities);
   } else {
     logPlayerDeath(player.id, cause);
   }
@@ -1851,7 +1851,7 @@ setInterval(() => {
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
   // Update bot AI decisions with obstacle and swarm avoidance (before movement)
-  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()));
+  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()), players);
 
   // Apply gravity forces from obstacles and friction (updates velocity with momentum)
   applyGravityForces(deltaTime);
@@ -1962,6 +1962,11 @@ setInterval(() => {
     // Use high acceleration value to make controls responsive while maintaining coast
     let acceleration = GAME_CONFIG.PLAYER_SPEED * 8; // 8x speed as acceleration for responsive controls
 
+    // Multi-cells are slower (larger, less nimble)
+    if (player.stage === EvolutionStage.MULTI_CELL) {
+      acceleration *= 0.8; // 20% slower than single-cells
+    }
+
     // Apply swarm slow debuff if player is in contact with a swarm
     if (slowedPlayerIds.has(playerId)) {
       acceleration *= GAME_CONFIG.SWARM_SLOW_EFFECT; // 20% slower when touched by swarm
@@ -1978,6 +1983,11 @@ setInterval(() => {
     // Cap maximum velocity to prevent runaway speed from continuous input
     const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
     let maxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2; // Allow 20% overspeed for gravity boost
+
+    // Multi-cells have lower max speed (larger, less nimble)
+    if (player.stage === EvolutionStage.MULTI_CELL) {
+      maxSpeed *= 0.8; // 20% slower than single-cells
+    }
 
     // Apply slow effect to max speed cap as well
     if (slowedPlayerIds.has(playerId)) {
