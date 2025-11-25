@@ -160,6 +160,14 @@ export function handleDevCommand(socket: Socket, io: Server, command: DevCommand
     case 'stepTick':
       handleStepTick();
       break;
+
+    case 'deleteAt':
+      handleDeleteAt(io, command.position, command.entityType);
+      break;
+
+    case 'clearWorld':
+      handleClearWorld(io);
+      break;
   }
 }
 
@@ -330,6 +338,90 @@ function handleStepTick(): void {
   if (isPaused) {
     shouldStepTick = true;
     logger.info({ event: 'dev_step_tick' });
+  }
+}
+
+function handleClearWorld(io: Server): void {
+  if (!devContext) return;
+
+  // Clear all nutrients
+  const nutrientCount = devContext.nutrients.size;
+  for (const nutrientId of devContext.nutrients.keys()) {
+    io.emit('nutrientCollected', {
+      type: 'nutrientCollected',
+      nutrientId,
+      playerId: 'dev',
+      collectorEnergy: 0,
+      collectorMaxEnergy: 0,
+    });
+  }
+  devContext.nutrients.clear();
+
+  // Clear all swarms
+  const swarmCount = devContext.swarms.size;
+  for (const swarmId of devContext.swarms.keys()) {
+    io.emit('swarmConsumed', {
+      type: 'swarmConsumed',
+      swarmId,
+      consumerId: 'dev',
+    });
+  }
+  devContext.swarms.clear();
+
+  logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
+}
+
+function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm'): void {
+  if (!devContext) return;
+
+  const MAX_DELETE_DISTANCE = 100; // Max distance to find entity
+  let nearestId: string | null = null;
+  let nearestDist = MAX_DELETE_DISTANCE;
+
+  if (entityType === 'nutrient') {
+    // Find nearest nutrient
+    for (const [id, nutrient] of devContext.nutrients.entries()) {
+      const dx = nutrient.position.x - position.x;
+      const dy = nutrient.position.y - position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestId = id;
+      }
+    }
+
+    if (nearestId) {
+      devContext.nutrients.delete(nearestId);
+      io.emit('nutrientCollected', {
+        type: 'nutrientCollected',
+        nutrientId: nearestId,
+        playerId: 'dev',
+        collectorEnergy: 0,
+        collectorMaxEnergy: 0,
+      });
+      logger.info({ event: 'dev_delete_at_nutrient', position, deletedId: nearestId });
+    }
+  } else if (entityType === 'swarm') {
+    // Find nearest swarm
+    for (const [id, swarm] of devContext.swarms.entries()) {
+      const dx = swarm.position.x - position.x;
+      const dy = swarm.position.y - position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestId = id;
+      }
+    }
+
+    if (nearestId) {
+      devContext.swarms.delete(nearestId);
+      io.emit('swarmConsumed', {
+        type: 'swarmConsumed',
+        swarmId: nearestId,
+        consumerId: 'dev',
+      });
+      logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
+    }
   }
 }
 

@@ -132,6 +132,10 @@ export class DevPanel {
     targetStage: EvolutionStage.SINGLE_CELL,
   };
 
+  // Click spawn handlers (stored for cleanup)
+  private clickHandler: ((e: MouseEvent) => void) | null = null;
+  private contextMenuHandler: ((e: MouseEvent) => void) | null = null;
+
   constructor(options: DevPanelOptions) {
     this.socket = options.socket;
     this.gameState = options.gameState;
@@ -272,6 +276,17 @@ export class DevPanel {
     spawnFolder.add(this.spawnControls, 'nutrientMultiplier', [1, 2, 3, 5])
       .name('Nutrient Value');
 
+    // Click-to-spawn mode toggle
+    spawnFolder.add(this.spawnControls, 'spawnAtCursor')
+      .name('Click to Spawn')
+      .onChange((enabled: boolean) => {
+        if (enabled) {
+          this.enableClickSpawn();
+        } else {
+          this.disableClickSpawn();
+        }
+      });
+
     spawnFolder.add({ spawn: () => this.spawnAtCenter() }, 'spawn')
       .name('Spawn at Center');
 
@@ -399,6 +414,10 @@ export class DevPanel {
     gameFolder.add({ step: () => this.stepTick() }, 'step')
       .name('Step Tick');
 
+    // Clear world button (for playground mode)
+    gameFolder.add({ clear: () => this.clearWorld() }, 'clear')
+      .name('Clear World');
+
     // Export config button
     gameFolder.add({ export: () => this.exportConfig() }, 'export')
       .name('Export Config');
@@ -503,6 +522,11 @@ export class DevPanel {
     console.log('Config copied to clipboard!');
   }
 
+  private clearWorld(): void {
+    this.sendDevCommand({ action: 'clearWorld' });
+    console.log('[DevPanel] Clearing world (nutrients + swarms)');
+  }
+
   private updateDebugViz(type: string, show: boolean): void {
     // Emit event for renderer to handle
     if (this.renderer) {
@@ -519,6 +543,65 @@ export class DevPanel {
     this.socket.emit('devCommand', {
       type: 'devCommand',
       command,
+    });
+  }
+
+  // ============================================
+  // Click-to-Spawn Mode
+  // ============================================
+
+  private enableClickSpawn(): void {
+    if (!this.renderer) {
+      console.warn('[DevPanel] Cannot enable click spawn: no renderer');
+      return;
+    }
+
+    const cameraProjection = this.renderer.getCameraProjection();
+
+    // Left click: spawn entity
+    this.clickHandler = (e: MouseEvent) => {
+      // Ignore clicks on the GUI panel itself
+      if ((e.target as HTMLElement).closest('.lil-gui')) return;
+
+      const worldPos = cameraProjection.screenToWorld(e.clientX, e.clientY);
+      this.spawnEntity(worldPos);
+    };
+
+    // Right click: delete nearest entity
+    this.contextMenuHandler = (e: MouseEvent) => {
+      // Ignore clicks on the GUI panel itself
+      if ((e.target as HTMLElement).closest('.lil-gui')) return;
+
+      e.preventDefault();
+      const worldPos = cameraProjection.screenToWorld(e.clientX, e.clientY);
+      this.deleteNearestEntity(worldPos);
+    };
+
+    document.addEventListener('click', this.clickHandler);
+    document.addEventListener('contextmenu', this.contextMenuHandler);
+
+    console.log('[DevPanel] Click-to-spawn enabled (left=spawn, right=delete)');
+  }
+
+  private disableClickSpawn(): void {
+    if (this.clickHandler) {
+      document.removeEventListener('click', this.clickHandler);
+      this.clickHandler = null;
+    }
+    if (this.contextMenuHandler) {
+      document.removeEventListener('contextmenu', this.contextMenuHandler);
+      this.contextMenuHandler = null;
+    }
+    console.log('[DevPanel] Click-to-spawn disabled');
+  }
+
+  private deleteNearestEntity(position: Position): void {
+    // Find nearest entity of selected type and delete it
+    // For now, just send a deleteAt command - server will find nearest
+    this.sendDevCommand({
+      action: 'deleteAt',
+      position,
+      entityType: this.spawnControls.entityType,
     });
   }
 

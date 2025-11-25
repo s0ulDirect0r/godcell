@@ -337,6 +337,8 @@ export type DevCommand =
   | DevUpdateConfigCommand
   | DevSpawnEntityCommand
   | DevDeleteEntityCommand
+  | DevDeleteAtCommand
+  | DevClearWorldCommand
   | DevSetGodModeCommand
   | DevSetTimeScaleCommand
   | DevTeleportPlayerCommand
@@ -363,11 +365,23 @@ export interface DevSpawnEntityCommand {
   };
 }
 
-// Delete an entity
+// Delete an entity by ID
 export interface DevDeleteEntityCommand {
   action: 'deleteEntity';
   entityType: 'nutrient' | 'swarm' | 'obstacle' | 'player';
   entityId: string;
+}
+
+// Delete nearest entity at position (for click-to-delete)
+export interface DevDeleteAtCommand {
+  action: 'deleteAt';
+  position: Position;
+  entityType: 'nutrient' | 'swarm';  // Only deletable entity types
+}
+
+// Clear all entities from the world (playground mode)
+export interface DevClearWorldCommand {
+  action: 'clearWorld';
 }
 
 // Toggle god mode for a player

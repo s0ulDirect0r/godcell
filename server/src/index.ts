@@ -58,7 +58,7 @@ import {
 // Server Configuration
 // ============================================
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const TICK_RATE = 60; // Server updates 60 times per second
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
@@ -1536,12 +1536,19 @@ const io = new Server(PORT, {
 
 logServerStarted(PORT);
 
-// Initialize game world
-// Pure Bridson's distribution - obstacles and swarms fill map naturally, spawning is random
-initializeObstacles();
-initializeNutrients();
-initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
-initializeSwarms(io);
+// Playground mode - empty world for testing (set by PLAYGROUND env var)
+const isPlayground = process.env.PLAYGROUND === 'true';
+
+if (isPlayground) {
+  logger.info({ event: 'playground_mode', port: PORT });
+} else {
+  // Initialize game world (normal mode)
+  // Pure Bridson's distribution - obstacles and swarms fill map naturally
+  initializeObstacles();
+  initializeNutrients();
+  initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
+  initializeSwarms(io);
+}
 
 // Initialize dev handler with game context
 initDevHandler({
@@ -2026,6 +2033,9 @@ function attractNutrientsToObstacles(deltaTime: number) {
  * Updates player positions based on their velocities
  */
 setInterval(() => {
+  // Check if game is paused (dev tool) - skip tick unless stepping
+  if (!shouldRunTick()) return;
+
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
   // Update bot AI decisions with obstacle and swarm avoidance (before movement)

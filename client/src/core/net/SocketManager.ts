@@ -39,7 +39,14 @@ export class SocketManager {
 
   constructor(serverUrl: string, gameState: GameState) {
     this.gameState = gameState;
-    this.socket = io(serverUrl, {
+
+    // Check for playground mode - connects to separate server on port 3001
+    const isPlayground = new URLSearchParams(window.location.search).has('playground');
+    const targetUrl = isPlayground
+      ? serverUrl.replace(':3000', ':3001')
+      : serverUrl;
+
+    this.socket = io(targetUrl, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
