@@ -28,6 +28,8 @@ let gui: GUI;
 let models: Array<THREE.Group | THREE.Mesh> = [];
 let currentEntityType: 'single-cell' | 'multi-cell' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
+let lastTime = 0;
+let energyDirection = -1; // -1 = draining, 1 = filling
 
 // Animation state for energy visualization
 const animState = {
@@ -101,105 +103,6 @@ function init() {
   const gridHelper = new THREE.GridHelper(400, 20, 0x00ff88, 0x004422);
   gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane
   scene.add(gridHelper);
-
-  // Button handlers
-  const singleCellBtn = document.getElementById('single-cell')!;
-  const multiCellBtn = document.getElementById('multi-cell')!;
-  const swarmBtn = document.getElementById('swarm')!;
-  const obstacleBtn = document.getElementById('obstacle')!;
-  const nutrientBtn = document.getElementById('nutrient')!;
-  const allBtn = document.getElementById('all')!;
-
-  const colonialBtn = document.getElementById('colonial')!;
-  const radialBtn = document.getElementById('radial')!;
-
-  const n1xBtn = document.getElementById('n1x')!;
-  const n2xBtn = document.getElementById('n2x')!;
-  const n3xBtn = document.getElementById('n3x')!;
-  const n5xBtn = document.getElementById('n5x')!;
-
-  const multiCellOptions = document.getElementById('multi-cell-options')!;
-  const nutrientOptions = document.getElementById('nutrient-options')!;
-
-  singleCellBtn.onclick = () => {
-    currentEntityType = 'single-cell';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], singleCellBtn);
-    multiCellOptions.style.display = 'none';
-    nutrientOptions.style.display = 'none';
-    updateModels();
-  };
-
-  multiCellBtn.onclick = () => {
-    currentEntityType = 'multi-cell';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], multiCellBtn);
-    multiCellOptions.style.display = 'block';
-    nutrientOptions.style.display = 'none';
-    updateModels();
-  };
-
-  swarmBtn.onclick = () => {
-    currentEntityType = 'swarm';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], swarmBtn);
-    multiCellOptions.style.display = 'none';
-    nutrientOptions.style.display = 'none';
-    updateModels();
-  };
-
-  obstacleBtn.onclick = () => {
-    currentEntityType = 'obstacle';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], obstacleBtn);
-    multiCellOptions.style.display = 'none';
-    nutrientOptions.style.display = 'none';
-    updateModels();
-  };
-
-  nutrientBtn.onclick = () => {
-    currentEntityType = 'nutrient';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], nutrientBtn);
-    multiCellOptions.style.display = 'none';
-    nutrientOptions.style.display = 'block';
-    updateModels();
-  };
-
-  allBtn.onclick = () => {
-    currentEntityType = 'all';
-    updateActiveButton([singleCellBtn, multiCellBtn, swarmBtn, obstacleBtn, nutrientBtn, allBtn], allBtn);
-    multiCellOptions.style.display = 'none';
-    nutrientOptions.style.display = 'none';
-    updateModels();
-  };
-
-  colonialBtn.onclick = () => {
-    currentStyle = 'colonial';
-    updateActiveButton([colonialBtn, radialBtn], colonialBtn);
-    if (currentEntityType === 'multi-cell') updateModels();
-  };
-
-  radialBtn.onclick = () => {
-    currentStyle = 'radial';
-    updateActiveButton([colonialBtn, radialBtn], radialBtn);
-    if (currentEntityType === 'multi-cell') updateModels();
-  };
-
-  n1xBtn.onclick = () => {
-    updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n1xBtn);
-    if (currentEntityType === 'nutrient') updateModels();
-  };
-
-  n2xBtn.onclick = () => {
-    updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n2xBtn);
-    if (currentEntityType === 'nutrient') updateModels();
-  };
-
-  n3xBtn.onclick = () => {
-    updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n3xBtn);
-    if (currentEntityType === 'nutrient') updateModels();
-  };
-
-  n5xBtn.onclick = () => {
-    updateActiveButton([n1xBtn, n2xBtn, n3xBtn, n5xBtn], n5xBtn);
-    if (currentEntityType === 'nutrient') updateModels();
-  };
 
   // Window resize handler
   window.addEventListener('resize', onResize);
@@ -319,11 +222,6 @@ function initGUI() {
   viewFolder.close();
 }
 
-function updateActiveButton(buttons: HTMLElement[], active: HTMLElement) {
-  buttons.forEach((btn) => btn.classList.remove('active'));
-  active.classList.add('active');
-}
-
 function updateModels() {
   // Clear existing models
   models.forEach((model) => {
@@ -438,9 +336,6 @@ function updateModels() {
 
   controls.update();
 }
-
-let lastTime = 0;
-let energyDirection = -1; // -1 = draining, 1 = filling
 
 function animate(currentTime: number = 0) {
   requestAnimationFrame(animate);
