@@ -25,6 +25,15 @@ const JUNGLE_CONFIG = {
 
   // Background: darker than soup
   BACKGROUND_COLOR: 0x000808, // Very dark teal-black
+
+  // Soup pool visualization (visible from jungle view)
+  SOUP_POOL_BORDER_COLOR: 0x00ffff, // Cyan border matching soup aesthetic
+  SOUP_POOL_BORDER_WIDTH: 4, // Border line thickness
+  SOUP_POOL_FILL_COLOR: 0x001820, // Very dark cyan fill
+  SOUP_POOL_FILL_OPACITY: 0.3, // Semi-transparent
+  SOUP_POOL_GLOW_COLOR: 0x00ffff, // Glow around the pool
+  SOUP_POOL_GLOW_OPACITY: 0.15, // Subtle outer glow
+  SOUP_POOL_GLOW_SIZE: 100, // Glow extends this far outside pool
 };
 
 // Particle animation data
@@ -37,7 +46,7 @@ interface JungleParticle {
 }
 
 /**
- * Create jungle background group containing grid and particles
+ * Create jungle background group containing grid, particles, and soup pool visualization
  * Returns a Group that can be toggled visible/hidden based on player stage
  */
 export function createJungleBackground(scene: THREE.Scene): {
@@ -51,6 +60,9 @@ export function createJungleBackground(scene: THREE.Scene): {
 
   // Create jungle grid spanning full jungle dimensions
   createJungleGrid(group);
+
+  // Create soup pool visualization (glowing region showing where soup-stage players are)
+  createSoupPool(group);
 
   // Create jungle particles (data rain effect)
   const { particles, particleData } = createJungleParticles();
@@ -90,6 +102,65 @@ function createJungleGrid(group: THREE.Group): void {
     const line = new THREE.Line(geometry, material);
     group.add(line);
   }
+}
+
+/**
+ * Create soup pool visualization - a glowing rectangular region
+ * Shows Stage 3+ players where the primordial soup is located
+ * Includes: outer glow, fill, and border
+ */
+function createSoupPool(group: THREE.Group): void {
+  const soupX = GAME_CONFIG.SOUP_ORIGIN_X;
+  const soupY = GAME_CONFIG.SOUP_ORIGIN_Y;
+  const soupW = GAME_CONFIG.SOUP_WIDTH;
+  const soupH = GAME_CONFIG.SOUP_HEIGHT;
+  const glowSize = JUNGLE_CONFIG.SOUP_POOL_GLOW_SIZE;
+
+  // Z positions: glow behind fill, fill behind border
+  const zGlow = -1.3;
+  const zFill = -1.2;
+  const zBorder = -1.1;
+
+  // === OUTER GLOW (larger rectangle behind the pool) ===
+  const glowGeometry = new THREE.PlaneGeometry(soupW + glowSize * 2, soupH + glowSize * 2);
+  const glowMaterial = new THREE.MeshBasicMaterial({
+    color: JUNGLE_CONFIG.SOUP_POOL_GLOW_COLOR,
+    transparent: true,
+    opacity: JUNGLE_CONFIG.SOUP_POOL_GLOW_OPACITY,
+  });
+  const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+  glowMesh.position.set(soupX + soupW / 2, soupY + soupH / 2, zGlow);
+  glowMesh.name = 'soupPoolGlow';
+  group.add(glowMesh);
+
+  // === FILL (semi-transparent pool area) ===
+  const fillGeometry = new THREE.PlaneGeometry(soupW, soupH);
+  const fillMaterial = new THREE.MeshBasicMaterial({
+    color: JUNGLE_CONFIG.SOUP_POOL_FILL_COLOR,
+    transparent: true,
+    opacity: JUNGLE_CONFIG.SOUP_POOL_FILL_OPACITY,
+  });
+  const fillMesh = new THREE.Mesh(fillGeometry, fillMaterial);
+  fillMesh.position.set(soupX + soupW / 2, soupY + soupH / 2, zFill);
+  fillMesh.name = 'soupPoolFill';
+  group.add(fillMesh);
+
+  // === BORDER (glowing outline around the pool) ===
+  const borderPoints = [
+    new THREE.Vector3(soupX, soupY, zBorder),
+    new THREE.Vector3(soupX + soupW, soupY, zBorder),
+    new THREE.Vector3(soupX + soupW, soupY + soupH, zBorder),
+    new THREE.Vector3(soupX, soupY + soupH, zBorder),
+    new THREE.Vector3(soupX, soupY, zBorder), // Close the loop
+  ];
+  const borderGeometry = new THREE.BufferGeometry().setFromPoints(borderPoints);
+  const borderMaterial = new THREE.LineBasicMaterial({
+    color: JUNGLE_CONFIG.SOUP_POOL_BORDER_COLOR,
+    linewidth: JUNGLE_CONFIG.SOUP_POOL_BORDER_WIDTH, // Note: linewidth only works in some renderers
+  });
+  const borderLine = new THREE.Line(borderGeometry, borderMaterial);
+  borderLine.name = 'soupPoolBorder';
+  group.add(borderLine);
 }
 
 /**
