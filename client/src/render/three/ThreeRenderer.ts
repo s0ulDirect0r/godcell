@@ -26,16 +26,22 @@ import {
   spawnEvolutionParticles,
   spawnEMPPulse,
   spawnSwarmDeathExplosion,
+  spawnMaterializeParticles,
+  spawnEnergyTransferParticles,
   type DeathAnimation,
   type EvolutionAnimation,
   type EMPEffect,
   type SwarmDeathAnimation,
+  type SpawnAnimation,
+  type EnergyTransferAnimation,
 } from './ParticleEffects';
 import {
   updateDeathAnimations,
   updateEvolutionAnimations,
   updateEMPEffects,
   updateSwarmDeathAnimations,
+  updateSpawnAnimations,
+  updateEnergyTransferAnimations,
 } from './AnimationUpdater';
 import {
   createCellAura,
@@ -43,6 +49,11 @@ import {
   getAuraColor,
   applyAuraIntensity,
 } from './DrainAuraRenderer';
+import {
+  createGainAura,
+  triggerGainFlash,
+  updateGainAura,
+} from './GainAuraRenderer';
 import {
   createObstacle,
   updateObstacleAnimation,
@@ -94,7 +105,7 @@ export class ThreeRenderer implements Renderer {
   private materialCache: Map<string, THREE.Material> = new Map();
 
   // Entity meshes
-  private nutrientMeshes: Map<string, THREE.Mesh> = new Map();
+  private nutrientMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D icosahedron + inner glow
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
   private drainAuraMeshes: Map<string, THREE.Mesh | THREE.Group> = new Map(); // Red aura for players/swarms being drained (Mesh for players, Group for swarms)
@@ -143,6 +154,19 @@ export class ThreeRenderer implements Renderer {
 
   // Swarm death animations (exploding particles)
   private swarmDeathAnimations: SwarmDeathAnimation[] = [];
+
+  // Spawn materialization animations (converging particles + scale up)
+  private spawnAnimations: SpawnAnimation[] = [];
+
+  // Track entities that are currently spawning (for scale/opacity animation)
+  private spawningEntities: Set<string> = new Set();
+
+  // Energy gain visual feedback (cyan glow when collecting nutrients)
+  private gainAuraMeshes: Map<string, THREE.Group> = new Map(); // Player ID → gain aura
+  private energyTransferAnimations: EnergyTransferAnimation[] = []; // Particles flying to collector
+
+  // Track nutrient positions for energy transfer effect (cached when nutrient exists)
+  private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -450,6 +474,124 @@ export class ThreeRenderer implements Renderer {
         // Flash the drain aura on the target (if it exists, or briefly create one)
         this.flashDrainAura(event.targetId);
       });
+
+      // === Spawn animations for entity materialization ===
+
+      // Player joined - trigger spawn animation
+      eventBus.on('playerJoined', (event) => {
+        const colorHex = parseInt(event.player.color.replace('#', ''), 16);
+        this.triggerSpawnAnimation(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
+      });
+
+      // Player respawned - trigger spawn animation
+      eventBus.on('playerRespawned', (event) => {
+        const colorHex = parseInt(event.player.color.replace('#', ''), 16);
+        this.triggerSpawnAnimation(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
+      });
+
+      // Nutrient spawned - trigger spawn animation
+      eventBus.on('nutrientSpawned', (event) => {
+        // Get color based on value multiplier
+        let colorHex = GAME_CONFIG.NUTRIENT_COLOR;
+        if (event.nutrient.valueMultiplier >= 5) {
+          colorHex = GAME_CONFIG.NUTRIENT_5X_COLOR;
+        } else if (event.nutrient.valueMultiplier >= 3) {
+          colorHex = GAME_CONFIG.NUTRIENT_3X_COLOR;
+        } else if (event.nutrient.valueMultiplier >= 2) {
+          colorHex = GAME_CONFIG.NUTRIENT_2X_COLOR;
+        }
+        this.triggerSpawnAnimation(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
+      });
+
+      // Swarm spawned - trigger spawn animation
+      eventBus.on('swarmSpawned', (event) => {
+        this.triggerSpawnAnimation(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
+      });
+
+      // === Energy gain visual feedback ===
+
+      // Nutrient collected - trigger energy transfer particles and gain aura
+      eventBus.on('nutrientCollected', (event) => {
+        // Get nutrient position from cache (before it's removed)
+        const nutrientPos = this.nutrientPositionCache.get(event.nutrientId);
+        const collectorMesh = this.playerMeshes.get(event.playerId);
+
+        if (nutrientPos && collectorMesh) {
+          // Spawn particles flying from nutrient to collector
+          this.energyTransferAnimations.push(
+            spawnEnergyTransferParticles(
+              this.scene,
+              nutrientPos.x,
+              nutrientPos.y,
+              collectorMesh.position.x,
+              collectorMesh.position.y,
+              event.playerId,
+              0x00ffff // Cyan energy particles
+            )
+          );
+        }
+
+        // Clean up cached position
+        this.nutrientPositionCache.delete(event.nutrientId);
+      });
+    });
+  }
+
+  /**
+   * Trigger a spawn materialization animation for an entity
+   */
+  private triggerSpawnAnimation(
+    entityId: string,
+    entityType: 'player' | 'nutrient' | 'swarm',
+    x: number,
+    y: number,
+    colorHex: number,
+    radius: number = 40
+  ): void {
+    // Mark entity as spawning (for scale/opacity animation)
+    this.spawningEntities.add(entityId);
+
+    // Create converging particle effect
+    const spawnAnim = spawnMaterializeParticles(this.scene, entityId, entityType, x, y, colorHex, radius);
+    this.spawnAnimations.push(spawnAnim);
+  }
+
+  /**
+   * Apply spawn animation scale/opacity to entities based on progress
+   * Progress 0 = just spawned (small, transparent)
+   * Progress 1 = fully materialized (normal scale, full opacity)
+   */
+  private applySpawnAnimations(spawnProgress: Map<string, number>): void {
+    spawnProgress.forEach((progress, entityId) => {
+      // Ease-out curve for smoother scale-up (fast at start, slow at end)
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const scale = 0.1 + easeOut * 0.9; // Scale from 0.1 to 1.0
+      const opacity = 0.3 + easeOut * 0.7; // Opacity from 0.3 to 1.0
+
+      // Try to find and update the entity mesh
+      // Check players
+      const playerGroup = this.playerMeshes.get(entityId);
+      if (playerGroup) {
+        playerGroup.scale.setScalar(scale);
+        this.setGroupOpacity(playerGroup, opacity);
+        return;
+      }
+
+      // Check nutrients
+      const nutrientGroup = this.nutrientMeshes.get(entityId);
+      if (nutrientGroup) {
+        nutrientGroup.scale.setScalar(scale);
+        this.setGroupOpacity(nutrientGroup, opacity);
+        return;
+      }
+
+      // Check swarms
+      const swarmGroup = this.swarmMeshes.get(entityId);
+      if (swarmGroup) {
+        swarmGroup.scale.setScalar(scale);
+        this.setGroupOpacity(swarmGroup, opacity);
+        return;
+      }
     });
   }
 
@@ -462,13 +604,6 @@ export class ThreeRenderer implements Renderer {
       this.geometryCache.set(key, factory());
     }
     return this.geometryCache.get(key)!;
-  }
-
-  private getMaterial(key: string, factory: () => THREE.Material): THREE.Material {
-    if (!this.materialCache.has(key)) {
-      this.materialCache.set(key, factory());
-    }
-    return this.materialCache.get(key)!;
   }
 
   // ============================================
@@ -532,12 +667,28 @@ export class ThreeRenderer implements Renderer {
     // Update swarm death explosions
     updateSwarmDeathAnimations(this.scene, this.swarmDeathAnimations, dt);
 
+    // Update spawn materialization animations and get progress map
+    const spawnProgress = updateSpawnAnimations(this.scene, this.spawnAnimations, dt);
+
+    // Clean up finished spawn animations from tracking set
+    this.spawningEntities.forEach(entityId => {
+      if (!spawnProgress.has(entityId)) {
+        this.spawningEntities.delete(entityId);
+      }
+    });
+
     // Sync all entities
     this.syncPlayers(state);
     this.syncNutrients(state);
     this.syncObstacles(state);
     this.syncSwarms(state);
     this.syncPseudopods(state);
+
+    // Apply spawn animations (scale/opacity) to entities
+    this.applySpawnAnimations(spawnProgress);
+
+    // Animate nutrients (rotation, bobbing)
+    this.updateNutrientAnimations(dt);
 
     // Interpolate swarm positions
     this.interpolateSwarms();
@@ -547,6 +698,13 @@ export class ThreeRenderer implements Renderer {
 
     // Update drain visual feedback (red auras)
     this.updateDrainAuras(state, dt);
+
+    // Update energy transfer animations (particles flying to collector)
+    // Returns set of player IDs receiving energy this frame
+    const receivingEnergy = updateEnergyTransferAnimations(this.scene, this.energyTransferAnimations, dt);
+
+    // Update gain auras (cyan glow when receiving energy)
+    this.updateGainAuras(state, receivingEnergy, dt);
 
     // Animate obstacle particles
     this.updateObstacleParticles(state, dt);
@@ -1110,6 +1268,63 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Update energy gain visual feedback (cyan aura when collecting nutrients)
+   * Creates auras for players receiving energy, triggers flash, and removes finished auras
+   */
+  private updateGainAuras(state: GameState, receivingEnergy: Set<string>, _dt: number): void {
+    // For each player receiving energy, create or trigger gain aura
+    receivingEnergy.forEach(playerId => {
+      const playerMesh = this.playerMeshes.get(playerId);
+      if (!playerMesh) return;
+
+      const player = state.players.get(playerId);
+      if (!player) return;
+
+      let gainAura = this.gainAuraMeshes.get(playerId);
+
+      if (!gainAura) {
+        // Create new gain aura for this player
+        const radius = this.getPlayerRadius(player.stage);
+        gainAura = createGainAura(radius);
+        gainAura.position.z = 0.05; // Slightly in front of player
+        this.scene.add(gainAura);
+        this.gainAuraMeshes.set(playerId, gainAura);
+      }
+
+      // Position aura at player position
+      gainAura.position.x = playerMesh.position.x;
+      gainAura.position.y = playerMesh.position.y;
+
+      // Trigger flash animation (intensity based on rough energy gain estimate)
+      triggerGainFlash(gainAura, 0.6);
+    });
+
+    // Update all active gain auras (animation)
+    this.gainAuraMeshes.forEach((gainAura, playerId) => {
+      const playerMesh = this.playerMeshes.get(playerId);
+      if (!playerMesh) {
+        // Player no longer exists - clean up
+        this.scene.remove(gainAura);
+        gainAura.children.forEach(child => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
+        this.gainAuraMeshes.delete(playerId);
+        return;
+      }
+
+      // Keep aura positioned at player
+      gainAura.position.x = playerMesh.position.x;
+      gainAura.position.y = playerMesh.position.y;
+
+      // Update animation (returns false when finished)
+      updateGainAura(gainAura);
+    });
+  }
+
   private updateObstacleParticles(state: GameState, dt: number): void {
     this.obstacleMeshes.forEach((group, id) => {
       const obstacle = state.obstacles.get(id);
@@ -1126,56 +1341,130 @@ export class ThreeRenderer implements Renderer {
 
   private syncNutrients(state: GameState): void {
     // Remove nutrients that no longer exist
-    this.nutrientMeshes.forEach((mesh, id) => {
+    this.nutrientMeshes.forEach((group, id) => {
       if (!state.nutrients.has(id)) {
-        this.scene.remove(mesh);
-        // Don't dispose cached geometry
+        this.scene.remove(group);
+        // Dispose non-cached materials from group children
+        group.children.forEach(child => {
+          if (child instanceof THREE.Mesh && child.material) {
+            (child.material as THREE.Material).dispose();
+          }
+        });
         this.nutrientMeshes.delete(id);
       }
     });
 
     // Add or update nutrients
     state.nutrients.forEach((nutrient, id) => {
-      let mesh = this.nutrientMeshes.get(id);
+      let group = this.nutrientMeshes.get(id);
 
-      if (!mesh) {
-        // Create new nutrient mesh (hexagon shape) with cached geometry
-        const geometry = this.getGeometry('hexagon-nutrient', () =>
-          new THREE.CircleGeometry(GAME_CONFIG.NUTRIENT_SIZE, 6)
-        );
-
-        // Determine color based on value multiplier
-        let color: number;
-        let materialKey: string;
-        if (nutrient.valueMultiplier >= 5) {
-          color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
-          materialKey = 'nutrient-5x';
-        } else if (nutrient.valueMultiplier >= 3) {
-          color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
-          materialKey = 'nutrient-3x';
-        } else if (nutrient.valueMultiplier >= 2) {
-          color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
-          materialKey = 'nutrient-2x';
-        } else {
-          color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
-          materialKey = 'nutrient-1x';
-        }
-
-        const material = this.getMaterial(materialKey, () =>
-          new THREE.MeshStandardMaterial({
-            color,
-            emissive: color,
-            emissiveIntensity: 1.0, // Very strong glow for nutrients (data packets)
-          })
-        );
-
-        mesh = new THREE.Mesh(geometry, material);
-        this.scene.add(mesh);
-        this.nutrientMeshes.set(id, mesh);
+      if (!group) {
+        group = this.createNutrient3D(nutrient);
+        this.scene.add(group);
+        this.nutrientMeshes.set(id, group);
       }
 
-      // Update position
-      mesh.position.set(nutrient.position.x, nutrient.position.y, 0);
+      // Update base position (bobbing animation added in updateNutrientAnimations)
+      group.userData.baseX = nutrient.position.x;
+      group.userData.baseY = nutrient.position.y;
+      group.position.set(nutrient.position.x, nutrient.position.y, 0);
+
+      // Cache position for energy transfer effect (used when nutrient is collected)
+      this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
+    });
+
+    // Clean up position cache for nutrients that no longer exist
+    this.nutrientPositionCache.forEach((_, id) => {
+      if (!state.nutrients.has(id)) {
+        // Don't delete immediately - let nutrientCollected event use it first
+        // The event handler will clean it up
+      }
+    });
+  }
+
+  /**
+   * Create a 3D nutrient with icosahedron crystal + inner glow core
+   */
+  private createNutrient3D(nutrient: { valueMultiplier: number; id: string }): THREE.Group {
+    const group = new THREE.Group();
+
+    // Determine color based on value multiplier
+    let color: number;
+    if (nutrient.valueMultiplier >= 5) {
+      color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
+    } else if (nutrient.valueMultiplier >= 3) {
+      color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
+    } else if (nutrient.valueMultiplier >= 2) {
+      color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
+    } else {
+      color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
+    }
+
+    // Outer icosahedron crystal (main shape)
+    // Size scales slightly with value: 1x=12, 2x=13, 3x=14, 5x=16
+    const sizeMultiplier = 1 + (nutrient.valueMultiplier - 1) * 0.1;
+    const crystalSize = GAME_CONFIG.NUTRIENT_SIZE * sizeMultiplier;
+    const outerGeometry = new THREE.IcosahedronGeometry(crystalSize, 0);
+    const outerMaterial = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1.2,
+      transparent: true,
+      opacity: 0.85,
+      flatShading: true, // Sharp faceted look
+    });
+    const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+    group.add(outerMesh);
+
+    // Inner glow core (bright point at center)
+    const coreGeometry = new THREE.SphereGeometry(crystalSize * 0.35, 8, 8);
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
+    coreMesh.name = 'core';
+    group.add(coreMesh);
+
+    // Store animation data
+    group.userData = {
+      color,
+      crystalSize,
+      spawnTime: Date.now(),
+      rotationSpeed: 0.0008 + Math.random() * 0.0004, // Slight variation per nutrient
+      bobPhase: Math.random() * Math.PI * 2, // Random starting phase for bobbing
+    };
+
+    return group;
+  }
+
+  /**
+   * Animate nutrients: rotation + gentle bobbing
+   */
+  private updateNutrientAnimations(dt: number): void {
+    const now = Date.now();
+
+    this.nutrientMeshes.forEach((group) => {
+      const { rotationSpeed, bobPhase, baseX, baseY } = group.userData;
+
+      // Rotate around Y axis (tumbling effect)
+      group.rotation.y += rotationSpeed * dt;
+      // Slight wobble on X axis
+      group.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
+
+      // Gentle bobbing on Z axis (floating in digital ocean)
+      const bobAmount = Math.sin(now * 0.002 + bobPhase) * 2;
+      if (baseX !== undefined && baseY !== undefined) {
+        group.position.set(baseX, baseY, bobAmount);
+      }
+
+      // Pulse the inner core brightness
+      const core = group.children.find(c => c.name === 'core') as THREE.Mesh | undefined;
+      if (core && core.material instanceof THREE.MeshBasicMaterial) {
+        const pulse = 0.7 + Math.sin(now * 0.004 + bobPhase) * 0.3;
+        core.material.opacity = pulse;
+      }
     });
   }
 
@@ -1557,6 +1846,27 @@ export class ThreeRenderer implements Renderer {
       }
     });
     this.drainAuraMeshes.clear();
+
+    // Clean up gain auras (cyan glow for energy gain)
+    this.gainAuraMeshes.forEach(aura => {
+      this.scene.remove(aura);
+      aura.children.forEach(child => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    });
+    this.gainAuraMeshes.clear();
+
+    // Clean up energy transfer animations
+    this.energyTransferAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.energyTransferAnimations = [];
+    this.nutrientPositionCache.clear();
 
     this.obstacleMeshes.forEach(group => {
       group.children.forEach(child => {
