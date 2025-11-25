@@ -1,7 +1,7 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
+import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause } from '@godcell/shared';
 import type { Server } from 'socket.io';
-import { logBotsSpawned, logBotDeath, logBotRespawn, logger } from './logger';
+import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
 
 // ============================================
@@ -34,7 +34,7 @@ let spawnPositionGenerator: (() => Position) | null = null;
 const BOT_CONFIG = {
   COUNT: 15, // Number of Stage 1 bots to spawn (tripled for stage 1 tuning)
   STAGE2_COUNT: 2, // Number of Stage 2 multi-cell bots (constant presence)
-  SEARCH_RADIUS: 400, // How far bots can see nutrients (pixels)
+  SEARCH_RADIUS: 800, // How far bots can see nutrients (doubled from 400 to find food faster)
   WANDER_CHANGE_MIN: 1000, // Min time between direction changes (ms)
   WANDER_CHANGE_MAX: 3000, // Max time between direction changes (ms)
   RESPAWN_DELAY: 3000, // How long to wait before respawning dead Stage 1 bots (ms)
@@ -145,6 +145,9 @@ function spawnBot(
   };
   io.emit('playerJoined', joinMessage);
 
+  // Track spawn time for evolution rate tracking
+  recordSpawn(botId, EvolutionStage.SINGLE_CELL);
+
   return bot;
 }
 
@@ -200,6 +203,9 @@ function spawnMultiCellBot(
     player: botPlayer,
   };
   io.emit('playerJoined', joinMessage);
+
+  // Track spawn time for evolution rate tracking (Stage 2 spawns directly at multi-cell)
+  recordSpawn(botId, EvolutionStage.MULTI_CELL);
 
   return bot;
 }
@@ -292,6 +298,11 @@ function steerTowards(
 /**
  * Calculate avoidance force away from dangerous obstacle cores
  * Returns a steering force away from the nearest dangerous obstacle
+ *
+ * FIX: Using expanded detection radius (700px) to detect BEFORE gravity pulls,
+ * and FULL THRUST escape (1.0) when inside gravity influence.
+ * Previously: cautionRadius=270px (inside gravity 600px), graduated force 0.3-1.0
+ * Now: cautionRadius=700px (outside gravity), full thrust when avoiding
  */
 function avoidObstacles(
   botPosition: Position,
@@ -302,25 +313,26 @@ function avoidObstacles(
   for (const obstacle of obstacles.values()) {
     const dist = distance(botPosition, obstacle.position);
 
-    // Danger zones based on obstacle characteristics
-    const coreRadius = getConfig('OBSTACLE_CORE_RADIUS'); // 60px - instant death
-    const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON'); // 180px - inescapable
-    const cautionRadius = eventHorizon * 1.5; // 270px - start avoiding
+    // Danger zones - tight buffer outside event horizon
+    // coreRadius (60px) = instant death
+    // eventHorizon (180px) = very strong gravity, hard to escape
+    // cautionRadius (265px) = bots can handle the risk
+    const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON');
+    const cautionRadius = 265; // 265px - they can take it
 
-    // If bot is outside caution radius, no avoidance needed
+    // Only avoid when actually close to the danger zone
     if (dist > cautionRadius) continue;
 
-    // Calculate avoidance strength (stronger when closer)
-    // Core: maximum avoidance (1.0)
-    // Event horizon: strong avoidance (0.7)
-    // Caution zone: gentle avoidance (0.3)
-    let avoidanceStrength = 0;
-    if (dist < coreRadius) {
-      avoidanceStrength = 1.0; // Maximum panic
-    } else if (dist < eventHorizon) {
-      avoidanceStrength = 0.7 + (0.3 * (eventHorizon - dist) / (eventHorizon - coreRadius));
+    // Graduated avoidance strength based on distance
+    // - Inside event horizon: FULL THRUST (1.0) - this is escape-or-die
+    // - Outside event horizon: Graduated (0.3-1.0)
+    let avoidanceStrength: number;
+    if (dist < eventHorizon) {
+      avoidanceStrength = 1.0; // Full panic inside event horizon
     } else {
-      avoidanceStrength = 0.3 * (cautionRadius - dist) / (cautionRadius - eventHorizon);
+      // Graduated 0.3 to 1.0 based on distance to event horizon
+      const t = (cautionRadius - dist) / (cautionRadius - eventHorizon);
+      avoidanceStrength = 0.3 + 0.7 * t;
     }
 
     // Direction AWAY from obstacle
@@ -339,10 +351,16 @@ function avoidObstacles(
 }
 
 /**
- * Calculate avoidance force away from dangerous entropy swarms
- * Swarms deal damage on contact and chase players, so bots should avoid them
+ * Emergency-only swarm avoidance for single-cell bots
+ * Only triggers when PROPERLY CAUGHT (inside 80px) - the "oh shit" reflex
+ *
+ * Single-cells are faster than swarms (403 vs 290 px/s) so they can usually
+ * pass through. But once caught (slowed to 241 px/s), they need to juke
+ * to break contact before they can escape.
  */
-function avoidSwarms(
+const EMERGENCY_SWARM_RADIUS = 80; // contactRadius (47) + buffer - only react when caught
+
+function avoidSwarmsEmergencyOnly(
   botPosition: Position,
   swarms: EntropySwarm[]
 ): { x: number; y: number } {
@@ -351,29 +369,91 @@ function avoidSwarms(
   for (const swarm of swarms) {
     const dist = distance(botPosition, swarm.position);
 
+    // Only avoid when properly caught - ignore swarms beyond emergency radius
+    if (dist > EMERGENCY_SWARM_RADIUS) continue;
+
+    // Strong avoidance to break contact (0.6-0.8 based on how deep we are)
+    const t = (EMERGENCY_SWARM_RADIUS - dist) / EMERGENCY_SWARM_RADIUS;
+    const avoidanceStrength = 0.6 + 0.2 * t;
+
+    // Direction AWAY from swarm
+    const dx = botPosition.x - swarm.position.x;
+    const dy = botPosition.y - swarm.position.y;
+    const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (dirLength > 0) {
+      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
+      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
+    }
+  }
+
+  return avoidanceForce;
+}
+
+/**
+ * Calculate avoidance force away from dangerous entropy swarms
+ * Swarms deal damage on contact and chase players, so bots should avoid them
+ *
+ * FIX 4: PREDICTIVE AVOIDANCE
+ * Instead of avoiding swarm's current position, avoid where it's HEADING.
+ * This prevents bots from getting cut off by chasing swarms - they dodge
+ * the swarm's trajectory instead of running into its path.
+ *
+ * Look-ahead time: 0.5 seconds (how far ahead to predict)
+ * - Too short: Still get hit by fast-moving swarms
+ * - Too long: Over-react to swarms that might change direction
+ */
+const SWARM_PREDICTION_TIME = 0.5; // seconds
+
+function avoidSwarms(
+  botPosition: Position,
+  swarms: EntropySwarm[]
+): { x: number; y: number } {
+  let avoidanceForce = { x: 0, y: 0 };
+
+  for (const swarm of swarms) {
+    // PREDICTIVE: Calculate where swarm will be in 0.5 seconds
+    // This helps bots avoid running INTO the swarm's path
+    const predictedPosition = {
+      x: swarm.position.x + swarm.velocity.x * SWARM_PREDICTION_TIME,
+      y: swarm.position.y + swarm.velocity.y * SWARM_PREDICTION_TIME,
+    };
+
+    // Use BOTH current and predicted positions for threat assessment
+    // - Current position: immediate danger (are we being hit right now?)
+    // - Predicted position: trajectory danger (are we running into its path?)
+    const currentDist = distance(botPosition, swarm.position);
+    const predictedDist = distance(botPosition, predictedPosition);
+
+    // Use the MORE THREATENING of the two distances
+    // If predicted is closer, swarm is heading toward us - react to that
+    const effectiveDist = Math.min(currentDist, predictedDist);
+
     // Danger zones
     const contactRadius = swarm.size; // Direct contact - taking damage
     const threatRadius = getConfig('SWARM_DETECTION_RADIUS') * 0.5; // 350px - swarm might detect us
     const cautionRadius = getConfig('SWARM_DETECTION_RADIUS'); // 700px - full detection range
 
-    // If bot is outside caution radius, no avoidance needed
-    if (dist > cautionRadius) continue;
+    // If bot is outside caution radius for BOTH positions, no avoidance needed
+    if (effectiveDist > cautionRadius) continue;
 
     // Calculate avoidance strength (stronger when closer)
     let avoidanceStrength = 0;
-    if (dist < contactRadius) {
-      avoidanceStrength = 1.0; // Maximum panic - we're being damaged!
-    } else if (dist < threatRadius) {
+    if (effectiveDist < contactRadius) {
+      avoidanceStrength = 1.0; // Maximum panic - we're being damaged or about to be!
+    } else if (effectiveDist < threatRadius) {
       // High avoidance when within half detection range
-      avoidanceStrength = 0.6 + (0.4 * (threatRadius - dist) / (threatRadius - contactRadius));
+      avoidanceStrength = 0.6 + (0.4 * (threatRadius - effectiveDist) / (threatRadius - contactRadius));
     } else {
       // Gentle avoidance at edge of detection range
-      avoidanceStrength = 0.3 * (cautionRadius - dist) / (cautionRadius - threatRadius);
+      avoidanceStrength = 0.3 * (cautionRadius - effectiveDist) / (cautionRadius - threatRadius);
     }
 
-    // Direction AWAY from swarm
-    const dx = botPosition.x - swarm.position.x;
-    const dy = botPosition.y - swarm.position.y;
+    // PREDICTIVE: Steer away from PREDICTED position, not current
+    // This makes bots dodge the swarm's trajectory instead of current position
+    const avoidPoint = predictedDist < currentDist ? predictedPosition : swarm.position;
+    const dx = botPosition.x - avoidPoint.x;
+    const dy = botPosition.y - avoidPoint.y;
     const dirLength = Math.sqrt(dx * dx + dy * dy);
 
     if (dirLength > 0) {
@@ -406,39 +486,64 @@ function updateBotAI(
     return;
   }
 
-  // Calculate combined avoidance forces (always active)
+  // Single-cell bots: ONLY avoid singularities, NO swarm avoidance
+  // They gotta EAT - swarms are a risk they accept for food
   const obstacleAvoidance = avoidObstacles(player.position, obstacles);
-  const swarmAvoidance = avoidSwarms(player.position, swarms);
+  const avoidance = obstacleAvoidance;
 
-  // Combine avoidance forces (both are important for survival)
-  const avoidance = {
-    x: obstacleAvoidance.x + swarmAvoidance.x,
-    y: obstacleAvoidance.y + swarmAvoidance.y,
-  };
+  // PRIORITIZED STEERING - but HUNGRY by default
+  // Only pure escape when REALLY close to singularity (> 0.8)
+  // Otherwise blend avoidance with seeking - bots gotta eat!
+  const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+  const AVOIDANCE_PRIORITY_THRESHOLD = 0.8; // Only escape when in REAL danger
+  const AVOIDANCE_BLEND_THRESHOLD = 0.1;    // Below this = pure seeking
 
-  // Try to find nearby nutrient
-  const nearestNutrient = findNearestNutrient(player.position, nutrients);
-
-  if (nearestNutrient) {
-    // SEEK state - move towards nutrient
-    bot.ai.state = 'seek_nutrient';
-    bot.ai.targetNutrient = nearestNutrient.id;
-
-    // Steer towards target (returns direction vector, not velocity)
-    const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
-
-    // Combine seeking with obstacle avoidance (avoidance takes priority)
-    bot.inputDirection.x = seekDirection.x + avoidance.x;
-    bot.inputDirection.y = seekDirection.y + avoidance.y;
-  } else {
-    // WANDER state - random exploration
+  if (avoidanceMag > AVOIDANCE_PRIORITY_THRESHOLD) {
+    // HIGH DANGER - pure escape mode, ignore seeking
     bot.ai.state = 'wander';
     bot.ai.targetNutrient = undefined;
-    updateBotWander(bot, currentTime);
+    bot.inputDirection.x = avoidance.x / avoidanceMag;
+    bot.inputDirection.y = avoidance.y / avoidanceMag;
+  } else if (avoidanceMag > AVOIDANCE_BLEND_THRESHOLD) {
+    // MODERATE DANGER - blend avoidance with seeking (SEEKING weighted higher - hungry bots!)
+    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    if (nearestNutrient) {
+      bot.ai.state = 'seek_nutrient';
+      bot.ai.targetNutrient = nearestNutrient.id;
+      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+      // Blend: 60% seek, 40% avoid - hungry bots prioritize food!
+      const seekWeight = 0.6;
+      const avoidWeight = 0.4;
+      const normAvoid = { x: avoidance.x / avoidanceMag, y: avoidance.y / avoidanceMag };
+      bot.inputDirection.x = seekDirection.x * seekWeight + normAvoid.x * avoidWeight;
+      bot.inputDirection.y = seekDirection.y * seekWeight + normAvoid.y * avoidWeight;
+    } else {
+      bot.ai.state = 'wander';
+      bot.ai.targetNutrient = undefined;
+      bot.inputDirection.x = avoidance.x / avoidanceMag;
+      bot.inputDirection.y = avoidance.y / avoidanceMag;
+    }
+  } else {
+    // Safe zone - normal seeking/wandering behavior
+    const nearestNutrient = findNearestNutrient(player.position, nutrients);
 
-    // Add obstacle avoidance to wander direction
-    bot.inputDirection.x += avoidance.x;
-    bot.inputDirection.y += avoidance.y;
+    if (nearestNutrient) {
+      // SEEK state - move towards nutrient
+      bot.ai.state = 'seek_nutrient';
+      bot.ai.targetNutrient = nearestNutrient.id;
+
+      // Steer towards target (returns direction vector, not velocity)
+      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+
+      // No avoidance needed, just seek
+      bot.inputDirection.x = seekDirection.x;
+      bot.inputDirection.y = seekDirection.y;
+    } else {
+      // WANDER state - random exploration
+      bot.ai.state = 'wander';
+      bot.ai.targetNutrient = undefined;
+      updateBotWander(bot, currentTime);
+    }
   }
 
   // Normalize final direction (don't let combined forces create super-speed)
@@ -534,6 +639,9 @@ export function spawnBotAt(
   };
   io.emit('playerJoined', joinMessage);
 
+  // Track spawn time for evolution rate tracking
+  recordSpawn(botId, stage);
+
   logger.info({ event: 'dev_spawn_bot', botId, position, stage });
 
   return botId;
@@ -617,32 +725,46 @@ function updateMultiCellBotAI(
     }
   }
 
-  // Calculate obstacle avoidance (multi-cells still avoid gravity wells)
+  // FIX: Calculate BOTH obstacle AND swarm avoidance for multi-cell bots
   const obstacleAvoidance = avoidObstacles(player.position, obstacles);
+  const swarmAvoidance = avoidSwarms(player.position, swarms);
+  const avoidance = {
+    x: obstacleAvoidance.x + swarmAvoidance.x,
+    y: obstacleAvoidance.y + swarmAvoidance.y,
+  };
 
-  // Decision tree: disabled swarm > prey > nutrient
-  if (nearestDisabledSwarm) {
-    // Hunt disabled swarm (easy energy)
-    const seekDirection = steerTowards(player.position, nearestDisabledSwarm.position, bot.inputDirection);
-    bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
-    bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
-  } else if (nearestPrey) {
-    // Hunt single-cell prey
-    const seekDirection = steerTowards(player.position, nearestPrey.position, bot.inputDirection);
-    bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
-    bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
+  // FIX: PRIORITIZED STEERING for multi-cell bots (same as single-cell)
+  // If avoiding, ONLY avoid - don't blend with hunting
+  const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+  const AVOIDANCE_THRESHOLD = 0.1;
+
+  if (avoidanceMag > AVOIDANCE_THRESHOLD) {
+    // ESCAPE state - pure avoidance, even multi-cells prioritize survival
+    bot.inputDirection.x = avoidance.x / avoidanceMag;
+    bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else {
-    // Seek nutrients (fallback behavior)
-    const nearestNutrient = findNearestNutrient(player.position, nutrients);
-    if (nearestNutrient) {
-      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
-      bot.inputDirection.x = seekDirection.x + obstacleAvoidance.x;
-      bot.inputDirection.y = seekDirection.y + obstacleAvoidance.y;
+    // Safe zone - decision tree: disabled swarm > prey > nutrient
+    if (nearestDisabledSwarm) {
+      // Hunt disabled swarm (easy energy)
+      const seekDirection = steerTowards(player.position, nearestDisabledSwarm.position, bot.inputDirection);
+      bot.inputDirection.x = seekDirection.x;
+      bot.inputDirection.y = seekDirection.y;
+    } else if (nearestPrey) {
+      // Hunt single-cell prey
+      const seekDirection = steerTowards(player.position, nearestPrey.position, bot.inputDirection);
+      bot.inputDirection.x = seekDirection.x;
+      bot.inputDirection.y = seekDirection.y;
     } else {
-      // Wander if nothing to hunt
-      updateBotWander(bot, currentTime);
-      bot.inputDirection.x += obstacleAvoidance.x;
-      bot.inputDirection.y += obstacleAvoidance.y;
+      // Seek nutrients (fallback behavior)
+      const nearestNutrient = findNearestNutrient(player.position, nutrients);
+      if (nearestNutrient) {
+        const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+        bot.inputDirection.x = seekDirection.x;
+        bot.inputDirection.y = seekDirection.y;
+      } else {
+        // Wander if nothing to hunt
+        updateBotWander(bot, currentTime);
+      }
     }
   }
 
@@ -728,9 +850,11 @@ export function getBotCount(): number {
 
 /**
  * Handle bot death - schedule auto-respawn after delay
+ * @param cause - What killed the bot (for death rate tracking)
  */
 export function handleBotDeath(
   botId: string,
+  cause: DeathCause,
   io: Server,
   players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
@@ -739,7 +863,8 @@ export function handleBotDeath(
   // Check if it's a single-cell bot
   const singleCellBot = singleCellBots.get(botId);
   if (singleCellBot) {
-    logBotDeath(botId);
+    logBotDeath(botId, cause, EvolutionStage.SINGLE_CELL);
+    clearSpawnTime(botId); // Clear evolution tracking on death
 
     // Schedule single-cell bot respawn
     setTimeout(() => {
@@ -771,6 +896,9 @@ export function handleBotDeath(
       };
       io.emit('playerRespawned', respawnMessage);
 
+      // Track new spawn time for evolution rate tracking
+      recordSpawn(botId, EvolutionStage.SINGLE_CELL);
+
       logBotRespawn(botId);
     }, BOT_CONFIG.RESPAWN_DELAY);
     return;
@@ -779,7 +907,8 @@ export function handleBotDeath(
   // Check if it's a multi-cell bot
   const multiCellBot = multiCellBots.get(botId);
   if (multiCellBot) {
-    logBotDeath(botId);
+    logBotDeath(botId, cause, EvolutionStage.MULTI_CELL);
+    clearSpawnTime(botId); // Clear evolution tracking on death
 
     // Schedule multi-cell bot respawn (longer delay)
     setTimeout(() => {
@@ -810,6 +939,9 @@ export function handleBotDeath(
         player: { ...player },
       };
       io.emit('playerRespawned', respawnMessage);
+
+      // Track new spawn time for evolution rate tracking
+      recordSpawn(botId, EvolutionStage.MULTI_CELL);
 
       logBotRespawn(botId);
     }, BOT_CONFIG.STAGE2_RESPAWN_DELAY);
