@@ -179,6 +179,84 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 }
 
 /**
+ * Update single cell visual state based on energy level
+ * Affects nucleus glow, cytoplasm opacity, organelle visibility
+ *
+ * @param cellGroup - The cell group created by createSingleCell
+ * @param energy - Current energy level
+ * @param maxEnergy - Maximum energy level
+ */
+export function updateSingleCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number): void {
+  const energyRatio = Math.max(0, Math.min(1, energy / maxEnergy));
+
+  // Get cell components (membrane, cytoplasm, organelles, nucleus)
+  const membrane = cellGroup.children[0] as THREE.Mesh;
+  const cytoplasm = cellGroup.children[1] as THREE.Mesh;
+  const organelles = cellGroup.children[2] as THREE.Points;
+  const nucleus = cellGroup.children[3] as THREE.Mesh;
+
+  if (!membrane || !cytoplasm || !organelles || !nucleus) return;
+
+  const membraneMaterial = membrane.material as THREE.MeshPhysicalMaterial;
+  const cytoplasmMaterial = cytoplasm.material as THREE.ShaderMaterial;
+  const organelleMaterial = organelles.material as THREE.PointsMaterial;
+  const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
+
+  // Nucleus fades based on energy
+  nucleusMaterial.opacity = 0.3 + energyRatio * 0.7; // 0.3-1.0
+
+  // Cytoplasm darkens toward black as energy drops
+  if (cytoplasmMaterial.uniforms?.energyRatio) {
+    cytoplasmMaterial.uniforms.energyRatio.value = energyRatio;
+  }
+
+  // Update based on energy level
+  if (energyRatio > 0.5) {
+    // High energy: bright and steady
+    nucleusMaterial.emissiveIntensity = 2.5;
+    if (cytoplasmMaterial.uniforms?.opacity) {
+      cytoplasmMaterial.uniforms.opacity.value = 0.5;
+    }
+    organelleMaterial.opacity = 0.7;
+    membraneMaterial.opacity = 0.15;
+    nucleus.scale.set(1, 1, 1);
+  } else if (energyRatio > 0.2) {
+    // Medium energy: dimming
+    nucleusMaterial.emissiveIntensity = 1.0 + energyRatio * 2;
+    if (cytoplasmMaterial.uniforms?.opacity) {
+      cytoplasmMaterial.uniforms.opacity.value = 0.35 + energyRatio * 0.3;
+    }
+    organelleMaterial.opacity = 0.5 + energyRatio * 0.4;
+    membraneMaterial.opacity = 0.12 + energyRatio * 0.06;
+    nucleus.scale.set(1, 1, 1);
+  } else if (energyRatio > 0.1) {
+    // Low energy: dramatic flickering
+    const time = Date.now() * 0.01;
+    const flicker = Math.sin(time) * 0.5 + 0.5;
+    nucleusMaterial.emissiveIntensity = (0.3 + energyRatio * 2) * (0.4 + flicker * 0.6);
+    if (cytoplasmMaterial.uniforms?.opacity) {
+      cytoplasmMaterial.uniforms.opacity.value = (0.25 + energyRatio * 0.3) * (0.7 + flicker * 0.3);
+    }
+    organelleMaterial.opacity = 0.35 + energyRatio * 0.3 * flicker;
+    membraneMaterial.opacity = 0.1;
+    const scalePulse = 0.95 + flicker * 0.1;
+    nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+  } else {
+    // Critical energy: URGENT pulsing
+    const time = Date.now() * 0.015;
+    const pulse = Math.sin(time) * 0.6 + 0.4;
+    nucleusMaterial.emissiveIntensity = 0.2 + pulse * 0.8;
+    if (cytoplasmMaterial.uniforms?.opacity) {
+      cytoplasmMaterial.uniforms.opacity.value = 0.15 + pulse * 0.2;
+    }
+    organelleMaterial.opacity = 0.2 + pulse * 0.25;
+    membraneMaterial.opacity = 0.05 + pulse * 0.1;
+    const scalePulse = 0.85 + pulse * 0.25;
+    nucleus.scale.set(scalePulse, scalePulse, scalePulse);
+  }
+}
+
+/**
  * Dispose of cached geometries (call on renderer cleanup)
  */
 export function disposeSingleCellCache(): void {

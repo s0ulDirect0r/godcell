@@ -13,11 +13,20 @@ import {
   type MultiCellStyle,
 } from './render/three/MultiCellRenderer';
 import {
-  createSingleCell,
   createEntropySwarm,
   createGravityDistortion,
   createNutrient,
 } from './render/three/ModelFactory';
+import {
+  createSingleCell,
+  updateSingleCellEnergy,
+} from './render/three/SingleCellRenderer';
+import {
+  updateEvolutionCorona,
+  updateEvolutionRing,
+  removeEvolutionEffects,
+  applyEvolutionEffects,
+} from './render/three/EvolutionVisuals';
 
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
@@ -34,12 +43,17 @@ let energyDirection = -1; // -1 = draining, 1 = filling
 // Animation state for energy visualization
 const animState = {
   energyLevel: 100,       // 0-100 current energy percentage
-  maxEnergyLevel: 100,
+  maxEnergy: 100,         // Max energy (affects evolution progress)
   animationSpeed: 1.0,    // Animation speed multiplier
   autoAnimate: true,      // Auto-cycle energy for preview
   showWireframe: false,
   rotationSpeed: 0.5,     // Auto-rotation speed
   autoRotate: false,
+  // Evolution visuals
+  evolutionProgress: 0,   // 0-1 progress toward next stage
+  showEvolution: false,   // Show evolution progress indicators (corona, ring)
+  playMolting: false,     // Play the molting animation
+  moltingProgress: 0,     // 0-1 progress through molting animation
 };
 
 // VFX parameters for tuning
@@ -141,6 +155,9 @@ function initGUI() {
   animFolder.add(animState, 'energyLevel', 0, 100, 1)
     .name('Energy %')
     .listen();
+  animFolder.add(animState, 'maxEnergy', 50, 500, 10)
+    .name('Max Energy')
+    .listen();
   animFolder.add(animState, 'autoAnimate')
     .name('Auto Cycle Energy');
   animFolder.add(animState, 'animationSpeed', 0.1, 3, 0.1)
@@ -150,6 +167,32 @@ function initGUI() {
   animFolder.add(animState, 'rotationSpeed', 0, 2, 0.1)
     .name('Rotation Speed');
   animFolder.open();
+
+  // Evolution visuals folder
+  const evoFolder = gui.addFolder('Evolution');
+  evoFolder.add(animState, 'evolutionProgress', 0, 1, 0.01)
+    .name('Evolution Progress')
+    .listen();
+  evoFolder.add(animState, 'showEvolution')
+    .name('Show Progress FX')
+    .onChange((show: boolean) => {
+      if (!show) {
+        // Remove evolution effects from all cell models
+        models.forEach(model => {
+          if (model instanceof THREE.Group) {
+            removeEvolutionEffects(model);
+          }
+        });
+      }
+    });
+  evoFolder.add(animState, 'playMolting')
+    .name('Play Molting')
+    .onChange((play: boolean) => {
+      if (play) {
+        animState.moltingProgress = 0;
+      }
+    });
+  evoFolder.open();
 
   // VFX parameters folder
   const vfxFolder = gui.addFolder('VFX Parameters');
@@ -364,17 +407,65 @@ function animate(currentTime: number = 0) {
     });
   }
 
+  // Play molting animation if enabled
+  if (animState.playMolting) {
+    animState.moltingProgress += deltaTime * 0.5 * animState.animationSpeed; // ~2 seconds for full animation
+    if (animState.moltingProgress >= 1) {
+      animState.moltingProgress = 0;
+      animState.playMolting = false;
+    }
+  }
+
   // Animate multi-cell models with current energy level
   const energy = animState.energyLevel;
-  const maxEnergy = animState.maxEnergyLevel;
+  const maxEnergy = animState.maxEnergy;
 
   models.forEach((model) => {
     if (model instanceof THREE.Group && model.userData.cellRadius) {
       // It's a colonial cluster
       updateMultiCellEnergy(model, 'colonial', energy, maxEnergy);
+
+      // Evolution progress visuals
+      if (animState.showEvolution && animState.evolutionProgress > 0) {
+        const radius = model.userData.cellRadius || 48;
+        updateEvolutionCorona(model, animState.evolutionProgress);
+        updateEvolutionRing(model, animState.evolutionProgress, radius);
+      }
+
+      // Molting animation (intense glow + scale pulse during evolution)
+      if (animState.playMolting) {
+        applyEvolutionEffects(model, 'multi_cell', animState.moltingProgress);
+      }
     } else if (model instanceof THREE.Group && model.userData.coreRadius) {
       // It's a radial organism
       updateMultiCellEnergy(model, 'radial', energy, maxEnergy);
+
+      // Evolution progress visuals
+      if (animState.showEvolution && animState.evolutionProgress > 0) {
+        const radius = model.userData.coreRadius || 48;
+        updateEvolutionCorona(model, animState.evolutionProgress);
+        updateEvolutionRing(model, animState.evolutionProgress, radius);
+      }
+
+      // Molting animation
+      if (animState.playMolting) {
+        applyEvolutionEffects(model, 'multi_cell', animState.moltingProgress);
+      }
+    } else if (model instanceof THREE.Group && model.userData.radius) {
+      // It's a single cell (created by SingleCellRenderer)
+      updateSingleCellEnergy(model, energy, maxEnergy);
+
+      // Evolution progress visuals for single cell
+      if (animState.showEvolution && animState.evolutionProgress > 0) {
+        const radius = model.userData.radius || 24;
+        updateEvolutionCorona(model, animState.evolutionProgress);
+        updateEvolutionRing(model, animState.evolutionProgress, radius);
+      }
+
+      // Molting animation
+      if (animState.playMolting) {
+        applyEvolutionEffects(model, 'single_cell', animState.moltingProgress);
+      }
     }
   });
 

@@ -528,7 +528,7 @@ export const GAME_CONFIG = {
 
   // Nutrients (data packets)
   NUTRIENT_COUNT: 32,           // Initial spawn count (balanced for stage 1-2)
-  NUTRIENT_RESPAWN_TIME: 30000, // 30 seconds in milliseconds
+  NUTRIENT_RESPAWN_TIME: 10000, // 10 seconds in milliseconds
   NUTRIENT_SIZE: 12,            // Radius (balanced for collection difficulty)
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals (base 1x)
   NUTRIENT_ENERGY_VALUE: 25,    // Immediate energy gain

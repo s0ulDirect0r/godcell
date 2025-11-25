@@ -10,7 +10,7 @@ import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
-import { createSingleCell, disposeSingleCellCache } from './SingleCellRenderer';
+import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {
@@ -1384,68 +1384,13 @@ export class ThreeRenderer implements Renderer {
    * Evolution progress (30-100%) triggers visual indicators
    */
   private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, stage: EvolutionStage): void {
-    const energyRatio = energy / maxEnergy;
+    // Update energy-based visuals (brightness, opacity, flickering)
+    updateSingleCellEnergy(cellGroup, energy, maxEnergy);
 
     // Calculate evolution progress (0.0 = start, 1.0 = ready to evolve)
     // Progress starts counting at 30% of next evolution threshold
     const evolutionProgress = calculateEvolutionProgress(maxEnergy, stage);
     const isApproachingEvolution = evolutionProgress >= 0.3; // 30% threshold
-
-    // Get cell components (membrane, cytoplasm, organelles, nucleus)
-    const membrane = cellGroup.children[0] as THREE.Mesh;
-    const cytoplasm = cellGroup.children[1] as THREE.Mesh;
-    const organelles = cellGroup.children[2] as THREE.Points;
-    const nucleus = cellGroup.children[3] as THREE.Mesh;
-
-    const membraneMaterial = membrane.material as THREE.MeshPhysicalMaterial;
-    const cytoplasmMaterial = cytoplasm.material as THREE.ShaderMaterial;
-    const organelleMaterial = organelles.material as THREE.PointsMaterial;
-    const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
-
-    // Nucleus fades based on energy (sole life resource)
-    nucleusMaterial.opacity = 0.3 + energyRatio * 0.7; // 0.3-1.0 based on energy
-
-    // Cytoplasm darkens toward black as energy drops
-    cytoplasmMaterial.uniforms.energyRatio.value = energyRatio;
-
-    // Update based on energy
-    if (energyRatio > 0.5) {
-      // High energy: bright and steady
-      nucleusMaterial.emissiveIntensity = 2.5; // Bright nucleus!
-      cytoplasmMaterial.uniforms.opacity.value = 0.5; // Healthy jelly
-      organelleMaterial.opacity = 0.7; // Visible organelles
-      membraneMaterial.opacity = 0.15; // Subtle membrane
-      nucleus.scale.set(1, 1, 1); // Normal size
-    } else if (energyRatio > 0.2) {
-      // Medium energy: dimming
-      nucleusMaterial.emissiveIntensity = 1.0 + energyRatio * 2; // 1.4-2.0
-      cytoplasmMaterial.uniforms.opacity.value = 0.35 + energyRatio * 0.3; // 0.44-0.5
-      organelleMaterial.opacity = 0.5 + energyRatio * 0.4; // 0.58-0.7
-      membraneMaterial.opacity = 0.12 + energyRatio * 0.06; // 0.13-0.15
-      nucleus.scale.set(1, 1, 1);
-    } else if (energyRatio > 0.1) {
-      // Low energy: dramatic flickering
-      const time = Date.now() * 0.01;
-      const flicker = Math.sin(time) * 0.5 + 0.5; // 0.0-1.0
-      nucleusMaterial.emissiveIntensity = (0.3 + energyRatio * 2) * (0.4 + flicker * 0.6); // 0.12-0.7
-      cytoplasmMaterial.uniforms.opacity.value = (0.25 + energyRatio * 0.3) * (0.7 + flicker * 0.3); // flickering
-      organelleMaterial.opacity = 0.35 + energyRatio * 0.3 * flicker; // 0.35-0.41 flickering
-      membraneMaterial.opacity = 0.1;
-      // Subtle scale pulse
-      const scalePulse = 0.95 + flicker * 0.1;
-      nucleus.scale.set(scalePulse, scalePulse, scalePulse);
-    } else {
-      // Critical energy: URGENT pulsing
-      const time = Date.now() * 0.015;
-      const pulse = Math.sin(time) * 0.6 + 0.4; // 0.0-1.0
-      nucleusMaterial.emissiveIntensity = 0.2 + pulse * 0.8; // 0.2-1.0 pulsing
-      cytoplasmMaterial.uniforms.opacity.value = 0.15 + pulse * 0.2; // 0.15-0.35 pulsing jelly
-      organelleMaterial.opacity = 0.2 + pulse * 0.25; // 0.2-0.45 pulsing
-      membraneMaterial.opacity = 0.05 + pulse * 0.1; // 0.05-0.15 barely visible
-      // Dramatic scale pulse
-      const scalePulse = 0.85 + pulse * 0.25;
-      nucleus.scale.set(scalePulse, scalePulse, scalePulse);
-    }
 
     // ============================================
     // Evolution Progress Indicators (30-100%)
