@@ -423,9 +423,9 @@ function updateModels() {
       // Grid layout of all models with random colors
       const spacing = 150;
 
-      // Row 1: Cells (each with random color from game palette)
+      // Row 1: Player stages (each with random color from game palette)
       const singleCell = createSingleCell(24, randomCellColor());
-      singleCell.position.set(-spacing * 1.5, spacing, 0);
+      singleCell.position.set(-spacing * 2, spacing, 0);
       scene.add(singleCell);
       models.push(singleCell);
 
@@ -438,6 +438,12 @@ function updateModels() {
       radial.position.set(spacing * 0.5, spacing, 0);
       scene.add(radial);
       models.push(radial);
+
+      // Cyber-organism (scaled down to fit in grid - actual game size is 144)
+      const cyberOrg = createCyberOrganism(60, randomCellColor());
+      cyberOrg.position.set(spacing * 1.5, spacing, 0);
+      scene.add(cyberOrg);
+      models.push(cyberOrg);
 
       // Row 2: Threats
       const swarm = createEntropySwarm(40);
