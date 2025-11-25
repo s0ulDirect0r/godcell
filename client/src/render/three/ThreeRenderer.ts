@@ -11,6 +11,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
+import { createCyberOrganism, updateCyberOrganismAnimation, updateCyberOrganismEnergy } from './CyberOrganismRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {
@@ -333,14 +334,17 @@ export class ThreeRenderer implements Renderer {
 
         // Create target mesh for new stage
         let targetGroup: THREE.Group;
-        if (event.targetStage === 'multi_cell') {
+        if (event.targetStage === 'cyber_organism' || event.targetStage === 'humanoid' || event.targetStage === 'godcell') {
+          // Stage 3+: Cyber-organism hexapod
+          targetGroup = createCyberOrganism(targetRadius, colorHex);
+        } else if (event.targetStage === 'multi_cell') {
           targetGroup = createMultiCell({
             radius: targetRadius,
             colorHex,
             style: this.multiCellStyle,
           });
         } else {
-          // Create single-cell (or other future stages)
+          // Create single-cell
           targetGroup = createSingleCell(targetRadius, colorHex);
         }
 
@@ -1699,7 +1703,10 @@ export class ThreeRenderer implements Renderer {
         const colorHex = parseInt(player.color.replace('#', ''), 16);
 
         // Create cell based on stage
-        if (player.stage === 'multi_cell') {
+        if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
+          // Stage 3+: Cyber-organism hexapod (placeholder for humanoid/godcell for now)
+          cellGroup = createCyberOrganism(radius, colorHex);
+        } else if (player.stage === 'multi_cell') {
           // Multi-cell organism
           cellGroup = createMultiCell({
             radius,
@@ -1742,7 +1749,21 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
-      if (player.stage === 'multi_cell') {
+      if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
+        // Stage 3+: Cyber-organism (hexapod)
+        const energyRatio = player.energy / player.maxEnergy;
+        updateCyberOrganismEnergy(cellGroup, energyRatio);
+
+        // Check if player is moving by comparing current to previous position
+        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
+        const currPos = player.position;
+        const isMoving = prevPos
+          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
+          : false;
+        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60); // ~60fps
+      } else if (player.stage === 'multi_cell') {
         updateMultiCellEnergy(
           cellGroup,
           this.multiCellStyle,
