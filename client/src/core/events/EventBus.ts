@@ -42,6 +42,20 @@ export class EventBus {
   }
 
   /**
+   * Subscribe to an event once (auto-unsubscribes after first call)
+   */
+  once<T extends GameEvent['type']>(
+    type: T,
+    handler: EventHandler<Extract<GameEvent, { type: T }>>
+  ): () => void {
+    const wrappedHandler = (event: Extract<GameEvent, { type: T }>) => {
+      this.off(type, wrappedHandler);
+      handler(event);
+    };
+    return this.on(type, wrappedHandler);
+  }
+
+  /**
    * Unsubscribe from an event
    */
   off<T extends GameEvent['type']>(

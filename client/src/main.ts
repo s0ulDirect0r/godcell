@@ -12,91 +12,132 @@ import { PerformanceMonitor } from './utils/performance';
 import { DebugOverlay } from './ui/DebugOverlay';
 import { HUDOverlay } from './render/hud/HUDOverlay';
 import { DevPanel } from './ui/DevPanel';
+import { StartScreen, type PreGameSettings } from './ui/StartScreen';
 
 // ============================================
-// Performance Monitoring
+// URL Flags
 // ============================================
 
-const perfMonitor = new PerformanceMonitor();
-let debugOverlay: DebugOverlay | null = null;
-
-// Show debug overlay if ?debug in URL
-if (new URLSearchParams(window.location.search).has('debug')) {
-  debugOverlay = new DebugOverlay();
-}
-
-console.log('[Init] Using Three.js renderer');
+const urlParams = new URLSearchParams(window.location.search);
+const devMode = urlParams.has('dev');
+const debugMode = urlParams.has('debug');
 
 // ============================================
-// Initialize Core Systems
+// Game State (initialized on start)
 // ============================================
 
-const gameState = new GameState();
-const inputManager = new InputManager();
-
-// Determine server URL based on whether we're running on localhost
-const serverUrl = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : window.location.origin;
-
-const socketManager = new SocketManager(serverUrl, gameState);
-
-// ============================================
-// Initialize Renderer
-// ============================================
-
-const renderer = new ThreeRenderer();
-const container = document.getElementById('game-container')!;
-renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
-
-// Wire input manager with renderer's camera projection
-inputManager.setCameraProjection(renderer.getCameraProjection());
-
-// Initialize HUD overlay
-const hudOverlay = new HUDOverlay();
-
-// Initialize Dev Panel if ?dev in URL
+let gameState: GameState;
+let socketManager: SocketManager;
+let inputManager: InputManager;
+let renderer: ThreeRenderer;
+let hudOverlay: HUDOverlay;
 let devPanel: DevPanel | null = null;
-if (new URLSearchParams(window.location.search).has('dev')) {
-  devPanel = new DevPanel({
-    socket: socketManager.getSocket(),
-    gameState,
-    renderer,
-  });
-  console.log('[Dev] Dev panel enabled - press H to toggle');
-}
+let debugOverlay: DebugOverlay | null = null;
+let perfMonitor: PerformanceMonitor;
+let gameStarted = false;
 
 // ============================================
-// Wire Input Handlers to Network
+// Start Screen
 // ============================================
 
-// Forward movement input to server
-eventBus.on('client:inputMove', (event) => {
-  socketManager.sendMove(event.direction);
+new StartScreen({
+  devMode,
+  onStart: (settings: PreGameSettings) => {
+    initializeGame(settings);
+  },
 });
 
-// Forward respawn input to server
-eventBus.on('client:inputRespawn', () => {
-  socketManager.sendRespawn();
-});
+// ============================================
+// Game Initialization (called when player clicks Enter)
+// ============================================
 
-// Forward EMP activation to server
-eventBus.on('client:empActivate', () => {
-  socketManager.sendEMPActivate();
-});
+function initializeGame(settings: PreGameSettings): void {
+  if (gameStarted) return;
+  gameStarted = true;
 
-// Forward pseudopod beam fire to server
-eventBus.on('client:pseudopodFire', (event) => {
-  socketManager.sendPseudopodFire(event.targetX, event.targetY);
-});
+  console.log('[Init] Starting GODCELL...');
+  if (settings.playgroundMode) {
+    console.log('[Init] Playground mode enabled');
+  }
+  if (settings.pauseOnStart) {
+    console.log('[Init] Will pause server on connect');
+  }
 
-// Dev panel toggle (H key)
-if (devPanel) {
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'h' || e.key === 'H') {
-      devPanel?.toggle();
-    }
+  // Performance monitoring
+  perfMonitor = new PerformanceMonitor();
+
+  // Debug overlay
+  if (debugMode) {
+    debugOverlay = new DebugOverlay();
+  }
+
+  // Core systems
+  gameState = new GameState();
+  inputManager = new InputManager();
+
+  // Determine server URL
+  const serverUrl = window.location.hostname === 'localhost'
+    ? 'http://localhost:3000'
+    : window.location.origin;
+
+  // Connect to server (pass playground mode for port switching)
+  socketManager = new SocketManager(serverUrl, gameState, settings.playgroundMode);
+
+  // Pause server on connect if requested (wait for connection first)
+  if (settings.pauseOnStart) {
+    eventBus.once('client:socketConnected', () => {
+      console.log('[Init] Sending pause command to server');
+      socketManager.sendPause();
+    });
+  }
+
+  // Initialize renderer
+  renderer = new ThreeRenderer();
+  const container = document.getElementById('game-container')!;
+  renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+
+  // Wire input manager with renderer's camera projection
+  inputManager.setCameraProjection(renderer.getCameraProjection());
+
+  // Initialize HUD
+  hudOverlay = new HUDOverlay();
+
+  // Initialize Dev Panel if dev mode
+  if (devMode) {
+    devPanel = new DevPanel({
+      socket: socketManager.getSocket(),
+      gameState,
+      renderer,
+    });
+    console.log('[Dev] Dev panel enabled - press H to toggle');
+
+    // Dev panel toggle (H key)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'h' || e.key === 'H') {
+        devPanel?.toggle();
+      }
+    });
+  }
+
+  // Wire input handlers to network
+  eventBus.on('client:inputMove', (event) => {
+    socketManager.sendMove(event.direction);
   });
+
+  eventBus.on('client:inputRespawn', () => {
+    socketManager.sendRespawn();
+  });
+
+  eventBus.on('client:empActivate', () => {
+    socketManager.sendEMPActivate();
+  });
+
+  eventBus.on('client:pseudopodFire', (event) => {
+    socketManager.sendPseudopodFire(event.targetX, event.targetY);
+  });
+
+  // Start game loop
+  update();
 }
 
 // ============================================
@@ -124,6 +165,3 @@ function update(): void {
 
   requestAnimationFrame(update);
 }
-
-// Start loop
-update();

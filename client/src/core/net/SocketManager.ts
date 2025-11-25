@@ -37,13 +37,15 @@ export class SocketManager {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
 
-  constructor(serverUrl: string, gameState: GameState) {
+  constructor(serverUrl: string, gameState: GameState, isPlaygroundParam = false) {
     this.gameState = gameState;
 
     // Check for playground mode - connects to separate server on port 3001
-    const isPlayground = new URLSearchParams(window.location.search).has('playground');
+    // Can be enabled via URL param (?playground) OR passed directly from start screen
+    const isPlayground = isPlaygroundParam || new URLSearchParams(window.location.search).has('playground');
     let targetUrl = serverUrl;
     if (isPlayground) {
+      console.log('[Socket] Playground mode - connecting to port 3001');
       try {
         const url = new URL(serverUrl);
         url.port = '3001';
@@ -125,6 +127,26 @@ export class SocketManager {
       type: 'pseudopodFire',
       targetX,
       targetY,
+    });
+  }
+
+  /**
+   * Send pause command to server (dev mode)
+   */
+  sendPause(): void {
+    this.socket.emit('devCommand', {
+      type: 'devCommand',
+      command: { action: 'pauseGame', paused: true },
+    });
+  }
+
+  /**
+   * Send resume command to server (dev mode)
+   */
+  sendResume(): void {
+    this.socket.emit('devCommand', {
+      type: 'devCommand',
+      command: { action: 'pauseGame', paused: false },
     });
   }
 
