@@ -107,30 +107,62 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 }
 
 // ============================================
-// NUTRIENT
+// NUTRIENT (3D Icosahedron Crystal)
 // ============================================
 
-export function createNutrient(valueMultiplier: number = 1): THREE.Mesh {
-  const geometry = new THREE.CircleGeometry(GAME_CONFIG.NUTRIENT_SIZE, 6);
+export function createNutrient(valueMultiplier: number = 1): THREE.Group {
+  const group = new THREE.Group();
 
+  // Determine color based on value multiplier
   let color: number;
   if (valueMultiplier >= 5) {
-    color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta
+    color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
   } else if (valueMultiplier >= 3) {
-    color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold
+    color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
   } else if (valueMultiplier >= 2) {
-    color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan
+    color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
   } else {
-    color = GAME_CONFIG.NUTRIENT_COLOR; // Green
+    color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
   }
 
-  const material = new THREE.MeshStandardMaterial({
+  // Size scales slightly with value: 1x=12, 2x=13, 3x=14, 5x=16
+  const sizeMultiplier = 1 + (valueMultiplier - 1) * 0.1;
+  const crystalSize = GAME_CONFIG.NUTRIENT_SIZE * sizeMultiplier;
+
+  // Outer icosahedron crystal (main shape) - sharp faceted look
+  const outerGeometry = new THREE.IcosahedronGeometry(crystalSize, 0);
+  const outerMaterial = new THREE.MeshStandardMaterial({
     color,
     emissive: color,
-    emissiveIntensity: 1.0,
+    emissiveIntensity: 1.2,
+    transparent: true,
+    opacity: 0.85,
+    flatShading: true, // Sharp faceted look
   });
+  const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
+  group.add(outerMesh);
 
-  return new THREE.Mesh(geometry, material);
+  // Inner glow core (bright point at center)
+  const coreGeometry = new THREE.SphereGeometry(crystalSize * 0.35, 8, 8);
+  const coreMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
+  coreMesh.name = 'core';
+  group.add(coreMesh);
+
+  // Store animation data for model viewer
+  group.userData = {
+    color,
+    crystalSize,
+    spawnTime: Date.now(),
+    rotationSpeed: 0.0008 + Math.random() * 0.0004,
+    bobPhase: Math.random() * Math.PI * 2,
+  };
+
+  return group;
 }
 
 // ============================================
