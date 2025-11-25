@@ -168,6 +168,9 @@ export class ThreeRenderer implements Renderer {
   // Track nutrient positions for energy transfer effect (cached when nutrient exists)
   private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
 
+  // Reference to current state (for event handlers that need to look up entities)
+  private currentState: GameState | null = null;
+
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -457,13 +460,31 @@ export class ThreeRenderer implements Renderer {
         this.empEffects.push(spawnEMPPulse(this.scene, event.position.x, event.position.y));
       });
 
-      // Swarm consumed - spawn death explosion animation
+      // Swarm consumed - spawn death explosion + energy transfer to consumer
       eventBus.on('swarmConsumed', (event) => {
         const swarmGroup = this.swarmMeshes.get(event.swarmId);
+        const consumerMesh = this.playerMeshes.get(event.consumerId);
+
         if (swarmGroup) {
           // Capture position before removal
           const position = { x: swarmGroup.position.x, y: swarmGroup.position.y };
           this.swarmDeathAnimations.push(spawnSwarmDeathExplosion(this.scene, position.x, position.y));
+
+          // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
+          if (consumerMesh) {
+            this.energyTransferAnimations.push(
+              spawnEnergyTransferParticles(
+                this.scene,
+                position.x,
+                position.y,
+                consumerMesh.position.x,
+                consumerMesh.position.y,
+                event.consumerId,
+                0xff6600, // Orange for swarm energy
+                30 // More particles for swarm consumption
+              )
+            );
+          }
         }
       });
 
@@ -473,6 +494,29 @@ export class ThreeRenderer implements Renderer {
 
         // Flash the drain aura on the target (if it exists, or briefly create one)
         this.flashDrainAura(event.targetId);
+
+        // Energy transfer: look up who fired the beam and spawn particles to them
+        if (this.currentState) {
+          const beam = this.currentState.pseudopods.get(event.beamId);
+          if (beam) {
+            const attackerMesh = this.playerMeshes.get(beam.ownerId);
+            if (attackerMesh) {
+              // Spawn particles flying from hit location to attacker (cyan for energy drain)
+              this.energyTransferAnimations.push(
+                spawnEnergyTransferParticles(
+                  this.scene,
+                  event.hitPosition.x,
+                  event.hitPosition.y,
+                  attackerMesh.position.x,
+                  attackerMesh.position.y,
+                  beam.ownerId,
+                  0x00ffff, // Cyan for energy drain
+                  15 // Moderate particle count per hit
+                )
+              );
+            }
+          }
+        }
       });
 
       // === Spawn animations for entity materialization ===
@@ -533,6 +577,27 @@ export class ThreeRenderer implements Renderer {
 
         // Clean up cached position
         this.nutrientPositionCache.delete(event.nutrientId);
+      });
+
+      // Player engulfed another player - energy transfer from prey to predator
+      eventBus.on('playerEngulfed', (event) => {
+        const predatorMesh = this.playerMeshes.get(event.predatorId);
+
+        if (predatorMesh) {
+          // Spawn particles from prey position to predator (larger burst for player kill)
+          this.energyTransferAnimations.push(
+            spawnEnergyTransferParticles(
+              this.scene,
+              event.position.x,
+              event.position.y,
+              predatorMesh.position.x,
+              predatorMesh.position.y,
+              event.predatorId,
+              0x00ff88, // Green-cyan for player energy
+              40 // Lots of particles for player kill
+            )
+          );
+        }
       });
     });
   }
@@ -621,6 +686,9 @@ export class ThreeRenderer implements Renderer {
   }
 
   render(state: GameState, dt: number): void {
+    // Store state reference for event handlers
+    this.currentState = state;
+
     // Update local player ID reference (for event filtering)
     this.myPlayerId = state.myPlayerId;
 

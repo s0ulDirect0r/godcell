@@ -496,9 +496,10 @@ export function spawnEnergyTransferParticles(
   targetX: number,
   targetY: number,
   targetId: string,
-  colorHex: number = 0x00ffff // Cyan for energy gain
+  colorHex: number = 0x00ffff, // Cyan for energy gain
+  particleCount: number = 15 // More particles = denser stream
 ): EnergyTransferAnimation {
-  const particleCount = 15; // Fewer particles for cleaner look
+  // particleCount controls density of energy stream
   const duration = 400; // 0.4 seconds - quick transfer
 
   // Calculate distance for speed calculation
