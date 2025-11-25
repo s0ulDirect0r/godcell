@@ -42,9 +42,16 @@ export class SocketManager {
 
     // Check for playground mode - connects to separate server on port 3001
     const isPlayground = new URLSearchParams(window.location.search).has('playground');
-    const targetUrl = isPlayground
-      ? serverUrl.replace(':3000', ':3001')
-      : serverUrl;
+    let targetUrl = serverUrl;
+    if (isPlayground) {
+      try {
+        const url = new URL(serverUrl);
+        url.port = '3001';
+        targetUrl = url.toString();
+      } catch (e) {
+        console.warn('[Socket] Failed to parse serverUrl for playground mode:', e);
+      }
+    }
 
     this.socket = io(targetUrl, {
       transports: ['websocket'],

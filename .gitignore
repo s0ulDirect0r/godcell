@@ -35,3 +35,6 @@ lofi-mmo/Cargo.lock
 # Temporary files
 *.tmp
 .cache/
+
+# Test results (generated on each test run)
+test-results/

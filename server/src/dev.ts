@@ -96,7 +96,7 @@ interface DevContext {
   playerInputDirections: Map<string, { x: number; y: number }>;
   playerVelocities: Map<string, { x: number; y: number }>;
   spawnNutrientAt: (position: Position, multiplier?: number) => Nutrient;
-  spawnSwarmAt: (position: Position) => EntropySwarm;
+  spawnSwarmAt: (io: Server, position: Position) => EntropySwarm;
   spawnBotAt: (position: Position, stage: EvolutionStage) => string;
   removeBotPermanently: (botId: string) => boolean;
   respawnPlayer: (player: Player) => void;
@@ -213,8 +213,7 @@ function handleSpawnEntity(
     }
 
     case 'swarm': {
-      const swarm = devContext.spawnSwarmAt(position);
-      io.emit('swarmSpawned', { type: 'swarmSpawned', swarm });
+      const swarm = devContext.spawnSwarmAt(io, position);
       logger.info({ event: 'dev_spawn_swarm', position, swarmId: swarm.id });
       break;
     }

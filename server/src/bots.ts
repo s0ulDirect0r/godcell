@@ -694,6 +694,7 @@ export function isBot(playerId: string): boolean {
  */
 export function removeBotPermanently(
   botId: string,
+  io: Server,
   players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
@@ -710,6 +711,9 @@ export function removeBotPermanently(
   players.delete(botId);
   playerInputDirections.delete(botId);
   playerVelocities.delete(botId);
+
+  // Notify clients so they remove the bot immediately
+  io.emit('playerLeft', { type: 'playerLeft', playerId: botId });
 
   logger.info({ event: 'bot_removed_permanently', botId });
   return true;

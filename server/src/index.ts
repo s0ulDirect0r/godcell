@@ -728,19 +728,35 @@ function getPlayerRadius(stage: EvolutionStage): number {
 
 /**
  * Get energy values for an evolution stage (for dev tools)
+ * Uses getConfig() to respect runtime config overrides from dev panel
  */
 function getStageEnergy(stage: EvolutionStage): { energy: number; maxEnergy: number } {
   switch (stage) {
     case EvolutionStage.SINGLE_CELL:
-      return { energy: GAME_CONFIG.SINGLE_CELL_ENERGY, maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY };
+      return {
+        energy: getConfig('SINGLE_CELL_ENERGY'),
+        maxEnergy: getConfig('SINGLE_CELL_MAX_ENERGY'),
+      };
     case EvolutionStage.MULTI_CELL:
-      return { energy: GAME_CONFIG.MULTI_CELL_ENERGY, maxEnergy: GAME_CONFIG.MULTI_CELL_MAX_ENERGY };
+      return {
+        energy: getConfig('MULTI_CELL_ENERGY'),
+        maxEnergy: getConfig('MULTI_CELL_MAX_ENERGY'),
+      };
     case EvolutionStage.CYBER_ORGANISM:
-      return { energy: GAME_CONFIG.CYBER_ORGANISM_ENERGY, maxEnergy: GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY };
+      return {
+        energy: getConfig('CYBER_ORGANISM_ENERGY'),
+        maxEnergy: getConfig('CYBER_ORGANISM_MAX_ENERGY'),
+      };
     case EvolutionStage.HUMANOID:
-      return { energy: GAME_CONFIG.HUMANOID_ENERGY, maxEnergy: GAME_CONFIG.HUMANOID_MAX_ENERGY };
+      return {
+        energy: getConfig('HUMANOID_ENERGY'),
+        maxEnergy: getConfig('HUMANOID_MAX_ENERGY'),
+      };
     case EvolutionStage.GODCELL:
-      return { energy: GAME_CONFIG.GODCELL_ENERGY, maxEnergy: GAME_CONFIG.GODCELL_MAX_ENERGY };
+      return {
+        energy: getConfig('GODCELL_ENERGY'),
+        maxEnergy: getConfig('GODCELL_MAX_ENERGY'),
+      };
   }
 }
 
@@ -1562,7 +1578,7 @@ initDevHandler({
   spawnNutrientAt,
   spawnSwarmAt,
   spawnBotAt: (position, stage) => spawnBotAt(io, players, playerInputDirections, playerVelocities, position, stage),
-  removeBotPermanently: (botId) => removeBotPermanently(botId, players, playerInputDirections, playerVelocities),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, io, players, playerInputDirections, playerVelocities),
   respawnPlayer,
   getStageEnergy,
   getPlayerRadius,

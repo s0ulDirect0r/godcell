@@ -427,7 +427,7 @@ export function removeSwarm(swarmId: string): void {
 /**
  * Spawn a swarm at a specific position (dev tool)
  */
-export function spawnSwarmAt(position: Position): EntropySwarm {
+export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
   const swarm: EntropySwarm = {
     id: `swarm-${swarmIdCounter++}`,
     position: { ...position },
@@ -438,6 +438,14 @@ export function spawnSwarmAt(position: Position): EntropySwarm {
   };
 
   swarms.set(swarm.id, swarm);
+
+  // Broadcast to all clients for immediate visibility
+  const spawnMessage: SwarmSpawnedMessage = {
+    type: 'swarmSpawned',
+    swarm: { ...swarm },
+  };
+  io.emit('swarmSpawned', spawnMessage);
+
   return swarm;
 }
 
