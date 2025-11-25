@@ -480,7 +480,7 @@ function calculateNutrientValueMultiplier(position: Position): number {
  * Nutrients near obstacles get enhanced value based on gradient system (2x/3x/5x multipliers)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
-function spawnNutrient(): Nutrient {
+function spawnNutrient(emitEvent: boolean = false): Nutrient {
   const padding = 100;
   const maxAttempts = 20;
   let attempts = 0;
@@ -509,7 +509,7 @@ function spawnNutrient(): Nutrient {
     logger.warn('Could not find safe nutrient spawn position after max attempts, using fallback');
   }
 
-  return spawnNutrientAt(position);
+  return spawnNutrientAt(position, undefined, emitEvent);
 }
 
 /**
@@ -518,7 +518,7 @@ function spawnNutrient(): Nutrient {
  * @param position - Where to spawn the nutrient
  * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
  */
-function spawnNutrientAt(position: Position, overrideMultiplier?: number): Nutrient {
+function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEvent: boolean = false): Nutrient {
   // Calculate nutrient value based on proximity to obstacles (gradient system)
   // Or use override multiplier if provided (dev tool)
   const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position);
@@ -535,6 +535,15 @@ function spawnNutrientAt(position: Position, overrideMultiplier?: number): Nutri
 
   nutrients.set(nutrient.id, nutrient);
 
+  // Emit spawn event for client-side spawn animations (only after initial load)
+  if (emitEvent && typeof io !== 'undefined') {
+    const spawnMessage: NutrientSpawnedMessage = {
+      type: 'nutrientSpawned',
+      nutrient,
+    };
+    io.emit('nutrientSpawned', spawnMessage);
+  }
+
   return nutrient;
 }
 
@@ -543,7 +552,7 @@ function spawnNutrientAt(position: Position, overrideMultiplier?: number): Nutri
  */
 function respawnNutrient(nutrientId: string) {
   const timer = setTimeout(() => {
-    spawnNutrient();
+    spawnNutrient(true); // emitEvent=true for spawn animations
     nutrientRespawnTimers.delete(nutrientId);
   }, getConfig('NUTRIENT_RESPAWN_TIME'));
 
