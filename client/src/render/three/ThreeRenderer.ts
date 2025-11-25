@@ -983,16 +983,38 @@ export class ThreeRenderer implements Renderer {
     // Skip if already in correct mode
     if (this.currentBackgroundMode === targetMode) return;
 
+    console.log(`[Background] Switching from ${this.currentBackgroundMode} to ${targetMode} (stage: ${stage})`);
+
     // Switch backgrounds
     if (targetMode === 'jungle') {
       // Transitioning to jungle (Stage 3+)
+      // AGGRESSIVE FIX: Actually remove from scene instead of just hiding
+      // This is a belt-and-suspenders approach after visible=false wasn't working
+      if (this.soupBackgroundGroup.parent === this.scene) {
+        this.scene.remove(this.soupBackgroundGroup);
+        console.log('[Background] REMOVED soupBackgroundGroup from scene');
+      }
       this.soupBackgroundGroup.visible = false;
+
       this.jungleBackgroundGroup.visible = true;
+      this.jungleBackgroundGroup.traverse(child => { child.visible = true; });
+      // Re-add jungle group if it was removed
+      if (this.jungleBackgroundGroup.parent !== this.scene) {
+        this.scene.add(this.jungleBackgroundGroup);
+      }
       this.scene.background = new THREE.Color(getJungleBackgroundColor());
+      console.log(`[Background] Soup in scene: ${this.soupBackgroundGroup.parent === this.scene}, Jungle visible: ${this.jungleBackgroundGroup.visible}`);
     } else {
       // Transitioning to soup (Stage 1-2, e.g., death respawn)
+      // Re-add soup group to scene if it was removed
+      if (this.soupBackgroundGroup.parent !== this.scene) {
+        this.scene.add(this.soupBackgroundGroup);
+        console.log('[Background] RE-ADDED soupBackgroundGroup to scene');
+      }
       this.soupBackgroundGroup.visible = true;
+      this.soupBackgroundGroup.traverse(child => { child.visible = true; });
       this.jungleBackgroundGroup.visible = false;
+      this.jungleBackgroundGroup.traverse(child => { child.visible = false; });
       this.scene.background = new THREE.Color(getSoupBackgroundColor());
     }
 
@@ -1000,6 +1022,14 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncObstacles(state: GameState): void {
+    // Stage 3+ players don't see soup obstacles (gravity wells)
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove obstacles that no longer exist
     this.obstacleMeshes.forEach((group, id) => {
       if (!state.obstacles.has(id)) {
@@ -1026,9 +1056,22 @@ export class ThreeRenderer implements Renderer {
         this.obstacleMeshes.set(id, group);
       }
     });
+
+    // Hide all obstacles from Stage 3+ players
+    this.obstacleMeshes.forEach(group => {
+      group.visible = !isJungleStage;
+    });
   }
 
   private syncSwarms(state: GameState): void {
+    // Stage 3+ players don't see swarms
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove swarms that no longer exist
     this.swarmMeshes.forEach((group, id) => {
       if (!state.swarms.has(id)) {
@@ -1070,6 +1113,9 @@ export class ThreeRenderer implements Renderer {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       updateSwarmState(group, swarm.state, isDisabled);
+
+      // Hide swarm from Stage 3+ players
+      group.visible = !isJungleStage;
     });
   }
 
@@ -1498,6 +1544,14 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncNutrients(state: GameState): void {
+    // Stage 3+ players don't see soup nutrients
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove nutrients that no longer exist
     this.nutrientMeshes.forEach((group, id) => {
       if (!state.nutrients.has(id)) {
@@ -1529,6 +1583,9 @@ export class ThreeRenderer implements Renderer {
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
+
+      // Hide nutrients from Stage 3+ players
+      group.visible = !isJungleStage;
     });
 
     // Clean up position cache for nutrients that no longer exist
@@ -1627,6 +1684,14 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncPlayers(state: GameState): void {
+    // Determine local player's stage for cross-stage visibility filtering
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const myStageIsJungle = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove players that left
     this.playerMeshes.forEach((group, id) => {
       if (!state.players.has(id)) {
@@ -1874,6 +1939,28 @@ export class ThreeRenderer implements Renderer {
             player.stage
           );
         }
+      }
+
+      // Cross-stage visibility: Stage 3+ players only see other Stage 3+ players
+      // Stage 1-2 players only see other Stage 1-2 players
+      const playerStageIsJungle = (
+        player.stage === EvolutionStage.CYBER_ORGANISM ||
+        player.stage === EvolutionStage.HUMANOID ||
+        player.stage === EvolutionStage.GODCELL
+      );
+      const shouldBeVisible = isMyPlayer || (myStageIsJungle === playerStageIsJungle);
+      cellGroup.visible = shouldBeVisible;
+
+      // Also hide outline if it exists and player should be hidden
+      const outline = this.playerOutlines.get(id);
+      if (outline) {
+        outline.visible = shouldBeVisible;
+      }
+
+      // Hide trail for hidden players
+      const trail = this.playerTrailLines.get(id);
+      if (trail) {
+        trail.visible = shouldBeVisible;
       }
     });
   }
