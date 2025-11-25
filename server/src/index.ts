@@ -1159,9 +1159,10 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
         // Only multi-cells can be killed by beams, always award 80%
         const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
 
-        // Award maxEnergy increase to shooter
+        // Award maxEnergy increase AND current energy to shooter
         shooter.maxEnergy += maxEnergyGain;
-        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy);
+        const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
+        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + energyGain);
 
         logger.info({
           event: 'beam_kill',
@@ -1169,6 +1170,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
           victimId: player.id,
           victimStage: player.stage,
           maxEnergyGained: maxEnergyGain.toFixed(1),
+          energyGained: energyGain.toFixed(1),
         });
       }
       // Clear beam shooter tracking
