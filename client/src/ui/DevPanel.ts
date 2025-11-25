@@ -120,7 +120,7 @@ export class DevPanel {
 
   // Spawn controls
   private spawnControls = {
-    entityType: 'nutrient' as 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell',
+    entityType: 'nutrient' as 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism',
     nutrientMultiplier: 1 as 1 | 2 | 3 | 5,
     spawnAtCursor: false,
   };
@@ -270,7 +270,7 @@ export class DevPanel {
   private buildSpawnFolder(): void {
     const spawnFolder = this.gui.addFolder('Entity Spawning');
 
-    spawnFolder.add(this.spawnControls, 'entityType', ['nutrient', 'swarm', 'single-cell', 'multi-cell'])
+    spawnFolder.add(this.spawnControls, 'entityType', ['nutrient', 'swarm', 'single-cell', 'multi-cell', 'cyber-organism'])
       .name('Entity Type');
 
     spawnFolder.add(this.spawnControls, 'nutrientMultiplier', [1, 2, 3, 5])
