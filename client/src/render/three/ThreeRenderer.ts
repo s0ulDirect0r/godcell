@@ -80,6 +80,7 @@ import {
 import {
   createJungleBackground,
   updateJungleParticles,
+  updateSoupActivity,
   getJungleBackgroundColor,
   getSoupBackgroundColor,
 } from './JungleBackground';
@@ -144,8 +145,13 @@ export class ThreeRenderer implements Renderer {
   private jungleParticles!: THREE.Points;
   private jungleParticleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
 
-  // Track current background mode (to avoid redundant switches)
-  private currentBackgroundMode: 'soup' | 'jungle' = 'soup';
+  // Soup activity visualization (activity dots inside soup pool in jungle view)
+  private soupActivityPoints!: THREE.Points;
+  private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
+
+  // Render mode: determines which world to render (soup = Stage 1-2, jungle = Stage 3+)
+  // This is the single point of control for world switching - no scattered visibility toggles
+  private renderMode: 'soup' | 'jungle' = 'soup';
 
   // Death animations (particle bursts)
   private deathAnimations: DeathAnimation[] = [];
@@ -216,6 +222,8 @@ export class ThreeRenderer implements Renderer {
     this.jungleBackgroundGroup = jungleResult.group;
     this.jungleParticles = jungleResult.particles;
     this.jungleParticleData = jungleResult.particleData;
+    this.soupActivityPoints = jungleResult.soupActivityPoints;
+    this.soupActivityData = jungleResult.soupActivityData;
 
     // Create orthographic camera (top-down 2D)
     const aspect = width / height;
@@ -728,15 +736,16 @@ export class ThreeRenderer implements Renderer {
       this.lastPlayerEnergy = myPlayer.energy;
     }
 
-    // Update background based on local player stage
-    this.updateBackgroundForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
+    // Update render mode based on local player stage (soup vs jungle world)
+    this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
 
-    // Update background particles (soup particles update even when hidden for smooth transition)
-    this.updateDataParticles(dt);
-
-    // Update jungle particles if jungle background is visible
-    if (this.currentBackgroundMode === 'jungle') {
+    // Update background particles based on current mode
+    if (this.renderMode === 'soup') {
+      this.updateDataParticles(dt);
+    } else {
       updateJungleParticles(this.jungleParticles, this.jungleParticleData, dt / 1000);
+      // Update soup activity dots (life in the soup pool)
+      updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dt / 1000);
     }
 
     // Update death animations
@@ -971,64 +980,102 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Update background visibility based on player evolution stage
-   * Stage 1-2 (soup stages): Show soup background
-   * Stage 3+ (jungle stages): Show jungle background
+   * Set the render mode (soup vs jungle world)
+   * This is the single point of control for world switching.
+   * When switching to jungle: removes soup background, clears all soup entities
+   * When switching to soup: re-adds soup background
    */
-  private updateBackgroundForStage(stage: EvolutionStage): void {
-    // Determine target mode based on stage
-    const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
-    const targetMode: 'soup' | 'jungle' = isSoupStage ? 'soup' : 'jungle';
-
+  private setRenderMode(mode: 'soup' | 'jungle'): void {
     // Skip if already in correct mode
-    if (this.currentBackgroundMode === targetMode) return;
+    if (this.renderMode === mode) return;
 
-    console.log(`[Background] Switching from ${this.currentBackgroundMode} to ${targetMode} (stage: ${stage})`);
+    console.log(`[RenderMode] Switching from ${this.renderMode} to ${mode}`);
 
-    // Switch backgrounds
-    if (targetMode === 'jungle') {
+    if (mode === 'jungle') {
       // Transitioning to jungle (Stage 3+)
-      // AGGRESSIVE FIX: Actually remove from scene instead of just hiding
-      // This is a belt-and-suspenders approach after visible=false wasn't working
+      // Remove soup background from scene entirely
       if (this.soupBackgroundGroup.parent === this.scene) {
         this.scene.remove(this.soupBackgroundGroup);
-        console.log('[Background] REMOVED soupBackgroundGroup from scene');
       }
-      this.soupBackgroundGroup.visible = false;
 
-      this.jungleBackgroundGroup.visible = true;
-      this.jungleBackgroundGroup.traverse(child => { child.visible = true; });
-      // Re-add jungle group if it was removed
+      // Clear all soup entity meshes (nutrients, swarms, obstacles)
+      this.clearSoupEntities();
+
+      // Show jungle background
       if (this.jungleBackgroundGroup.parent !== this.scene) {
         this.scene.add(this.jungleBackgroundGroup);
       }
+      this.jungleBackgroundGroup.visible = true;
       this.scene.background = new THREE.Color(getJungleBackgroundColor());
-      console.log(`[Background] Soup in scene: ${this.soupBackgroundGroup.parent === this.scene}, Jungle visible: ${this.jungleBackgroundGroup.visible}`);
     } else {
       // Transitioning to soup (Stage 1-2, e.g., death respawn)
-      // Re-add soup group to scene if it was removed
+      // Re-add soup background
       if (this.soupBackgroundGroup.parent !== this.scene) {
         this.scene.add(this.soupBackgroundGroup);
-        console.log('[Background] RE-ADDED soupBackgroundGroup to scene');
       }
       this.soupBackgroundGroup.visible = true;
-      this.soupBackgroundGroup.traverse(child => { child.visible = true; });
+
+      // Hide jungle background
       this.jungleBackgroundGroup.visible = false;
-      this.jungleBackgroundGroup.traverse(child => { child.visible = false; });
       this.scene.background = new THREE.Color(getSoupBackgroundColor());
     }
 
-    this.currentBackgroundMode = targetMode;
+    this.renderMode = mode;
+  }
+
+  /**
+   * Clear all soup-world entity meshes (nutrients, swarms, obstacles)
+   * Called when transitioning to jungle mode
+   */
+  private clearSoupEntities(): void {
+    // Clear nutrients
+    this.nutrientMeshes.forEach((group) => {
+      this.scene.remove(group);
+      group.children.forEach(child => {
+        if (child instanceof THREE.Mesh && child.material) {
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    });
+    this.nutrientMeshes.clear();
+    this.nutrientPositionCache.clear();
+
+    // Clear swarms
+    this.swarmMeshes.forEach((group) => {
+      this.scene.remove(group);
+      disposeSwarm(group);
+    });
+    this.swarmMeshes.clear();
+    this.swarmTargets.clear();
+    this.swarmParticleData.clear();
+    this.swarmInternalParticles.clear();
+    this.swarmPulsePhase.clear();
+
+    // Clear obstacles
+    this.obstacleMeshes.forEach((group) => {
+      disposeObstacle(group);
+      this.scene.remove(group);
+    });
+    this.obstacleMeshes.clear();
+    this.obstacleParticles.clear();
+    this.obstaclePulsePhase.clear();
+
+    console.log('[RenderMode] Cleared all soup entities');
+  }
+
+  /**
+   * Update render mode based on player evolution stage
+   * Stage 1-2 (soup stages): Soup mode
+   * Stage 3+ (jungle stages): Jungle mode
+   */
+  private updateRenderModeForStage(stage: EvolutionStage): void {
+    const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
+    this.setRenderMode(isSoupStage ? 'soup' : 'jungle');
   }
 
   private syncObstacles(state: GameState): void {
-    // Stage 3+ players don't see soup obstacles (gravity wells)
-    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
-    const isJungleStage = myPlayer && (
-      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
-      myPlayer.stage === EvolutionStage.HUMANOID ||
-      myPlayer.stage === EvolutionStage.GODCELL
-    );
+    // Skip entirely in jungle mode - soup entities don't exist in jungle world
+    if (this.renderMode === 'jungle') return;
 
     // Remove obstacles that no longer exist
     this.obstacleMeshes.forEach((group, id) => {
@@ -1056,21 +1103,11 @@ export class ThreeRenderer implements Renderer {
         this.obstacleMeshes.set(id, group);
       }
     });
-
-    // Hide all obstacles from Stage 3+ players
-    this.obstacleMeshes.forEach(group => {
-      group.visible = !isJungleStage;
-    });
   }
 
   private syncSwarms(state: GameState): void {
-    // Stage 3+ players don't see swarms
-    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
-    const isJungleStage = myPlayer && (
-      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
-      myPlayer.stage === EvolutionStage.HUMANOID ||
-      myPlayer.stage === EvolutionStage.GODCELL
-    );
+    // Skip entirely in jungle mode - soup entities don't exist in jungle world
+    if (this.renderMode === 'jungle') return;
 
     // Remove swarms that no longer exist
     this.swarmMeshes.forEach((group, id) => {
@@ -1113,9 +1150,6 @@ export class ThreeRenderer implements Renderer {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       updateSwarmState(group, swarm.state, isDisabled);
-
-      // Hide swarm from Stage 3+ players
-      group.visible = !isJungleStage;
     });
   }
 
@@ -1544,13 +1578,8 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncNutrients(state: GameState): void {
-    // Stage 3+ players don't see soup nutrients
-    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
-    const isJungleStage = myPlayer && (
-      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
-      myPlayer.stage === EvolutionStage.HUMANOID ||
-      myPlayer.stage === EvolutionStage.GODCELL
-    );
+    // Skip entirely in jungle mode - soup entities don't exist in jungle world
+    if (this.renderMode === 'jungle') return;
 
     // Remove nutrients that no longer exist
     this.nutrientMeshes.forEach((group, id) => {
@@ -1583,9 +1612,6 @@ export class ThreeRenderer implements Renderer {
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
-
-      // Hide nutrients from Stage 3+ players
-      group.visible = !isJungleStage;
     });
 
     // Clean up position cache for nutrients that no longer exist
@@ -1684,13 +1710,8 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncPlayers(state: GameState): void {
-    // Determine local player's stage for cross-stage visibility filtering
-    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
-    const myStageIsJungle = myPlayer && (
-      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
-      myPlayer.stage === EvolutionStage.HUMANOID ||
-      myPlayer.stage === EvolutionStage.GODCELL
-    );
+    // Use renderMode for cross-stage visibility (set by updateRenderModeForStage)
+    const isJungleMode = this.renderMode === 'jungle';
 
     // Remove players that left
     this.playerMeshes.forEach((group, id) => {
@@ -1941,14 +1962,15 @@ export class ThreeRenderer implements Renderer {
         }
       }
 
-      // Cross-stage visibility: Stage 3+ players only see other Stage 3+ players
-      // Stage 1-2 players only see other Stage 1-2 players
-      const playerStageIsJungle = (
+      // Cross-stage visibility: Only render players in the same world as local player
+      // Soup mode: only Stage 1-2 players visible
+      // Jungle mode: only Stage 3+ players visible
+      const playerIsJungleStage = (
         player.stage === EvolutionStage.CYBER_ORGANISM ||
         player.stage === EvolutionStage.HUMANOID ||
         player.stage === EvolutionStage.GODCELL
       );
-      const shouldBeVisible = isMyPlayer || (myStageIsJungle === playerStageIsJungle);
+      const shouldBeVisible = isMyPlayer || (isJungleMode === playerIsJungleStage);
       cellGroup.visible = shouldBeVisible;
 
       // Also hide outline if it exists and player should be hidden
