@@ -300,15 +300,18 @@ export function updateObstacleAnimation(
 
       // Spiral inward (gravity acceleration toward core)
       // Speed increases as distance decreases (inverse relationship)
-      const gravityStrength = 200; // Base acceleration toward core
-      const speedFactor = 1.0 + (1.0 - dist / obstacleRadius) * 3.0; // 1x at edge, 4x near core
-      const dx = -p.x / dist;
-      const dy = -p.y / dist;
-      const dz = -p.z / dist;
+      // Guard against division by zero when particle is at exact center
+      if (dist > 0.001) {
+        const gravityStrength = 200; // Base acceleration toward core
+        const speedFactor = 1.0 + (1.0 - dist / obstacleRadius) * 3.0; // 1x at edge, 4x near core
+        const dx = -p.x / dist;
+        const dy = -p.y / dist;
+        const dz = -p.z / dist;
 
-      p.vx += dx * gravityStrength * speedFactor * deltaSeconds;
-      p.vy += dy * gravityStrength * speedFactor * deltaSeconds;
-      p.vz += dz * gravityStrength * speedFactor * deltaSeconds;
+        p.vx += dx * gravityStrength * speedFactor * deltaSeconds;
+        p.vy += dy * gravityStrength * speedFactor * deltaSeconds;
+        p.vz += dz * gravityStrength * speedFactor * deltaSeconds;
+      }
 
       // Apply velocity
       p.x += p.vx * deltaSeconds;
@@ -327,9 +330,11 @@ export function updateObstacleAnimation(
         p.z = r * Math.cos(phi) * 0.3; // Flatten to disk
 
         // Reset velocity (tangential motion)
+        // Guard against division by zero (r should always be positive, but be safe)
         const speed = 20 + Math.random() * 30;
-        p.vx = -p.y / r * speed * 0.3;
-        p.vy = p.x / r * speed * 0.3;
+        const invR = r > 0.001 ? 1 / r : 0;
+        p.vx = -p.y * invR * speed * 0.3;
+        p.vy = p.x * invR * speed * 0.3;
         p.vz = 0;
 
         p.life = 0;

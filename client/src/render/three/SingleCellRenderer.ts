@@ -63,11 +63,13 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
       energyRatio: { value: 1.0 },  // 0-1, affects brightness (low energy = darker)
     },
     vertexShader: `
-      varying vec3 vPosition;
+      varying vec3 vPosition;      // Local space position (for gradient/depth)
+      varying vec3 vWorldPosition; // World space position (for fresnel)
       varying vec3 vNormal;
 
       void main() {
         vPosition = position;
+        vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
         vNormal = normalize(normalMatrix * normal);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -79,16 +81,17 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
       uniform float cellRadius;
       uniform float energyRatio;
 
-      varying vec3 vPosition;
+      varying vec3 vPosition;      // Local space (for gradient)
+      varying vec3 vWorldPosition; // World space (for fresnel)
       varying vec3 vNormal;
 
       void main() {
-        // Distance from center for gradient
+        // Distance from center for gradient (use local space)
         float dist = length(vPosition);
         float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
 
-        // Fresnel effect for edge glow
-        vec3 viewDir = normalize(cameraPosition - vPosition);
+        // Fresnel effect for edge glow (use world space for proper camera-relative calculation)
+        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
 
         // Alpha: denser near nucleus, transparent at edges

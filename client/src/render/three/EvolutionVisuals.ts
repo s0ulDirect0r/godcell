@@ -216,8 +216,8 @@ export function applyEvolutionEffects(cellGroup: THREE.Group, stage: string, pro
         const nucleus = cell.children[1] as THREE.Mesh;
         if (nucleus && nucleus.material) {
           const material = nucleus.material as THREE.MeshStandardMaterial;
-          // Boost emissive intensity
-          material.emissiveIntensity = (material.emissiveIntensity || 1.5) + glowIntensity;
+          // Boost emissive intensity (base + glow, not accumulating)
+          material.emissiveIntensity = 1.5 + glowIntensity;
         }
       }
     }
@@ -230,8 +230,8 @@ export function applyEvolutionEffects(cellGroup: THREE.Group, stage: string, pro
     const nucleus = cellGroup.children[3] as THREE.Mesh;
     if (nucleus && nucleus.material) {
       const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
-      // Boost emissive intensity (additive to current energy state)
-      nucleusMaterial.emissiveIntensity = (nucleusMaterial.emissiveIntensity || 2.0) + glowIntensity;
+      // Boost emissive intensity (base + glow, not accumulating)
+      nucleusMaterial.emissiveIntensity = 2.0 + glowIntensity;
     }
 
     // Pulse entire group scale

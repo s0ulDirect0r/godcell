@@ -297,7 +297,9 @@ export function updateSwarmAnimation(
       p.vz += (Math.random() - 0.5) * turbulence * deltaSeconds;
 
       // Damping to prevent runaway speeds but keep it energetic
-      const damping = 0.99;
+      // Frame-rate independent: 0.99^60 ≈ 0.55 retained after 1 second at 60fps
+      const dampingPerSecond = 0.55; // Velocity retained after 1 second
+      const damping = Math.pow(dampingPerSecond, deltaSeconds);
       p.vx *= damping;
       p.vy *= damping;
       p.vz *= damping;

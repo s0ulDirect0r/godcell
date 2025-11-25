@@ -67,6 +67,10 @@ export function createCellAura(cellRadius: number): THREE.Group {
  * @returns Intensity value from 0.0-1.0
  */
 export function calculateAuraIntensity(damageRate: number): number {
+  // Guard against negative damage rates
+  if (damageRate <= 0) {
+    return 0;
+  }
   if (damageRate <= 30) {
     return (damageRate / 30) * 0.3; // 0.0-0.3
   } else if (damageRate <= 80) {

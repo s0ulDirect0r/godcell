@@ -25,6 +25,8 @@ export function getStageZoom(stage: EvolutionStage): number {
       return 2.5; // 2.5x more visible area
     case EvolutionStage.GODCELL:
       return 3.0; // 3x more visible area
+    default:
+      return 1.0; // Sensible fallback for unknown stages
   }
 }
 
