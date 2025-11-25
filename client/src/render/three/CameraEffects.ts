@@ -10,21 +10,24 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
  * Get camera zoom multiplier for evolution stage
  * Higher stages zoom out to show more of the world
  *
+ * Stage 1-2 (Soup): Small world (4800×3200), tighter zoom
+ * Stage 3+ (Jungle): 4x larger world (19200×12800), dramatic zoom-out
+ *
  * @param stage - Current evolution stage
  * @returns Zoom multiplier (1.0 = base, higher = zoomed out more)
  */
 export function getStageZoom(stage: EvolutionStage): number {
   switch (stage) {
     case EvolutionStage.SINGLE_CELL:
-      return 1.0; // Base scale
+      return 1.0; // Base scale - tight view of soup
     case EvolutionStage.MULTI_CELL:
-      return 1.5; // 1.5x more visible area
+      return 1.5; // 1.5x - slightly wider for larger multi-cell body
     case EvolutionStage.CYBER_ORGANISM:
-      return 2.0; // 2x more visible area
+      return 3.5; // 3.5x - dramatic zoom-out to reveal jungle (4x world size)
     case EvolutionStage.HUMANOID:
-      return 2.5; // 2.5x more visible area
+      return 4.0; // 4x - even wider for humanoid scale
     case EvolutionStage.GODCELL:
-      return 3.0; // 3x more visible area
+      return 5.0; // 5x - godlike overview of the world
     default:
       return 1.0; // Sensible fallback for unknown stages
   }
@@ -84,12 +87,13 @@ export function followTarget(
 
 /**
  * Update camera zoom with smooth lerp transition
+ * Uses slower lerp for large zoom changes (evolution moments) for dramatic effect
  *
  * @param camera - Orthographic camera
  * @param currentZoom - Current zoom level
  * @param targetZoom - Target zoom level
  * @param aspect - Viewport aspect ratio
- * @param lerpFactor - Interpolation factor (default 0.1)
+ * @param baseLerpFactor - Base interpolation factor (default 0.1)
  * @returns New current zoom level
  */
 export function updateZoomTransition(
@@ -97,9 +101,16 @@ export function updateZoomTransition(
   currentZoom: number,
   targetZoom: number,
   aspect: number,
-  lerpFactor: number = 0.1
+  baseLerpFactor: number = 0.1
 ): number {
-  if (Math.abs(currentZoom - targetZoom) > 0.01) {
+  const zoomDiff = Math.abs(currentZoom - targetZoom);
+
+  if (zoomDiff > 0.01) {
+    // Use slower lerp for dramatic zoom changes (evolution to jungle = 1.5 -> 3.5 = 2.0 diff)
+    // Large zoom diff (>1.0) = slower, cinematic transition
+    // Small zoom diff (<0.5) = normal speed
+    const lerpFactor = zoomDiff > 1.0 ? 0.03 : zoomDiff > 0.5 ? 0.06 : baseLerpFactor;
+
     // Lerp toward target
     let newZoom = currentZoom + (targetZoom - currentZoom) * lerpFactor;
 

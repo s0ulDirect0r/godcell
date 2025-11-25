@@ -583,24 +583,31 @@ function initializeNutrients() {
   const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
 
   // Create avoidance zones for obstacle inner event horizons only
+  // Obstacles are in soup-world coordinates, so offset them back to local space for sampling
   const avoidanceZones = Array.from(obstacles.values()).map(obstacle => ({
-    position: obstacle.position,
+    position: {
+      x: obstacle.position.x - GAME_CONFIG.SOUP_ORIGIN_X,
+      y: obstacle.position.y - GAME_CONFIG.SOUP_ORIGIN_Y,
+    },
     radius: INNER_EVENT_HORIZON,
   }));
 
-  // Generate nutrient positions using Bridson's
+  // Generate nutrient positions using Bridson's (in local soup space 0-4800, 0-3200)
   const nutrientPositions = poissonDiscSampling(
-    GAME_CONFIG.WORLD_WIDTH,
-    GAME_CONFIG.WORLD_HEIGHT,
+    GAME_CONFIG.SOUP_WIDTH,
+    GAME_CONFIG.SOUP_HEIGHT,
     MIN_NUTRIENT_SEPARATION,
     GAME_CONFIG.NUTRIENT_COUNT,
     [], // No existing points
     avoidanceZones // Avoid inner event horizons only
   );
 
-  // Create nutrients from generated positions
+  // Create nutrients from generated positions (offset to soup-world coordinates)
   for (const position of nutrientPositions) {
-    spawnNutrientAt(position);
+    spawnNutrientAt({
+      x: position.x + GAME_CONFIG.SOUP_ORIGIN_X,
+      y: position.y + GAME_CONFIG.SOUP_ORIGIN_Y,
+    });
   }
 
   logNutrientsSpawned(nutrients.size);
