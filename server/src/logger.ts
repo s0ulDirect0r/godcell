@@ -433,7 +433,15 @@ export function recordEvolution(entityId: string, fromStage: string, toStage: st
   while (evolutionRecords.length > 0 && evolutionRecords[0].timestamp < cutoff) {
     evolutionRecords.shift();
   }
+
+  // Also record for lifetime stats (forward reference, defined later in file)
+  recordLifetimeEvolutionInternal(isBot);
 }
+
+// Internal function to avoid circular reference - will be set up after lifetime stats section
+let recordLifetimeEvolutionInternal = (_isBot: boolean) => {};
+let recordLifetimeCollectionInternal = (_isBot: boolean, _energy: number) => {};
+let recordLifetimeDeathInternal = (_cause: DeathCause) => {};
 
 /**
  * Clean up spawn tracking when entity dies/disconnects
@@ -580,4 +588,220 @@ export function resetEvolutionTracking(): void {
   spawnTimes.clear();
   lastEvolutionRateReport = Date.now();
   logger.info({ event: 'evolution_tracking_reset' }, 'Evolution rate tracking reset');
+}
+
+// ============================================
+// Nutrient Collection Rate Tracking
+// ============================================
+
+const NUTRIENT_RATE_WINDOW_MS = 60_000; // 60 second rolling window
+const NUTRIENT_RATE_REPORT_INTERVAL_MS = 30_000; // Report every 30 seconds
+
+interface NutrientCollectionRecord {
+  timestamp: number;
+  isBot: boolean;
+  energyGained: number;
+}
+
+const nutrientRecords: NutrientCollectionRecord[] = [];
+let lastNutrientRateReport = Date.now();
+
+/**
+ * Record a nutrient collection event
+ */
+export function recordNutrientCollection(entityId: string, energyGained: number): void {
+  const isBot = entityId.startsWith('bot-');
+  nutrientRecords.push({
+    timestamp: Date.now(),
+    isBot,
+    energyGained,
+  });
+  // Also record for lifetime stats
+  recordLifetimeCollectionInternal(isBot, energyGained);
+}
+
+/**
+ * Get nutrient collection rate stats for the rolling window
+ */
+export function getNutrientCollectionStats(): {
+  collectionsPerMinute: number;
+  botCollections: number;
+  playerCollections: number;
+  totalEnergyGained: number;
+  avgEnergyPerCollection: number;
+} {
+  const now = Date.now();
+  const windowStart = now - NUTRIENT_RATE_WINDOW_MS;
+
+  // Clean old records
+  while (nutrientRecords.length > 0 && nutrientRecords[0].timestamp < windowStart) {
+    nutrientRecords.shift();
+  }
+
+  const totalCollections = nutrientRecords.length;
+  const botCollections = nutrientRecords.filter((r) => r.isBot).length;
+  const playerCollections = totalCollections - botCollections;
+  const totalEnergyGained = nutrientRecords.reduce((sum, r) => sum + r.energyGained, 0);
+
+  // Calculate rate per minute
+  const windowMinutes = NUTRIENT_RATE_WINDOW_MS / 60000;
+  const collectionsPerMinute = totalCollections / windowMinutes;
+  const avgEnergyPerCollection = totalCollections > 0 ? totalEnergyGained / totalCollections : 0;
+
+  return {
+    collectionsPerMinute,
+    botCollections,
+    playerCollections,
+    totalEnergyGained,
+    avgEnergyPerCollection,
+  };
+}
+
+/**
+ * Maybe log nutrient collection rate stats (throttled)
+ */
+export function maybeLogNutrientCollectionStats(): boolean {
+  const now = Date.now();
+  if (now - lastNutrientRateReport < NUTRIENT_RATE_REPORT_INTERVAL_MS) {
+    return false;
+  }
+  lastNutrientRateReport = now;
+
+  const stats = getNutrientCollectionStats();
+  logger.info(
+    {
+      event: 'nutrient_collection_rate',
+      ...stats,
+    },
+    `Nutrients: ${stats.collectionsPerMinute.toFixed(1)}/min (${stats.botCollections} bots, ${stats.playerCollections} players) | Avg ${stats.avgEnergyPerCollection.toFixed(1)} energy/collection`
+  );
+  return true;
+}
+
+// ============================================
+// Lifetime Statistics (Server Uptime Averages)
+// ============================================
+
+const serverStartTime = Date.now();
+
+// Lifetime counters
+const lifetimeStats = {
+  totalDeaths: 0,
+  deathsByCause: {
+    starvation: 0,
+    singularity: 0,
+    swarm: 0,
+    obstacle: 0,
+    predation: 0,
+    beam: 0,
+  } as Record<string, number>,
+  totalEvolutions: 0,
+  botEvolutions: 0,
+  playerEvolutions: 0,
+  totalNutrientCollections: 0,
+  botCollections: 0,
+  playerCollections: 0,
+  totalEnergyCollected: 0,
+};
+
+/**
+ * Record a death for lifetime stats
+ */
+export function recordLifetimeDeath(cause: DeathCause): void {
+  lifetimeStats.totalDeaths++;
+  lifetimeStats.deathsByCause[cause] = (lifetimeStats.deathsByCause[cause] || 0) + 1;
+}
+
+/**
+ * Record an evolution for lifetime stats
+ */
+export function recordLifetimeEvolution(isBot: boolean): void {
+  lifetimeStats.totalEvolutions++;
+  if (isBot) {
+    lifetimeStats.botEvolutions++;
+  } else {
+    lifetimeStats.playerEvolutions++;
+  }
+}
+
+/**
+ * Record a nutrient collection for lifetime stats
+ */
+export function recordLifetimeCollection(isBot: boolean, energy: number): void {
+  lifetimeStats.totalNutrientCollections++;
+  lifetimeStats.totalEnergyCollected += energy;
+  if (isBot) {
+    lifetimeStats.botCollections++;
+  } else {
+    lifetimeStats.playerCollections++;
+  }
+}
+
+// Wire up the internal functions now that they're defined
+recordLifetimeEvolutionInternal = recordLifetimeEvolution;
+recordLifetimeCollectionInternal = recordLifetimeCollection;
+recordLifetimeDeathInternal = recordLifetimeDeath;
+
+/**
+ * Get lifetime average stats
+ */
+export function getLifetimeStats(): {
+  uptimeMinutes: number;
+  avgDeathsPerMinute: number;
+  avgDeathsByCausePerMinute: Record<string, number>;
+  avgEvolutionsPerMinute: number;
+  avgBotEvolutionsPerMinute: number;
+  avgCollectionsPerMinute: number;
+  avgBotCollectionsPerMinute: number;
+  avgEnergyPerCollection: number;
+  totals: typeof lifetimeStats;
+} {
+  const uptimeMs = Date.now() - serverStartTime;
+  const uptimeMinutes = uptimeMs / 60_000;
+
+  // Avoid division by zero for first few seconds
+  const safeMinutes = Math.max(uptimeMinutes, 0.1);
+
+  const avgDeathsByCausePerMinute: Record<string, number> = {};
+  for (const [cause, count] of Object.entries(lifetimeStats.deathsByCause)) {
+    avgDeathsByCausePerMinute[cause] = count / safeMinutes;
+  }
+
+  return {
+    uptimeMinutes,
+    avgDeathsPerMinute: lifetimeStats.totalDeaths / safeMinutes,
+    avgDeathsByCausePerMinute,
+    avgEvolutionsPerMinute: lifetimeStats.totalEvolutions / safeMinutes,
+    avgBotEvolutionsPerMinute: lifetimeStats.botEvolutions / safeMinutes,
+    avgCollectionsPerMinute: lifetimeStats.totalNutrientCollections / safeMinutes,
+    avgBotCollectionsPerMinute: lifetimeStats.botCollections / safeMinutes,
+    avgEnergyPerCollection: lifetimeStats.totalNutrientCollections > 0
+      ? lifetimeStats.totalEnergyCollected / lifetimeStats.totalNutrientCollections
+      : 0,
+    totals: { ...lifetimeStats },
+  };
+}
+
+const LIFETIME_STATS_REPORT_INTERVAL_MS = 60_000; // Report every 60 seconds
+let lastLifetimeStatsReport = Date.now();
+
+/**
+ * Maybe log lifetime stats (throttled to once per minute)
+ */
+export function maybeLogLifetimeStats(): boolean {
+  const now = Date.now();
+  if (now - lastLifetimeStatsReport < LIFETIME_STATS_REPORT_INTERVAL_MS) {
+    return false;
+  }
+  lastLifetimeStatsReport = now;
+
+  const stats = getLifetimeStats();
+  logger.info(
+    {
+      event: 'lifetime_stats',
+      ...stats,
+    },
+    `LIFETIME (${stats.uptimeMinutes.toFixed(1)}min): Deaths ${stats.avgDeathsPerMinute.toFixed(1)}/min | Evolutions ${stats.avgEvolutionsPerMinute.toFixed(2)}/min (${stats.avgBotEvolutionsPerMinute.toFixed(2)} bots) | Collections ${stats.avgCollectionsPerMinute.toFixed(1)}/min`
+  );
+  return true;
 }

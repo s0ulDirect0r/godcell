@@ -54,9 +54,13 @@ import {
   logGameStateSnapshot,
   maybeLogDeathRateStats,
   maybeLogEvolutionRateStats,
+  maybeLogNutrientCollectionStats,
+  maybeLogLifetimeStats,
   recordSpawn,
   recordEvolution,
   clearSpawnTime,
+  recordNutrientCollection,
+  recordLifetimeDeath,
 } from './logger';
 
 // ============================================
@@ -1283,6 +1287,9 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
   };
   io.emit('energyUpdate', finalEnergyUpdate);
 
+  // Record death for lifetime stats
+  recordLifetimeDeath(cause);
+
   // Broadcast death event (for dilution effect)
   const deathMessage: PlayerDiedMessage = {
     type: 'playerDied',
@@ -1630,6 +1637,9 @@ function checkNutrientCollisions() {
 
         // Safety clamp: ensure energy never exceeds maxEnergy
         player.energy = Math.min(player.energy, player.maxEnergy);
+
+        // Track nutrient collection for telemetry
+        recordNutrientCollection(playerId, energyGain);
 
         // Remove nutrient from world
         nutrients.delete(nutrientId);
@@ -2477,6 +2487,16 @@ setInterval(() => {
 setInterval(() => {
   maybeLogEvolutionRateStats();
 }, 5000); // Check frequently, but only logs every 30s when there are evolutions
+
+// Log nutrient collection rate stats every 30 seconds (tracks collections in rolling 60s window)
+setInterval(() => {
+  maybeLogNutrientCollectionStats();
+}, 5000); // Check frequently, but only logs every 30s when there are collections
+
+// Log lifetime stats every 60 seconds (average rates since server start)
+setInterval(() => {
+  maybeLogLifetimeStats();
+}, 10000); // Check every 10s, but only logs every 60s
 
 // Log full game state snapshot every 60 seconds
 setInterval(() => {

@@ -34,7 +34,7 @@ let spawnPositionGenerator: (() => Position) | null = null;
 const BOT_CONFIG = {
   COUNT: 15, // Number of Stage 1 bots to spawn (tripled for stage 1 tuning)
   STAGE2_COUNT: 2, // Number of Stage 2 multi-cell bots (constant presence)
-  SEARCH_RADIUS: 400, // How far bots can see nutrients (pixels)
+  SEARCH_RADIUS: 800, // How far bots can see nutrients (doubled from 400 to find food faster)
   WANDER_CHANGE_MIN: 1000, // Min time between direction changes (ms)
   WANDER_CHANGE_MAX: 3000, // Max time between direction changes (ms)
   RESPAWN_DELAY: 3000, // How long to wait before respawning dead Stage 1 bots (ms)
@@ -313,21 +313,27 @@ function avoidObstacles(
   for (const obstacle of obstacles.values()) {
     const dist = distance(botPosition, obstacle.position);
 
-    // Danger zones - FIX: expanded to start BEFORE gravity pulls
+    // Danger zones - tight buffer outside event horizon
     // coreRadius (60px) = instant death
-    // eventHorizon (180px) = very strong gravity
-    // gravityRadius (600px) = gravity influence starts
-    // cautionRadius (700px) = start avoiding BEFORE gravity kicks in
-    const gravityRadius = getConfig('OBSTACLE_GRAVITY_RADIUS');
-    const cautionRadius = gravityRadius + 100;
+    // eventHorizon (180px) = very strong gravity, hard to escape
+    // cautionRadius (265px) = bots can handle the risk
+    const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON');
+    const cautionRadius = 265; // 265px - they can take it
 
-    // If bot is outside caution radius, no avoidance needed
+    // Only avoid when actually close to the danger zone
     if (dist > cautionRadius) continue;
 
-    // FIX: Use FULL THRUST (1.0) when inside gravity influence
-    // Graduated avoidance was too weak to escape gravity pull
-    // Craig Reynolds' pattern: "if avoiding danger, commit fully"
-    const avoidanceStrength = 1.0;
+    // Graduated avoidance strength based on distance
+    // - Inside event horizon: FULL THRUST (1.0) - this is escape-or-die
+    // - Outside event horizon: Graduated (0.3-1.0)
+    let avoidanceStrength: number;
+    if (dist < eventHorizon) {
+      avoidanceStrength = 1.0; // Full panic inside event horizon
+    } else {
+      // Graduated 0.3 to 1.0 based on distance to event horizon
+      const t = (cautionRadius - dist) / (cautionRadius - eventHorizon);
+      avoidanceStrength = 0.3 + 0.7 * t;
+    }
 
     // Direction AWAY from obstacle
     const dx = botPosition.x - obstacle.position.x;
@@ -336,6 +342,46 @@ function avoidObstacles(
 
     if (dirLength > 0) {
       // Normalize and scale by avoidance strength
+      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
+      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
+    }
+  }
+
+  return avoidanceForce;
+}
+
+/**
+ * Emergency-only swarm avoidance for single-cell bots
+ * Only triggers when PROPERLY CAUGHT (inside 80px) - the "oh shit" reflex
+ *
+ * Single-cells are faster than swarms (403 vs 290 px/s) so they can usually
+ * pass through. But once caught (slowed to 241 px/s), they need to juke
+ * to break contact before they can escape.
+ */
+const EMERGENCY_SWARM_RADIUS = 80; // contactRadius (47) + buffer - only react when caught
+
+function avoidSwarmsEmergencyOnly(
+  botPosition: Position,
+  swarms: EntropySwarm[]
+): { x: number; y: number } {
+  let avoidanceForce = { x: 0, y: 0 };
+
+  for (const swarm of swarms) {
+    const dist = distance(botPosition, swarm.position);
+
+    // Only avoid when properly caught - ignore swarms beyond emergency radius
+    if (dist > EMERGENCY_SWARM_RADIUS) continue;
+
+    // Strong avoidance to break contact (0.6-0.8 based on how deep we are)
+    const t = (EMERGENCY_SWARM_RADIUS - dist) / EMERGENCY_SWARM_RADIUS;
+    const avoidanceStrength = 0.6 + 0.2 * t;
+
+    // Direction AWAY from swarm
+    const dx = botPosition.x - swarm.position.x;
+    const dy = botPosition.y - swarm.position.y;
+    const dirLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (dirLength > 0) {
       avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
       avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
     }
@@ -440,31 +486,43 @@ function updateBotAI(
     return;
   }
 
-  // Calculate combined avoidance forces (always active)
+  // Single-cell bots: ONLY avoid singularities, NO swarm avoidance
+  // They gotta EAT - swarms are a risk they accept for food
   const obstacleAvoidance = avoidObstacles(player.position, obstacles);
-  const swarmAvoidance = avoidSwarms(player.position, swarms);
+  const avoidance = obstacleAvoidance;
 
-  // Combine avoidance forces (both are important for survival)
-  const avoidance = {
-    x: obstacleAvoidance.x + swarmAvoidance.x,
-    y: obstacleAvoidance.y + swarmAvoidance.y,
-  };
-
-  // FIX: PRIORITIZED STEERING (Craig Reynolds pattern)
-  // "If obstacle avoidance returns a non-zero value, use that."
-  // Previously: avoidance was ADDED to seeking, allowing seeking to cancel out avoidance
-  // Now: if avoiding, ONLY avoid - don't blend with seeking/wandering
+  // PRIORITIZED STEERING - but HUNGRY by default
+  // Only pure escape when REALLY close to singularity (> 0.8)
+  // Otherwise blend avoidance with seeking - bots gotta eat!
   const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
-  const AVOIDANCE_THRESHOLD = 0.1; // Any significant avoidance triggers priority mode
+  const AVOIDANCE_PRIORITY_THRESHOLD = 0.8; // Only escape when in REAL danger
+  const AVOIDANCE_BLEND_THRESHOLD = 0.1;    // Below this = pure seeking
 
-  if (avoidanceMag > AVOIDANCE_THRESHOLD) {
-    // ESCAPE state - pure avoidance, ignore seeking/wandering
-    bot.ai.state = 'wander'; // Keep state for debug, but behavior is escape
+  if (avoidanceMag > AVOIDANCE_PRIORITY_THRESHOLD) {
+    // HIGH DANGER - pure escape mode, ignore seeking
+    bot.ai.state = 'wander';
     bot.ai.targetNutrient = undefined;
-
-    // Use ONLY avoidance direction, normalized to full thrust
     bot.inputDirection.x = avoidance.x / avoidanceMag;
     bot.inputDirection.y = avoidance.y / avoidanceMag;
+  } else if (avoidanceMag > AVOIDANCE_BLEND_THRESHOLD) {
+    // MODERATE DANGER - blend avoidance with seeking (SEEKING weighted higher - hungry bots!)
+    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    if (nearestNutrient) {
+      bot.ai.state = 'seek_nutrient';
+      bot.ai.targetNutrient = nearestNutrient.id;
+      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+      // Blend: 60% seek, 40% avoid - hungry bots prioritize food!
+      const seekWeight = 0.6;
+      const avoidWeight = 0.4;
+      const normAvoid = { x: avoidance.x / avoidanceMag, y: avoidance.y / avoidanceMag };
+      bot.inputDirection.x = seekDirection.x * seekWeight + normAvoid.x * avoidWeight;
+      bot.inputDirection.y = seekDirection.y * seekWeight + normAvoid.y * avoidWeight;
+    } else {
+      bot.ai.state = 'wander';
+      bot.ai.targetNutrient = undefined;
+      bot.inputDirection.x = avoidance.x / avoidanceMag;
+      bot.inputDirection.y = avoidance.y / avoidanceMag;
+    }
   } else {
     // Safe zone - normal seeking/wandering behavior
     const nearestNutrient = findNearestNutrient(player.position, nutrients);
