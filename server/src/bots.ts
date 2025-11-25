@@ -2,6 +2,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger } from './logger';
+import { getConfig } from './dev';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -302,8 +303,8 @@ function avoidObstacles(
     const dist = distance(botPosition, obstacle.position);
 
     // Danger zones based on obstacle characteristics
-    const coreRadius = GAME_CONFIG.OBSTACLE_CORE_RADIUS; // 60px - instant death
-    const eventHorizon = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable
+    const coreRadius = getConfig('OBSTACLE_CORE_RADIUS'); // 60px - instant death
+    const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON'); // 180px - inescapable
     const cautionRadius = eventHorizon * 1.5; // 270px - start avoiding
 
     // If bot is outside caution radius, no avoidance needed
@@ -352,8 +353,8 @@ function avoidSwarms(
 
     // Danger zones
     const contactRadius = swarm.size; // Direct contact - taking damage
-    const threatRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS * 0.5; // 350px - swarm might detect us
-    const cautionRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS; // 700px - full detection range
+    const threatRadius = getConfig('SWARM_DETECTION_RADIUS') * 0.5; // 350px - swarm might detect us
+    const cautionRadius = getConfig('SWARM_DETECTION_RADIUS'); // 700px - full detection range
 
     // If bot is outside caution radius, no avoidance needed
     if (dist > cautionRadius) continue;
