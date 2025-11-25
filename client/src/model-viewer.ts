@@ -545,6 +545,7 @@ function animate(currentTime: number = 0) {
       const now = Date.now();
 
       // Rotate around Y axis (tumbling effect)
+      // rotationSpeed is stored in radians/ms, deltaTime in seconds → multiply by 1000 to convert
       model.rotation.y += rotationSpeed * deltaTime * 1000;
       // Slight wobble on X axis
       model.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;

@@ -337,8 +337,13 @@ export function spawnMaterializeParticles(
   colorHex: number,
   radius: number = 40
 ): SpawnAnimation {
+  // Particle count scales with entity visual importance:
+  // - swarm: 50 (dense, chaotic feel)
+  // - player: 35 (prominent spawn effect)
+  // - nutrient: 20 (subtle materialization)
   const particleCount = entityType === 'swarm' ? 50 : entityType === 'player' ? 35 : 20;
-  const duration = 600; // 0.6 seconds
+  // Duration: 600ms provides enough time for particles to converge while keeping spawn snappy
+  const duration = 600;
 
   // Create particle geometry and material
   const geometry = new THREE.BufferGeometry();
@@ -355,12 +360,14 @@ export function spawnMaterializeParticles(
 
     positions[i * 3] = startX;
     positions[i * 3 + 1] = startY;
-    positions[i * 3 + 2] = 0.15; // Slightly below entity
+    // z=0.15: Render below entities (z=0.2) so particles appear to converge "under" the spawning entity
+    positions[i * 3 + 2] = 0.15;
 
+    // Particle size: 2-5 pixels, small enough to not obscure entity but visible enough to notice
     sizes[i] = 2 + Math.random() * 3;
 
-    // Velocity toward center (converging inward)
-    const speed = startRadius / (duration / 1000); // Reach center by end
+    // Velocity toward center: speed calculated so particles reach center exactly when animation ends
+    const speed = startRadius / (duration / 1000);
     particleData.push({
       x: startX,
       y: startY,
@@ -496,11 +503,13 @@ export function spawnEnergyTransferParticles(
   targetX: number,
   targetY: number,
   targetId: string,
-  colorHex: number = 0x00ffff, // Cyan for energy gain
-  particleCount: number = 15 // More particles = denser stream
+  // Cyan (0x00ffff) matches the gain aura color for visual consistency
+  colorHex: number = 0x00ffff,
+  // 15 particles creates visible stream without overwhelming the scene (range: 10-40)
+  particleCount: number = 15
 ): EnergyTransferAnimation {
-  // particleCount controls density of energy stream
-  const duration = 400; // 0.4 seconds - quick transfer
+  // 400ms duration: fast enough to feel responsive, slow enough to see the transfer
+  const duration = 400;
 
   // Calculate distance for speed calculation
   const dx = targetX - sourceX;
@@ -533,9 +542,12 @@ export function spawnEnergyTransferParticles(
     particleData.push({
       x: startX,
       y: startY,
-      targetX: targetX + (Math.random() - 0.5) * 20, // Slight spread at target
+      // Slight spread (±10px) at target prevents particles from all hitting the exact same point
+      targetX: targetX + (Math.random() - 0.5) * 20,
       targetY: targetY + (Math.random() - 0.5) * 20,
-      progress: -Math.random() * 0.2, // Stagger start times slightly
+      // Negative progress (-0.2 to 0): particles with negative progress "wait" before moving,
+      // creating a wave effect where faster particles lead and slower ones follow
+      progress: -Math.random() * 0.2,
       speed: baseSpeed * speedVariation,
     });
   }

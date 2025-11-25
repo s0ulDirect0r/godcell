@@ -171,9 +171,6 @@ export class ThreeRenderer implements Renderer {
   // Track previous energy values for continuous gain detection
   private previousEnergy: Map<string, number> = new Map();
 
-  // Reference to current state (for event handlers that need to look up entities)
-  private currentState: GameState | null = null;
-
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
 
@@ -670,9 +667,6 @@ export class ThreeRenderer implements Renderer {
   }
 
   render(state: GameState, dt: number): void {
-    // Store state reference for event handlers
-    this.currentState = state;
-
     // Update local player ID reference (for event filtering)
     this.myPlayerId = state.myPlayerId;
 
@@ -1326,6 +1320,9 @@ export class ThreeRenderer implements Renderer {
    * Triggers flash when energy increases, regardless of source
    */
   private updateGainAuras(state: GameState, receivingEnergy: Set<string>, _dt: number): void {
+    // Calculate energy gains BEFORE updating previousEnergy (so we can use gains for intensity)
+    const energyGains = new Map<string, number>();
+
     // Detect continuous energy gain by comparing to previous frame
     // This catches ALL energy sources: nutrients, draining, contact damage, etc.
     state.players.forEach((player, playerId) => {
@@ -1335,6 +1332,7 @@ export class ThreeRenderer implements Renderer {
       // Trigger gain aura if energy increased (threshold prevents noise from float precision)
       if (energyGain > 0.1) {
         receivingEnergy.add(playerId);
+        energyGains.set(playerId, energyGain); // Store for intensity calculation
       }
 
       // Store current energy for next frame comparison
@@ -1372,9 +1370,8 @@ export class ThreeRenderer implements Renderer {
       gainAura.position.y = playerMesh.position.y;
 
       // Trigger flash animation - intensity scales with energy gain rate
-      const prevEnergy = this.previousEnergy.get(playerId) ?? player.energy;
-      const energyGain = Math.max(0, player.energy - prevEnergy);
-      const intensity = Math.min(1.0, 0.3 + energyGain / 50); // Base intensity + scale with gain
+      const energyGain = energyGains.get(playerId) ?? 0;
+      const intensity = Math.min(1.0, 0.3 + energyGain / 50); // Base 0.3 + scales with gain
       triggerGainFlash(gainAura, intensity);
     });
 

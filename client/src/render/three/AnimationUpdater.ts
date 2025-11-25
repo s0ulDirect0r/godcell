@@ -322,8 +322,10 @@ export function updateSpawnAnimations(
     anim.particles.geometry.attributes.position.needsUpdate = true;
 
     // Fade out as particles converge (more visible at start)
+    // Opacity: 1.0 → 0.3 (not fully transparent) so particles remain slightly visible
+    // at the moment of convergence, reinforcing the "assembly" visual
     const material = anim.particles.material as THREE.PointsMaterial;
-    material.opacity = 1.0 - progress * 0.7; // Fade to 0.3 opacity at end
+    material.opacity = 1.0 - progress * 0.7;
   });
 
   // Clean up finished animations (reverse order to avoid index shifting)
