@@ -539,6 +539,22 @@ function animate(currentTime: number = 0) {
       if (animState.playMolting) {
         applyEvolutionEffects(model, 'single_cell', animState.moltingProgress);
       }
+    } else if (model instanceof THREE.Group && model.userData.crystalSize) {
+      // It's a 3D nutrient crystal - animate rotation and inner core pulsing
+      const { rotationSpeed, bobPhase } = model.userData;
+      const now = Date.now();
+
+      // Rotate around Y axis (tumbling effect)
+      model.rotation.y += rotationSpeed * deltaTime * 1000;
+      // Slight wobble on X axis
+      model.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
+
+      // Pulse the inner core brightness
+      const core = model.children.find(c => c.name === 'core') as THREE.Mesh | undefined;
+      if (core && core.material instanceof THREE.MeshBasicMaterial) {
+        const pulse = 0.7 + Math.sin(now * 0.004 + bobPhase) * 0.3;
+        core.material.opacity = pulse;
+      }
     }
   });
 
