@@ -87,7 +87,8 @@ export function followTarget(
 
 /**
  * Update camera zoom with smooth lerp transition
- * Uses slower lerp for large zoom changes (evolution moments) for dramatic effect
+ * Uses VERY slow lerp for Stage 3 evolution (1.5 -> 3.5+) for dramatic cinematic effect
+ * The creature is evolving by an order of magnitude - the camera pull should feel epic
  *
  * @param camera - Orthographic camera
  * @param currentZoom - Current zoom level
@@ -106,10 +107,23 @@ export function updateZoomTransition(
   const zoomDiff = Math.abs(currentZoom - targetZoom);
 
   if (zoomDiff > 0.01) {
-    // Use slower lerp for dramatic zoom changes (evolution to jungle = 1.5 -> 3.5 = 2.0 diff)
-    // Large zoom diff (>1.0) = slower, cinematic transition
-    // Small zoom diff (<0.5) = normal speed
-    const lerpFactor = zoomDiff > 1.0 ? 0.03 : zoomDiff > 0.5 ? 0.06 : baseLerpFactor;
+    // Dramatically slower lerp for Stage 3 evolution (1.5 -> 3.5 = 2.0 diff)
+    // This creates a slow, epic zoom-out that emphasizes the order of magnitude change
+    // >1.5 diff = ultra slow cinematic pull (Stage 2 -> Stage 3 evolution)
+    // >1.0 diff = slow dramatic transition
+    // >0.5 diff = moderate transition
+    // <0.5 diff = normal speed
+    let lerpFactor: number;
+    if (zoomDiff > 1.5) {
+      // Ultra slow for Stage 3 evolution - takes ~5-6 seconds
+      lerpFactor = 0.008;
+    } else if (zoomDiff > 1.0) {
+      lerpFactor = 0.015;
+    } else if (zoomDiff > 0.5) {
+      lerpFactor = 0.04;
+    } else {
+      lerpFactor = baseLerpFactor;
+    }
 
     // Lerp toward target
     let newZoom = currentZoom + (targetZoom - currentZoom) * lerpFactor;
