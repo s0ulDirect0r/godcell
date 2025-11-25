@@ -280,18 +280,25 @@ function poissonDiscSampling(
 }
 
 /**
- * Generate a random spawn position in the digital ocean
+ * Generate a random spawn position in the soup region
  * Avoids spawning directly in obstacle death zones (200px safety radius)
+ * Note: Players always spawn in soup (Stage 1). Soup is now a region within the jungle.
  */
 function randomSpawnPosition(): Position {
   const padding = 100;
   const MIN_DIST_FROM_OBSTACLE_CORE = 200; // Don't spawn in event horizon
   const maxAttempts = 20;
 
+  // Spawn within soup region (which is centered in the jungle world)
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const position = {
-      x: padding + Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2),
-      y: padding + Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2),
+      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
+      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
     };
 
     // Check distance from all obstacle cores
@@ -309,10 +316,10 @@ function randomSpawnPosition(): Position {
   }
 
   // If we can't find a safe spot after maxAttempts, spawn anyway
-  // (extremely unlikely with 12 obstacles on a 4800x3200 map)
+  // (extremely unlikely with 12 obstacles on the soup map)
   return {
-    x: padding + Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2),
-    y: padding + Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2),
+    x: soupMinX + Math.random() * (soupMaxX - soupMinX),
+    y: soupMinY + Math.random() * (soupMaxY - soupMinY),
   };
 }
 
@@ -476,7 +483,7 @@ function calculateNutrientValueMultiplier(position: Position): number {
 }
 
 /**
- * Spawn a nutrient at a random location
+ * Spawn a nutrient at a random location within the soup region
  * Nutrients near obstacles get enhanced value based on gradient system (2x/3x/5x multipliers)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
@@ -484,16 +491,24 @@ function spawnNutrient(emitEvent: boolean = false): Nutrient {
   const padding = 100;
   const maxAttempts = 20;
   let attempts = 0;
+
+  // Spawn within soup region (nutrients are soup-scale resources)
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
+
+  // Default fallback position (center of soup)
   let position: Position = {
-    x: GAME_CONFIG.WORLD_WIDTH / 2,
-    y: GAME_CONFIG.WORLD_HEIGHT / 2,
+    x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
+    y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
   };
 
   // Find a safe position (not inside event horizon)
   while (attempts < maxAttempts) {
     const candidate = {
-      x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-      y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
+      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
     };
 
     if (obstacles.size === 0 || isNutrientSpawnSafe(candidate)) {
@@ -568,24 +583,31 @@ function initializeNutrients() {
   const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
 
   // Create avoidance zones for obstacle inner event horizons only
+  // Obstacles are in soup-world coordinates, so offset them back to local space for sampling
   const avoidanceZones = Array.from(obstacles.values()).map(obstacle => ({
-    position: obstacle.position,
+    position: {
+      x: obstacle.position.x - GAME_CONFIG.SOUP_ORIGIN_X,
+      y: obstacle.position.y - GAME_CONFIG.SOUP_ORIGIN_Y,
+    },
     radius: INNER_EVENT_HORIZON,
   }));
 
-  // Generate nutrient positions using Bridson's
+  // Generate nutrient positions using Bridson's (in local soup space 0-4800, 0-3200)
   const nutrientPositions = poissonDiscSampling(
-    GAME_CONFIG.WORLD_WIDTH,
-    GAME_CONFIG.WORLD_HEIGHT,
+    GAME_CONFIG.SOUP_WIDTH,
+    GAME_CONFIG.SOUP_HEIGHT,
     MIN_NUTRIENT_SEPARATION,
     GAME_CONFIG.NUTRIENT_COUNT,
     [], // No existing points
     avoidanceZones // Avoid inner event horizons only
   );
 
-  // Create nutrients from generated positions
+  // Create nutrients from generated positions (offset to soup-world coordinates)
   for (const position of nutrientPositions) {
-    spawnNutrientAt(position);
+    spawnNutrientAt({
+      x: position.x + GAME_CONFIG.SOUP_ORIGIN_X,
+      y: position.y + GAME_CONFIG.SOUP_ORIGIN_Y,
+    });
   }
 
   logNutrientsSpawned(nutrients.size);
@@ -597,18 +619,20 @@ function initializeNutrients() {
 
 /**
  * Initialize gravity obstacles using Bridson's Poisson Disc Sampling
- * Pure spatial distribution - no safe zones, obstacles fill the map naturally
+ * Pure spatial distribution - no safe zones, obstacles fill the soup naturally
  * Guarantees 850px separation between obstacles for good coverage
  * Keeps obstacles away from walls (event horizon + buffer = 330px)
+ * Note: Obstacles are soup-scale hazards, placed within the soup region
  */
 function initializeObstacles() {
-  const MIN_OBSTACLE_SEPARATION = 850; // Good spacing for 12 obstacles on 4800×3200 map
+  const MIN_OBSTACLE_SEPARATION = 850; // Good spacing for 12 obstacles on 4800×3200 soup
   const WALL_PADDING = 330; // Event horizon (180px) + 150px buffer
   let obstacleIdCounter = 0;
 
   // Generate obstacle positions using Bridson's algorithm on a padded area
-  const paddedWidth = GAME_CONFIG.WORLD_WIDTH - WALL_PADDING * 2;
-  const paddedHeight = GAME_CONFIG.WORLD_HEIGHT - WALL_PADDING * 2;
+  // Obstacles spawn within the soup region (which is centered in the jungle)
+  const paddedWidth = GAME_CONFIG.SOUP_WIDTH - WALL_PADDING * 2;
+  const paddedHeight = GAME_CONFIG.SOUP_HEIGHT - WALL_PADDING * 2;
 
   const obstaclePositions = poissonDiscSampling(
     paddedWidth,
@@ -617,10 +641,10 @@ function initializeObstacles() {
     GAME_CONFIG.OBSTACLE_COUNT
   );
 
-  // Offset positions to account for padding
+  // Offset positions to account for padding AND soup origin in jungle
   const offsetPositions = obstaclePositions.map(pos => ({
-    x: pos.x + WALL_PADDING,
-    y: pos.y + WALL_PADDING,
+    x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
+    y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
   }));
 
   // Create obstacles from generated positions
@@ -736,6 +760,57 @@ function getPlayerRadius(stage: EvolutionStage): number {
 }
 
 /**
+ * World bounds for each scale of existence
+ * Stage 1-2 (Soup): Play within the centered soup region
+ * Stage 3+ (Jungle): Play in the full jungle world
+ */
+interface WorldBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
+ * Get world bounds based on evolution stage
+ * Soup players (Stage 1-2) are confined to the soup region
+ * Jungle players (Stage 3+) can roam the full jungle
+ */
+function getWorldBoundsForStage(stage: EvolutionStage): WorldBounds {
+  if (stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL) {
+    // Soup bounds (centered region within jungle)
+    return {
+      minX: GAME_CONFIG.SOUP_ORIGIN_X,
+      minY: GAME_CONFIG.SOUP_ORIGIN_Y,
+      maxX: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH,
+      maxY: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT,
+    };
+  } else {
+    // Jungle bounds (full world)
+    return {
+      minX: 0,
+      minY: 0,
+      maxX: GAME_CONFIG.JUNGLE_WIDTH,
+      maxY: GAME_CONFIG.JUNGLE_HEIGHT,
+    };
+  }
+}
+
+/**
+ * Check if a stage is soup-scale (Stage 1-2)
+ */
+function isSoupStage(stage: EvolutionStage): boolean {
+  return stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
+}
+
+/**
+ * Check if a stage is jungle-scale (Stage 3+)
+ */
+function isJungleStage(stage: EvolutionStage): boolean {
+  return !isSoupStage(stage);
+}
+
+/**
  * Get energy values for an evolution stage (for dev tools)
  * Uses getConfig() to respect runtime config overrides from dev panel
  */
@@ -820,10 +895,17 @@ function lineCircleIntersection(
  * Check beam collision with multi-cell players
  * Drains energy from hit targets
  * Returns true if hit something
+ *
+ * Stage filtering: Pseudopod beams are a soup-stage (Stage 2) combat system
+ * Only MULTI_CELL shooters can shoot, and only MULTI_CELL targets can be hit
+ * Stage 3+ players have evolved past the soup and don't use pseudopods
  */
 function checkBeamCollision(beam: Pseudopod): boolean {
   const shooter = players.get(beam.ownerId);
   if (!shooter) return false;
+
+  // Stage 3+ shooters don't interact with soup-stage combat
+  if (!isSoupStage(shooter.stage)) return false;
 
   // Get or create hit tracking set for this beam
   let hitSet = pseudopodHits.get(beam.id);
@@ -838,7 +920,7 @@ function checkBeamCollision(beam: Pseudopod): boolean {
   for (const [targetId, target] of players) {
     if (targetId === beam.ownerId) continue; // Can't hit yourself
     if (hitSet.has(targetId)) continue; // Already hit this target
-    if (target.stage === EvolutionStage.SINGLE_CELL) continue; // Beams only hit multi-cells
+    if (target.stage !== EvolutionStage.MULTI_CELL) continue; // Beams only hit multi-cells (not Stage 1, not Stage 3+)
     if (target.energy <= 0) continue; // Skip dead players
     if (target.isEvolving) continue; // Skip evolving players
     if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
@@ -942,13 +1024,17 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 /**
  * Check for contact predation (multi-cells draining energy from touching cells)
  * Drains energy over time - prey can escape if contact is broken
+ *
+ * Stage filtering: Only soup-stage predators (Stage 2) can prey on soup-stage prey (Stage 1)
+ * Stage 3+ players have evolved past the soup and don't interact with soup entities
  */
 function checkPredationCollisions(deltaTime: number) {
   const currentDrains = new Set<string>(); // Track prey being drained this tick
 
   for (const [predatorId, predator] of players) {
-    // Only Stage 2+ can drain via contact
-    if (predator.stage === EvolutionStage.SINGLE_CELL) continue;
+    // Only Stage 2 (MULTI_CELL) can drain via contact
+    // Stage 1 can't drain, Stage 3+ have evolved past soup predation
+    if (predator.stage !== EvolutionStage.MULTI_CELL) continue;
     if (predator.energy <= 0) continue;
     if (predator.isEvolving) continue;
     if (predator.stunnedUntil && Date.now() < predator.stunnedUntil) continue; // Can't drain while stunned
@@ -1509,6 +1595,9 @@ function checkNutrientCollisions() {
     // Skip if player is evolving (invulnerable during molting)
     if (player.isEvolving) continue;
 
+    // Stage 3+ players don't interact with soup nutrients (they've transcended)
+    if (isJungleStage(player.stage)) continue;
+
     for (const [nutrientId, nutrient] of nutrients) {
       const dist = distance(player.position, nutrient.position);
       const playerRadius = getPlayerRadius(player.stage);
@@ -1906,9 +1995,13 @@ function applyGravityForces(deltaTime: number) {
 
     // Apply friction to create momentum/inertia (velocity decays over time)
     // Use exponential decay for smooth deceleration: v = v * friction^dt
+    // Friction applies to ALL players regardless of stage
     const frictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
     velocity.x *= frictionFactor;
     velocity.y *= frictionFactor;
+
+    // Stage 3+ players don't interact with soup obstacles (they've transcended)
+    if (isJungleStage(player.stage)) continue;
 
     // Accumulate gravity forces into existing velocity (don't reset)
     for (const obstacle of obstacles.values()) {
@@ -2092,10 +2185,11 @@ setInterval(() => {
 
   // Check for swarm consumption (multi-cells eating disabled swarms)
   // Track which swarms are currently being consumed this tick
+  // Stage filtering: Only Stage 2 (MULTI_CELL) can consume swarms - it's a soup mechanic
   const currentSwarmDrains = new Set<string>();
 
   for (const [playerId, player] of players) {
-    if (player.stage === EvolutionStage.SINGLE_CELL) continue; // Only multi-cells can consume
+    if (player.stage !== EvolutionStage.MULTI_CELL) continue; // Only multi-cells can consume (not Stage 1, not Stage 3+)
     if (player.energy <= 0) continue; // Dead players can't consume
 
     for (const [swarmId, swarm] of getSwarms()) {
@@ -2241,15 +2335,16 @@ setInterval(() => {
       player.energy = Math.max(0, player.energy); // Clamp to zero
     }
 
-    // Keep player within world bounds (accounting for scaled cell radius)
+    // Keep player within world bounds (stage-aware: soup vs jungle)
     const playerRadius = getPlayerRadius(player.stage);
+    const bounds = getWorldBoundsForStage(player.stage);
     player.position.x = Math.max(
-      playerRadius,
-      Math.min(GAME_CONFIG.WORLD_WIDTH - playerRadius, player.position.x)
+      bounds.minX + playerRadius,
+      Math.min(bounds.maxX - playerRadius, player.position.x)
     );
     player.position.y = Math.max(
-      playerRadius,
-      Math.min(GAME_CONFIG.WORLD_HEIGHT - playerRadius, player.position.y)
+      bounds.minY + playerRadius,
+      Math.min(bounds.maxY - playerRadius, player.position.y)
     );
 
     // Broadcast position update to all clients

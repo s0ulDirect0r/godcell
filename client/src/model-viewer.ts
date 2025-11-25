@@ -26,6 +26,11 @@ import {
   updateSingleCellEnergy,
 } from './render/three/SingleCellRenderer';
 import {
+  createCyberOrganism,
+  updateCyberOrganismAnimation,
+  updateCyberOrganismEnergy,
+} from './render/three/CyberOrganismRenderer';
+import {
   updateEvolutionCorona,
   updateEvolutionRing,
   removeEvolutionEffects,
@@ -58,7 +63,7 @@ let gui: GUI;
 let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
-let currentEntityType: 'single-cell' | 'multi-cell' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
+let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let lastTime = 0;
 let energyDirection = -1; // -1 = draining, 1 = filling
@@ -172,7 +177,7 @@ function initGUI() {
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
   entityFolder.add({ type: currentEntityType }, 'type', [
-    'single-cell', 'multi-cell', 'swarm', 'obstacle', 'nutrient', 'all'
+    'single-cell', 'multi-cell', 'cyber-organism', 'swarm', 'obstacle', 'nutrient', 'all'
   ])
     .name('Entity Type')
     .onChange((value: typeof currentEntityType) => {
@@ -369,6 +374,16 @@ function updateModels() {
       break;
     }
 
+    case 'cyber-organism': {
+      // Stage 3 hexapod - use larger radius matching game (144px = CYBER_ORGANISM_SIZE_MULTIPLIER * PLAYER_SIZE)
+      const cyberOrg = createCyberOrganism(144, currentColor);
+      cyberOrg.position.set(0, 0, 0);
+      scene.add(cyberOrg);
+      models.push(cyberOrg);
+      camera.position.set(0, 0, 400); // Further out for larger model
+      break;
+    }
+
     case 'swarm': {
       const swarm = createEntropySwarm(40);
       swarm.position.set(0, 0, 0);
@@ -408,9 +423,9 @@ function updateModels() {
       // Grid layout of all models with random colors
       const spacing = 150;
 
-      // Row 1: Cells (each with random color from game palette)
+      // Row 1: Player stages (each with random color from game palette)
       const singleCell = createSingleCell(24, randomCellColor());
-      singleCell.position.set(-spacing * 1.5, spacing, 0);
+      singleCell.position.set(-spacing * 2, spacing, 0);
       scene.add(singleCell);
       models.push(singleCell);
 
@@ -423,6 +438,12 @@ function updateModels() {
       radial.position.set(spacing * 0.5, spacing, 0);
       scene.add(radial);
       models.push(radial);
+
+      // Cyber-organism (scaled down to fit in grid - actual game size is 144)
+      const cyberOrg = createCyberOrganism(60, randomCellColor());
+      cyberOrg.position.set(spacing * 1.5, spacing, 0);
+      scene.add(cyberOrg);
+      models.push(cyberOrg);
 
       // Row 2: Threats
       const swarm = createEntropySwarm(40);
@@ -539,6 +560,10 @@ function animate(currentTime: number = 0) {
       if (animState.playMolting) {
         applyEvolutionEffects(model, 'single_cell', animState.moltingProgress);
       }
+    } else if (model instanceof THREE.Group && model.name === 'cyberOrganism') {
+      // It's a cyber-organism hexapod - animate legs and energy glow
+      updateCyberOrganismEnergy(model, energy / 100);
+      updateCyberOrganismAnimation(model, animState.autoAnimate, deltaTime);
     } else if (model instanceof THREE.Group && model.userData.crystalSize) {
       // It's a 3D nutrient crystal - animate rotation and inner core pulsing
       const { rotationSpeed, bobPhase } = model.userData;

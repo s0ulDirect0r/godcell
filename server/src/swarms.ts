@@ -1,7 +1,19 @@
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
+
+// ============================================
+// Stage Helpers (soup vs jungle)
+// ============================================
+
+/**
+ * Check if player is in soup stage (Stage 1-2)
+ * Soup entities only interact with soup-stage players
+ */
+function isSoupStage(stage: EvolutionStage): boolean {
+  return stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
+}
 
 // ============================================
 // Entropy Swarm System - Virus enemies that hunt players
@@ -25,7 +37,8 @@ const SWARM_RESPAWN_DELAY = 30000; // 30 seconds
 
 /**
  * Generate swarm positions with minimum separation for structured distribution
- * Uses rejection sampling to ensure swarms are evenly spread across the map
+ * Uses rejection sampling to ensure swarms are evenly spread across the soup region
+ * Swarms are soup entities - they spawn and live in the soup area
  */
 function generateSwarmPositions(count: number): Position[] {
   const padding = 300; // Keep swarms away from edges
@@ -33,14 +46,20 @@ function generateSwarmPositions(count: number): Position[] {
   const maxAttempts = 100;
   const positions: Position[] = [];
 
+  // Swarms spawn in soup region (using SOUP_ORIGIN offset)
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
+
   for (let i = 0; i < count; i++) {
     let placed = false;
     let attempts = 0;
 
     while (!placed && attempts < maxAttempts) {
       const candidate = {
-        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+        x: Math.random() * (soupMaxX - soupMinX) + soupMinX,
+        y: Math.random() * (soupMaxY - soupMinY) + soupMinY,
       };
 
       // Check distance from all existing swarm positions
@@ -63,8 +82,8 @@ function generateSwarmPositions(count: number): Position[] {
     // If we can't find a valid spot, place anyway (better than no swarm)
     if (!placed) {
       positions.push({
-        x: Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2) + padding,
-        y: Math.random() * (GAME_CONFIG.WORLD_HEIGHT - padding * 2) + padding,
+        x: Math.random() * (soupMaxX - soupMinX) + soupMinX,
+        y: Math.random() * (soupMaxY - soupMinY) + soupMinY,
       });
     }
   }
@@ -130,6 +149,7 @@ export function initializeSwarms(io: Server) {
 
 /**
  * Find the nearest alive player within detection radius
+ * Swarms only target soup-stage players (Stage 1-2)
  */
 function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): Player | null {
   let nearestPlayer: Player | null = null;
@@ -138,6 +158,10 @@ function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): P
   for (const player of players.values()) {
     // Skip dead players and evolving players
     if (player.energy <= 0 || player.isEvolving) continue;
+
+    // Swarms only chase soup-stage players (Stage 1-2)
+    // Stage 3+ players have evolved past the soup
+    if (!isSoupStage(player.stage)) continue;
 
     const dist = distance(swarm.position, player.position);
     if (dist < nearestDist) {
@@ -313,17 +337,24 @@ export function updateSwarms(
 
 /**
  * Update swarm positions based on velocity (called every tick)
+ * Swarms are clamped to soup region bounds
  */
 export function updateSwarmPositions(deltaTime: number, io: Server) {
+  // Swarms live in the soup region
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
+
   for (const swarm of swarms.values()) {
     // Update position based on velocity (like players)
     swarm.position.x += swarm.velocity.x * deltaTime;
     swarm.position.y += swarm.velocity.y * deltaTime;
 
-    // Keep swarms within world bounds
+    // Keep swarms within soup bounds
     const padding = GAME_CONFIG.SWARM_SIZE;
-    swarm.position.x = Math.max(padding, Math.min(GAME_CONFIG.WORLD_WIDTH - padding, swarm.position.x));
-    swarm.position.y = Math.max(padding, Math.min(GAME_CONFIG.WORLD_HEIGHT - padding, swarm.position.y));
+    swarm.position.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, swarm.position.x));
+    swarm.position.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, swarm.position.y));
 
     // Broadcast position update (including disabled state)
     io.emit('swarmMoved', {
@@ -340,6 +371,9 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
  * Check for collisions between swarms and players, deal damage and apply slow
  * Death is handled by universal death check after all damage sources
  * Returns object with damaged player IDs (for cause tracking) and slowed player IDs
+ *
+ * Stage filtering: Swarms only interact with soup-stage players (Stage 1-2)
+ * Stage 3+ players have evolved past the soup and don't interact with swarms
  */
 export function checkSwarmCollisions(
   players: Map<string, Player>,
@@ -358,6 +392,9 @@ export function checkSwarmCollisions(
     for (const player of players.values()) {
       // Skip dead/evolving players
       if (player.energy <= 0 || player.isEvolving) continue;
+
+      // Stage 3+ players don't interact with soup swarms (they've evolved past)
+      if (!isSoupStage(player.stage)) continue;
 
       // Check collision (circle-circle)
       const dist = distance(swarm.position, player.position);

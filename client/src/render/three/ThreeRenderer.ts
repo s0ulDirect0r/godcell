@@ -11,6 +11,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
+import { createCyberOrganism, updateCyberOrganismAnimation, updateCyberOrganismEnergy } from './CyberOrganismRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {
@@ -76,6 +77,12 @@ import {
   updateZoomTransition,
   applyCameraZoom,
 } from './CameraEffects';
+import {
+  createJungleBackground,
+  updateJungleParticles,
+  getJungleBackgroundColor,
+  getSoupBackgroundColor,
+} from './JungleBackground';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -128,6 +135,17 @@ export class ThreeRenderer implements Renderer {
   // Background particles (using efficient Points system)
   private dataParticles!: THREE.Points;
   private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
+
+  // Soup background group (grid + particles for Stage 1-2 soup aesthetic)
+  private soupBackgroundGroup!: THREE.Group;
+
+  // Jungle background system (for Stage 3+)
+  private jungleBackgroundGroup!: THREE.Group;
+  private jungleParticles!: THREE.Points;
+  private jungleParticleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
+
+  // Track current background mode (to avoid redundant switches)
+  private currentBackgroundMode: 'soup' | 'jungle' = 'soup';
 
   // Death animations (particle bursts)
   private deathAnimations: DeathAnimation[] = [];
@@ -184,11 +202,20 @@ export class ThreeRenderer implements Renderer {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
 
-    // Add grid
-    this.createGrid();
+    // Create soup background group (grid + particles for Stage 1-2)
+    this.soupBackgroundGroup = new THREE.Group();
+    this.soupBackgroundGroup.name = 'soupBackground';
+    this.scene.add(this.soupBackgroundGroup);
 
-    // Create background particles
+    // Add soup grid and particles to the group
+    this.createGrid();
     this.createDataParticles();
+
+    // Create jungle background (for Stage 3+) - starts hidden
+    const jungleResult = createJungleBackground(this.scene);
+    this.jungleBackgroundGroup = jungleResult.group;
+    this.jungleParticles = jungleResult.particles;
+    this.jungleParticleData = jungleResult.particleData;
 
     // Create orthographic camera (top-down 2D)
     const aspect = width / height;
@@ -307,14 +334,17 @@ export class ThreeRenderer implements Renderer {
 
         // Create target mesh for new stage
         let targetGroup: THREE.Group;
-        if (event.targetStage === 'multi_cell') {
+        if (event.targetStage === 'cyber_organism' || event.targetStage === 'humanoid' || event.targetStage === 'godcell') {
+          // Stage 3+: Cyber-organism hexapod
+          targetGroup = createCyberOrganism(targetRadius, colorHex);
+        } else if (event.targetStage === 'multi_cell') {
           targetGroup = createMultiCell({
             radius: targetRadius,
             colorHex,
             style: this.multiCellStyle,
           });
         } else {
-          // Create single-cell (or other future stages)
+          // Create single-cell
           targetGroup = createSingleCell(targetRadius, colorHex);
         }
 
@@ -698,8 +728,16 @@ export class ThreeRenderer implements Renderer {
       this.lastPlayerEnergy = myPlayer.energy;
     }
 
-    // Update background particles
+    // Update background based on local player stage
+    this.updateBackgroundForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
+
+    // Update background particles (soup particles update even when hidden for smooth transition)
     this.updateDataParticles(dt);
+
+    // Update jungle particles if jungle background is visible
+    if (this.currentBackgroundMode === 'jungle') {
+      updateJungleParticles(this.jungleParticles, this.jungleParticleData, dt / 1000);
+    }
 
     // Update death animations
     updateDeathAnimations(this.scene, this.deathAnimations, dt);
@@ -792,26 +830,32 @@ export class ThreeRenderer implements Renderer {
     const gridSize = 100; // Grid cell size
     const gridColor = GAME_CONFIG.GRID_COLOR;
 
+    // Soup grid spans the soup region within the jungle coordinate space
+    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
+    const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
+    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
+    const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
+
     // Create vertical lines
-    for (let x = 0; x <= GAME_CONFIG.WORLD_WIDTH; x += gridSize) {
+    for (let x = soupMinX; x <= soupMaxX; x += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, 0, -1),
-        new THREE.Vector3(x, GAME_CONFIG.WORLD_HEIGHT, -1),
+        new THREE.Vector3(x, soupMinY, -1),
+        new THREE.Vector3(x, soupMaxY, -1),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
-      this.scene.add(line);
+      this.soupBackgroundGroup.add(line);
     }
 
     // Create horizontal lines
-    for (let y = 0; y <= GAME_CONFIG.WORLD_HEIGHT; y += gridSize) {
+    for (let y = soupMinY; y <= soupMaxY; y += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, y, -1),
-        new THREE.Vector3(GAME_CONFIG.WORLD_WIDTH, y, -1),
+        new THREE.Vector3(soupMinX, y, -1),
+        new THREE.Vector3(soupMaxX, y, -1),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
-      this.scene.add(line);
+      this.soupBackgroundGroup.add(line);
     }
   }
 
@@ -822,9 +866,13 @@ export class ThreeRenderer implements Renderer {
     const positions = new Float32Array(particleCount * 3);
     const sizes = new Float32Array(particleCount);
 
+    // Soup particles spawn within soup region
+    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
+    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
+
     for (let i = 0; i < particleCount; i++) {
-      const x = Math.random() * GAME_CONFIG.WORLD_WIDTH;
-      const y = Math.random() * GAME_CONFIG.WORLD_HEIGHT;
+      const x = soupMinX + Math.random() * GAME_CONFIG.SOUP_WIDTH;
+      const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
       const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
       // Position
@@ -866,7 +914,7 @@ export class ThreeRenderer implements Renderer {
 
     // Create Points mesh
     this.dataParticles = new THREE.Points(geometry, material);
-    this.scene.add(this.dataParticles);
+    this.soupBackgroundGroup.add(this.dataParticles);
   }
 
   private createCircleTexture(): THREE.Texture {
@@ -893,6 +941,12 @@ export class ThreeRenderer implements Renderer {
     const deltaSeconds = dt / 1000;
     const positions = this.dataParticles.geometry.attributes.position.array as Float32Array;
 
+    // Soup region bounds for wrapping
+    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
+    const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
+    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
+    const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
+
     for (let i = 0; i < this.particleData.length; i++) {
       const particle = this.particleData[i];
 
@@ -900,11 +954,11 @@ export class ThreeRenderer implements Renderer {
       particle.x += particle.vx * deltaSeconds;
       particle.y += particle.vy * deltaSeconds;
 
-      // Wrap around world bounds
-      if (particle.x > GAME_CONFIG.WORLD_WIDTH + 10) particle.x = -10;
-      if (particle.y > GAME_CONFIG.WORLD_HEIGHT + 10) particle.y = -10;
-      if (particle.x < -10) particle.x = GAME_CONFIG.WORLD_WIDTH + 10;
-      if (particle.y < -10) particle.y = GAME_CONFIG.WORLD_HEIGHT + 10;
+      // Wrap around soup bounds
+      if (particle.x > soupMaxX + 10) particle.x = soupMinX - 10;
+      if (particle.y > soupMaxY + 10) particle.y = soupMinY - 10;
+      if (particle.x < soupMinX - 10) particle.x = soupMaxX + 10;
+      if (particle.y < soupMinY - 10) particle.y = soupMaxY + 10;
 
       // Update BufferGeometry positions
       positions[i * 3] = particle.x;
@@ -916,7 +970,66 @@ export class ThreeRenderer implements Renderer {
     this.dataParticles.geometry.attributes.position.needsUpdate = true;
   }
 
+  /**
+   * Update background visibility based on player evolution stage
+   * Stage 1-2 (soup stages): Show soup background
+   * Stage 3+ (jungle stages): Show jungle background
+   */
+  private updateBackgroundForStage(stage: EvolutionStage): void {
+    // Determine target mode based on stage
+    const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
+    const targetMode: 'soup' | 'jungle' = isSoupStage ? 'soup' : 'jungle';
+
+    // Skip if already in correct mode
+    if (this.currentBackgroundMode === targetMode) return;
+
+    console.log(`[Background] Switching from ${this.currentBackgroundMode} to ${targetMode} (stage: ${stage})`);
+
+    // Switch backgrounds
+    if (targetMode === 'jungle') {
+      // Transitioning to jungle (Stage 3+)
+      // AGGRESSIVE FIX: Actually remove from scene instead of just hiding
+      // This is a belt-and-suspenders approach after visible=false wasn't working
+      if (this.soupBackgroundGroup.parent === this.scene) {
+        this.scene.remove(this.soupBackgroundGroup);
+        console.log('[Background] REMOVED soupBackgroundGroup from scene');
+      }
+      this.soupBackgroundGroup.visible = false;
+
+      this.jungleBackgroundGroup.visible = true;
+      this.jungleBackgroundGroup.traverse(child => { child.visible = true; });
+      // Re-add jungle group if it was removed
+      if (this.jungleBackgroundGroup.parent !== this.scene) {
+        this.scene.add(this.jungleBackgroundGroup);
+      }
+      this.scene.background = new THREE.Color(getJungleBackgroundColor());
+      console.log(`[Background] Soup in scene: ${this.soupBackgroundGroup.parent === this.scene}, Jungle visible: ${this.jungleBackgroundGroup.visible}`);
+    } else {
+      // Transitioning to soup (Stage 1-2, e.g., death respawn)
+      // Re-add soup group to scene if it was removed
+      if (this.soupBackgroundGroup.parent !== this.scene) {
+        this.scene.add(this.soupBackgroundGroup);
+        console.log('[Background] RE-ADDED soupBackgroundGroup to scene');
+      }
+      this.soupBackgroundGroup.visible = true;
+      this.soupBackgroundGroup.traverse(child => { child.visible = true; });
+      this.jungleBackgroundGroup.visible = false;
+      this.jungleBackgroundGroup.traverse(child => { child.visible = false; });
+      this.scene.background = new THREE.Color(getSoupBackgroundColor());
+    }
+
+    this.currentBackgroundMode = targetMode;
+  }
+
   private syncObstacles(state: GameState): void {
+    // Stage 3+ players don't see soup obstacles (gravity wells)
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove obstacles that no longer exist
     this.obstacleMeshes.forEach((group, id) => {
       if (!state.obstacles.has(id)) {
@@ -943,9 +1056,22 @@ export class ThreeRenderer implements Renderer {
         this.obstacleMeshes.set(id, group);
       }
     });
+
+    // Hide all obstacles from Stage 3+ players
+    this.obstacleMeshes.forEach(group => {
+      group.visible = !isJungleStage;
+    });
   }
 
   private syncSwarms(state: GameState): void {
+    // Stage 3+ players don't see swarms
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove swarms that no longer exist
     this.swarmMeshes.forEach((group, id) => {
       if (!state.swarms.has(id)) {
@@ -987,6 +1113,9 @@ export class ThreeRenderer implements Renderer {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       updateSwarmState(group, swarm.state, isDisabled);
+
+      // Hide swarm from Stage 3+ players
+      group.visible = !isJungleStage;
     });
   }
 
@@ -1415,6 +1544,14 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncNutrients(state: GameState): void {
+    // Stage 3+ players don't see soup nutrients
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const isJungleStage = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove nutrients that no longer exist
     this.nutrientMeshes.forEach((group, id) => {
       if (!state.nutrients.has(id)) {
@@ -1446,6 +1583,9 @@ export class ThreeRenderer implements Renderer {
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
+
+      // Hide nutrients from Stage 3+ players
+      group.visible = !isJungleStage;
     });
 
     // Clean up position cache for nutrients that no longer exist
@@ -1544,6 +1684,14 @@ export class ThreeRenderer implements Renderer {
   }
 
   private syncPlayers(state: GameState): void {
+    // Determine local player's stage for cross-stage visibility filtering
+    const myPlayer = state.myPlayerId ? state.players.get(state.myPlayerId) : null;
+    const myStageIsJungle = myPlayer && (
+      myPlayer.stage === EvolutionStage.CYBER_ORGANISM ||
+      myPlayer.stage === EvolutionStage.HUMANOID ||
+      myPlayer.stage === EvolutionStage.GODCELL
+    );
+
     // Remove players that left
     this.playerMeshes.forEach((group, id) => {
       if (!state.players.has(id)) {
@@ -1620,7 +1768,10 @@ export class ThreeRenderer implements Renderer {
         const colorHex = parseInt(player.color.replace('#', ''), 16);
 
         // Create cell based on stage
-        if (player.stage === 'multi_cell') {
+        if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
+          // Stage 3+: Cyber-organism hexapod (placeholder for humanoid/godcell for now)
+          cellGroup = createCyberOrganism(radius, colorHex);
+        } else if (player.stage === 'multi_cell') {
           // Multi-cell organism
           cellGroup = createMultiCell({
             radius,
@@ -1663,7 +1814,21 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
-      if (player.stage === 'multi_cell') {
+      if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
+        // Stage 3+: Cyber-organism (hexapod)
+        const energyRatio = player.energy / player.maxEnergy;
+        updateCyberOrganismEnergy(cellGroup, energyRatio);
+
+        // Check if player is moving by comparing current to previous position
+        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
+        const currPos = player.position;
+        const isMoving = prevPos
+          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
+          : false;
+        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60); // ~60fps
+      } else if (player.stage === 'multi_cell') {
         updateMultiCellEnergy(
           cellGroup,
           this.multiCellStyle,
@@ -1774,6 +1939,28 @@ export class ThreeRenderer implements Renderer {
             player.stage
           );
         }
+      }
+
+      // Cross-stage visibility: Stage 3+ players only see other Stage 3+ players
+      // Stage 1-2 players only see other Stage 1-2 players
+      const playerStageIsJungle = (
+        player.stage === EvolutionStage.CYBER_ORGANISM ||
+        player.stage === EvolutionStage.HUMANOID ||
+        player.stage === EvolutionStage.GODCELL
+      );
+      const shouldBeVisible = isMyPlayer || (myStageIsJungle === playerStageIsJungle);
+      cellGroup.visible = shouldBeVisible;
+
+      // Also hide outline if it exists and player should be hidden
+      const outline = this.playerOutlines.get(id);
+      if (outline) {
+        outline.visible = shouldBeVisible;
+      }
+
+      // Hide trail for hidden players
+      const trail = this.playerTrailLines.get(id);
+      if (trail) {
+        trail.visible = shouldBeVisible;
       }
     });
   }

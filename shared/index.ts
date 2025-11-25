@@ -324,7 +324,7 @@ export type ServerMessage =
 // ============================================
 
 // Entity types that can be spawned via dev panel
-export type SpawnableEntityType = 'nutrient' | 'swarm' | 'obstacle' | 'single-cell' | 'multi-cell';
+export type SpawnableEntityType = 'nutrient' | 'swarm' | 'obstacle' | 'single-cell' | 'multi-cell' | 'cyber-organism';
 
 // Dev command from client to server
 export interface DevCommandMessage {
@@ -376,7 +376,7 @@ export interface DevDeleteEntityCommand {
 export interface DevDeleteAtCommand {
   action: 'deleteAt';
   position: Position;
-  entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell';  // Deletable entity types
+  entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism';  // Deletable entity types
 }
 
 // Clear all entities from the world (playground mode)
@@ -511,11 +511,22 @@ export const GAME_CONFIG = {
   PLAYER_SIZE: 10,   // Radius of single-cell (tiny for order of magnitude evolution jump)
   MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
 
-  // World dimensions
-  WORLD_WIDTH: 4800,   // Full playable world (doubled for stage 1 difficulty)
-  WORLD_HEIGHT: 3200,
+  // World dimensions - Soup (Stage 1-2 play area)
+  WORLD_WIDTH: 4800,   // Soup width (backward compat alias)
+  WORLD_HEIGHT: 3200,  // Soup height (backward compat alias)
   VIEWPORT_WIDTH: 1200,  // What you see on screen
   VIEWPORT_HEIGHT: 800,
+
+  // Jungle dimensions (Stage 3+ play area) - 4x larger than soup
+  JUNGLE_WIDTH: 19200,   // 4x soup width
+  JUNGLE_HEIGHT: 12800,  // 4x soup height
+
+  // Soup region within jungle (centered)
+  // Soup exists as a small region in the middle of the jungle
+  SOUP_ORIGIN_X: 7200,   // (19200 - 4800) / 2 = 7200
+  SOUP_ORIGIN_Y: 4800,   // (12800 - 3200) / 2 = 4800
+  SOUP_WIDTH: 4800,      // Same as WORLD_WIDTH
+  SOUP_HEIGHT: 3200,     // Same as WORLD_HEIGHT
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void

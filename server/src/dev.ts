@@ -230,6 +230,12 @@ function handleSpawnEntity(
       break;
     }
 
+    case 'cyber-organism': {
+      const botId = devContext.spawnBotAt(position, EvolutionStage.CYBER_ORGANISM);
+      logger.info({ event: 'dev_spawn_cyber_organism', position, botId });
+      break;
+    }
+
     case 'obstacle': {
       // Obstacles are static and spawned at init - log but don't implement
       logger.info({ event: 'dev_spawn_obstacle_not_implemented', position });
@@ -381,7 +387,7 @@ function handleClearWorld(io: Server): void {
   logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
 }
 
-function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell'): void {
+function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism'): void {
   if (!devContext) return;
 
   const MAX_DELETE_DISTANCE = 100; // Max distance to find entity
@@ -432,17 +438,19 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       });
       logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
     }
-  } else if (entityType === 'single-cell' || entityType === 'multi-cell') {
+  } else if (entityType === 'single-cell' || entityType === 'multi-cell' || entityType === 'cyber-organism') {
     // Find nearest bot of the specified type
-    const isSingleCell = entityType === 'single-cell';
     for (const [id, player] of devContext.players.entries()) {
       // Only consider bots (players with 'bot-' prefix)
       if (!id.startsWith('bot-')) continue;
 
-      // Filter by type: single-cell bots don't have 'multicell' in ID
-      const isMultiCellBot = id.includes('multicell');
-      if (isSingleCell && isMultiCellBot) continue;
-      if (!isSingleCell && !isMultiCellBot) continue;
+      // Filter by stage matching the entity type
+      const playerStage = player.stage;
+      const matchesType =
+        (entityType === 'single-cell' && playerStage === EvolutionStage.SINGLE_CELL) ||
+        (entityType === 'multi-cell' && playerStage === EvolutionStage.MULTI_CELL) ||
+        (entityType === 'cyber-organism' && playerStage === EvolutionStage.CYBER_ORGANISM);
+      if (!matchesType) continue;
 
       const dx = player.position.x - position.x;
       const dy = player.position.y - position.y;
