@@ -16,6 +16,7 @@
     "clean": "rm -rf client/dist server/dist node_modules client/node_modules server/node_modules shared/node_modules"
   },
   "devDependencies": {
+    "@beads/bd": "^0.24.3",
     "typescript": "^5.3.3"
   }
 }
