@@ -393,8 +393,12 @@ export function updateCyberOrganismAnimation(
       const legPhase = phase + gaitOffset + sideOffset;
 
       // Swing leg forward/backward
+      // Store base rotation on first frame, then apply swing on top
+      if (legGroup.userData.baseRotationX === undefined) {
+        legGroup.userData.baseRotationX = legGroup.rotation.x;
+      }
       const swing = Math.sin(legPhase) * amplitude;
-      legGroup.rotation.x += swing;
+      legGroup.rotation.x = legGroup.userData.baseRotationX + swing;
 
       // Animate joint (knee bend)
       const joint = legGroup.userData.joint as THREE.Group;
@@ -444,7 +448,7 @@ export function updateCyberOrganismAnimation(
 
     // Traverse tail segments and apply wave motion
     // Each segment rotates slightly more than the previous, creating a sinuous wave
-    const animateTailSegment = (node: THREE.Object3D, segmentIndex: number) => {
+    const animateTailSegment = (node: THREE.Object3D) => {
       if (node.name.startsWith('tail-segment-')) {
         const idx = node.userData.segmentIndex as number;
         // Wave propagates down the tail with increasing amplitude
@@ -453,9 +457,9 @@ export function updateCyberOrganismAnimation(
         // Rotate on Y axis for side-to-side sway (in local space of the tail)
         node.rotation.y = Math.sin(segmentPhase) * segmentAmplitude;
       }
-      node.children.forEach(child => animateTailSegment(child, segmentIndex + 1));
+      node.children.forEach(child => animateTailSegment(child));
     };
-    animateTailSegment(tail, 0);
+    animateTailSegment(tail);
   }
 }
 
