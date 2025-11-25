@@ -12,6 +12,7 @@
     "dev": "npm run dev --workspace=server & npm run dev --workspace=client",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
+    "playground": "npm run playground --workspace=server & npm run dev --workspace=client",
     "build": "npm run build --workspaces",
     "clean": "rm -rf client/dist server/dist node_modules client/node_modules server/node_modules shared/node_modules"
   },

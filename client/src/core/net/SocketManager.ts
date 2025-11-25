@@ -39,7 +39,21 @@ export class SocketManager {
 
   constructor(serverUrl: string, gameState: GameState) {
     this.gameState = gameState;
-    this.socket = io(serverUrl, {
+
+    // Check for playground mode - connects to separate server on port 3001
+    const isPlayground = new URLSearchParams(window.location.search).has('playground');
+    let targetUrl = serverUrl;
+    if (isPlayground) {
+      try {
+        const url = new URL(serverUrl);
+        url.port = '3001';
+        targetUrl = url.toString();
+      } catch (e) {
+        console.warn('[Socket] Failed to parse serverUrl for playground mode:', e);
+      }
+    }
+
+    this.socket = io(targetUrl, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -55,6 +69,13 @@ export class SocketManager {
    */
   getSocketId(): string | undefined {
     return this.socket.id;
+  }
+
+  /**
+   * Get the underlying socket (for dev tools)
+   */
+  getSocket(): Socket {
+    return this.socket;
   }
 
   /**

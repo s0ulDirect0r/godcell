@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "playground": "PORT=3001 PLAYGROUND=true tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },

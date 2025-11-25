@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@godcell/shared": "*",
+    "lil-gui": "^0.21.0",
     "socket.io-client": "^4.7.2",
-    "three": "^0.160.0"
+    "three": "^0.160.0",
+    "three-stdlib": "^2.36.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/node": "^20.10.6",
     "@types/three": "^0.160.0",
     "happy-dom": "^20.0.10",

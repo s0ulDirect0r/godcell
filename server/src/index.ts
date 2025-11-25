@@ -34,8 +34,10 @@ import type {
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
 } from '@godcell/shared';
-import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
+import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
+import type { DevCommandMessage } from '@godcell/shared';
 import {
   logger,
   logServerStarted,
@@ -56,7 +58,7 @@ import {
 // Server Configuration
 // ============================================
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const TICK_RATE = 60; // Server updates 60 times per second
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
@@ -402,7 +404,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   if (closestHit) {
     const target = players.get(closestHit.playerId);
     if (target) {
-      applyDamageWithResistance(target, GAME_CONFIG.PSEUDOPOD_DRAIN_RATE);
+      applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
       playerLastDamageSource.set(closestHit.playerId, 'beam');
       playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
 
@@ -410,7 +412,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
         event: 'beam_hit',
         shooter: shooterId,
         target: closestHit.playerId,
-        damage: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
         targetEnergyRemaining: target.energy.toFixed(0),
       });
     }
@@ -456,7 +458,7 @@ function calculateNutrientValueMultiplier(position: Position): number {
     }
   }
 
-  const GRAVITY_RADIUS = GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS; // 600px
+  const GRAVITY_RADIUS = getConfig('OBSTACLE_GRAVITY_RADIUS'); // 600px
 
   // Not in any gravity well
   if (closestDist >= GRAVITY_RADIUS) {
@@ -513,29 +515,25 @@ function spawnNutrient(): Nutrient {
 /**
  * Spawn a nutrient at a specific position
  * Used for prey drops and specific spawn locations
+ * @param position - Where to spawn the nutrient
+ * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
  */
-function spawnNutrientAt(position: Position): Nutrient {
+function spawnNutrientAt(position: Position, overrideMultiplier?: number): Nutrient {
   // Calculate nutrient value based on proximity to obstacles (gradient system)
-  const valueMultiplier = calculateNutrientValueMultiplier(position);
+  // Or use override multiplier if provided (dev tool)
+  const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position);
   const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
 
   const nutrient: Nutrient = {
     id: `nutrient-${nutrientIdCounter++}`,
     position,
-    value: GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
-    capacityIncrease: GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
+    value: getConfig('NUTRIENT_ENERGY_VALUE') * valueMultiplier,
+    capacityIncrease: getConfig('NUTRIENT_CAPACITY_INCREASE') * valueMultiplier,
     valueMultiplier, // Store multiplier for client color rendering
     isHighValue,
   };
 
   nutrients.set(nutrient.id, nutrient);
-
-  // Broadcast to all clients
-  const spawnMessage: NutrientSpawnedMessage = {
-    type: 'nutrientSpawned',
-    nutrient,
-  };
-  io.emit('nutrientSpawned', spawnMessage);
 
   return nutrient;
 }
@@ -547,7 +545,7 @@ function respawnNutrient(nutrientId: string) {
   const timer = setTimeout(() => {
     spawnNutrient();
     nutrientRespawnTimers.delete(nutrientId);
-  }, GAME_CONFIG.NUTRIENT_RESPAWN_TIME);
+  }, getConfig('NUTRIENT_RESPAWN_TIME'));
 
   nutrientRespawnTimers.set(nutrientId, timer);
 }
@@ -621,8 +619,8 @@ function initializeObstacles() {
     const obstacle: Obstacle = {
       id: `obstacle-${obstacleIdCounter++}`,
       position,
-      radius: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS,
-      strength: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH,
+      radius: getConfig('OBSTACLE_GRAVITY_RADIUS'),
+      strength: getConfig('OBSTACLE_GRAVITY_STRENGTH'),
       damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
     };
 
@@ -678,8 +676,12 @@ function getDamageResistance(stage: EvolutionStage): number {
 /**
  * Apply damage to player with resistance factored in
  * Returns actual damage dealt after resistance
+ * God mode players take no damage
  */
 function applyDamageWithResistance(player: Player, baseDamage: number): number {
+  // God mode players are immune to damage
+  if (hasGodMode(player.id)) return 0;
+
   const resistance = getDamageResistance(player.stage);
   const actualDamage = baseDamage * (1 - resistance);
   player.energy -= actualDamage;
@@ -692,13 +694,13 @@ function applyDamageWithResistance(player: Player, baseDamage: number): number {
 function getEnergyDecayRate(stage: EvolutionStage): number {
   switch (stage) {
     case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE;
+      return getConfig('SINGLE_CELL_ENERGY_DECAY_RATE');
     case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE;
+      return getConfig('MULTI_CELL_ENERGY_DECAY_RATE');
     case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE;
+      return getConfig('CYBER_ORGANISM_ENERGY_DECAY_RATE');
     case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE;
+      return getConfig('HUMANOID_ENERGY_DECAY_RATE');
     case EvolutionStage.GODCELL:
       return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
   }
@@ -721,6 +723,40 @@ function getPlayerRadius(stage: EvolutionStage): number {
       return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
     case EvolutionStage.GODCELL:
       return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+  }
+}
+
+/**
+ * Get energy values for an evolution stage (for dev tools)
+ * Uses getConfig() to respect runtime config overrides from dev panel
+ */
+function getStageEnergy(stage: EvolutionStage): { energy: number; maxEnergy: number } {
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      return {
+        energy: getConfig('SINGLE_CELL_ENERGY'),
+        maxEnergy: getConfig('SINGLE_CELL_MAX_ENERGY'),
+      };
+    case EvolutionStage.MULTI_CELL:
+      return {
+        energy: getConfig('MULTI_CELL_ENERGY'),
+        maxEnergy: getConfig('MULTI_CELL_MAX_ENERGY'),
+      };
+    case EvolutionStage.CYBER_ORGANISM:
+      return {
+        energy: getConfig('CYBER_ORGANISM_ENERGY'),
+        maxEnergy: getConfig('CYBER_ORGANISM_MAX_ENERGY'),
+      };
+    case EvolutionStage.HUMANOID:
+      return {
+        energy: getConfig('HUMANOID_ENERGY'),
+        maxEnergy: getConfig('HUMANOID_MAX_ENERGY'),
+      };
+    case EvolutionStage.GODCELL:
+      return {
+        energy: getConfig('GODCELL_ENERGY'),
+        maxEnergy: getConfig('GODCELL_MAX_ENERGY'),
+      };
   }
 }
 
@@ -805,7 +841,7 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
     if (dist < collisionDist) {
       // Hit! Drain energy from target (one-time damage per beam, with resistance)
-      applyDamageWithResistance(target, GAME_CONFIG.PSEUDOPOD_DRAIN_RATE);
+      applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
       hitSomething = true;
 
       // Track damage source and shooter for kill credit
@@ -819,7 +855,7 @@ function checkBeamCollision(beam: Pseudopod): boolean {
         event: 'beam_hit',
         shooter: beam.ownerId,
         target: targetId,
-        damage: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
         targetEnergyRemaining: target.energy.toFixed(0),
       });
 
@@ -833,7 +869,7 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
       // Add decay timer for brief drain aura after hit (1.5 seconds)
       pseudopodHitDecays.set(targetId, {
-        rate: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE,
+        rate: getConfig('PSEUDOPOD_DRAIN_RATE'),
         expiresAt: Date.now() + 1500, // 1.5 second decay
       });
 
@@ -922,9 +958,12 @@ function checkPredationCollisions(deltaTime: number) {
       const collisionDist = predatorRadius + preyRadius;
 
       if (dist < collisionDist) {
+        // God mode players can't be drained
+        if (hasGodMode(preyId)) continue;
+
         // Contact! Drain energy from prey (energy-only system)
         // Predation bypasses damage resistance - being engulfed is inescapable
-        const damage = GAME_CONFIG.CONTACT_DRAIN_RATE * deltaTime;
+        const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
         prey.energy -= damage;
         currentDrains.add(preyId);
 
@@ -935,7 +974,7 @@ function checkPredationCollisions(deltaTime: number) {
         playerLastDamageSource.set(preyId, 'predation');
 
         // Record damage for drain aura system
-        recordDamage(preyId, GAME_CONFIG.CONTACT_DRAIN_RATE, 'predation');
+        recordDamage(preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
 
         // Only one predator can drain a prey at a time (first contact wins)
         break;
@@ -1000,13 +1039,13 @@ function updatePseudopods(deltaTime: number, io: Server) {
 function getNextEvolutionStage(currentStage: EvolutionStage): { stage: EvolutionStage; threshold: number } | null {
   switch (currentStage) {
     case EvolutionStage.SINGLE_CELL:
-      return { stage: EvolutionStage.MULTI_CELL, threshold: GAME_CONFIG.EVOLUTION_MULTI_CELL };
+      return { stage: EvolutionStage.MULTI_CELL, threshold: getConfig('EVOLUTION_MULTI_CELL') };
     case EvolutionStage.MULTI_CELL:
-      return { stage: EvolutionStage.CYBER_ORGANISM, threshold: GAME_CONFIG.EVOLUTION_CYBER_ORGANISM };
+      return { stage: EvolutionStage.CYBER_ORGANISM, threshold: getConfig('EVOLUTION_CYBER_ORGANISM') };
     case EvolutionStage.CYBER_ORGANISM:
-      return { stage: EvolutionStage.HUMANOID, threshold: GAME_CONFIG.EVOLUTION_HUMANOID };
+      return { stage: EvolutionStage.HUMANOID, threshold: getConfig('EVOLUTION_HUMANOID') };
     case EvolutionStage.HUMANOID:
-      return { stage: EvolutionStage.GODCELL, threshold: GAME_CONFIG.EVOLUTION_GODCELL };
+      return { stage: EvolutionStage.GODCELL, threshold: getConfig('EVOLUTION_GODCELL') };
     case EvolutionStage.GODCELL:
       return null; // Already at max stage
   }
@@ -1033,7 +1072,7 @@ function checkEvolution(player: Player) {
     playerId: player.id,
     currentStage: player.stage,
     targetStage: nextEvolution.stage,
-    duration: GAME_CONFIG.EVOLUTION_MOLTING_DURATION,
+    duration: getConfig('EVOLUTION_MOLTING_DURATION'),
   };
   io.emit('playerEvolutionStarted', startMessage);
 
@@ -1061,7 +1100,7 @@ function checkEvolution(player: Player) {
     io.emit('playerEvolved', evolveMessage);
 
     logPlayerEvolution(player.id, player.stage);
-  }, GAME_CONFIG.EVOLUTION_MOLTING_DURATION);
+  }, getConfig('EVOLUTION_MOLTING_DURATION'));
 }
 
 /**
@@ -1212,6 +1251,9 @@ function updateMetabolism(deltaTime: number) {
 
     // Skip metabolism during evolution molting (invulnerable)
     if (player.isEvolving) continue;
+
+    // God mode players don't decay
+    if (hasGodMode(playerId)) continue;
 
     // Energy decay (passive drain) - stage-specific metabolic efficiency
     // No damage resistance applies to passive decay
@@ -1397,7 +1439,7 @@ function broadcastDetectionUpdates() {
         if (otherPlayer.energy <= 0) continue; // Skip dead players
 
         const dist = distance(player.position, otherPlayer.position);
-        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+        if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
           detected.push({
             id: otherId,
             position: otherPlayer.position,
@@ -1410,7 +1452,7 @@ function broadcastDetectionUpdates() {
       // Detect nutrients
       for (const [nutrientId, nutrient] of nutrients) {
         const dist = distance(player.position, nutrient.position);
-        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+        if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
           detected.push({
             id: nutrientId,
             position: nutrient.position,
@@ -1422,7 +1464,7 @@ function broadcastDetectionUpdates() {
       // Detect swarms (potential prey for multi-cells)
       for (const [swarmId, swarm] of getSwarms()) {
         const dist = distance(player.position, swarm.position);
-        if (dist <= GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS) {
+        if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
           detected.push({
             id: swarmId,
             position: swarm.position,
@@ -1510,12 +1552,37 @@ const io = new Server(PORT, {
 
 logServerStarted(PORT);
 
-// Initialize game world
-// Pure Bridson's distribution - obstacles and swarms fill map naturally, spawning is random
-initializeObstacles();
-initializeNutrients();
-initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
-initializeSwarms(io);
+// Playground mode - empty world for testing (set by PLAYGROUND env var)
+const isPlayground = process.env.PLAYGROUND === 'true';
+
+if (isPlayground) {
+  logger.info({ event: 'playground_mode', port: PORT });
+} else {
+  // Initialize game world (normal mode)
+  // Pure Bridson's distribution - obstacles and swarms fill map naturally
+  initializeObstacles();
+  initializeNutrients();
+  initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
+  initializeSwarms(io);
+}
+
+// Initialize dev handler with game context
+initDevHandler({
+  io,
+  players,
+  nutrients,
+  obstacles,
+  swarms: getSwarms(),
+  playerInputDirections,
+  playerVelocities,
+  spawnNutrientAt,
+  spawnSwarmAt,
+  spawnBotAt: (position, stage) => spawnBotAt(io, players, playerInputDirections, playerVelocities, position, stage),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, io, players, playerInputDirections, playerVelocities),
+  respawnPlayer,
+  getStageEnergy,
+  getPlayerRadius,
+});
 
 // ============================================
 // Connection Handling
@@ -1607,12 +1674,12 @@ io.on('connection', (socket) => {
     if (player.energy <= 0) return; // Dead players can't attack
     if (player.isEvolving) return; // Can't attack while molting
     if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't attack while stunned
-    if (player.energy < GAME_CONFIG.PSEUDOPOD_ENERGY_COST) return; // Need energy to fire
+    if (player.energy < getConfig('PSEUDOPOD_ENERGY_COST')) return; // Need energy to fire
 
     // Cooldown check
     const lastUse = playerPseudopodCooldowns.get(socket.id) || 0;
     const now = Date.now();
-    if (now - lastUse < GAME_CONFIG.PSEUDOPOD_COOLDOWN) return;
+    if (now - lastUse < getConfig('PSEUDOPOD_COOLDOWN')) return;
 
     // Calculate direction from player to target
     const dx = message.targetX - player.position.x;
@@ -1630,7 +1697,7 @@ io.on('connection', (socket) => {
     const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
 
     // Deduct energy cost
-    player.energy -= GAME_CONFIG.PSEUDOPOD_ENERGY_COST;
+    player.energy -= getConfig('PSEUDOPOD_ENERGY_COST');
 
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
       // HITSCAN MODE: Instant raycast hit detection
@@ -1677,7 +1744,7 @@ io.on('connection', (socket) => {
         id: `beam-${socket.id}-${now}`,
         ownerId: socket.id,
         position: { x: player.position.x, y: player.position.y }, // Current position (will move)
-        velocity: { x: dirX * GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED, y: dirY * GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED },
+        velocity: { x: dirX * getConfig('PSEUDOPOD_PROJECTILE_SPEED'), y: dirY * getConfig('PSEUDOPOD_PROJECTILE_SPEED') },
         width: GAME_CONFIG.PSEUDOPOD_WIDTH,
         maxDistance: maxRange,
         distanceTraveled: 0,
@@ -1712,15 +1779,15 @@ io.on('connection', (socket) => {
     if (player.energy <= 0) return; // Dead players can't use abilities
     if (player.isEvolving) return; // Can't use abilities while molting
     if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't use while stunned
-    if (player.energy < GAME_CONFIG.EMP_ENERGY_COST) return; // Insufficient energy
+    if (player.energy < getConfig('EMP_ENERGY_COST')) return; // Insufficient energy
 
     // Cooldown check
     const lastUse = playerEMPCooldowns.get(socket.id) || 0;
     const now = Date.now();
-    if (now - lastUse < GAME_CONFIG.EMP_COOLDOWN) return;
+    if (now - lastUse < getConfig('EMP_COOLDOWN')) return;
 
     // Apply energy cost
-    player.energy -= GAME_CONFIG.EMP_ENERGY_COST;
+    player.energy -= getConfig('EMP_ENERGY_COST');
 
     // Find affected entities within range
     const affectedSwarmIds: string[] = [];
@@ -1729,8 +1796,8 @@ io.on('connection', (socket) => {
     // Check swarms
     for (const [swarmId, swarm] of getSwarms()) {
       const dist = distance(player.position, swarm.position);
-      if (dist <= GAME_CONFIG.EMP_RANGE) {
-        swarm.disabledUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
+      if (dist <= getConfig('EMP_RANGE')) {
+        swarm.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
         swarm.energy = GAME_CONFIG.SWARM_ENERGY;
         affectedSwarmIds.push(swarmId);
       }
@@ -1742,8 +1809,8 @@ io.on('connection', (socket) => {
       if (otherPlayer.energy <= 0) continue; // Dead players not affected
 
       const dist = distance(player.position, otherPlayer.position);
-      if (dist <= GAME_CONFIG.EMP_RANGE) {
-        otherPlayer.stunnedUntil = now + GAME_CONFIG.EMP_DISABLE_DURATION;
+      if (dist <= getConfig('EMP_RANGE')) {
+        otherPlayer.stunnedUntil = now + getConfig('EMP_DISABLE_DURATION');
 
         // Multi-cells also lose energy when hit (with resistance)
         if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) {
@@ -1772,8 +1839,21 @@ io.on('connection', (socket) => {
       playerId: socket.id,
       swarmsHit: affectedSwarmIds.length,
       playersHit: affectedPlayerIds.length,
-      energySpent: GAME_CONFIG.EMP_ENERGY_COST,
+      energySpent: getConfig('EMP_ENERGY_COST'),
     });
+  });
+
+  // ============================================
+  // Dev Command Handling (development mode only)
+  // ============================================
+
+  socket.on('devCommand', (message: DevCommandMessage) => {
+    // Only allow dev commands in development mode
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn({ event: 'dev_command_blocked', socketId: socket.id, reason: 'production_mode' });
+      return;
+    }
+    handleDevCommand(socket, io, message.command);
   });
 
   // ============================================
@@ -1815,7 +1895,7 @@ function applyGravityForces(deltaTime: number) {
 
     // Apply friction to create momentum/inertia (velocity decays over time)
     // Use exponential decay for smooth deceleration: v = v * friction^dt
-    const frictionFactor = Math.pow(GAME_CONFIG.MOVEMENT_FRICTION, deltaTime);
+    const frictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
     velocity.x *= frictionFactor;
     velocity.y *= frictionFactor;
 
@@ -1825,7 +1905,8 @@ function applyGravityForces(deltaTime: number) {
       if (dist > obstacle.radius) continue; // Outside event horizon
 
       // Instant death at singularity core (energy-only: energy = 0)
-      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
+      // God mode players survive singularities
+      if (dist < getConfig('OBSTACLE_CORE_RADIUS') && !hasGodMode(playerId)) {
         logSingularityCrush(playerId, dist);
         player.energy = 0; // Instant energy depletion (will be processed by checkPlayerDeaths)
         playerLastDamageSource.set(playerId, 'singularity');
@@ -1866,9 +1947,9 @@ function applyGravityForces(deltaTime: number) {
   // Apply gravity to entropy swarms with momentum (corrupted data, less mass)
   for (const swarm of getSwarms().values()) {
     // Apply friction to swarms (same momentum system as players)
-    const frictionFactor = Math.pow(GAME_CONFIG.MOVEMENT_FRICTION, deltaTime);
-    swarm.velocity.x *= frictionFactor;
-    swarm.velocity.y *= frictionFactor;
+    const swarmFrictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
+    swarm.velocity.x *= swarmFrictionFactor;
+    swarm.velocity.y *= swarmFrictionFactor;
 
     // Accumulate gravity forces into existing velocity
     for (const obstacle of obstacles.values()) {
@@ -1876,7 +1957,7 @@ function applyGravityForces(deltaTime: number) {
       if (dist > obstacle.radius) continue; // Outside event horizon
 
       // Swarms can get destroyed by singularities too
-      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS) {
+      if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
         // For now, swarms just get pulled through - they're corrupted data, they might survive
         // Could add swarm death logic later
         continue;
@@ -1972,6 +2053,9 @@ function attractNutrientsToObstacles(deltaTime: number) {
  * Updates player positions based on their velocities
  */
 setInterval(() => {
+  // Check if game is paused (dev tool) - skip tick unless stepping
+  if (!shouldRunTick()) return;
+
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
   // Update bot AI decisions with obstacle and swarm avoidance (before movement)
@@ -2085,7 +2169,7 @@ setInterval(() => {
 
     // Add input as acceleration to existing velocity (creates momentum)
     // Use high acceleration value to make controls responsive while maintaining coast
-    let acceleration = GAME_CONFIG.PLAYER_SPEED * 8; // 8x speed as acceleration for responsive controls
+    let acceleration = getConfig('PLAYER_SPEED') * 8; // 8x speed as acceleration for responsive controls
 
     // Multi-cells are slower (larger, less nimble)
     if (player.stage === EvolutionStage.MULTI_CELL) {
@@ -2094,7 +2178,7 @@ setInterval(() => {
 
     // Apply swarm slow debuff if player is in contact with a swarm
     if (slowedPlayerIds.has(playerId)) {
-      acceleration *= GAME_CONFIG.SWARM_SLOW_EFFECT; // 20% slower when touched by swarm
+      acceleration *= getConfig('SWARM_SLOW_EFFECT'); // 20% slower when touched by swarm
     }
 
     // Apply contact drain slow debuff if being drained by a predator
@@ -2107,7 +2191,7 @@ setInterval(() => {
 
     // Cap maximum velocity to prevent runaway speed from continuous input
     const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    let maxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2; // Allow 20% overspeed for gravity boost
+    let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
     // Multi-cells have lower max speed (larger, less nimble)
     if (player.stage === EvolutionStage.MULTI_CELL) {
@@ -2116,7 +2200,7 @@ setInterval(() => {
 
     // Apply slow effect to max speed cap as well
     if (slowedPlayerIds.has(playerId)) {
-      maxSpeed *= GAME_CONFIG.SWARM_SLOW_EFFECT;
+      maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
     }
 
     // Apply contact drain slow to max speed as well
@@ -2142,7 +2226,7 @@ setInterval(() => {
 
     // Deduct energy for movement (creates strategic choice: move vs conserve energy)
     if (player.energy > 0) {
-      player.energy -= distanceMoved * GAME_CONFIG.MOVEMENT_ENERGY_COST;
+      player.energy -= distanceMoved * getConfig('MOVEMENT_ENERGY_COST');
       player.energy = Math.max(0, player.energy); // Clamp to zero
     }
 

@@ -1,6 +1,7 @@
 import { GAME_CONFIG } from '@godcell/shared';
 import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
+import { getConfig } from './dev';
 
 // ============================================
 // Entropy Swarm System - Virus enemies that hunt players
@@ -132,7 +133,7 @@ export function initializeSwarms(io: Server) {
  */
 function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): Player | null {
   let nearestPlayer: Player | null = null;
-  let nearestDist = GAME_CONFIG.SWARM_DETECTION_RADIUS;
+  let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
   for (const player of players.values()) {
     // Skip dead players and evolving players
@@ -157,7 +158,7 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
   let avoidanceY = 0;
 
   // Swarms start avoiding at 2x the core radius (give them more warning)
-  const avoidanceRadius = GAME_CONFIG.OBSTACLE_CORE_RADIUS * 2;
+  const avoidanceRadius = getConfig('OBSTACLE_CORE_RADIUS') * 2;
 
   for (const obstacle of obstacles.values()) {
     const dist = distance(swarm.position, obstacle.position);
@@ -171,7 +172,7 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
 
       // Stronger avoidance the closer we get (inverse square)
       // Treat as acceleration for consistency with movement system
-      const accelerationMagnitude = (avoidanceRadius * avoidanceRadius) / distSq * GAME_CONFIG.SWARM_SPEED * 16;
+      const accelerationMagnitude = (avoidanceRadius * avoidanceRadius) / distSq * getConfig('SWARM_SPEED') * 16;
 
       avoidanceX += (dx / dist) * accelerationMagnitude;
       avoidanceY += (dy / dist) * accelerationMagnitude;
@@ -208,7 +209,7 @@ function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, Ent
 
       // Stronger repulsion the closer they get (inverse square)
       // Use moderate force - swarms should spread out but not violently
-      const accelerationMagnitude = (repulsionRadius * repulsionRadius) / distSq * GAME_CONFIG.SWARM_SPEED * 8;
+      const accelerationMagnitude = (repulsionRadius * repulsionRadius) / distSq * getConfig('SWARM_SPEED') * 8;
 
       repulsionX += (dx / dist) * accelerationMagnitude;
       repulsionY += (dy / dist) * accelerationMagnitude;
@@ -255,7 +256,7 @@ export function updateSwarms(
       if (dist > 0) {
         // Add AI movement as acceleration (like player input)
         // Use higher multiplier for responsive movement with momentum
-        const acceleration = GAME_CONFIG.SWARM_SPEED * 8;
+        const acceleration = getConfig('SWARM_SPEED') * 8;
         swarm.velocity.x += (dx / dist) * acceleration * deltaTime;
         swarm.velocity.y += (dy / dist) * acceleration * deltaTime;
       }
@@ -283,7 +284,7 @@ export function updateSwarms(
 
         if (dist > 0) {
           // Slower acceleration while patrolling (60% of chase speed)
-          const patrolAcceleration = GAME_CONFIG.SWARM_SPEED * 8 * 0.6;
+          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6;
           swarm.velocity.x += (dx / dist) * patrolAcceleration * deltaTime;
           swarm.velocity.y += (dy / dist) * patrolAcceleration * deltaTime;
         }
@@ -302,7 +303,7 @@ export function updateSwarms(
 
     // Clamp to max speed (like players, allow slight overspeed for gravity)
     const velocityMagnitude = Math.sqrt(swarm.velocity.x * swarm.velocity.x + swarm.velocity.y * swarm.velocity.y);
-    const maxSpeed = GAME_CONFIG.SWARM_SPEED * 1.2; // 20% overspeed allowance
+    const maxSpeed = getConfig('SWARM_SPEED') * 1.2; // 20% overspeed allowance
     if (velocityMagnitude > maxSpeed) {
       swarm.velocity.x = (swarm.velocity.x / velocityMagnitude) * maxSpeed;
       swarm.velocity.y = (swarm.velocity.y / velocityMagnitude) * maxSpeed;
@@ -365,7 +366,7 @@ export function checkSwarmCollisions(
       if (dist < collisionDist) {
         // Deal damage over time (death handled by checkPlayerDeaths)
         // Use applyDamage callback if provided (applies stage-based resistance)
-        const baseDamage = GAME_CONFIG.SWARM_DAMAGE_RATE * deltaTime;
+        const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
         if (applyDamage) {
           applyDamage(player, baseDamage);
         } else {
@@ -375,7 +376,7 @@ export function checkSwarmCollisions(
 
         // Record damage for drain aura system
         if (recordDamage) {
-          recordDamage(player.id, GAME_CONFIG.SWARM_DAMAGE_RATE, 'swarm');
+          recordDamage(player.id, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
         }
 
         // Apply movement slow debuff
@@ -421,6 +422,31 @@ export function removeSwarm(swarmId: string): void {
   swarmRespawnQueue.push({
     respawnTime: Date.now() + SWARM_RESPAWN_DELAY,
   });
+}
+
+/**
+ * Spawn a swarm at a specific position (dev tool)
+ */
+export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
+  const swarm: EntropySwarm = {
+    id: `swarm-${swarmIdCounter++}`,
+    position: { ...position },
+    velocity: { x: 0, y: 0 },
+    size: GAME_CONFIG.SWARM_SIZE,
+    state: 'patrol',
+    patrolTarget: generatePatrolTarget(position),
+  };
+
+  swarms.set(swarm.id, swarm);
+
+  // Broadcast to all clients for immediate visibility
+  const spawnMessage: SwarmSpawnedMessage = {
+    type: 'swarmSpawned',
+    swarm: { ...swarm },
+  };
+  io.emit('swarmSpawned', spawnMessage);
+
+  return swarm;
 }
 
 /**

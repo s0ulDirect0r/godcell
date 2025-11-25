@@ -9,100 +9,11 @@
       margin: 0;
       overflow: hidden;
       background: #0a0a0a;
-      font-family: 'Courier New', monospace;
     }
     canvas { display: block; }
-    #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      color: #00ff88;
-      background: rgba(0, 0, 0, 0.8);
-      padding: 15px;
-      border: 1px solid #00ff88;
-      border-radius: 4px;
-      min-width: 200px;
-    }
-    #controls h3 {
-      margin: 0 0 10px 0;
-      font-size: 16px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-    }
-    button {
-      background: #001a0f;
-      color: #00ff88;
-      border: 1px solid #00ff88;
-      padding: 8px 12px;
-      margin: 3px;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 12px;
-      transition: all 0.2s;
-    }
-    button:hover {
-      background: #00ff88;
-      color: #000;
-    }
-    button.active {
-      background: #00ff88;
-      color: #000;
-      font-weight: bold;
-    }
-    .section {
-      margin: 10px 0;
-      padding: 10px 0;
-      border-top: 1px solid #004422;
-    }
-    .section:first-child {
-      border-top: none;
-    }
-    label {
-      display: block;
-      font-size: 11px;
-      margin: 5px 0;
-      color: #00cc77;
-    }
   </style>
 </head>
 <body>
-  <div id="controls">
-    <h3>🧬 Model Viewer</h3>
-
-    <div class="section">
-      <label>Entity Type:</label>
-      <button id="single-cell">Single Cell</button>
-      <button id="multi-cell" class="active">Multi-Cell</button>
-      <button id="swarm">Entropy Swarm</button>
-      <button id="obstacle">Gravity Well</button>
-      <button id="nutrient">Nutrients</button>
-      <button id="all">All Models</button>
-    </div>
-
-    <div class="section" id="multi-cell-options">
-      <label>Multi-Cell Style:</label>
-      <button id="colonial" class="active">Colonial</button>
-      <button id="radial">Radial</button>
-    </div>
-
-    <div class="section" id="nutrient-options" style="display: none;">
-      <label>Nutrient Values:</label>
-      <button id="n1x">1x Green</button>
-      <button id="n2x">2x Cyan</button>
-      <button id="n3x">3x Gold</button>
-      <button id="n5x">5x Magenta</button>
-    </div>
-
-    <div class="section">
-      <label>Controls:</label>
-      <div style="font-size: 10px; color: #008855; margin-top: 5px;">
-        • Drag to rotate<br>
-        • Scroll to zoom<br>
-        • Right-drag to pan
-      </div>
-    </div>
-  </div>
-
   <script type="module" src="/src/model-viewer.ts"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger } from './logger';
+import { getConfig } from './dev';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -302,8 +303,8 @@ function avoidObstacles(
     const dist = distance(botPosition, obstacle.position);
 
     // Danger zones based on obstacle characteristics
-    const coreRadius = GAME_CONFIG.OBSTACLE_CORE_RADIUS; // 60px - instant death
-    const eventHorizon = GAME_CONFIG.OBSTACLE_EVENT_HORIZON; // 180px - inescapable
+    const coreRadius = getConfig('OBSTACLE_CORE_RADIUS'); // 60px - instant death
+    const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON'); // 180px - inescapable
     const cautionRadius = eventHorizon * 1.5; // 270px - start avoiding
 
     // If bot is outside caution radius, no avoidance needed
@@ -352,8 +353,8 @@ function avoidSwarms(
 
     // Danger zones
     const contactRadius = swarm.size; // Direct contact - taking damage
-    const threatRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS * 0.5; // 350px - swarm might detect us
-    const cautionRadius = GAME_CONFIG.SWARM_DETECTION_RADIUS; // 700px - full detection range
+    const threatRadius = getConfig('SWARM_DETECTION_RADIUS') * 0.5; // 350px - swarm might detect us
+    const cautionRadius = getConfig('SWARM_DETECTION_RADIUS'); // 700px - full detection range
 
     // If bot is outside caution radius, no avoidance needed
     if (dist > cautionRadius) continue;
@@ -454,6 +455,89 @@ function updateBotAI(
 // ============================================
 // Public API
 // ============================================
+
+/**
+ * Spawn a bot at a specific position (for dev tools)
+ * Returns the spawned bot's player ID
+ */
+export function spawnBotAt(
+  io: Server,
+  players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
+  playerVelocities: Map<string, { x: number; y: number }>,
+  position: Position,
+  stage: EvolutionStage
+): string {
+  const isMultiCell = stage >= EvolutionStage.MULTI_CELL;
+  const botId = isMultiCell
+    ? `bot-multicell-${Math.random().toString(36).substr(2, 9)}`
+    : `bot-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Determine energy based on stage
+  let energy: number;
+  let maxEnergy: number;
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
+      maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+      break;
+    case EvolutionStage.MULTI_CELL:
+      energy = GAME_CONFIG.MULTI_CELL_ENERGY;
+      maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
+      break;
+    default:
+      // For higher stages, use multi-cell as baseline
+      energy = GAME_CONFIG.MULTI_CELL_ENERGY;
+      maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
+  }
+
+  const botPlayer: Player = {
+    id: botId,
+    position: { x: position.x, y: position.y },
+    color: randomColor(),
+    energy,
+    maxEnergy,
+    stage,
+    isEvolving: false,
+  };
+
+  const botInputDirection = { x: 0, y: 0 };
+  const botVelocity = { x: 0, y: 0 };
+
+  const bot: BotController = {
+    player: botPlayer,
+    inputDirection: botInputDirection,
+    velocity: botVelocity,
+    ai: {
+      state: 'wander',
+      wanderDirection: { x: 0, y: 0 },
+      nextWanderChange: Date.now(),
+    },
+  };
+
+  // Add to game state
+  players.set(botId, botPlayer);
+  playerInputDirections.set(botId, botInputDirection);
+  playerVelocities.set(botId, botVelocity);
+
+  // Track in appropriate bot map
+  if (isMultiCell) {
+    multiCellBots.set(botId, bot);
+  } else {
+    singleCellBots.set(botId, bot);
+  }
+
+  // Broadcast to clients
+  const joinMessage: PlayerJoinedMessage = {
+    type: 'playerJoined',
+    player: botPlayer,
+  };
+  io.emit('playerJoined', joinMessage);
+
+  logger.info({ event: 'dev_spawn_bot', botId, position, stage });
+
+  return botId;
+}
 
 /**
  * Initialize AI bots on server start
@@ -603,6 +687,36 @@ export function updateBots(
  */
 export function isBot(playerId: string): boolean {
   return playerId.startsWith('bot-');
+}
+
+/**
+ * Permanently remove a bot (no respawn) - for dev tools
+ */
+export function removeBotPermanently(
+  botId: string,
+  io: Server,
+  players: Map<string, Player>,
+  playerInputDirections: Map<string, { x: number; y: number }>,
+  playerVelocities: Map<string, { x: number; y: number }>
+): boolean {
+  // Remove from bot tracking (prevents respawn)
+  const wasSingleCell = singleCellBots.delete(botId);
+  const wasMultiCell = multiCellBots.delete(botId);
+
+  if (!wasSingleCell && !wasMultiCell) {
+    return false; // Not a tracked bot
+  }
+
+  // Remove from game state
+  players.delete(botId);
+  playerInputDirections.delete(botId);
+  playerVelocities.delete(botId);
+
+  // Notify clients so they remove the bot immediately
+  io.emit('playerLeft', { type: 'playerLeft', playerId: botId });
+
+  logger.info({ event: 'bot_removed_permanently', botId });
+  return true;
 }
 
 /**
