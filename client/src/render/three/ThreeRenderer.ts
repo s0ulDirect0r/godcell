@@ -168,6 +168,9 @@ export class ThreeRenderer implements Renderer {
   // Track nutrient positions for energy transfer effect (cached when nutrient exists)
   private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
 
+  // Track previous energy values for continuous gain detection
+  private previousEnergy: Map<string, number> = new Map();
+
   // Reference to current state (for event handlers that need to look up entities)
   private currentState: GameState | null = null;
 
@@ -492,31 +495,12 @@ export class ThreeRenderer implements Renderer {
         // Spawn red spark explosion at hit location
         this.deathAnimations.push(spawnHitSparks(this.scene, event.hitPosition.x, event.hitPosition.y));
 
-        // Flash the drain aura on the target (if it exists, or briefly create one)
+        // Flash the drain aura on the target (shows they're taking damage)
         this.flashDrainAura(event.targetId);
 
-        // Energy transfer: look up who fired the beam and spawn particles to them
-        if (this.currentState) {
-          const beam = this.currentState.pseudopods.get(event.beamId);
-          if (beam) {
-            const attackerMesh = this.playerMeshes.get(beam.ownerId);
-            if (attackerMesh) {
-              // Spawn particles flying from hit location to attacker (cyan for energy drain)
-              this.energyTransferAnimations.push(
-                spawnEnergyTransferParticles(
-                  this.scene,
-                  event.hitPosition.x,
-                  event.hitPosition.y,
-                  attackerMesh.position.x,
-                  attackerMesh.position.y,
-                  beam.ownerId,
-                  0x00ffff, // Cyan for energy drain
-                  15 // Moderate particle count per hit
-                )
-              );
-            }
-          }
-        }
+        // Note: No energy transfer particles here - pseudopod hits only damage the target,
+        // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
+        // continuous energy detection in updateGainAuras).
       });
 
       // === Spawn animations for entity materialization ===
@@ -1338,9 +1322,32 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * Update energy gain visual feedback (cyan aura when collecting nutrients)
-   * Creates auras for players receiving energy, triggers flash, and removes finished auras
+   * Detects continuous energy gain by comparing current vs previous energy
+   * Triggers flash when energy increases, regardless of source
    */
   private updateGainAuras(state: GameState, receivingEnergy: Set<string>, _dt: number): void {
+    // Detect continuous energy gain by comparing to previous frame
+    // This catches ALL energy sources: nutrients, draining, contact damage, etc.
+    state.players.forEach((player, playerId) => {
+      const prevEnergy = this.previousEnergy.get(playerId) ?? player.energy;
+      const energyGain = player.energy - prevEnergy;
+
+      // Trigger gain aura if energy increased (threshold prevents noise from float precision)
+      if (energyGain > 0.1) {
+        receivingEnergy.add(playerId);
+      }
+
+      // Store current energy for next frame comparison
+      this.previousEnergy.set(playerId, player.energy);
+    });
+
+    // Clean up previous energy for players that no longer exist
+    this.previousEnergy.forEach((_, playerId) => {
+      if (!state.players.has(playerId)) {
+        this.previousEnergy.delete(playerId);
+      }
+    });
+
     // For each player receiving energy, create or trigger gain aura
     receivingEnergy.forEach(playerId => {
       const playerMesh = this.playerMeshes.get(playerId);
@@ -1364,8 +1371,11 @@ export class ThreeRenderer implements Renderer {
       gainAura.position.x = playerMesh.position.x;
       gainAura.position.y = playerMesh.position.y;
 
-      // Trigger flash animation (intensity based on rough energy gain estimate)
-      triggerGainFlash(gainAura, 0.6);
+      // Trigger flash animation - intensity scales with energy gain rate
+      const prevEnergy = this.previousEnergy.get(playerId) ?? player.energy;
+      const energyGain = Math.max(0, player.energy - prevEnergy);
+      const intensity = Math.min(1.0, 0.3 + energyGain / 50); // Base intensity + scale with gain
+      triggerGainFlash(gainAura, intensity);
     });
 
     // Update all active gain auras (animation)
