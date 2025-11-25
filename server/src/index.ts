@@ -52,6 +52,11 @@ import {
   logSingularityCrush,
   logAggregateStats,
   logGameStateSnapshot,
+  maybeLogDeathRateStats,
+  maybeLogEvolutionRateStats,
+  recordSpawn,
+  recordEvolution,
+  clearSpawnTime,
 } from './logger';
 
 // ============================================
@@ -1009,7 +1014,7 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   // Handle bot death (respawn logic)
   if (isBot(preyId)) {
-    handleBotDeath(preyId, io, players, playerInputDirections, playerVelocities);
+    handleBotDeath(preyId, 'predation', io, players, playerInputDirections, playerVelocities);
   }
 
   logger.info({
@@ -1171,6 +1176,9 @@ function checkEvolution(player: Player) {
   };
   io.emit('playerEvolutionStarted', startMessage);
 
+  // Capture current stage before async callback (for evolution tracking)
+  const fromStage = player.stage;
+
   // Schedule evolution completion after molting duration
   setTimeout(() => {
     // Check if player still exists (they might have disconnected during molting)
@@ -1193,6 +1201,9 @@ function checkEvolution(player: Player) {
       newMaxEnergy: player.maxEnergy,
     };
     io.emit('playerEvolved', evolveMessage);
+
+    // Track evolution for rate tracking (includes survival time calculation)
+    recordEvolution(player.id, fromStage, player.stage, isBot(player.id));
 
     logPlayerEvolution(player.id, player.stage);
   }, getConfig('EVOLUTION_MOLTING_DURATION'));
@@ -1284,7 +1295,7 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
 
   // Auto-respawn bots after delay
   if (isBot(player.id)) {
-    handleBotDeath(player.id, io, players, playerInputDirections, playerVelocities);
+    handleBotDeath(player.id, cause, io, players, playerInputDirections, playerVelocities);
   } else {
     logPlayerDeath(player.id, cause);
   }
@@ -1320,6 +1331,9 @@ function respawnPlayer(player: Player) {
     player: { ...player },
   };
   io.emit('playerRespawned', respawnMessage);
+
+  // Track spawn time for evolution rate tracking (reset on respawn)
+  recordSpawn(player.id, EvolutionStage.SINGLE_CELL);
 
   logPlayerRespawn(player.id);
 }
@@ -1707,6 +1721,9 @@ io.on('connection', (socket) => {
   players.set(socket.id, newPlayer);
   playerInputDirections.set(socket.id, { x: 0, y: 0 });
   playerVelocities.set(socket.id, { x: 0, y: 0 });
+
+  // Track spawn time for evolution rate tracking
+  recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
 
   // Send current game state to the new player
   // Filter out dead players (energy <= 0) from initial state
@@ -2450,6 +2467,16 @@ setInterval(() => {
   const stats = calculateAggregateStats();
   logAggregateStats(stats);
 }, 15000);
+
+// Log bot death rate stats every 30 seconds (tracks deaths by cause in rolling 60s window)
+setInterval(() => {
+  maybeLogDeathRateStats();
+}, 5000); // Check frequently, but only logs every 30s when there are deaths
+
+// Log evolution rate stats every 30 seconds (tracks evolutions by transition type in rolling 60s window)
+setInterval(() => {
+  maybeLogEvolutionRateStats();
+}, 5000); // Check frequently, but only logs every 30s when there are evolutions
 
 // Log full game state snapshot every 60 seconds
 setInterval(() => {
