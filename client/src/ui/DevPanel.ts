@@ -120,7 +120,7 @@ export class DevPanel {
 
   // Spawn controls
   private spawnControls = {
-    entityType: 'nutrient' as 'nutrient' | 'swarm',
+    entityType: 'nutrient' as 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell',
     nutrientMultiplier: 1 as 1 | 2 | 3 | 5,
     spawnAtCursor: false,
   };
@@ -270,7 +270,7 @@ export class DevPanel {
   private buildSpawnFolder(): void {
     const spawnFolder = this.gui.addFolder('Entity Spawning');
 
-    spawnFolder.add(this.spawnControls, 'entityType', ['nutrient', 'swarm'])
+    spawnFolder.add(this.spawnControls, 'entityType', ['nutrient', 'swarm', 'single-cell', 'multi-cell'])
       .name('Entity Type');
 
     spawnFolder.add(this.spawnControls, 'nutrientMultiplier', [1, 2, 3, 5])
@@ -551,6 +551,9 @@ export class DevPanel {
   // ============================================
 
   private enableClickSpawn(): void {
+    // Clean up any existing handlers first to prevent duplicates
+    this.disableClickSpawn();
+
     if (!this.renderer) {
       console.warn('[DevPanel] Cannot enable click spawn: no renderer');
       return;
@@ -562,6 +565,8 @@ export class DevPanel {
     this.clickHandler = (e: MouseEvent) => {
       // Ignore clicks on the GUI panel itself
       if ((e.target as HTMLElement).closest('.lil-gui')) return;
+      // Ignore clicks on other UI elements
+      if ((e.target as HTMLElement).closest('button, input, select')) return;
 
       const worldPos = cameraProjection.screenToWorld(e.clientX, e.clientY);
       this.spawnEntity(worldPos);

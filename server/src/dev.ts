@@ -93,8 +93,12 @@ interface DevContext {
   nutrients: Map<string, Nutrient>;
   obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
   swarms: Map<string, EntropySwarm>;
+  playerInputDirections: Map<string, { x: number; y: number }>;
+  playerVelocities: Map<string, { x: number; y: number }>;
   spawnNutrientAt: (position: Position, multiplier?: number) => Nutrient;
   spawnSwarmAt: (position: Position) => EntropySwarm;
+  spawnBotAt: (position: Position, stage: EvolutionStage) => string;
+  removeBotPermanently: (botId: string) => boolean;
   respawnPlayer: (player: Player) => void;
   getStageEnergy: (stage: EvolutionStage) => { energy: number; maxEnergy: number };
   getPlayerRadius: (stage: EvolutionStage) => number;
@@ -215,9 +219,15 @@ function handleSpawnEntity(
       break;
     }
 
-    case 'bot': {
-      // Bot spawning would require additional context from bots.ts
-      logger.info({ event: 'dev_spawn_bot_not_implemented', position, stage: options?.botStage });
+    case 'single-cell': {
+      const botId = devContext.spawnBotAt(position, EvolutionStage.SINGLE_CELL);
+      logger.info({ event: 'dev_spawn_single_cell', position, botId });
+      break;
+    }
+
+    case 'multi-cell': {
+      const botId = devContext.spawnBotAt(position, EvolutionStage.MULTI_CELL);
+      logger.info({ event: 'dev_spawn_multi_cell', position, botId });
       break;
     }
 
@@ -319,12 +329,13 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
   const oldStage = player.stage;
   player.stage = stage;
 
-  // Update energy pools for new stage
+  // Set energy pools to match the new stage (dev override, not natural evolution)
   const stageStats = devContext.getStageEnergy(stage);
-  player.maxEnergy = Math.max(player.maxEnergy, stageStats.maxEnergy);
-  player.energy = Math.min(player.energy, player.maxEnergy);
+  player.maxEnergy = stageStats.maxEnergy;
+  player.energy = stageStats.energy; // Reset to starting energy for this stage
 
   io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: player.maxEnergy });
+  io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: player.energy });
   logger.info({ event: 'dev_set_stage', playerId, oldStage, newStage: stage });
 }
 
@@ -371,7 +382,7 @@ function handleClearWorld(io: Server): void {
   logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
 }
 
-function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm'): void {
+function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell'): void {
   if (!devContext) return;
 
   const MAX_DELETE_DISTANCE = 100; // Max distance to find entity
@@ -421,6 +432,42 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
         consumerId: 'dev',
       });
       logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
+    }
+  } else if (entityType === 'single-cell' || entityType === 'multi-cell') {
+    // Find nearest bot of the specified type
+    const isSingleCell = entityType === 'single-cell';
+    for (const [id, player] of devContext.players.entries()) {
+      // Only consider bots (players with 'bot-' prefix)
+      if (!id.startsWith('bot-')) continue;
+
+      // Filter by type: single-cell bots don't have 'multicell' in ID
+      const isMultiCellBot = id.includes('multicell');
+      if (isSingleCell && isMultiCellBot) continue;
+      if (!isSingleCell && !isMultiCellBot) continue;
+
+      const dx = player.position.x - position.x;
+      const dy = player.position.y - position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestId = id;
+      }
+    }
+
+    if (nearestId) {
+      const player = devContext.players.get(nearestId);
+      if (player) {
+        // Permanently remove the bot (no respawn)
+        devContext.removeBotPermanently(nearestId);
+        io.emit('playerDied', {
+          type: 'playerDied',
+          playerId: nearestId,
+          position: player.position,
+          color: player.color,
+          cause: 'starvation',
+        });
+        logger.info({ event: 'dev_delete_at_bot', position, deletedId: nearestId, entityType });
+      }
     }
   }
 }

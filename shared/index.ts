@@ -324,7 +324,7 @@ export type ServerMessage =
 // ============================================
 
 // Entity types that can be spawned via dev panel
-export type SpawnableEntityType = 'nutrient' | 'swarm' | 'obstacle' | 'bot';
+export type SpawnableEntityType = 'nutrient' | 'swarm' | 'obstacle' | 'single-cell' | 'multi-cell';
 
 // Dev command from client to server
 export interface DevCommandMessage {
@@ -376,7 +376,7 @@ export interface DevDeleteEntityCommand {
 export interface DevDeleteAtCommand {
   action: 'deleteAt';
   position: Position;
-  entityType: 'nutrient' | 'swarm';  // Only deletable entity types
+  entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell';  // Deletable entity types
 }
 
 // Clear all entities from the world (playground mode)

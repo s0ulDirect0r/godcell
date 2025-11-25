@@ -34,7 +34,7 @@ import type {
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
 } from '@godcell/shared';
-import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
+import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
@@ -1557,8 +1557,12 @@ initDevHandler({
   nutrients,
   obstacles,
   swarms: getSwarms(),
+  playerInputDirections,
+  playerVelocities,
   spawnNutrientAt,
   spawnSwarmAt,
+  spawnBotAt: (position, stage) => spawnBotAt(io, players, playerInputDirections, playerVelocities, position, stage),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, players, playerInputDirections, playerVelocities),
   respawnPlayer,
   getStageEnergy,
   getPlayerRadius,

@@ -1213,6 +1213,43 @@ export class ThreeRenderer implements Renderer {
       // Calculate size based on stage (needed for rendering and compass)
       const radius = this.getPlayerRadius(player.stage);
 
+      // Check if stage changed (e.g., via dev panel) - need to recreate mesh
+      if (cellGroup && cellGroup.userData.stage !== player.stage) {
+        // Stage changed - remove old mesh and let it be recreated
+        this.scene.remove(cellGroup);
+        cellGroup.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              child.material?.dispose();
+            }
+          }
+        });
+        this.playerMeshes.delete(id);
+        cellGroup = undefined;
+
+        // Also remove outline if it exists (will be recreated if needed)
+        const outline = this.playerOutlines.get(id);
+        if (outline) {
+          this.scene.remove(outline);
+          this.playerOutlines.delete(id);
+        }
+
+        // Clean up any evolution animation state and its meshes
+        const evolState = this.playerEvolutionState.get(id);
+        if (evolState) {
+          if (evolState.sourceMesh) {
+            this.scene.remove(evolState.sourceMesh);
+          }
+          if (evolState.targetMesh) {
+            this.scene.remove(evolState.targetMesh);
+          }
+          this.playerEvolutionState.delete(id);
+        }
+      }
+
       if (!cellGroup) {
 
         // Parse hex color (#RRGGBB → 0xRRGGBB)
