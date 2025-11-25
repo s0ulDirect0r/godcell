@@ -2,10 +2,14 @@
 // GODCELL Model Viewer
 // Standalone viewer for testing 3D models
 // Extended with lil-gui for VFX parameter tuning
+// Now with bloom postprocessing for game-accurate visuals
 // ============================================
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import GUI from 'lil-gui';
 import {
   createMultiCell,
@@ -28,11 +32,30 @@ import {
   applyEvolutionEffects,
 } from './render/three/EvolutionVisuals';
 
+// Game's neon color palette (matches shared/index.ts CELL_COLORS)
+const CELL_COLORS = [
+  '#00ffff', // Cyan
+  '#ff00ff', // Magenta
+  '#ffff00', // Yellow
+  '#00ff88', // Mint
+  '#ff0088', // Hot pink
+  '#88ff00', // Lime
+  '#0088ff', // Electric blue
+];
+
+function randomCellColor(): number {
+  const hex = CELL_COLORS[Math.floor(Math.random() * CELL_COLORS.length)];
+  return parseInt(hex.replace('#', ''), 16);
+}
+
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
+let composer: EffectComposer;
+let bloomPass: UnrealBloomPass;
 let controls: OrbitControls;
 let gui: GUI;
+let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
 let currentEntityType: 'single-cell' | 'multi-cell' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
@@ -99,7 +122,22 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.toneMapping = THREE.ReinhardToneMapping;
+  renderer.toneMappingExposure = 1.5;
   document.body.appendChild(renderer.domElement);
+
+  // Postprocessing composer with bloom (game-accurate glow)
+  composer = new EffectComposer(renderer);
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+
+  bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    1.2,  // strength - strong glow for neon aesthetic
+    0.8,  // radius - spread of glow
+    0.3   // threshold - lower = more things glow
+  );
+  composer.addPass(bloomPass);
 
   // OrbitControls for camera manipulation
   controls = new OrbitControls(camera, renderer.domElement);
@@ -236,6 +274,41 @@ function initGUI() {
 
   vfxFolder.close();
 
+  // Bloom controls folder
+  const bloomFolder = gui.addFolder('Bloom / Glow');
+  const bloomParams = {
+    strength: 1.2,
+    radius: 0.8,
+    threshold: 0.3,
+  };
+  bloomFolder.add(bloomParams, 'strength', 0, 3, 0.1)
+    .name('Strength')
+    .onChange((v: number) => { bloomPass.strength = v; });
+  bloomFolder.add(bloomParams, 'radius', 0, 2, 0.1)
+    .name('Radius')
+    .onChange((v: number) => { bloomPass.radius = v; });
+  bloomFolder.add(bloomParams, 'threshold', 0, 1, 0.05)
+    .name('Threshold')
+    .onChange((v: number) => { bloomPass.threshold = v; });
+  bloomFolder.open();
+
+  // Color controls folder
+  const colorFolder = gui.addFolder('Cell Color');
+  const colorDisplay = { color: '#' + currentColor.toString(16).padStart(6, '0') };
+  colorFolder.addColor(colorDisplay, 'color')
+    .name('Current Color')
+    .listen()
+    .onChange((hex: string) => {
+      currentColor = parseInt(hex.replace('#', ''), 16);
+      updateModels();
+    });
+  colorFolder.add({ randomize: () => {
+    currentColor = randomCellColor();
+    colorDisplay.color = '#' + currentColor.toString(16).padStart(6, '0');
+    updateModels();
+  }}, 'randomize').name('🎲 Randomize Color');
+  colorFolder.open();
+
   // View options folder
   const viewFolder = gui.addFolder('View Options');
   viewFolder.add(animState, 'showWireframe')
@@ -275,7 +348,7 @@ function updateModels() {
 
   switch (currentEntityType) {
     case 'single-cell': {
-      const cell = createSingleCell(24, 0x00ff88);
+      const cell = createSingleCell(24, currentColor);
       cell.position.set(0, 0, 0);
       scene.add(cell);
       models.push(cell);
@@ -286,7 +359,7 @@ function updateModels() {
     case 'multi-cell': {
       const cell = createMultiCell({
         radius: 48,
-        colorHex: 0x00ff88,
+        colorHex: currentColor,
         style: currentStyle,
       });
       cell.position.set(0, 0, 0);
@@ -332,21 +405,21 @@ function updateModels() {
     }
 
     case 'all': {
-      // Grid layout of all models
+      // Grid layout of all models with random colors
       const spacing = 150;
 
-      // Row 1: Cells
-      const singleCell = createSingleCell(24, 0x00ff88);
+      // Row 1: Cells (each with random color from game palette)
+      const singleCell = createSingleCell(24, randomCellColor());
       singleCell.position.set(-spacing * 1.5, spacing, 0);
       scene.add(singleCell);
       models.push(singleCell);
 
-      const colonial = createMultiCell({ radius: 48, colorHex: 0x00ff88, style: 'colonial' });
+      const colonial = createMultiCell({ radius: 48, colorHex: randomCellColor(), style: 'colonial' });
       colonial.position.set(-spacing * 0.5, spacing, 0);
       scene.add(colonial);
       models.push(colonial);
 
-      const radial = createMultiCell({ radius: 48, colorHex: 0xff8800, style: 'radial' });
+      const radial = createMultiCell({ radius: 48, colorHex: randomCellColor(), style: 'radial' });
       radial.position.set(spacing * 0.5, spacing, 0);
       scene.add(radial);
       models.push(radial);
@@ -469,11 +542,12 @@ function animate(currentTime: number = 0) {
     }
   });
 
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 }
