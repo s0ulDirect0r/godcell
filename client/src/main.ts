@@ -11,6 +11,7 @@ import { ThreeRenderer } from './render/three/ThreeRenderer';
 import { PerformanceMonitor } from './utils/performance';
 import { DebugOverlay } from './ui/DebugOverlay';
 import { HUDOverlay } from './render/hud/HUDOverlay';
+import { DevPanel } from './ui/DevPanel';
 
 // ============================================
 // Performance Monitoring
@@ -54,6 +55,17 @@ inputManager.setCameraProjection(renderer.getCameraProjection());
 // Initialize HUD overlay
 const hudOverlay = new HUDOverlay();
 
+// Initialize Dev Panel if ?dev in URL
+let devPanel: DevPanel | null = null;
+if (new URLSearchParams(window.location.search).has('dev')) {
+  devPanel = new DevPanel({
+    socket: socketManager.getSocket(),
+    gameState,
+    renderer,
+  });
+  console.log('[Dev] Dev panel enabled - press H to toggle');
+}
+
 // ============================================
 // Wire Input Handlers to Network
 // ============================================
@@ -77,6 +89,15 @@ eventBus.on('client:empActivate', () => {
 eventBus.on('client:pseudopodFire', (event) => {
   socketManager.sendPseudopodFire(event.targetX, event.targetY);
 });
+
+// Dev panel toggle (H key)
+if (devPanel) {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'h' || e.key === 'H') {
+      devPanel?.toggle();
+    }
+  });
+}
 
 // ============================================
 // Main Update Loop

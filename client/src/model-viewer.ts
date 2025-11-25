@@ -1,10 +1,12 @@
 // ============================================
 // GODCELL Model Viewer
 // Standalone viewer for testing 3D models
+// Extended with lil-gui for VFX parameter tuning
 // ============================================
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import GUI from 'lil-gui';
 import {
   createMultiCell,
   updateMultiCellEnergy,
@@ -21,10 +23,44 @@ let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
 let controls: OrbitControls;
+let gui: GUI;
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
 let currentEntityType: 'single-cell' | 'multi-cell' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
+
+// Animation state for energy visualization
+const animState = {
+  energyLevel: 100,       // 0-100 current energy percentage
+  maxEnergyLevel: 100,
+  animationSpeed: 1.0,    // Animation speed multiplier
+  autoAnimate: true,      // Auto-cycle energy for preview
+  showWireframe: false,
+  rotationSpeed: 0.5,     // Auto-rotation speed
+  autoRotate: false,
+};
+
+// VFX parameters for tuning
+const vfxParams = {
+  // Cell visuals
+  membraneOpacity: 0.15,
+  nucleusGlow: 2.0,
+  organelleCount: 8,
+  pulseFrequency: 1.0,
+
+  // Swarm visuals
+  swarmParticleCount: 200,
+  swarmTurbulence: 1.0,
+
+  // Gravity well visuals
+  vortexSpeed: 1.0,
+  accretionDensity: 1.0,
+
+  // Multi-cell visuals
+  tetherOpacity: 0.6,
+  tetherWidth: 2,
+  cellSpacing: 1.0,
+};
 
 init();
 animate();
@@ -168,8 +204,119 @@ function init() {
   // Window resize handler
   window.addEventListener('resize', onResize);
 
+  // Initialize lil-gui
+  initGUI();
+
   // Initial models
   updateModels();
+}
+
+function initGUI() {
+  gui = new GUI({ title: 'Model Viewer Controls', width: 300 });
+
+  // Entity selection folder
+  const entityFolder = gui.addFolder('Entity Selection');
+  entityFolder.add({ type: currentEntityType }, 'type', [
+    'single-cell', 'multi-cell', 'swarm', 'obstacle', 'nutrient', 'all'
+  ])
+    .name('Entity Type')
+    .onChange((value: typeof currentEntityType) => {
+      currentEntityType = value;
+      updateModels();
+    });
+
+  entityFolder.add({ style: currentStyle }, 'style', ['colonial', 'radial'])
+    .name('Multi-cell Style')
+    .onChange((value: MultiCellStyle) => {
+      currentStyle = value;
+      if (currentEntityType === 'multi-cell') updateModels();
+    });
+  entityFolder.open();
+
+  // Animation controls folder
+  const animFolder = gui.addFolder('Animation');
+  animFolder.add(animState, 'energyLevel', 0, 100, 1)
+    .name('Energy %')
+    .listen();
+  animFolder.add(animState, 'autoAnimate')
+    .name('Auto Cycle Energy');
+  animFolder.add(animState, 'animationSpeed', 0.1, 3, 0.1)
+    .name('Animation Speed');
+  animFolder.add(animState, 'autoRotate')
+    .name('Auto Rotate');
+  animFolder.add(animState, 'rotationSpeed', 0, 2, 0.1)
+    .name('Rotation Speed');
+  animFolder.open();
+
+  // VFX parameters folder
+  const vfxFolder = gui.addFolder('VFX Parameters');
+
+  // Cell subfolder
+  const cellVfx = vfxFolder.addFolder('Cell Visuals');
+  cellVfx.add(vfxParams, 'membraneOpacity', 0.05, 0.5, 0.01)
+    .name('Membrane Opacity')
+    .onChange(() => updateModels());
+  cellVfx.add(vfxParams, 'nucleusGlow', 0.5, 5, 0.1)
+    .name('Nucleus Glow')
+    .onChange(() => updateModels());
+  cellVfx.add(vfxParams, 'pulseFrequency', 0.2, 3, 0.1)
+    .name('Pulse Frequency');
+  cellVfx.close();
+
+  // Multi-cell subfolder
+  const multiVfx = vfxFolder.addFolder('Multi-cell');
+  multiVfx.add(vfxParams, 'tetherOpacity', 0.1, 1, 0.05)
+    .name('Tether Opacity');
+  multiVfx.add(vfxParams, 'tetherWidth', 1, 5, 0.5)
+    .name('Tether Width');
+  multiVfx.add(vfxParams, 'cellSpacing', 0.5, 2, 0.1)
+    .name('Cell Spacing')
+    .onChange(() => updateModels());
+  multiVfx.close();
+
+  // Swarm subfolder
+  const swarmVfx = vfxFolder.addFolder('Swarm');
+  swarmVfx.add(vfxParams, 'swarmTurbulence', 0.2, 3, 0.1)
+    .name('Turbulence');
+  swarmVfx.close();
+
+  // Gravity well subfolder
+  const gravityVfx = vfxFolder.addFolder('Gravity Well');
+  gravityVfx.add(vfxParams, 'vortexSpeed', 0.2, 3, 0.1)
+    .name('Vortex Speed');
+  gravityVfx.add(vfxParams, 'accretionDensity', 0.2, 3, 0.1)
+    .name('Accretion Density');
+  gravityVfx.close();
+
+  vfxFolder.close();
+
+  // View options folder
+  const viewFolder = gui.addFolder('View Options');
+  viewFolder.add(animState, 'showWireframe')
+    .name('Wireframe')
+    .onChange((show: boolean) => {
+      models.forEach(model => {
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => { m.wireframe = show; });
+            } else {
+              child.material.wireframe = show;
+            }
+          }
+        });
+      });
+    });
+  viewFolder.add({ resetCamera: () => {
+    camera.position.set(0, 0, 200);
+    controls.reset();
+  }}, 'resetCamera').name('Reset Camera');
+  viewFolder.add({ exportParams: () => {
+    console.log('VFX Parameters:', JSON.stringify(vfxParams, null, 2));
+    navigator.clipboard?.writeText(JSON.stringify(vfxParams, null, 2));
+    console.log('Copied to clipboard!');
+  }}, 'exportParams').name('Export Params');
+  viewFolder.close();
 }
 
 function updateActiveButton(buttons: HTMLElement[], active: HTMLElement) {
@@ -292,18 +439,47 @@ function updateModels() {
   controls.update();
 }
 
-function animate() {
+let lastTime = 0;
+let energyDirection = -1; // -1 = draining, 1 = filling
+
+function animate(currentTime: number = 0) {
   requestAnimationFrame(animate);
+
+  const deltaTime = (currentTime - lastTime) / 1000;
+  lastTime = currentTime;
+
   controls.update();
 
-  // Animate multi-cell models (energy-only system)
+  // Auto-cycle energy for preview
+  if (animState.autoAnimate) {
+    animState.energyLevel += energyDirection * deltaTime * 20 * animState.animationSpeed;
+    if (animState.energyLevel <= 5) {
+      animState.energyLevel = 5;
+      energyDirection = 1;
+    } else if (animState.energyLevel >= 100) {
+      animState.energyLevel = 100;
+      energyDirection = -1;
+    }
+  }
+
+  // Auto-rotate models
+  if (animState.autoRotate) {
+    models.forEach((model) => {
+      model.rotation.z += deltaTime * animState.rotationSpeed;
+    });
+  }
+
+  // Animate multi-cell models with current energy level
+  const energy = animState.energyLevel;
+  const maxEnergy = animState.maxEnergyLevel;
+
   models.forEach((model) => {
     if (model instanceof THREE.Group && model.userData.cellRadius) {
       // It's a colonial cluster
-      updateMultiCellEnergy(model, 'colonial', 100, 100);
+      updateMultiCellEnergy(model, 'colonial', energy, maxEnergy);
     } else if (model instanceof THREE.Group && model.userData.coreRadius) {
       // It's a radial organism
-      updateMultiCellEnergy(model, 'radial', 100, 100);
+      updateMultiCellEnergy(model, 'radial', energy, maxEnergy);
     }
   });
 

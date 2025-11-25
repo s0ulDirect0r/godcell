@@ -58,6 +58,13 @@ export class SocketManager {
   }
 
   /**
+   * Get the underlying socket (for dev tools)
+   */
+  getSocket(): Socket {
+    return this.socket;
+  }
+
+  /**
    * Send player move intent
    */
   sendMove(direction: { x: number; y: number }): void {

@@ -35,7 +35,9 @@ import type {
   PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath } from './bots';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
+import type { DevCommandMessage } from '@godcell/shared';
 import {
   logger,
   logServerStarted,
@@ -513,10 +515,13 @@ function spawnNutrient(): Nutrient {
 /**
  * Spawn a nutrient at a specific position
  * Used for prey drops and specific spawn locations
+ * @param position - Where to spawn the nutrient
+ * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
  */
-function spawnNutrientAt(position: Position): Nutrient {
+function spawnNutrientAt(position: Position, overrideMultiplier?: number): Nutrient {
   // Calculate nutrient value based on proximity to obstacles (gradient system)
-  const valueMultiplier = calculateNutrientValueMultiplier(position);
+  // Or use override multiplier if provided (dev tool)
+  const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position);
   const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
 
   const nutrient: Nutrient = {
@@ -529,13 +534,6 @@ function spawnNutrientAt(position: Position): Nutrient {
   };
 
   nutrients.set(nutrient.id, nutrient);
-
-  // Broadcast to all clients
-  const spawnMessage: NutrientSpawnedMessage = {
-    type: 'nutrientSpawned',
-    nutrient,
-  };
-  io.emit('nutrientSpawned', spawnMessage);
 
   return nutrient;
 }
@@ -721,6 +719,24 @@ function getPlayerRadius(stage: EvolutionStage): number {
       return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
     case EvolutionStage.GODCELL:
       return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+  }
+}
+
+/**
+ * Get energy values for an evolution stage (for dev tools)
+ */
+function getStageEnergy(stage: EvolutionStage): { energy: number; maxEnergy: number } {
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+      return { energy: GAME_CONFIG.SINGLE_CELL_ENERGY, maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY };
+    case EvolutionStage.MULTI_CELL:
+      return { energy: GAME_CONFIG.MULTI_CELL_ENERGY, maxEnergy: GAME_CONFIG.MULTI_CELL_MAX_ENERGY };
+    case EvolutionStage.CYBER_ORGANISM:
+      return { energy: GAME_CONFIG.CYBER_ORGANISM_ENERGY, maxEnergy: GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY };
+    case EvolutionStage.HUMANOID:
+      return { energy: GAME_CONFIG.HUMANOID_ENERGY, maxEnergy: GAME_CONFIG.HUMANOID_MAX_ENERGY };
+    case EvolutionStage.GODCELL:
+      return { energy: GAME_CONFIG.GODCELL_ENERGY, maxEnergy: GAME_CONFIG.GODCELL_MAX_ENERGY };
   }
 }
 
@@ -1517,6 +1533,20 @@ initializeNutrients();
 initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
 initializeSwarms(io);
 
+// Initialize dev handler with game context
+initDevHandler({
+  io,
+  players,
+  nutrients,
+  obstacles,
+  swarms: getSwarms(),
+  spawnNutrientAt,
+  spawnSwarmAt,
+  respawnPlayer,
+  getStageEnergy,
+  getPlayerRadius,
+});
+
 // ============================================
 // Connection Handling
 // ============================================
@@ -1774,6 +1804,19 @@ io.on('connection', (socket) => {
       playersHit: affectedPlayerIds.length,
       energySpent: GAME_CONFIG.EMP_ENERGY_COST,
     });
+  });
+
+  // ============================================
+  // Dev Command Handling (development mode only)
+  // ============================================
+
+  socket.on('devCommand', (message: DevCommandMessage) => {
+    // Only allow dev commands in development mode
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn({ event: 'dev_command_blocked', socketId: socket.id, reason: 'production_mode' });
+      return;
+    }
+    handleDevCommand(socket, io, message.command);
   });
 
   // ============================================

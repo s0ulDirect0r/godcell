@@ -424,6 +424,23 @@ export function removeSwarm(swarmId: string): void {
 }
 
 /**
+ * Spawn a swarm at a specific position (dev tool)
+ */
+export function spawnSwarmAt(position: Position): EntropySwarm {
+  const swarm: EntropySwarm = {
+    id: `swarm-${swarmIdCounter++}`,
+    position: { ...position },
+    velocity: { x: 0, y: 0 },
+    size: GAME_CONFIG.SWARM_SIZE,
+    state: 'patrol',
+    patrolTarget: generatePatrolTarget(position),
+  };
+
+  swarms.set(swarm.id, swarm);
+  return swarm;
+}
+
+/**
  * Process swarm respawn queue and spawn new swarms when timers expire
  * Call this every game tick
  */

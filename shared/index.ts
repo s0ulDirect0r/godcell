@@ -316,7 +316,176 @@ export type ServerMessage =
   | EMPActivatedMessage
   | SwarmConsumedMessage
   | PlayerDrainStateMessage
-  | PseudopodHitMessage;
+  | PseudopodHitMessage
+  | DevConfigUpdatedMessage;
+
+// ============================================
+// Dev Panel Messages (Client ↔ Server)
+// ============================================
+
+// Entity types that can be spawned via dev panel
+export type SpawnableEntityType = 'nutrient' | 'swarm' | 'obstacle' | 'bot';
+
+// Dev command from client to server
+export interface DevCommandMessage {
+  type: 'devCommand';
+  command: DevCommand;
+}
+
+// All possible dev commands
+export type DevCommand =
+  | DevUpdateConfigCommand
+  | DevSpawnEntityCommand
+  | DevDeleteEntityCommand
+  | DevSetGodModeCommand
+  | DevSetTimeScaleCommand
+  | DevTeleportPlayerCommand
+  | DevSetPlayerEnergyCommand
+  | DevSetPlayerStageCommand
+  | DevPauseGameCommand
+  | DevStepTickCommand;
+
+// Update a GAME_CONFIG value
+export interface DevUpdateConfigCommand {
+  action: 'updateConfig';
+  key: string;      // e.g., 'PLAYER_SPEED'
+  value: number;    // New value
+}
+
+// Spawn an entity at position
+export interface DevSpawnEntityCommand {
+  action: 'spawnEntity';
+  entityType: SpawnableEntityType;
+  position: Position;
+  options?: {
+    nutrientMultiplier?: 1 | 2 | 3 | 5;  // For nutrients
+    botStage?: EvolutionStage;            // For bots
+  };
+}
+
+// Delete an entity
+export interface DevDeleteEntityCommand {
+  action: 'deleteEntity';
+  entityType: 'nutrient' | 'swarm' | 'obstacle' | 'player';
+  entityId: string;
+}
+
+// Toggle god mode for a player
+export interface DevSetGodModeCommand {
+  action: 'setGodMode';
+  playerId: string;
+  enabled: boolean;
+}
+
+// Set game time scale (0 = paused, 1 = normal, 2 = fast)
+export interface DevSetTimeScaleCommand {
+  action: 'setTimeScale';
+  scale: number;
+}
+
+// Teleport a player
+export interface DevTeleportPlayerCommand {
+  action: 'teleportPlayer';
+  playerId: string;
+  position: Position;
+}
+
+// Set player energy
+export interface DevSetPlayerEnergyCommand {
+  action: 'setPlayerEnergy';
+  playerId: string;
+  energy: number;
+  maxEnergy?: number;
+}
+
+// Set player evolution stage
+export interface DevSetPlayerStageCommand {
+  action: 'setPlayerStage';
+  playerId: string;
+  stage: EvolutionStage;
+}
+
+// Pause/unpause game
+export interface DevPauseGameCommand {
+  action: 'pauseGame';
+  paused: boolean;
+}
+
+// Step a single tick (when paused)
+export interface DevStepTickCommand {
+  action: 'stepTick';
+}
+
+// Server broadcasts config updates to all clients
+export interface DevConfigUpdatedMessage {
+  type: 'devConfigUpdated';
+  key: string;
+  value: number;
+}
+
+// Server broadcasts dev state to clients
+export interface DevStateMessage {
+  type: 'devState';
+  isPaused: boolean;
+  timeScale: number;
+  godModePlayers: string[];  // Player IDs with god mode
+}
+
+// Runtime config that can be modified (subset of GAME_CONFIG keys)
+export const DEV_TUNABLE_CONFIGS = [
+  // Movement
+  'PLAYER_SPEED',
+  'MOVEMENT_FRICTION',
+  'MOVEMENT_ENERGY_COST',
+
+  // Energy & Decay
+  'SINGLE_CELL_ENERGY_DECAY_RATE',
+  'MULTI_CELL_ENERGY_DECAY_RATE',
+  'CYBER_ORGANISM_ENERGY_DECAY_RATE',
+  'HUMANOID_ENERGY_DECAY_RATE',
+
+  // Evolution
+  'EVOLUTION_MULTI_CELL',
+  'EVOLUTION_CYBER_ORGANISM',
+  'EVOLUTION_HUMANOID',
+  'EVOLUTION_GODCELL',
+  'EVOLUTION_MOLTING_DURATION',
+
+  // Nutrients
+  'NUTRIENT_ENERGY_VALUE',
+  'NUTRIENT_CAPACITY_INCREASE',
+  'NUTRIENT_RESPAWN_TIME',
+
+  // Obstacles
+  'OBSTACLE_GRAVITY_STRENGTH',
+  'OBSTACLE_GRAVITY_RADIUS',
+  'OBSTACLE_EVENT_HORIZON',
+  'OBSTACLE_CORE_RADIUS',
+
+  // Swarms
+  'SWARM_SPEED',
+  'SWARM_DAMAGE_RATE',
+  'SWARM_DETECTION_RADIUS',
+  'SWARM_SLOW_EFFECT',
+
+  // Combat
+  'CONTACT_DRAIN_RATE',
+  'PSEUDOPOD_PROJECTILE_SPEED',
+  'PSEUDOPOD_DRAIN_RATE',
+  'PSEUDOPOD_COOLDOWN',
+  'PSEUDOPOD_ENERGY_COST',
+
+  // EMP
+  'EMP_COOLDOWN',
+  'EMP_RANGE',
+  'EMP_DISABLE_DURATION',
+  'EMP_ENERGY_COST',
+
+  // Detection
+  'MULTI_CELL_DETECTION_RADIUS',
+] as const;
+
+export type TunableConfigKey = typeof DEV_TUNABLE_CONFIGS[number];
 
 // ============================================
 // Game Constants
