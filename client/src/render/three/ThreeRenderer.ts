@@ -11,7 +11,11 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
-import { createCyberOrganism, updateCyberOrganismAnimation, updateCyberOrganismEnergy } from './CyberOrganismRenderer';
+import {
+  createCyberOrganism,
+  updateCyberOrganismAnimation,
+  updateCyberOrganismEnergy,
+} from './CyberOrganismRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {

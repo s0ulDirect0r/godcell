@@ -561,7 +561,7 @@ function animate(currentTime: number = 0) {
         applyEvolutionEffects(model, 'single_cell', animState.moltingProgress);
       }
     } else if (model instanceof THREE.Group && model.name === 'cyberOrganism') {
-      // It's a cyber-organism hexapod - animate legs and energy glow
+      // Cyber-organism - animate legs and energy glow
       updateCyberOrganismEnergy(model, energy / 100);
       updateCyberOrganismAnimation(model, animState.autoAnimate, deltaTime);
     } else if (model instanceof THREE.Group && model.userData.crystalSize) {
