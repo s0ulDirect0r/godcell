@@ -1852,6 +1852,31 @@ export class ThreeRenderer implements Renderer {
           : false;
         cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
 
+        // Update heading (face direction of movement)
+        if (prevPos && isMoving) {
+          const dx = currPos.x - prevPos.x;
+          const dy = currPos.y - prevPos.y;
+          // Calculate target heading - offset by PI because head points in -X direction
+          const targetHeading = Math.atan2(dy, dx) + Math.PI;
+
+          // Initialize heading if not set
+          if (cellGroup.userData.heading === undefined) {
+            cellGroup.userData.heading = targetHeading;
+          }
+
+          // Smooth rotation toward target heading (lerp with angle wrapping)
+          let currentHeading = cellGroup.userData.heading as number;
+          let delta = targetHeading - currentHeading;
+
+          // Wrap delta to [-PI, PI] for shortest rotation path
+          while (delta > Math.PI) delta -= Math.PI * 2;
+          while (delta < -Math.PI) delta += Math.PI * 2;
+
+          currentHeading += delta * 0.15; // Lerp factor for smooth turning
+          cellGroup.userData.heading = currentHeading;
+          cellGroup.rotation.z = currentHeading;
+        }
+
         updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60); // ~60fps
       } else if (player.stage === 'multi_cell') {
         updateMultiCellEnergy(
