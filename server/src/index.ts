@@ -10,6 +10,7 @@ import type {
   Pseudopod,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
+  PlayerSprintMessage,
   PseudopodFireMessage,
   GameStateMessage,
   PlayerJoinedMessage,
@@ -86,6 +87,10 @@ const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
 // Player velocities (actual velocity in pixels/second, accumulates forces)
 // Maps socket ID → {x, y} velocity
 const playerVelocities: Map<string, { x: number; y: number }> = new Map();
+
+// Player sprint state (Stage 3+ ability - hold Shift to sprint)
+// Maps socket ID → boolean (is sprinting)
+const playerSprintState: Map<string, boolean> = new Map();
 
 // Track what last damaged each player (for death cause logging)
 // Maps player ID → damage source
@@ -1971,6 +1976,23 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // Sprint State (Stage 3+ ability)
+  // ============================================
+
+  socket.on('playerSprint', (message: PlayerSprintMessage) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    // Only Stage 3+ can sprint
+    if (!isJungleStage(player.stage)) return;
+    if (player.energy <= 0) return; // Dead players can't sprint
+    if (player.isEvolving) return; // Can't sprint while molting
+
+    // Update sprint state
+    playerSprintState.set(socket.id, message.sprinting);
+  });
+
+  // ============================================
   // Dev Command Handling (development mode only)
   // ============================================
 
@@ -1994,6 +2016,7 @@ io.on('connection', (socket) => {
     players.delete(socket.id);
     playerInputDirections.delete(socket.id);
     playerVelocities.delete(socket.id);
+    playerSprintState.delete(socket.id);
 
     // Notify other players
     const leftMessage: PlayerLeftMessage = {
@@ -2022,8 +2045,15 @@ function applyGravityForces(deltaTime: number) {
 
     // Apply friction to create momentum/inertia (velocity decays over time)
     // Use exponential decay for smooth deceleration: v = v * friction^dt
-    // Friction applies to ALL players regardless of stage
-    const frictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
+    // Stage-specific friction for different movement feels
+    let friction = getConfig('MOVEMENT_FRICTION'); // Default soup friction (0.66)
+
+    if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
+    }
+    // TODO: HUMANOID and GODCELL friction when implemented
+
+    const frictionFactor = Math.pow(friction, deltaTime);
     velocity.x *= frictionFactor;
     velocity.y *= frictionFactor;
 
@@ -2303,10 +2333,13 @@ setInterval(() => {
     // Use high acceleration value to make controls responsive while maintaining coast
     let acceleration = getConfig('PLAYER_SPEED') * 8; // 8x speed as acceleration for responsive controls
 
-    // Multi-cells are slower (larger, less nimble)
+    // Stage-specific acceleration modifiers
     if (player.stage === EvolutionStage.MULTI_CELL) {
       acceleration *= 0.8; // 20% slower than single-cells
+    } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT'); // Grounded, deliberate
     }
+    // TODO: HUMANOID and GODCELL acceleration when implemented
 
     // Apply swarm slow debuff if player is in contact with a swarm
     if (slowedPlayerIds.has(playerId)) {
@@ -2325,10 +2358,24 @@ setInterval(() => {
     const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
     let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
-    // Multi-cells have lower max speed (larger, less nimble)
+    // Stage-specific max speed modifiers
     if (player.stage === EvolutionStage.MULTI_CELL) {
       maxSpeed *= 0.8; // 20% slower than single-cells
+    } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      maxSpeed *= getConfig('CYBER_ORGANISM_MAX_SPEED_MULT'); // Grounded, deliberate
+
+      // Sprint boost (Stage 3+ ability - Shift key)
+      const isSprinting = playerSprintState.get(playerId);
+      if (isSprinting && player.energy > player.maxEnergy * 0.2) {
+        maxSpeed *= getConfig('CYBER_ORGANISM_SPRINT_SPEED_MULT');
+        // Drain energy while sprinting
+        player.energy -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
+      } else if (isSprinting) {
+        // Auto-disable sprint when energy too low
+        playerSprintState.set(playerId, false);
+      }
     }
+    // TODO: HUMANOID and GODCELL max speed when implemented
 
     // Apply slow effect to max speed cap as well
     if (slowedPlayerIds.has(playerId)) {

@@ -111,6 +111,11 @@ export interface PlayerRespawnRequestMessage {
   type: 'playerRespawnRequest';
 }
 
+export interface PlayerSprintMessage {
+  type: 'playerSprint';
+  sprinting: boolean;
+}
+
 export interface PseudopodFireMessage {
   type: 'pseudopodFire';
   targetX: number;  // World position to fire towards
@@ -447,10 +452,17 @@ export interface DevStateMessage {
 
 // Runtime config that can be modified (subset of GAME_CONFIG keys)
 export const DEV_TUNABLE_CONFIGS = [
-  // Movement
+  // Movement (Soup)
   'PLAYER_SPEED',
   'MOVEMENT_FRICTION',
   'MOVEMENT_ENERGY_COST',
+
+  // Movement (Stage 3 - Cyber-Organism)
+  'CYBER_ORGANISM_ACCELERATION_MULT',
+  'CYBER_ORGANISM_MAX_SPEED_MULT',
+  'CYBER_ORGANISM_FRICTION',
+  'CYBER_ORGANISM_SPRINT_SPEED_MULT',
+  'CYBER_ORGANISM_SPRINT_ENERGY_COST',
 
   // Energy & Decay
   'SINGLE_CELL_ENERGY_DECAY_RATE',
@@ -506,10 +518,27 @@ export type TunableConfigKey = typeof DEV_TUNABLE_CONFIGS[number];
 // ============================================
 
 export const GAME_CONFIG = {
-  // Movement
+  // Movement (Soup - Stage 1-2)
   PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
   PLAYER_SIZE: 10,   // Radius of single-cell (tiny for order of magnitude evolution jump)
   MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
+
+  // Stage 3 Movement (Cyber-Organism): Grounded hexapod with momentum
+  CYBER_ORGANISM_ACCELERATION_MULT: 1.5,   // Punchy acceleration (feel the push)
+  CYBER_ORGANISM_MAX_SPEED_MULT: 1.20,     // 90% of soup speed (nimble)
+  CYBER_ORGANISM_FRICTION: 0.25,           // Grounded momentum (0.25=quick stop, 0.66=soup, 0.85=heavy glide)
+  CYBER_ORGANISM_SPRINT_SPEED_MULT: 1.8,   // Sprint burst multiplier
+  CYBER_ORGANISM_SPRINT_ENERGY_COST: 0.5,  // Energy/sec while sprinting
+
+  // Stage 4 Movement (Humanoid): TODO - define when implementing
+  // HUMANOID_ACCELERATION_MULT: 1.0,
+  // HUMANOID_MAX_SPEED_MULT: 0.6,
+  // HUMANOID_FRICTION: 0.3,
+
+  // Stage 5 Movement (Godcell): TODO - define when implementing
+  // GODCELL_ACCELERATION_MULT: 1.5,
+  // GODCELL_MAX_SPEED_MULT: 0.8,
+  // GODCELL_FRICTION: 0.4,
 
   // World dimensions - Soup (Stage 1-2 play area)
   WORLD_WIDTH: 4800,   // Soup width (backward compat alias)
