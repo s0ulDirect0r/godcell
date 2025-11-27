@@ -1809,7 +1809,9 @@ export class ThreeRenderer implements Renderer {
         }
 
         // Position group at player location
-        cellGroup.position.set(player.position.x, player.position.y, 0);
+        // Lift Stage 3+ creatures above the grid (legs extend downward)
+        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, player.position.y, zOffset);
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -1970,12 +1972,14 @@ export class ThreeRenderer implements Renderer {
         }
       } else {
         // Fallback to direct position if no target
-        cellGroup.position.set(player.position.x, player.position.y, 0);
+        // Maintain Z offset for Stage 3+ creatures
+        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, player.position.y, zOffset);
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          outline.position.set(player.position.x, player.position.y, 0.1);
+          outline.position.set(player.position.x, player.position.y, zOffset + 0.1);
         }
 
         // Update compass indicators for client player (chemical sensing)

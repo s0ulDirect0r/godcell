@@ -149,8 +149,10 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     group.add(right);
   });
 
-  // Rotate for top-down view
-  group.rotation.x = Math.PI / 2;
+  // Rotate for top-down view (showing dorsal/top side)
+  // Use ZXY order so heading (Z) is applied before tilt (X)
+  group.rotation.order = 'ZXY';
+  group.rotation.x = -Math.PI / 2;
 
   return group;
 }
