@@ -8,6 +8,7 @@ import type { ServerMessage } from '@godcell/shared';
 type ClientEvent =
   | { type: 'client:inputMove'; direction: { x: number; y: number } }
   | { type: 'client:inputRespawn' }
+  | { type: 'client:sprint'; sprinting: boolean }
   | { type: 'client:empActivate' }
   | { type: 'client:pseudopodFire'; targetX: number; targetY: number }
   | { type: 'client:cameraZoom'; level: number }

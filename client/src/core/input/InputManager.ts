@@ -30,6 +30,9 @@ export class InputManager {
   // Track previous mouse state
   private wasMouseDown = false;
 
+  // Track sprint state (Shift key)
+  private wasSprinting = false;
+
   constructor() {
     this.inputState = new InputState();
   }
@@ -47,6 +50,7 @@ export class InputManager {
    */
   update(_dt: number): void {
     this.updateMovement();
+    this.updateSprint();
     this.updateRespawn();
     this.updateEMP();
     this.updatePseudopod();
@@ -81,6 +85,17 @@ export class InputManager {
     if (vx !== this.lastMoveDirection.x || vy !== this.lastMoveDirection.y) {
       eventBus.emit({ type: 'client:inputMove', direction: { x: vx, y: vy } });
       this.lastMoveDirection = { x: vx, y: vy };
+    }
+  }
+
+  private updateSprint(): void {
+    // Shift key for sprint (Stage 3+ ability)
+    const isSprinting = this.inputState.isKeyDown('shift') || this.inputState.isKeyDown('shiftleft') || this.inputState.isKeyDown('shiftright');
+
+    // Only emit on state change (reduces network traffic)
+    if (isSprinting !== this.wasSprinting) {
+      eventBus.emit({ type: 'client:sprint', sprinting: isSprinting });
+      this.wasSprinting = isSprinting;
     }
   }
 
