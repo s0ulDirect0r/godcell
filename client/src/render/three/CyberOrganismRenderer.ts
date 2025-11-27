@@ -42,6 +42,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     color: 0xdddddd,
     roughness: 0.4,
     metalness: 0.1,
+    side: THREE.DoubleSide,
   });
 
   const glowMat = new THREE.MeshStandardMaterial({
@@ -50,6 +51,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     emissiveIntensity: 5,
     roughness: 0.1,
     metalness: 0.0,
+    side: THREE.DoubleSide,
   });
 
   // === HEAD (original: radius 1.8, position X=-3) ===
@@ -59,10 +61,10 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   head.name = 'head';
   group.add(head);
 
-  // Eye (original: radius 0.8, offset -1.4, 0.3, 0.8)
+  // Eye - centered on front of head, looking forward (negative X)
   const eyeGeo = new THREE.SphereGeometry(0.8 * s, 24, 24);
   const eye = new THREE.Mesh(eyeGeo, glowMat.clone());
-  eye.position.set(-1.4 * s, 0.3 * s, 0.8 * s);
+  eye.position.set(-1.5 * s, 0, 0);  // Front center of head
   eye.name = 'eye';
   head.add(eye);
   eye.add(new THREE.PointLight(colorHex, 3, 7 * s));
@@ -126,65 +128,74 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   group.userData.tailTip = tip;
   group.userData.tailSegments = tailSegments;
 
-  // === LEGS (original: positions X = -1, 1, 3) ===
+  // === LEGS (like tails but extending sideways) ===
   const legPositionsX = [-1, 1, 3];
 
   legPositionsX.forEach((posX, i) => {
-    // Left
+    // Left leg - attached at body side, extends outward via Z
     const left = createLeg(s, 1, bodyMat);
-    left.position.set(posX * s, -0.2 * s, 1.2 * s);
-    left.rotation.y = (i - 1) * -0.3;
+    left.position.set(posX * s, 0, 0.8 * s);
+    left.rotation.y = (i - 1) * 0.25;  // Slight angle: front forward, back backward
     left.name = `leg-L-${i}`;
     left.userData.side = 'left';
     left.userData.index = i;
     group.add(left);
 
-    // Right
+    // Right leg - mirror (side=-1 makes Z go negative)
     const right = createLeg(s, -1, bodyMat);
-    right.position.set(posX * s, -0.2 * s, -1.2 * s);
-    right.rotation.y = (i - 1) * 0.3;
+    right.position.set(posX * s, 0, -0.8 * s);
+    right.rotation.y = (i - 1) * -0.25;
     right.name = `leg-R-${i}`;
     right.userData.side = 'right';
     right.userData.index = i;
     group.add(right);
   });
 
-  // Rotate for top-down view
-  group.rotation.x = Math.PI / 2;
+  // Rotate for top-down view (showing dorsal/top side)
+  // Use ZXY order so heading (Z) is applied before tilt (X)
+  group.rotation.order = 'ZXY';
+  group.rotation.x = -Math.PI / 2;
 
   return group;
 }
 
 /**
- * Create leg using original values from cyberorganism.html
+ * Create leg: sphere joint with 3 curved tubes extending outward and down
  * @param s - scale factor
  * @param side - 1 for left, -1 for right
  */
 function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   const leg = new THREE.Group();
-  const legRadius = 0.35 * s;
+  const jointSize = 0.6 * s;
 
-  // Thigh (original: CapsuleGeometry radius 0.35, length 1.2)
-  const thighGeo = new THREE.CapsuleGeometry(legRadius, 1.2 * s, 8, 16);
-  const thigh = new THREE.Mesh(thighGeo, mat);
-  thigh.position.set(0, 0.5 * s, side * 0.5 * s);
-  thigh.rotation.z = Math.PI / 4;
-  thigh.rotation.x = -side * Math.PI / 8;
-  leg.add(thigh);
+  // Joint sphere at body attachment
+  const jointGeo = new THREE.SphereGeometry(jointSize, 12, 12);
+  const joint = new THREE.Mesh(jointGeo, mat);
+  joint.name = 'legJoint';
+  leg.add(joint);
 
-  // Shin (original: radius 0.35 * 0.9, length 1.5)
-  const shinGeo = new THREE.CapsuleGeometry(legRadius * 0.9, 1.5 * s, 8, 16);
-  const shin = new THREE.Mesh(shinGeo, mat);
-  shin.position.set(0.8 * s, -0.5 * s, side * 0.8 * s);
-  shin.rotation.z = -Math.PI / 3;
-  leg.add(shin);
+  // Single curved tube extending from joint outward and down
+  const tubeRadius = 0.39 * s;   // 20% thicker
+  const tubeLength = 2.8 * s;    // 20% shorter
 
-  // Claw (original: radius 0.35, height 0.8)
-  const clawGeo = new THREE.ConeGeometry(legRadius, 0.8 * s, 8);
-  const claw = new THREE.Mesh(clawGeo, mat);
-  claw.position.set(1.3 * s, -1.6 * s, side * 0.9 * s);
-  claw.rotation.x = Math.PI / 2;
-  leg.add(claw);
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),                                          // Start at joint
+    new THREE.Vector3(0, -0.15 * tubeLength, side * 0.6 * tubeLength),   // Splay out more
+    new THREE.Vector3(0, -0.4 * tubeLength, side * 1.1 * tubeLength),    // Continue outward
+    new THREE.Vector3(0, -0.7 * tubeLength, side * 1.3 * tubeLength),    // End more to side
+  ]);
+
+  const tubeGeo = new THREE.TubeGeometry(curve, 16, tubeRadius, 8, false);
+  const tube = new THREE.Mesh(tubeGeo, mat);
+  tube.name = 'legTube';
+  leg.add(tube);
+
+  // Foot sphere at end of tube
+  const footGeo = new THREE.SphereGeometry(tubeRadius * 1.5, 12, 12);
+  const foot = new THREE.Mesh(footGeo, mat);
+  foot.position.set(0, -0.7 * tubeLength, side * 1.3 * tubeLength);
+  foot.name = 'legFoot';
+  leg.add(foot);
 
   return leg;
 }

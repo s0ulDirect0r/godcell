@@ -1809,7 +1809,9 @@ export class ThreeRenderer implements Renderer {
         }
 
         // Position group at player location
-        cellGroup.position.set(player.position.x, player.position.y, 0);
+        // Lift Stage 3+ creatures above the grid (legs extend downward)
+        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, player.position.y, zOffset);
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -1851,6 +1853,31 @@ export class ThreeRenderer implements Renderer {
           ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
           : false;
         cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        // Update heading (face direction of movement)
+        if (prevPos && isMoving) {
+          const dx = currPos.x - prevPos.x;
+          const dy = currPos.y - prevPos.y;
+          // Calculate target heading - offset by PI because head points in -X direction
+          const targetHeading = Math.atan2(dy, dx) + Math.PI;
+
+          // Initialize heading if not set
+          if (cellGroup.userData.heading === undefined) {
+            cellGroup.userData.heading = targetHeading;
+          }
+
+          // Smooth rotation toward target heading (lerp with angle wrapping)
+          let currentHeading = cellGroup.userData.heading as number;
+          let delta = targetHeading - currentHeading;
+
+          // Wrap delta to [-PI, PI] for shortest rotation path
+          while (delta > Math.PI) delta -= Math.PI * 2;
+          while (delta < -Math.PI) delta += Math.PI * 2;
+
+          currentHeading += delta * 0.15; // Lerp factor for smooth turning
+          cellGroup.userData.heading = currentHeading;
+          cellGroup.rotation.z = currentHeading;
+        }
 
         updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60); // ~60fps
       } else if (player.stage === 'multi_cell') {
@@ -1945,12 +1972,14 @@ export class ThreeRenderer implements Renderer {
         }
       } else {
         // Fallback to direct position if no target
-        cellGroup.position.set(player.position.x, player.position.y, 0);
+        // Maintain Z offset for Stage 3+ creatures
+        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, player.position.y, zOffset);
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          outline.position.set(player.position.x, player.position.y, 0.1);
+          outline.position.set(player.position.x, player.position.y, zOffset + 0.1);
         }
 
         // Update compass indicators for client player (chemical sensing)

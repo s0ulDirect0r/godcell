@@ -131,6 +131,16 @@ export class SocketManager {
   }
 
   /**
+   * Send sprint state (Stage 3+ ability)
+   */
+  sendSprint(sprinting: boolean): void {
+    this.socket.emit('playerSprint', {
+      type: 'playerSprint',
+      sprinting,
+    });
+  }
+
+  /**
    * Send pause command to server (dev mode)
    */
   sendPause(): void {

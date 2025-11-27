@@ -136,6 +136,10 @@ function initializeGame(settings: PreGameSettings): void {
     socketManager.sendPseudopodFire(event.targetX, event.targetY);
   });
 
+  eventBus.on('client:sprint', (event) => {
+    socketManager.sendSprint(event.sprinting);
+  });
+
   // Start game loop
   update();
 }
