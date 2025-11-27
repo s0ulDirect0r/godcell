@@ -242,69 +242,151 @@ Stage 3 evolution could offer choices:
 ### 4. Humanoid ⚠️ VISION STAGE - NOT IMPLEMENTED
 
 **The Intelligence Awakening:**
-Evolution to Stage 4 is the leap to **sapience**. You're not just reacting (Stage 1), hunting (Stage 2), or fighting (Stage 3) - you're *thinking*. Planning. Creating. This is the cognitive revolution.
+Evolution to Stage 4 is the leap to **sapience**. You're not just reacting (Stage 1), hunting (Stage 2), or fighting (Stage 3) - you're *thinking*. Planning. Creating. Making meaning. This is the cognitive revolution.
 
-**Visual:** Cyber-humanoid form. Human-sized in the jungle. Upright stance, tool-using limbs. Proto-god appearance - you look like a being that *thinks*, not just survives.
+**The Perspective Shift:**
+Stage 4 transitions from top-down to **first-person** (Three.js PerspectiveCamera).
+- Stages 1-3: God-view. You observe yourself from outside.
+- Stage 4: Embodied. You're *inside* a body, looking *out*.
 
-**Awareness Expansion:**
-Perception expands again. You see patterns, not just entities. You understand relationships between threats, resources, territory. Strategic awareness - not just "there's a predator" but "that predator patrols this route, I can avoid it or ambush it."
+This mirrors sapience—being a subject, not just an object. It also creates vulnerability: blind spots, threats from behind, needing to *look* to *see*. Terrifying in a permadeath game.
 
-**New Capabilities:**
+**Visual:** Cyber-humanoid form with **procedural variation**:
+- Bipedal stance, humanoid silhouette
+- 2 or 4 arms (gameplay implications TBD)
+- Cycloptic or binocular eyes (FOV/perception differences TBD)
+- Cyber-aesthetic: glowing energy lines, digital flesh, proto-god appearance
+- Each humanoid is unique - variation may be random or influenced by Stage 3 playstyle
 
-**Construction & Environmental Manipulation:**
-You can **build structures**. This is huge. Possibilities:
+**The Dual Resource System:**
+
+This is where the game fundamentally changes. Energy alone is no longer enough.
+
+**Energy** — Survival Constraint
+- Scarce, specific sources (primarily hunting beasts with energy spears)
+- Keeps you alive—you MUST engage with the world to not starve
+- Forces you out of hiding, into risk
+- Same metabolic pressure as earlier stages, but different scale
+
+**Signal** (or Experience) — Progression Currency
+- Universal: EVERYTHING contributes
+- Build? Signal. Hunt? Signal. Cooperate? Signal. Explore? Signal.
+- The path to godhood is YOUR path
+- You simply have to *live* enough to transcend
+
+*"Energy is survival. Signal is transcendence."*
+
+You don't just *collect* Signal—you *metabolize* it. Turn events into understanding. Integrate them into what you are.
+
+**Playstyle Diversity:**
+- **The Hunter** — energy-rich, Signal through kills and mastery
+- **The Builder** — scrapes by on energy, Signal through creation
+- **The Wanderer** — careful energy management, Signal through discovery
+- **The Social** — trades, cooperates, Signal through connection
+
+**Combat:**
+Energy spears as primary weapon. Hunting beasts and other humanoids. Multiple weapon types and special abilities (dash, shield, AOE) possible as the design develops.
+
+**Construction & Creation:**
+You can **build structures**. Possibilities:
 - Defensive fortifications (walls, barriers, safe zones)
 - Traps and tools (pitfalls, snares, energy collectors)
-- Resource infrastructure (harvesters, storage, processing)
-- Territory markers (claim zones, warning beacons)
-- Creative sandbox construction? (player expression, emergent builds)
+- Monuments and markers (leave your mark on the world)
+- Building contributes Signal - you're organizing reality
 
-**Advanced Combat:**
-Multiple weapon types, special abilities (dash, shield, AOE attacks). Combat becomes tactical, not just mechanical. You can outthink opponents, not just outshoot them.
-
-**Strategic Gameplay:**
-- Plan routes and territory control
-- Set traps for other players
-- Build fortifications around resource nodes
-- Coordinate (if social systems exist?)
-- Long-term thinking vs short-term survival
-
-**Metabolism:**
-Still need energy. Probably much longer survival time than Stage 1-3 (high metabolic efficiency). Energy sources at humanoid scale (macro resources, hunting Stage 3-4 organisms).
+**Awareness Expansion:**
+Perception expands again. You see patterns, not just entities. You understand relationships between threats, resources, territory. And as you accumulate Signal, you begin to *glimpse* something more - a layer of reality that only godcells see fully.
 
 **Threats:**
-- **Other Stage 4 players**: High-stakes PvP. Intelligent adversaries. This is the real threat - peers competing for territory and resources.
-- **Entropy constructs**: Advanced entropy manifestations at humanoid scale (what does this look like?)
-- **Environmental hazards**: Still dangerous terrain, storms, corrupted zones
+- **Other Stage 4 players**: High-stakes PvP. Intelligent adversaries.
+- **Entropy constructs**: Advanced entropy manifestations at humanoid scale
+- **Environmental hazards**: Dangerous terrain, storms, corrupted zones
+- **Beasts**: Stage 3 organisms and other macro-fauna to hunt (and be hunted by)
 
-(Godcells don't hunt humanoids - you're beneath their notice. They've transcended that game entirely.)
+(Godcells don't hunt humanoids - you're beneath their notice. They've transcended that game entirely. But you might see them in the sky...)
 
-**Prey:**
-Stage 3 cyber-organisms (you're bigger/smarter). Can't interact with Stage 1-2 (too small/irrelevant).
+**Goal:** Accumulate enough Signal to evolve to Stage 5 Godcell. Not just maxEnergy - you must *live* meaningfully.
 
-**Territory Control:**
-Emergent gameplay. No formal "claim zone" mechanic (yet?), but intelligent players naturally dominate areas through construction, traps, and strategic positioning.
+**The Philosophical Core:**
 
-**Goal:** Evolve to Stage 5 Godcell (2000 maxEnergy threshold). This is the final evolution - transcendence to godhood.
+| Stage | Mode of Being | Core Activity |
+|-------|---------------|---------------|
+| 1. Single-Cell | Reactive | Flee, consume, survive |
+| 2. Multi-Cell | Predatory | Hunt, dominate, expand |
+| 3. Cyber-Organism | Combative | Fight, compete, territory |
+| 4. Humanoid | **Interpretive** | Understand, create, mean |
+| 5. Godcell | Transcendent | Become truth itself |
 
-**Feel:** Thinking predator. Strategic, creative, dangerous. You're not just powerful - you're *intelligent*. But there's still one stage above you.
+**Feel:** Sense-making. Meaning-making. You're not just surviving the ecosystem—you're *comprehending* it. A humanoid who survives a thousand hunts but learns nothing stays a humanoid forever. A humanoid who metabolizes what happens to them—who extracts signal from the noise of existence—becomes a godcell.
+
+**A godcell isn't someone who ate the most. It's someone who lived the most.**
 
 ### 5. Godcell (Final Stage) 🌟 META-GAME VISION - HIGHLY SPECULATIVE
 
 **Transcendence:**
-When you reach 2000 maxEnergy as a Humanoid, you **transcend the cyber-planet entirely**. You break free from the digital jungle, the soup, all of it. You become a godcell and begin the journey toward **the God-Mind**.
+When you accumulate enough Signal as a Humanoid, you **transcend**. You break free from embodiment, from the ground, from the constraints that bound you. You become a godcell—an alien-angel.
 
-**The Victory Lap:**
-This is not a new gameplay stage - it's a **cosmic race**. You and other players who reached godhood race through space toward the God-Mind (a collective entity, a colony of transcended consciousness).
+**The Perspective Shift (Again):**
+- Stage 4: First-person, grounded, embodied
+- Stage 5: **Third-person, full 3D flight**, liberated from the ground
 
-**You vs. Time:**
-- Time trial format - how fast can you reach the God-Mind?
-- You can't lose at this point (you've already won by reaching Stage 5)
-- But speed matters - you're racing against yourself, against other godcells
-- Cosmic hazards? Navigation gameplay? *Still figuring out what the journey actually involves*
+You're no longer *in* the world looking out—you're *above* it, moving through all three dimensions freely. A floating, flying transcendent entity.
+
+**Visual: Alien-Angels**
+Aesthetic inspiration: **Neon Genesis Evangelion angels**
+- Procedurally generated transcendent beings
+- Post-humanoid—no longer bound to human shape
+- Geometric? Organic? Both? Incomprehensible to lower stages
+- Beautiful and terrifying
+- Each godcell is unique
+
+**Generation factors:**
+- Random cosmic variance
+- Primary source(s) of their Signal
+- The mix of their Signal sources throughout Stage 4
+
+A hunter-godcell looks different from a builder-godcell looks different from a wanderer-godcell. Your path shapes your transcendent form.
+
+**Maximal Agency:**
+Godcells have *choice* in a way no other stage does:
+- Fly anywhere in full 3D space
+- Return to the soup (as a god visiting the primordial)
+- Engage with humanoids, creatures, lower stages
+- Observe, interact, influence (mechanics TBD)
+- Or ignore it all and begin the ascent
+
+But eventually... the God-Mind calls. You *can* linger, but you *will* move on.
+
+**Another Awareness Expansion:**
+A new layer of reality becomes visible:
+- Humanoids can *glimpse* this layer as they accumulate Signal
+- Godcells *see* it fully
+- What IS this layer? **Open question - needs more design exploration**
+
+Possibilities:
+- The raw Signal substrate (seeing information itself)
+- Other godcells (always present, only now visible)
+- The God-Mind as a presence/direction
+- Entropy's true form revealed
+- The web of connections between all living things
+
+**The Final Obstacle: Rite of Passage**
+
+**This is not a victory lap.**
+
+Between godcell and God-Mind stands a final challenge—a rite of passage.
+
+**The purpose:** Godcells protect the field where Stages 1-4 play out. The final obstacle IS that protection. To join the God-Mind, you must prove yourself by defending the world you came from.
+
+**The form:** A final battle against Entropy and Noise at epic, cosmic scale.
+- Not the swarms and patches of lower stages
+- Entropy in its true, vast, terrifying form
+- The ultimate expression of chaos vs coherence
+
+**The meaning:** You don't just *escape* the world—you *defend* it. Transcendence isn't abandonment; it's guardianship. To become one with the God-Mind, you must first stand between creation and entropy.
 
 **You See Other Godcells:**
-Everyone who transcends is racing together through space. You see them - glowing entities streaking toward the same destination. Shared victory moment.
+Everyone who transcends is visible to each other. Alien-angels in the sky. Shared existence at the highest level.
 
 **The God-Mind Collective (Meta-Game Hook):**
 
