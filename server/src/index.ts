@@ -37,7 +37,7 @@ import type {
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
 import {
@@ -65,6 +65,22 @@ import {
   recordLifetimeDeath,
 } from './logger';
 
+// ECS - Entity Component System
+import {
+  createWorld,
+  createPlayer as ecsCreatePlayer,
+  createNutrient as ecsCreateNutrient,
+  createObstacle as ecsCreateObstacle,
+  createSwarm as ecsCreateSwarm,
+  createPseudopod as ecsCreatePseudopod,
+  destroyEntity as ecsDestroyEntity,
+  getEntityBySocketId,
+  getEntityByStringId,
+  Components,
+  type World,
+  type EntityId,
+} from './ecs';
+
 // ============================================
 // Server Configuration
 // ============================================
@@ -76,6 +92,11 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ============================================
 // Game State
 // ============================================
+
+// ECS World - central container for all entities and components
+// During migration, we run ECS in parallel with existing Maps
+// PR #2 will convert systems to read from ECS
+const world: World = createWorld();
 
 // All players currently in the game
 // Maps socket ID → Player data
@@ -562,6 +583,17 @@ function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEv
 
   nutrients.set(nutrient.id, nutrient);
 
+  // Add to ECS (dual-write during migration)
+  ecsCreateNutrient(
+    world,
+    nutrient.id,
+    position,
+    nutrient.value,
+    nutrient.capacityIncrease,
+    valueMultiplier,
+    isHighValue
+  );
+
   // Emit spawn event for client-side spawn animations (only after initial load)
   if (emitEvent && typeof io !== 'undefined') {
     const spawnMessage: NutrientSpawnedMessage = {
@@ -670,6 +702,15 @@ function initializeObstacles() {
     };
 
     obstacles.set(obstacle.id, obstacle);
+
+    // Add to ECS (dual-write during migration)
+    ecsCreateObstacle(
+      world,
+      obstacle.id,
+      position,
+      obstacle.radius,
+      obstacle.strength
+    );
   }
 
   logObstaclesSpawned(obstacles.size);
@@ -989,6 +1030,10 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
     if (dist < collisionDist) {
       // Hit! Deal damage to swarm
+      // Initialize energy if not set (swarms gain energy pool when first damaged)
+      if (swarm.energy === undefined) {
+        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
+      }
       swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
       hitSomething = true;
       hitSet.add(swarmId);
@@ -1185,6 +1230,11 @@ function updatePseudopods(deltaTime: number, io: Server) {
   for (const id of toRemove) {
     pseudopods.delete(id);
     pseudopodHits.delete(id); // Clean up hit tracking
+    // Remove from ECS (dual-write during migration)
+    const beamEntity = getEntityByStringId(id);
+    if (beamEntity !== undefined) {
+      ecsDestroyEntity(world, beamEntity);
+    }
     io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: id } as PseudopodRetractedMessage);
   }
 }
@@ -1695,6 +1745,11 @@ function checkNutrientCollisions() {
 
         // Remove nutrient from world
         nutrients.delete(nutrientId);
+        // Remove from ECS (dual-write during migration)
+        const nutrientEntity = getEntityByStringId(nutrientId);
+        if (nutrientEntity !== undefined) {
+          ecsDestroyEntity(world, nutrientEntity);
+        }
 
         // Broadcast collection event to all clients
         const collectMessage: NutrientCollectedMessage = {
@@ -1739,6 +1794,8 @@ if (isPlayground) {
   initializeObstacles();
   initializeNutrients();
   initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
+  // Set ECS world for swarms before initializing
+  setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
 
@@ -1767,6 +1824,7 @@ initDevHandler({
 const abilitySystem = new AbilitySystem({
   players,
   io,
+  ecsWorld: world, // ECS World for dual-write during migration
   pseudopods,
   pseudopodHits,
   playerEMPCooldowns,
@@ -1803,6 +1861,16 @@ io.on('connection', (socket) => {
   players.set(socket.id, newPlayer);
   playerInputDirections.set(socket.id, { x: 0, y: 0 });
   playerVelocities.set(socket.id, { x: 0, y: 0 });
+
+  // Add to ECS (dual-write during migration)
+  ecsCreatePlayer(
+    world,
+    socket.id,
+    socket.id, // name defaults to socketId
+    newPlayer.color,
+    newPlayer.position,
+    EvolutionStage.SINGLE_CELL
+  );
 
   // Track spawn time for evolution rate tracking
   recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
@@ -1914,6 +1982,12 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     logPlayerDisconnected(socket.id);
+
+    // Remove from ECS (dual-write during migration)
+    const entity = getEntityBySocketId(socket.id);
+    if (entity !== undefined) {
+      ecsDestroyEntity(world, entity);
+    }
 
     // Remove from game state
     players.delete(socket.id);
@@ -2088,6 +2162,11 @@ function attractNutrientsToObstacles(deltaTime: number) {
         // Check if nutrient reached center (destroyed by distortion)
         if (dist < 20) {
           nutrients.delete(nutrientId);
+          // Remove from ECS (dual-write during migration)
+          const nutrientEntity = getEntityByStringId(nutrientId);
+          if (nutrientEntity !== undefined) {
+            ecsDestroyEntity(world, nutrientEntity);
+          }
 
           // Broadcast as "collected" by obstacle (special playerId)
           const collectMessage: NutrientCollectedMessage = {
