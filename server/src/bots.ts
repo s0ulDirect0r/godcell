@@ -307,7 +307,8 @@ function steerTowards(
  */
 function avoidObstacles(
   botPosition: Position,
-  obstacles: Map<string, Obstacle>
+  obstacles: Map<string, Obstacle>,
+  stage: EvolutionStage = EvolutionStage.SINGLE_CELL
 ): { x: number; y: number } {
   let avoidanceForce = { x: 0, y: 0 };
 
@@ -317,9 +318,10 @@ function avoidObstacles(
     // Danger zones - tight buffer outside event horizon
     // coreRadius (60px) = instant death
     // eventHorizon (180px) = very strong gravity, hard to escape
-    // cautionRadius (265px) = bots can handle the risk
+    // cautionRadius = where bots start avoiding (stage-dependent)
     const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON');
-    const cautionRadius = 265; // 265px - they can take it
+    // Multi-cells are bigger/slower - need more reaction distance
+    const cautionRadius = stage === EvolutionStage.SINGLE_CELL ? 265 : 350;
 
     // Only avoid when actually close to the danger zone
     if (dist > cautionRadius) continue;
@@ -796,8 +798,14 @@ function updateMultiCellBotAI(
           reason: 'territorial_attack',
         },
       });
-    } else if (nearestPrey && nearestPreyDist > 100 && nearestPreyDist < 400) {
-      // Snipe fleeing prey that's out of contact range but within pseudopod range
+    } else if (
+      nearestPrey &&
+      !nearestEnemyMultiCell && // No bigger threats to save pseudopod for
+      player.energy > player.maxEnergy * 0.5 && // Plenty of energy to spare
+      nearestPreyDist > 200 && // Too far to catch on contact
+      nearestPreyDist < 400 // But within pseudopod range
+    ) {
+      // Low-priority: snipe escaping single-cell only when conditions are favorable
       const success = abilitySystem.firePseudopod(
         player.id,
         nearestPrey.position.x,
@@ -812,7 +820,8 @@ function updateMultiCellBotAI(
           targetId: nearestPrey.id,
           targetDistance: nearestPreyDist.toFixed(0),
           botEnergy: player.energy,
-          reason: 'snipe_fleeing_prey',
+          botEnergyPercent: ((player.energy / player.maxEnergy) * 100).toFixed(0),
+          reason: 'opportunistic_snipe',
         },
       });
     }
@@ -822,8 +831,8 @@ function updateMultiCellBotAI(
   // Movement Decision Logic
   // ============================================
 
-  // Calculate obstacle AND swarm avoidance
-  const obstacleAvoidance = avoidObstacles(player.position, obstacles);
+  // Calculate obstacle AND swarm avoidance (multi-cells get larger caution radius)
+  const obstacleAvoidance = avoidObstacles(player.position, obstacles, player.stage);
   const swarmAvoidance = avoidSwarms(player.position, swarms);
   const avoidance = {
     x: obstacleAvoidance.x + swarmAvoidance.x,
