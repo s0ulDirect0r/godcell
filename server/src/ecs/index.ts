@@ -32,3 +32,6 @@ export {
 
 // Systems
 export * from './systems';
+
+// Serialization (ECS to network message conversion)
+export * from './serialization';
