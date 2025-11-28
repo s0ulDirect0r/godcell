@@ -148,13 +148,53 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
     - This makes visual tuning much easier later.
 - Match the project's existing TypeScript style (imports, naming, etc.).
 
-### Logging
+### Logging & Telemetry
 
 - Server uses Pino, logs to `server/logs/server.log` as JSON lines.
 - Use structured logs for important events (e.g., evolution, death causes, anomalies).
 - When adding logs, prefer:
   - Event-like names (`player_evolved`, `gravity_anomaly`) and structured fields.
   - Minimal but meaningful payloads.
+
+**Telemetry Philosophy:**
+
+This project is telemetry-focused. As the ecosystem grows, we want to track as much as possible to:
+- Understand emergent behaviors
+- Tune balance and AI
+- Debug issues with data, not guesswork
+
+**What to log:**
+
+- **Player/Bot lifecycle:** spawns, deaths (with cause), evolutions, respawns
+- **Ability usage:** when abilities fire, success/failure, target info, tactical context
+- **AI decisions:** why bots chose specific actions (context at decision time)
+- **Economy:** energy flows, resource consumption rates
+- **Combat:** hits, misses, damage dealt/received
+- **Anomalies:** unexpected states, edge cases, invariant violations
+
+**Telemetry event naming:**
+
+Use prefixes to categorize:
+- `player_*` — human player events
+- `bot_*` — AI bot events (e.g., `bot_emp_decision`, `bot_pseudopod_decision`)
+- `swarm_*` — entropy swarm events
+- `system_*` — server/game loop events
+
+**Context is king:**
+
+Always include enough context to answer "why did this happen?":
+```typescript
+logger.info({
+  event: 'bot_emp_decision',
+  botId: player.id,
+  triggered: success,
+  context: {
+    nearbyActiveSwarms: count,
+    botEnergy: player.energy,
+    reason: 'swarm_cluster',
+  },
+});
+```
 
 ---
 
