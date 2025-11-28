@@ -402,9 +402,6 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
     // Skip shooter
     if (playerId === shooterId) continue;
 
-    // Only multi-cells can be hit by beams
-    if (target.stage === EvolutionStage.SINGLE_CELL) continue;
-
     // Skip dead/evolving/stunned players
     if (target.energy <= 0) continue;
     if (target.isEvolving) continue;
@@ -930,11 +927,11 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
   let hitSomething = false;
 
-  // Check collision with all multi-cell players
+  // Check collision with all soup-stage players (Stage 1 and 2)
   for (const [targetId, target] of players) {
     if (targetId === beam.ownerId) continue; // Can't hit yourself
     if (hitSet.has(targetId)) continue; // Already hit this target
-    if (target.stage !== EvolutionStage.MULTI_CELL) continue; // Beams only hit multi-cells (not Stage 1, not Stage 3+)
+    if (!isSoupStage(target.stage)) continue; // Beams only hit soup-stage targets (Stage 1 & 2)
     if (target.energy <= 0) continue; // Skip dead players
     if (target.isEvolving) continue; // Skip evolving players
     if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
@@ -979,6 +976,55 @@ function checkBeamCollision(beam: Pseudopod): boolean {
       });
 
       // Beam continues traveling, can hit multiple different targets
+    }
+  }
+
+  // Check collision with swarms (active or disabled)
+  for (const [swarmId, swarm] of getSwarms()) {
+    if (hitSet.has(swarmId)) continue; // Already hit this swarm
+
+    const dist = distance(beam.position, swarm.position);
+    const collisionDist = beam.width / 2 + swarm.size;
+
+    if (dist < collisionDist) {
+      // Hit! Deal damage to swarm
+      swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
+      hitSomething = true;
+      hitSet.add(swarmId);
+
+      logger.info({
+        event: 'beam_hit_swarm',
+        shooter: beam.ownerId,
+        swarmId,
+        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+        swarmEnergyRemaining: swarm.energy.toFixed(0),
+      });
+
+      // Check if swarm died
+      if (swarm.energy <= 0) {
+        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss)
+        shooter.maxEnergy += GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
+
+        // Remove swarm
+        getSwarms().delete(swarmId);
+
+        // Broadcast swarm death
+        io.emit('swarmConsumed', {
+          type: 'swarmConsumed',
+          swarmId,
+          consumerId: beam.ownerId,
+          position: swarm.position,
+        });
+
+        logger.info({
+          event: 'beam_kill_swarm',
+          shooter: beam.ownerId,
+          swarmId,
+          maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
+          energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+        });
+      }
     }
   }
 
