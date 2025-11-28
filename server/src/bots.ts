@@ -3,6 +3,7 @@ import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMe
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
+import type { AbilitySystem } from './abilities';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -297,16 +298,14 @@ function steerTowards(
 
 /**
  * Calculate avoidance force away from dangerous obstacle cores
- * Returns a steering force away from the nearest dangerous obstacle
- *
- * FIX: Using expanded detection radius (700px) to detect BEFORE gravity pulls,
- * and FULL THRUST escape (1.0) when inside gravity influence.
- * Previously: cautionRadius=270px (inside gravity 600px), graduated force 0.3-1.0
- * Now: cautionRadius=700px (outside gravity), full thrust when avoiding
+ * Bots start avoiding shortly before the event horizon and ramp up to
+ * full-thrust escape as they cross it. Multi-cells use a larger caution
+ * radius (350px) than single-cells (265px) because they're bigger/slower.
  */
 function avoidObstacles(
   botPosition: Position,
-  obstacles: Map<string, Obstacle>
+  obstacles: Map<string, Obstacle>,
+  stage: EvolutionStage = EvolutionStage.SINGLE_CELL
 ): { x: number; y: number } {
   let avoidanceForce = { x: 0, y: 0 };
 
@@ -316,9 +315,10 @@ function avoidObstacles(
     // Danger zones - tight buffer outside event horizon
     // coreRadius (60px) = instant death
     // eventHorizon (180px) = very strong gravity, hard to escape
-    // cautionRadius (265px) = bots can handle the risk
+    // cautionRadius = where bots start avoiding (stage-dependent)
     const eventHorizon = getConfig('OBSTACLE_EVENT_HORIZON');
-    const cautionRadius = 265; // 265px - they can take it
+    // Multi-cells are bigger/slower - need more reaction distance
+    const cautionRadius = stage === EvolutionStage.SINGLE_CELL ? 265 : 350;
 
     // Only avoid when actually close to the danger zone
     if (dist > cautionRadius) continue;
@@ -683,7 +683,8 @@ function updateMultiCellBotAI(
   nutrients: Map<string, Nutrient>,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  players: Map<string, Player>
+  players: Map<string, Player>,
+  abilitySystem: AbilitySystem
 ) {
   const player = bot.player;
 
@@ -710,6 +711,19 @@ function updateMultiCellBotAI(
     }
   }
 
+  // Count active (non-disabled) swarms nearby for EMP decision
+  const empRange = getConfig('EMP_RANGE');
+  let nearbyActiveSwarmCount = 0;
+  for (const swarm of swarms) {
+    const isDisabled = swarm.disabledUntil && swarm.disabledUntil > Date.now();
+    if (!isDisabled) {
+      const dist = distance(player.position, swarm.position);
+      if (dist < empRange) {
+        nearbyActiveSwarmCount++;
+      }
+    }
+  }
+
   // Find nearest single-cell (prey)
   let nearestPrey: Player | null = null;
   let nearestPreyDist = 800; // Hunting range
@@ -725,16 +739,107 @@ function updateMultiCellBotAI(
     }
   }
 
-  // FIX: Calculate BOTH obstacle AND swarm avoidance for multi-cell bots
-  const obstacleAvoidance = avoidObstacles(player.position, obstacles);
-  const swarmAvoidance = avoidSwarms(player.position, swarms);
+  // Find nearest enemy multi-cell (for pseudopod attacks)
+  let nearestEnemyMultiCell: Player | null = null;
+  let nearestEnemyMultiCellDist = 500; // Pseudopod range
+  for (const [id, otherPlayer] of players) {
+    if (id === player.id) continue;
+    if (otherPlayer.stage !== EvolutionStage.MULTI_CELL) continue;
+    if (otherPlayer.energy <= 0) continue;
+
+    const dist = distance(player.position, otherPlayer.position);
+    if (dist < nearestEnemyMultiCellDist) {
+      nearestEnemyMultiCell = otherPlayer;
+      nearestEnemyMultiCellDist = dist;
+    }
+  }
+
+  // ============================================
+  // Ability Usage Decision Logic
+  // ============================================
+
+  // EMP: Fire when 2+ active swarms are nearby (disables them for easy consumption)
+  if (nearbyActiveSwarmCount >= 2 && abilitySystem.canFireEMP(player.id)) {
+    const success = abilitySystem.fireEMP(player.id);
+    logger.info({
+      event: 'bot_emp_decision',
+      botId: player.id,
+      triggered: success,
+      context: {
+        nearbyActiveSwarms: nearbyActiveSwarmCount,
+        botEnergy: player.energy,
+        reason: 'swarm_cluster',
+      },
+    });
+  }
+
+  // Pseudopod: Fire at nearby enemy multi-cells (territorial control)
+  // Or at nearby single-cells that are just out of contact range
+  if (abilitySystem.canFirePseudopod(player.id)) {
+    if (nearestEnemyMultiCell) {
+      // Attack rival multi-cell
+      const success = abilitySystem.firePseudopod(
+        player.id,
+        nearestEnemyMultiCell.position.x,
+        nearestEnemyMultiCell.position.y
+      );
+      logger.info({
+        event: 'bot_pseudopod_decision',
+        botId: player.id,
+        triggered: success,
+        context: {
+          targetType: 'enemy_multicell',
+          targetId: nearestEnemyMultiCell.id,
+          targetDistance: nearestEnemyMultiCellDist.toFixed(0),
+          botEnergy: player.energy,
+          reason: 'territorial_attack',
+        },
+      });
+    } else if (
+      nearestPrey &&
+      !nearestEnemyMultiCell && // No bigger threats to save pseudopod for
+      player.energy > player.maxEnergy * 0.5 && // Plenty of energy to spare
+      nearestPreyDist > 200 && // Too far to catch on contact
+      nearestPreyDist < 400 // But within pseudopod range
+    ) {
+      // Low-priority: snipe escaping single-cell only when conditions are favorable
+      const success = abilitySystem.firePseudopod(
+        player.id,
+        nearestPrey.position.x,
+        nearestPrey.position.y
+      );
+      logger.info({
+        event: 'bot_pseudopod_decision',
+        botId: player.id,
+        triggered: success,
+        context: {
+          targetType: 'single_cell_prey',
+          targetId: nearestPrey.id,
+          targetDistance: nearestPreyDist.toFixed(0),
+          botEnergy: player.energy,
+          botEnergyPercent: ((player.energy / player.maxEnergy) * 100).toFixed(0),
+          reason: 'opportunistic_snipe',
+        },
+      });
+    }
+  }
+
+  // ============================================
+  // Movement Decision Logic
+  // ============================================
+
+  // Calculate obstacle AND swarm avoidance (multi-cells get larger caution radius)
+  const obstacleAvoidance = avoidObstacles(player.position, obstacles, player.stage);
+  // Filter out disabled swarms from avoidance - we WANT to approach those to consume them!
+  const now = Date.now();
+  const activeSwarms = swarms.filter(s => !s.disabledUntil || s.disabledUntil <= now);
+  const swarmAvoidance = avoidSwarms(player.position, activeSwarms);
   const avoidance = {
     x: obstacleAvoidance.x + swarmAvoidance.x,
     y: obstacleAvoidance.y + swarmAvoidance.y,
   };
 
-  // FIX: PRIORITIZED STEERING for multi-cell bots (same as single-cell)
-  // If avoiding, ONLY avoid - don't blend with hunting
+  // PRIORITIZED STEERING: If avoiding, ONLY avoid - don't blend with hunting
   const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
   const AVOIDANCE_THRESHOLD = 0.1;
 
@@ -777,9 +882,6 @@ function updateMultiCellBotAI(
     bot.inputDirection.x /= dirLength;
     bot.inputDirection.y /= dirLength;
   }
-
-  // TODO: Add EMP usage logic (when surrounded by swarms or near high-value targets)
-  // TODO: Add pseudopod beam firing logic (when near prey)
 }
 
 /**
@@ -791,16 +893,17 @@ export function updateBots(
   nutrients: Map<string, Nutrient>,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  players: Map<string, Player>
+  players: Map<string, Player>,
+  abilitySystem: AbilitySystem
 ) {
-  // Update single-cell bots
+  // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
     updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
   }
 
-  // Update multi-cell bots (hunter AI)
+  // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
   for (const [botId, bot] of multiCellBots) {
-    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players);
+    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players, abilitySystem);
   }
 }
 

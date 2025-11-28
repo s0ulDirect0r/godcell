@@ -130,6 +130,7 @@ export function initializeSwarms(io: Server) {
       size: GAME_CONFIG.SWARM_SIZE,
       state: 'patrol',
       patrolTarget: generatePatrolTarget(position),
+      energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
     };
 
     swarms.set(swarm.id, swarm);
@@ -472,6 +473,7 @@ export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
     size: GAME_CONFIG.SWARM_SIZE,
     state: 'patrol',
     patrolTarget: generatePatrolTarget(position),
+    energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
   };
 
   swarms.set(swarm.id, swarm);
@@ -507,6 +509,7 @@ export function processSwarmRespawns(io: Server): void {
       size: GAME_CONFIG.SWARM_SIZE,
       state: 'patrol',
       patrolTarget: generatePatrolTarget(newPosition),
+      energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
     };
 
     swarms.set(swarm.id, swarm);

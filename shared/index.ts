@@ -697,6 +697,7 @@ export const GAME_CONFIG = {
   // Swarm Consumption (EMP-enabled swarm hunting)
   SWARM_CONSUMPTION_RATE: 200,      // Energy drained per second during engulfment (0.5 seconds to consume)
   SWARM_ENERGY_GAIN: 150,           // Energy gained per swarm consumed (net +70 after 80 cost)
-  SWARM_MAX_ENERGY_GAIN: 50,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
+  SWARM_MAX_ENERGY_GAIN: 75,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
+  SWARM_BEAM_KILL_MAX_ENERGY_GAIN: 50, // MaxEnergy from beam-killing swarm (less than contact - nutrient loss)
   SWARM_ENERGY: 100,                // Swarm energy pool (set when disabled by EMP)
 };

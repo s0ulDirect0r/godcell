@@ -36,6 +36,7 @@ import type {
   PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
+import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
@@ -401,9 +402,6 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   for (const [playerId, target] of players) {
     // Skip shooter
     if (playerId === shooterId) continue;
-
-    // Only multi-cells can be hit by beams
-    if (target.stage === EvolutionStage.SINGLE_CELL) continue;
 
     // Skip dead/evolving/stunned players
     if (target.energy <= 0) continue;
@@ -930,11 +928,11 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
   let hitSomething = false;
 
-  // Check collision with all multi-cell players
+  // Check collision with all soup-stage players (Stage 1 and 2)
   for (const [targetId, target] of players) {
     if (targetId === beam.ownerId) continue; // Can't hit yourself
     if (hitSet.has(targetId)) continue; // Already hit this target
-    if (target.stage !== EvolutionStage.MULTI_CELL) continue; // Beams only hit multi-cells (not Stage 1, not Stage 3+)
+    if (!isSoupStage(target.stage)) continue; // Beams only hit soup-stage targets (Stage 1 & 2)
     if (target.energy <= 0) continue; // Skip dead players
     if (target.isEvolving) continue; // Skip evolving players
     if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
@@ -979,6 +977,55 @@ function checkBeamCollision(beam: Pseudopod): boolean {
       });
 
       // Beam continues traveling, can hit multiple different targets
+    }
+  }
+
+  // Check collision with swarms (active or disabled)
+  for (const [swarmId, swarm] of getSwarms()) {
+    if (hitSet.has(swarmId)) continue; // Already hit this swarm
+
+    const dist = distance(beam.position, swarm.position);
+    const collisionDist = beam.width / 2 + swarm.size;
+
+    if (dist < collisionDist) {
+      // Hit! Deal damage to swarm
+      swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
+      hitSomething = true;
+      hitSet.add(swarmId);
+
+      logger.info({
+        event: 'beam_hit_swarm',
+        shooter: beam.ownerId,
+        swarmId,
+        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+        swarmEnergyRemaining: swarm.energy.toFixed(0),
+      });
+
+      // Check if swarm died
+      if (swarm.energy <= 0) {
+        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss)
+        shooter.maxEnergy += GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
+
+        // Remove swarm
+        getSwarms().delete(swarmId);
+
+        // Broadcast swarm death
+        io.emit('swarmConsumed', {
+          type: 'swarmConsumed',
+          swarmId,
+          consumerId: beam.ownerId,
+          position: swarm.position,
+        });
+
+        logger.info({
+          event: 'beam_kill_swarm',
+          shooter: beam.ownerId,
+          swarmId,
+          maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
+          energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+        });
+      }
     }
   }
 
@@ -1714,6 +1761,26 @@ initDevHandler({
 });
 
 // ============================================
+// Ability System
+// ============================================
+
+const abilitySystem = new AbilitySystem({
+  players,
+  io,
+  pseudopods,
+  pseudopodHits,
+  playerEMPCooldowns,
+  playerPseudopodCooldowns,
+  getSwarms,
+  checkBeamHitscan,
+  applyDamageWithResistance,
+  getPlayerRadius,
+});
+
+// Export for use by bot AI
+export { abilitySystem };
+
+// ============================================
 // Connection Handling
 // ============================================
 
@@ -1798,181 +1865,17 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('pseudopodFire', (message: PseudopodFireMessage) => {
-    const player = players.get(socket.id);
-    if (!player) return;
-
-    // Validation: Only Stage 2+ can use pseudopod beams
-    if (player.stage === EvolutionStage.SINGLE_CELL) return;
-    if (player.energy <= 0) return; // Dead players can't attack
-    if (player.isEvolving) return; // Can't attack while molting
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't attack while stunned
-    if (player.energy < getConfig('PSEUDOPOD_ENERGY_COST')) return; // Need energy to fire
-
-    // Cooldown check
-    const lastUse = playerPseudopodCooldowns.get(socket.id) || 0;
-    const now = Date.now();
-    if (now - lastUse < getConfig('PSEUDOPOD_COOLDOWN')) return;
-
-    // Calculate direction from player to target
-    const dx = message.targetX - player.position.x;
-    const dy = message.targetY - player.position.y;
-    const targetDist = Math.sqrt(dx * dx + dy * dy);
-
-    if (targetDist < 1) return; // Too close, invalid shot
-
-    // Normalize direction
-    const dirX = dx / targetDist;
-    const dirY = dy / targetDist;
-
-    // Calculate max range
-    const playerRadius = getPlayerRadius(player.stage);
-    const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
-
-    // Deduct energy cost
-    player.energy -= getConfig('PSEUDOPOD_ENERGY_COST');
-
-    if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
-      // HITSCAN MODE: Instant raycast hit detection
-      const actualDist = Math.min(targetDist, maxRange);
-      const endX = player.position.x + dirX * actualDist;
-      const endY = player.position.y + dirY * actualDist;
-
-      const hitTargetId = checkBeamHitscan(player.position, { x: endX, y: endY }, socket.id);
-
-      // Create visual-only beam (0.5s duration)
-      const pseudopod: Pseudopod = {
-        id: `beam-${socket.id}-${now}`,
-        ownerId: socket.id,
-        position: { x: player.position.x, y: player.position.y },
-        velocity: { x: endX, y: endY }, // End position (reusing velocity field for visual)
-        width: GAME_CONFIG.PSEUDOPOD_WIDTH,
-        maxDistance: actualDist,
-        distanceTraveled: 0,
-        createdAt: now,
-        color: player.color,
-      };
-
-      pseudopods.set(pseudopod.id, pseudopod);
-
-      // Auto-remove beam after visual duration
-      setTimeout(() => {
-        pseudopods.delete(pseudopod.id);
-        pseudopodHits.delete(pseudopod.id); // Clean up hit tracking
-        io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: pseudopod.id } as PseudopodRetractedMessage);
-      }, 500);
-
-      io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
-
-      logger.info({
-        event: 'pseudopod_fired',
-        mode: 'hitscan',
-        playerId: socket.id,
-        targetId: hitTargetId || 'miss',
-        range: actualDist.toFixed(0),
-      });
-    } else {
-      // PROJECTILE MODE: Traveling beam that checks collision each tick
-      const pseudopod: Pseudopod = {
-        id: `beam-${socket.id}-${now}`,
-        ownerId: socket.id,
-        position: { x: player.position.x, y: player.position.y }, // Current position (will move)
-        velocity: { x: dirX * getConfig('PSEUDOPOD_PROJECTILE_SPEED'), y: dirY * getConfig('PSEUDOPOD_PROJECTILE_SPEED') },
-        width: GAME_CONFIG.PSEUDOPOD_WIDTH,
-        maxDistance: maxRange,
-        distanceTraveled: 0,
-        createdAt: now,
-        color: player.color,
-      };
-
-      pseudopods.set(pseudopod.id, pseudopod);
-      io.emit('pseudopodSpawned', { type: 'pseudopodSpawned', pseudopod } as PseudopodSpawnedMessage);
-
-      logger.info({
-        event: 'pseudopod_fired',
-        mode: 'projectile',
-        playerId: socket.id,
-        direction: { x: dirX.toFixed(2), y: dirY.toFixed(2) },
-      });
-    }
-
-    playerPseudopodCooldowns.set(socket.id, now);
+    // Delegate to AbilitySystem (used by both players and bots)
+    abilitySystem.firePseudopod(socket.id, message.targetX, message.targetY);
   });
 
   // ============================================
   // EMP Activation (Multi-cell AoE stun ability)
   // ============================================
 
-  socket.on('empActivate', (message: EMPActivateMessage) => {
-    const player = players.get(socket.id);
-    if (!player) return;
-
-    // Validation: Only Stage 2+ can use EMP
-    if (player.stage === EvolutionStage.SINGLE_CELL) return;
-    if (player.energy <= 0) return; // Dead players can't use abilities
-    if (player.isEvolving) return; // Can't use abilities while molting
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return; // Can't use while stunned
-    if (player.energy < getConfig('EMP_ENERGY_COST')) return; // Insufficient energy
-
-    // Cooldown check
-    const lastUse = playerEMPCooldowns.get(socket.id) || 0;
-    const now = Date.now();
-    if (now - lastUse < getConfig('EMP_COOLDOWN')) return;
-
-    // Apply energy cost
-    player.energy -= getConfig('EMP_ENERGY_COST');
-
-    // Find affected entities within range
-    const affectedSwarmIds: string[] = [];
-    const affectedPlayerIds: string[] = [];
-
-    // Check swarms
-    for (const [swarmId, swarm] of getSwarms()) {
-      const dist = distance(player.position, swarm.position);
-      if (dist <= getConfig('EMP_RANGE')) {
-        swarm.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
-        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
-        affectedSwarmIds.push(swarmId);
-      }
-    }
-
-    // Check other players
-    for (const [playerId, otherPlayer] of players) {
-      if (playerId === socket.id) continue; // Don't affect self
-      if (otherPlayer.energy <= 0) continue; // Dead players not affected
-
-      const dist = distance(player.position, otherPlayer.position);
-      if (dist <= getConfig('EMP_RANGE')) {
-        otherPlayer.stunnedUntil = now + getConfig('EMP_DISABLE_DURATION');
-
-        // Multi-cells also lose energy when hit (with resistance)
-        if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) {
-          applyDamageWithResistance(otherPlayer, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
-        }
-
-        affectedPlayerIds.push(playerId);
-      }
-    }
-
-    // Update cooldown (track in both Map and player object)
-    playerEMPCooldowns.set(socket.id, now);
-    player.lastEMPTime = now; // Client reads this for HUD
-
-    // Broadcast EMP activation to all clients
-    io.emit('empActivated', {
-      type: 'empActivated',
-      playerId: socket.id,
-      position: player.position,
-      affectedSwarmIds,
-      affectedPlayerIds,
-    } as EMPActivatedMessage);
-
-    logger.info({
-      event: 'emp_activated',
-      playerId: socket.id,
-      swarmsHit: affectedSwarmIds.length,
-      playersHit: affectedPlayerIds.length,
-      energySpent: getConfig('EMP_ENERGY_COST'),
-    });
+  socket.on('empActivate', (_message: EMPActivateMessage) => {
+    // Delegate to AbilitySystem (used by both players and bots)
+    abilitySystem.fireEMP(socket.id);
   });
 
   // ============================================
@@ -2220,7 +2123,7 @@ setInterval(() => {
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
   // Update bot AI decisions with obstacle and swarm avoidance (before movement)
-  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()), players);
+  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()), players, abilitySystem);
 
   // Apply gravity forces from obstacles and friction (updates velocity with momentum)
   applyGravityForces(deltaTime);
