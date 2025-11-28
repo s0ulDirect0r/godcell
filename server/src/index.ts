@@ -36,6 +36,7 @@ import type {
   PlayerDrainStateMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
+import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
@@ -1762,8 +1763,6 @@ initDevHandler({
 // ============================================
 // Ability System
 // ============================================
-
-import { AbilitySystem } from './abilities';
 
 const abilitySystem = new AbilitySystem({
   players,
