@@ -2,6 +2,12 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
+import {
+  createSwarm as ecsCreateSwarm,
+  destroyEntity as ecsDestroyEntity,
+  getEntityByStringId,
+  type World,
+} from './ecs';
 
 // ============================================
 // Stage Helpers (soup vs jungle)
@@ -27,6 +33,18 @@ let swarmIdCounter = 0;
 
 // Swarm respawn queue (tracks consumed swarms scheduled for respawn)
 const swarmRespawnQueue: Array<{ respawnTime: number }> = [];
+
+// ECS World reference (set during initialization)
+// Used for dual-write during migration to ECS
+let ecsWorld: World | null = null;
+
+/**
+ * Set the ECS world for dual-write during migration.
+ * Call this before initializeSwarms.
+ */
+export function setSwarmEcsWorld(world: World): void {
+  ecsWorld = world;
+}
 
 // Respawn delay in milliseconds
 const SWARM_RESPAWN_DELAY = 30000; // 30 seconds
@@ -134,6 +152,11 @@ export function initializeSwarms(io: Server) {
     };
 
     swarms.set(swarm.id, swarm);
+
+    // Add to ECS (dual-write during migration)
+    if (ecsWorld) {
+      ecsCreateSwarm(ecsWorld, swarm.id, position, swarm.size);
+    }
 
     // Broadcast swarm spawn to all clients
     const spawnMessage: SwarmSpawnedMessage = {
@@ -456,6 +479,15 @@ export function getSwarms(): Map<string, EntropySwarm> {
  */
 export function removeSwarm(swarmId: string): void {
   swarms.delete(swarmId);
+
+  // Remove from ECS (dual-write during migration)
+  if (ecsWorld) {
+    const entity = getEntityByStringId(swarmId);
+    if (entity !== undefined) {
+      ecsDestroyEntity(ecsWorld, entity);
+    }
+  }
+
   // Schedule respawn to maintain swarm population
   swarmRespawnQueue.push({
     respawnTime: Date.now() + SWARM_RESPAWN_DELAY,
@@ -477,6 +509,11 @@ export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
   };
 
   swarms.set(swarm.id, swarm);
+
+  // Add to ECS (dual-write during migration)
+  if (ecsWorld) {
+    ecsCreateSwarm(ecsWorld, swarm.id, position, swarm.size);
+  }
 
   // Broadcast to all clients for immediate visibility
   const spawnMessage: SwarmSpawnedMessage = {

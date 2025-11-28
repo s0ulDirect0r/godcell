@@ -11,6 +11,13 @@ import type {
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
 import { logger } from './logger';
+import {
+  createPseudopod as ecsCreatePseudopod,
+  destroyEntity as ecsDestroyEntity,
+  getEntityBySocketId,
+  getEntityByStringId,
+  type World,
+} from './ecs';
 
 // ============================================
 // Ability System - Manages all player/bot abilities
@@ -24,6 +31,9 @@ export interface AbilityContext {
   // Core game state
   players: Map<string, Player>;
   io: Server;
+
+  // ECS World (for dual-write during migration)
+  ecsWorld?: World;
 
   // Pseudopod state
   pseudopods: Map<string, Pseudopod>;
@@ -202,13 +212,39 @@ export class AbilitySystem {
 
       this.ctx.pseudopods.set(pseudopod.id, pseudopod);
 
+      // Add to ECS (dual-write during migration)
+      if (this.ctx.ecsWorld) {
+        const ownerEntity = getEntityBySocketId(playerId);
+        if (ownerEntity !== undefined) {
+          ecsCreatePseudopod(
+            this.ctx.ecsWorld,
+            pseudopod.id,
+            ownerEntity,
+            playerId,
+            pseudopod.position,
+            pseudopod.velocity,
+            pseudopod.width,
+            pseudopod.maxDistance,
+            pseudopod.color
+          );
+        }
+      }
+
       // Auto-remove after visual duration
+      const beamId = pseudopod.id;
       setTimeout(() => {
-        this.ctx.pseudopods.delete(pseudopod.id);
-        this.ctx.pseudopodHits.delete(pseudopod.id);
+        this.ctx.pseudopods.delete(beamId);
+        this.ctx.pseudopodHits.delete(beamId);
+        // Remove from ECS (dual-write during migration)
+        if (this.ctx.ecsWorld) {
+          const beamEntity = getEntityByStringId(beamId);
+          if (beamEntity !== undefined) {
+            ecsDestroyEntity(this.ctx.ecsWorld, beamEntity);
+          }
+        }
         this.ctx.io.emit('pseudopodRetracted', {
           type: 'pseudopodRetracted',
-          pseudopodId: pseudopod.id,
+          pseudopodId: beamId,
         } as PseudopodRetractedMessage);
       }, 500);
 
@@ -243,6 +279,25 @@ export class AbilitySystem {
       };
 
       this.ctx.pseudopods.set(pseudopod.id, pseudopod);
+
+      // Add to ECS (dual-write during migration)
+      if (this.ctx.ecsWorld) {
+        const ownerEntity = getEntityBySocketId(playerId);
+        if (ownerEntity !== undefined) {
+          ecsCreatePseudopod(
+            this.ctx.ecsWorld,
+            pseudopod.id,
+            ownerEntity,
+            playerId,
+            pseudopod.position,
+            pseudopod.velocity,
+            pseudopod.width,
+            pseudopod.maxDistance,
+            pseudopod.color
+          );
+        }
+      }
+
       this.ctx.io.emit('pseudopodSpawned', {
         type: 'pseudopodSpawned',
         pseudopod,

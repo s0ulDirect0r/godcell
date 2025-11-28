@@ -37,7 +37,7 @@ import type {
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
 import {
@@ -65,6 +65,38 @@ import {
   recordLifetimeDeath,
 } from './logger';
 
+// ECS - Entity Component System
+import {
+  createWorld,
+  createPlayer as ecsCreatePlayer,
+  createNutrient as ecsCreateNutrient,
+  createObstacle as ecsCreateObstacle,
+  createSwarm as ecsCreateSwarm,
+  createPseudopod as ecsCreatePseudopod,
+  destroyEntity as ecsDestroyEntity,
+  getEntityBySocketId,
+  getEntityByStringId,
+  Components,
+  type World,
+  type EntityId,
+  // Systems
+  SystemRunner,
+  SystemPriority,
+  BotAISystem,
+  GravitySystem,
+  SwarmAISystem,
+  PseudopodSystem,
+  PredationSystem,
+  SwarmCollisionSystem,
+  MovementSystem,
+  MetabolismSystem,
+  NutrientCollisionSystem,
+  NutrientAttractionSystem,
+  DeathSystem,
+  NetworkBroadcastSystem,
+  type GameContext,
+} from './ecs';
+
 // ============================================
 // Server Configuration
 // ============================================
@@ -76,6 +108,11 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ============================================
 // Game State
 // ============================================
+
+// ECS World - central container for all entities and components
+// During migration, we run ECS in parallel with existing Maps
+// PR #2 will convert systems to read from ECS
+const world: World = createWorld();
 
 // All players currently in the game
 // Maps socket ID → Player data
@@ -562,6 +599,17 @@ function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEv
 
   nutrients.set(nutrient.id, nutrient);
 
+  // Add to ECS (dual-write during migration)
+  ecsCreateNutrient(
+    world,
+    nutrient.id,
+    position,
+    nutrient.value,
+    nutrient.capacityIncrease,
+    valueMultiplier,
+    isHighValue
+  );
+
   // Emit spawn event for client-side spawn animations (only after initial load)
   if (emitEvent && typeof io !== 'undefined') {
     const spawnMessage: NutrientSpawnedMessage = {
@@ -670,6 +718,15 @@ function initializeObstacles() {
     };
 
     obstacles.set(obstacle.id, obstacle);
+
+    // Add to ECS (dual-write during migration)
+    ecsCreateObstacle(
+      world,
+      obstacle.id,
+      position,
+      obstacle.radius,
+      obstacle.strength
+    );
   }
 
   logObstaclesSpawned(obstacles.size);
@@ -989,6 +1046,10 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
     if (dist < collisionDist) {
       // Hit! Deal damage to swarm
+      // Initialize energy if not set (swarms gain energy pool when first damaged)
+      if (swarm.energy === undefined) {
+        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
+      }
       swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
       hitSomething = true;
       hitSet.add(swarmId);
@@ -1185,6 +1246,11 @@ function updatePseudopods(deltaTime: number, io: Server) {
   for (const id of toRemove) {
     pseudopods.delete(id);
     pseudopodHits.delete(id); // Clean up hit tracking
+    // Remove from ECS (dual-write during migration)
+    const beamEntity = getEntityByStringId(id);
+    if (beamEntity !== undefined) {
+      ecsDestroyEntity(world, beamEntity);
+    }
     io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: id } as PseudopodRetractedMessage);
   }
 }
@@ -1695,6 +1761,11 @@ function checkNutrientCollisions() {
 
         // Remove nutrient from world
         nutrients.delete(nutrientId);
+        // Remove from ECS (dual-write during migration)
+        const nutrientEntity = getEntityByStringId(nutrientId);
+        if (nutrientEntity !== undefined) {
+          ecsDestroyEntity(world, nutrientEntity);
+        }
 
         // Broadcast collection event to all clients
         const collectMessage: NutrientCollectedMessage = {
@@ -1739,6 +1810,8 @@ if (isPlayground) {
   initializeObstacles();
   initializeNutrients();
   initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
+  // Set ECS world for swarms before initializing
+  setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
 
@@ -1767,6 +1840,7 @@ initDevHandler({
 const abilitySystem = new AbilitySystem({
   players,
   io,
+  ecsWorld: world, // ECS World for dual-write during migration
   pseudopods,
   pseudopodHits,
   playerEMPCooldowns,
@@ -1779,6 +1853,110 @@ const abilitySystem = new AbilitySystem({
 
 // Export for use by bot AI
 export { abilitySystem };
+
+// ============================================
+// ECS System Runner Setup
+// ============================================
+
+// Create the system runner and register all systems
+const systemRunner = new SystemRunner();
+
+// Register systems in priority order
+systemRunner.register(new BotAISystem(), SystemPriority.BOT_AI);
+systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
+systemRunner.register(new SwarmAISystem(), SystemPriority.SWARM_AI);
+systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
+systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
+systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
+systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
+systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
+systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
+systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
+systemRunner.register(new DeathSystem(), SystemPriority.DEATH);
+systemRunner.register(new NetworkBroadcastSystem(), SystemPriority.NETWORK);
+
+logger.info({
+  event: 'systems_registered',
+  systems: systemRunner.getSystemNames(),
+});
+
+// Track last broadcasted drains for comparison
+const lastBroadcastedDrains = new Set<string>();
+
+/**
+ * Build the GameContext for this tick
+ * This provides systems access to all game state and helper functions
+ */
+function buildGameContext(deltaTime: number): GameContext {
+  return {
+    // ECS World
+    world,
+    io,
+    deltaTime,
+
+    // Entity Collections
+    players,
+    nutrients,
+    obstacles,
+    getSwarms,
+    pseudopods,
+    pseudopodHits,
+
+    // Player State Maps
+    playerVelocities,
+    playerInputDirections,
+    playerSprintState,
+    playerLastDamageSource,
+    playerEMPCooldowns,
+    playerPseudopodCooldowns,
+
+    // Drain state
+    activeDrains: new Set(activeDrains.keys()), // Convert Map to Set of prey IDs
+    activeSwarmDrains,
+    lastBroadcastedDrains,
+    activeDamage: activeDamageThisTick,
+
+    // Per-tick transient data (will be populated by systems)
+    tickData: {
+      damagedPlayerIds: new Set(),
+      slowedPlayerIds: new Set(),
+    },
+
+    // Ability System
+    abilitySystem,
+
+    // Helper Functions
+    distance,
+    getPlayerRadius,
+    getWorldBoundsForStage,
+    applyDamageWithResistance,
+    recordDamage,
+    getStageMaxEnergy,
+    getDamageResistance,
+    getEnergyDecayRate,
+    isSoupStage,
+    isJungleStage,
+    isBot,
+
+    // Legacy Functions (called by wrapper systems)
+    updateBots,
+    applyGravityForces,
+    updateSwarms,
+    updateSwarmPositions,
+    processSwarmRespawns,
+    updatePseudopods,
+    checkPredationCollisions,
+    checkSwarmCollisions,
+    updateMetabolism,
+    checkNutrientCollisions,
+    attractNutrientsToObstacles,
+    checkPlayerDeaths,
+    broadcastEnergyUpdates,
+    broadcastDetectionUpdates,
+    broadcastDrainState,
+    removeSwarm,
+  };
+}
 
 // ============================================
 // Connection Handling
@@ -1803,6 +1981,16 @@ io.on('connection', (socket) => {
   players.set(socket.id, newPlayer);
   playerInputDirections.set(socket.id, { x: 0, y: 0 });
   playerVelocities.set(socket.id, { x: 0, y: 0 });
+
+  // Add to ECS (dual-write during migration)
+  ecsCreatePlayer(
+    world,
+    socket.id,
+    socket.id, // name defaults to socketId
+    newPlayer.color,
+    newPlayer.position,
+    EvolutionStage.SINGLE_CELL
+  );
 
   // Track spawn time for evolution rate tracking
   recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
@@ -1914,6 +2102,12 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     logPlayerDisconnected(socket.id);
+
+    // Remove from ECS (dual-write during migration)
+    const entity = getEntityBySocketId(socket.id);
+    if (entity !== undefined) {
+      ecsDestroyEntity(world, entity);
+    }
 
     // Remove from game state
     players.delete(socket.id);
@@ -2088,6 +2282,11 @@ function attractNutrientsToObstacles(deltaTime: number) {
         // Check if nutrient reached center (destroyed by distortion)
         if (dist < 20) {
           nutrients.delete(nutrientId);
+          // Remove from ECS (dual-write during migration)
+          const nutrientEntity = getEntityByStringId(nutrientId);
+          if (nutrientEntity !== undefined) {
+            ecsDestroyEntity(world, nutrientEntity);
+          }
 
           // Broadcast as "collected" by obstacle (special playerId)
           const collectMessage: NutrientCollectedMessage = {
@@ -2114,7 +2313,21 @@ function attractNutrientsToObstacles(deltaTime: number) {
 
 /**
  * Main game loop - runs 60 times per second
- * Updates player positions based on their velocities
+ * All game logic is now handled by the ECS System Runner.
+ *
+ * System execution order (by priority):
+ * 1. BotAISystem (100) - Bot decision making
+ * 2. SwarmAISystem (110) - Swarm AI, movement, respawns
+ * 3. GravitySystem (200) - Apply gravity forces
+ * 4. PseudopodSystem (300) - Beam physics
+ * 5. PredationSystem (400) - Player-player eating
+ * 6. SwarmCollisionSystem (410) - Swarm damage + consumption
+ * 7. MovementSystem (500) - Player movement
+ * 8. MetabolismSystem (600) - Energy decay
+ * 9. NutrientCollisionSystem (610) - Nutrient pickup
+ * 10. NutrientAttractionSystem (620) - Nutrient visual attraction
+ * 11. DeathSystem (700) - Death checks
+ * 12. NetworkBroadcastSystem (900) - State broadcasts
  */
 setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
@@ -2122,237 +2335,11 @@ setInterval(() => {
 
   const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
 
-  // Update bot AI decisions with obstacle and swarm avoidance (before movement)
-  updateBots(Date.now(), nutrients, obstacles, Array.from(getSwarms().values()), players, abilitySystem);
+  // Build game context for this tick
+  const ctx = buildGameContext(deltaTime);
 
-  // Apply gravity forces from obstacles and friction (updates velocity with momentum)
-  applyGravityForces(deltaTime);
-
-  // Update swarm AI decisions - adds acceleration on top of gravity
-  updateSwarms(Date.now(), players, obstacles, deltaTime);
-
-  // Update entropy swarm positions
-  updateSwarmPositions(deltaTime, io);
-
-  // Process swarm respawns (maintain population after consumption)
-  processSwarmRespawns(io);
-
-  // Update pseudopods (extension, collision, retraction)
-  updatePseudopods(deltaTime, io);
-
-  // Check for contact predation (multi-cells draining energy from touching cells)
-  checkPredationCollisions(deltaTime);
-
-  // Check for swarm consumption (multi-cells eating disabled swarms)
-  // Track which swarms are currently being consumed this tick
-  // Stage filtering: Only Stage 2 (MULTI_CELL) can consume swarms - it's a soup mechanic
-  const currentSwarmDrains = new Set<string>();
-
-  for (const [playerId, player] of players) {
-    if (player.stage !== EvolutionStage.MULTI_CELL) continue; // Only multi-cells can consume (not Stage 1, not Stage 3+)
-    if (player.energy <= 0) continue; // Dead players can't consume
-
-    for (const [swarmId, swarm] of getSwarms()) {
-      // Only consume disabled swarms with health remaining
-      if (!swarm.disabledUntil || Date.now() >= swarm.disabledUntil) continue;
-      if (!swarm.energy || swarm.energy <= 0) continue;
-
-      // Check if multi-cell is touching the swarm
-      const dist = distance(player.position, swarm.position);
-      const collisionDist = swarm.size + getPlayerRadius(player.stage);
-
-      if (dist < collisionDist) {
-        // Track that this swarm is being drained
-        currentSwarmDrains.add(swarmId);
-
-        // Gradual consumption - drain swarm health over time
-        const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
-        swarm.energy -= damageDealt;
-
-        if (swarm.energy <= 0) {
-          // Swarm fully consumed - grant rewards
-          player.energy = Math.min(player.maxEnergy, player.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
-          player.maxEnergy += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
-
-          // Broadcast consumption event
-          io.emit('swarmConsumed', {
-            type: 'swarmConsumed',
-            swarmId,
-            consumerId: playerId,
-          } as SwarmConsumedMessage);
-
-          logger.info({
-            event: 'swarm_consumed',
-            consumerId: playerId,
-            swarmId,
-            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-            maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
-          });
-
-          // Remove consumed swarm from game
-          removeSwarm(swarmId);
-        }
-      }
-    }
-  }
-
-  // Update active swarm drains tracking (clear swarms no longer being consumed)
-  activeSwarmDrains.clear();
-  currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
-
-  // Check for swarm collisions BEFORE movement - get slowed players for this frame
-  // Pass applyDamageWithResistance so swarm damage respects stage-based resistance
-  const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(players, deltaTime, recordDamage, applyDamageWithResistance);
-  for (const playerId of damagedPlayerIds) {
-    playerLastDamageSource.set(playerId, 'swarm');
-  }
-
-  // Update each player's position
-  for (const [playerId, player] of players) {
-    // Skip dead players (waiting for manual respawn)
-    if (player.energy <= 0) continue;
-
-    // Stunned players can't move (hit by EMP)
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) {
-      const velocity = playerVelocities.get(playerId);
-      if (velocity) {
-        velocity.x = 0;
-        velocity.y = 0;
-      }
-      continue;
-    }
-
-    const inputDirection = playerInputDirections.get(playerId);
-    const velocity = playerVelocities.get(playerId);
-    if (!inputDirection || !velocity) continue;
-
-    // Calculate input acceleration from player keys
-    // Normalize diagonal input to maintain consistent acceleration
-    const inputLength = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
-    const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
-    const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
-
-    // Add input as acceleration to existing velocity (creates momentum)
-    // Use high acceleration value to make controls responsive while maintaining coast
-    let acceleration = getConfig('PLAYER_SPEED') * 8; // 8x speed as acceleration for responsive controls
-
-    // Stage-specific acceleration modifiers
-    if (player.stage === EvolutionStage.MULTI_CELL) {
-      acceleration *= 0.8; // 20% slower than single-cells
-    } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
-      acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT'); // Grounded, deliberate
-    }
-    // TODO: HUMANOID and GODCELL acceleration when implemented
-
-    // Apply swarm slow debuff if player is in contact with a swarm
-    if (slowedPlayerIds.has(playerId)) {
-      acceleration *= getConfig('SWARM_SLOW_EFFECT'); // 20% slower when touched by swarm
-    }
-
-    // Apply contact drain slow debuff if being drained by a predator
-    if (activeDrains.has(playerId)) {
-      acceleration *= 0.5; // 50% slower when being drained
-    }
-
-    velocity.x += inputNormX * acceleration * deltaTime;
-    velocity.y += inputNormY * acceleration * deltaTime;
-
-    // Cap maximum velocity to prevent runaway speed from continuous input
-    const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-    let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
-
-    // Stage-specific max speed modifiers
-    if (player.stage === EvolutionStage.MULTI_CELL) {
-      maxSpeed *= 0.8; // 20% slower than single-cells
-    } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
-      maxSpeed *= getConfig('CYBER_ORGANISM_MAX_SPEED_MULT'); // Grounded, deliberate
-
-      // Sprint boost (Stage 3+ ability - Shift key)
-      const isSprinting = playerSprintState.get(playerId);
-      if (isSprinting && player.energy > player.maxEnergy * 0.2) {
-        maxSpeed *= getConfig('CYBER_ORGANISM_SPRINT_SPEED_MULT');
-        // Drain energy while sprinting
-        player.energy -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
-      } else if (isSprinting) {
-        // Auto-disable sprint when energy too low
-        playerSprintState.set(playerId, false);
-      }
-    }
-    // TODO: HUMANOID and GODCELL max speed when implemented
-
-    // Apply slow effect to max speed cap as well
-    if (slowedPlayerIds.has(playerId)) {
-      maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
-    }
-
-    // Apply contact drain slow to max speed as well
-    if (activeDrains.has(playerId)) {
-      maxSpeed *= 0.5;
-    }
-
-    if (currentSpeed > maxSpeed) {
-      const scale = maxSpeed / currentSpeed;
-      velocity.x *= scale;
-      velocity.y *= scale;
-    }
-
-    // Skip if no movement at all (velocity already includes gravity + input + momentum)
-    if (velocity.x === 0 && velocity.y === 0) continue;
-
-    // Calculate distance about to be traveled for energy cost
-    const distanceMoved = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y) * deltaTime;
-
-    // Update position using accumulated velocity (frame-rate independent)
-    player.position.x += velocity.x * deltaTime;
-    player.position.y += velocity.y * deltaTime;
-
-    // Deduct energy for movement (creates strategic choice: move vs conserve energy)
-    if (player.energy > 0) {
-      player.energy -= distanceMoved * getConfig('MOVEMENT_ENERGY_COST');
-      player.energy = Math.max(0, player.energy); // Clamp to zero
-    }
-
-    // Keep player within world bounds (stage-aware: soup vs jungle)
-    const playerRadius = getPlayerRadius(player.stage);
-    const bounds = getWorldBoundsForStage(player.stage);
-    player.position.x = Math.max(
-      bounds.minX + playerRadius,
-      Math.min(bounds.maxX - playerRadius, player.position.x)
-    );
-    player.position.y = Math.max(
-      bounds.minY + playerRadius,
-      Math.min(bounds.maxY - playerRadius, player.position.y)
-    );
-
-    // Broadcast position update to all clients
-    const moveMessage: PlayerMovedMessage = {
-      type: 'playerMoved',
-      playerId,
-      position: player.position,
-    };
-    io.emit('playerMoved', moveMessage);
-  }
-
-  // Update metabolism (energy decay, starvation, death, evolution)
-  updateMetabolism(deltaTime);
-
-  // Check for nutrient collection
-  checkNutrientCollisions();
-
-  // Attract nutrients to obstacles (visual feeding effect)
-  attractNutrientsToObstacles(deltaTime);
-
-  // Universal death check - runs AFTER all damage sources (metabolism, obstacles, swarms, singularity)
-  checkPlayerDeaths();
-
-  // Broadcast energy/health updates (throttled)
-  broadcastEnergyUpdates();
-
-  // Broadcast detection updates for multi-cells (chemical sensing)
-  broadcastDetectionUpdates();
-
-  // Broadcast drain state for visual feedback
-  broadcastDrainState();
+  // Run all systems in priority order
+  systemRunner.update(ctx);
 }, TICK_INTERVAL);
 
 // ============================================
