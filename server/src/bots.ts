@@ -298,12 +298,9 @@ function steerTowards(
 
 /**
  * Calculate avoidance force away from dangerous obstacle cores
- * Returns a steering force away from the nearest dangerous obstacle
- *
- * FIX: Using expanded detection radius (700px) to detect BEFORE gravity pulls,
- * and FULL THRUST escape (1.0) when inside gravity influence.
- * Previously: cautionRadius=270px (inside gravity 600px), graduated force 0.3-1.0
- * Now: cautionRadius=700px (outside gravity), full thrust when avoiding
+ * Bots start avoiding shortly before the event horizon and ramp up to
+ * full-thrust escape as they cross it. Multi-cells use a larger caution
+ * radius (350px) than single-cells (265px) because they're bigger/slower.
  */
 function avoidObstacles(
   botPosition: Position,
@@ -833,7 +830,10 @@ function updateMultiCellBotAI(
 
   // Calculate obstacle AND swarm avoidance (multi-cells get larger caution radius)
   const obstacleAvoidance = avoidObstacles(player.position, obstacles, player.stage);
-  const swarmAvoidance = avoidSwarms(player.position, swarms);
+  // Filter out disabled swarms from avoidance - we WANT to approach those to consume them!
+  const now = Date.now();
+  const activeSwarms = swarms.filter(s => !s.disabledUntil || s.disabledUntil <= now);
+  const swarmAvoidance = avoidSwarms(player.position, activeSwarms);
   const avoidance = {
     x: obstacleAvoidance.x + swarmAvoidance.x,
     y: obstacleAvoidance.y + swarmAvoidance.y,
