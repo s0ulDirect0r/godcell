@@ -102,7 +102,11 @@ export class AbilitySystem {
 
       const dist = this.distance(player.position, otherPlayer.position);
       if (dist <= getConfig('EMP_RANGE')) {
-        otherPlayer.stunnedUntil = now + getConfig('EMP_DISABLE_DURATION');
+        // Single-cells get 50% stun duration (they're more nimble)
+        const stunDuration = otherPlayer.stage === EvolutionStage.SINGLE_CELL
+          ? getConfig('EMP_DISABLE_DURATION') * 0.5
+          : getConfig('EMP_DISABLE_DURATION');
+        otherPlayer.stunnedUntil = now + stunDuration;
 
         // Multi-cells also lose energy when hit
         if (otherPlayer.stage === EvolutionStage.MULTI_CELL) {
