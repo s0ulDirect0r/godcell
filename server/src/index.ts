@@ -986,33 +986,6 @@ function respawnPlayer(playerId: string) {
   logPlayerRespawn(playerId);
 }
 
-/**
- * Check all players for death (energy <= 0)
- * Energy-only system: 0 energy = instant death (dilution)
- * Uses tracked damage source to log specific death cause
- * Only processes deaths once (clears damage source after processing)
- */
-function checkPlayerDeaths() {
-  for (const [playerId, player] of players) {
-    // Only process if:
-    // 1. Energy is at or below 0
-    // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
-    if (player.energy <= 0 && playerLastDamageSource.has(playerId)) {
-      const cause = playerLastDamageSource.get(playerId)!;
-
-      handlePlayerDeath(player, cause);
-
-      // Mark as "death processed" - sentinel value prevents catch-all from re-triggering
-      // Respawn will set energy back to positive value
-      // IMPORTANT: Use ECS setter to persist the change
-      setEnergyBySocketId(world, playerId, -1);
-
-      // Clear damage source to prevent reprocessing same death
-      playerLastDamageSource.delete(playerId);
-    }
-  }
-}
-
 // Energy update broadcast counter (reduce network spam)
 let energyUpdateTicks = 0;
 const ENERGY_UPDATE_INTERVAL = 10; // Broadcast every 10 ticks (~6 times/sec)
@@ -1429,7 +1402,7 @@ function buildGameContext(deltaTime: number): GameContext {
     checkSwarmCollisions,
     checkNutrientCollisions,
     attractNutrientsToObstacles,
-    checkPlayerDeaths,
+    handlePlayerDeath,
     broadcastEnergyUpdates,
     broadcastDetectionUpdates,
     broadcastDrainState,
