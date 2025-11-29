@@ -35,7 +35,7 @@ import type {
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
 } from '@godcell/shared';
-import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
+import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
@@ -1883,8 +1883,9 @@ if (isPlayground) {
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
   initializeNutrients();
+  // Set ECS world for bots and swarms before initializing
+  setBotEcsWorld(world);
   initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
-  // Set ECS world for swarms before initializing
   setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
