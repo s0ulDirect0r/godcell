@@ -13,6 +13,7 @@ import {
   getEntityBySocketId,
   setPlayerStage,
   hasPlayer,
+  getDamageTrackingBySocketId,
   type EnergyComponent,
   type StageComponent,
 } from '../index';
@@ -33,7 +34,7 @@ export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
   update(ctx: GameContext): void {
-    const { world, deltaTime, io, playerLastDamageSource, recordDamage, getEnergyDecayRate, isBot } = ctx;
+    const { world, deltaTime, io, recordDamage, getEnergyDecayRate, isBot } = ctx;
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -46,8 +47,11 @@ export class MetabolismSystem implements System {
       if (energyComp.current < 0) {
         return; // Already dead, waiting for respawn
       }
-      if (energyComp.current === 0 && !playerLastDamageSource.has(playerId)) {
-        playerLastDamageSource.set(playerId, 'starvation');
+      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      if (energyComp.current === 0 && !damageTracking?.lastDamageSource) {
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'starvation';
+        }
         return;
       }
       if (energyComp.current === 0) {
@@ -68,7 +72,11 @@ export class MetabolismSystem implements System {
       // Energy-only: when energy hits 0, mark for death
       if (energyComp.current <= 0) {
         energyComp.current = 0;
-        playerLastDamageSource.set(playerId, 'starvation');
+        // Track damage source in ECS for death cause logging
+        const damageTrackingForDeath = getDamageTrackingBySocketId(world, playerId);
+        if (damageTrackingForDeath) {
+          damageTrackingForDeath.lastDamageSource = 'starvation';
+        }
         // Record for drain aura (shows starvation state)
         recordDamage(playerId, decayRate, 'starvation');
       }

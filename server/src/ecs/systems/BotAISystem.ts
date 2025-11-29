@@ -16,15 +16,15 @@ export class BotAISystem implements System {
   readonly name = 'BotAISystem';
 
   update(ctx: GameContext): void {
-    const { updateBots, nutrients, obstacles, getSwarms, abilitySystem, world } = ctx;
+    const { updateBots, obstacles, getSwarms, abilitySystem, world } = ctx;
 
+    // updateBots now queries nutrients from ECS directly
     updateBots(
       Date.now(),
-      nutrients,
+      world,
       obstacles,
       Array.from(getSwarms().values()),
-      abilitySystem,
-      world
+      abilitySystem
     );
   }
 }

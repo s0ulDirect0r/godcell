@@ -13,7 +13,6 @@
 import type { Server } from 'socket.io';
 import type {
   World,
-  Nutrient,
   Obstacle,
   Position,
   EntropySwarm,
@@ -51,7 +50,7 @@ export interface GameContext {
   // ============================================
   // Entity Collections (legacy Maps)
   // ============================================
-  nutrients: Map<string, Nutrient>;
+  // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
   obstacles: Map<string, Obstacle>;
 
   // Swarm access (through getter because it's in swarms.ts)
@@ -62,17 +61,12 @@ export interface GameContext {
   // ============================================
   // Player State Maps
   // ============================================
-  // NOTE: playerVelocities and playerInputDirections migrated to ECS VelocityComponent and InputComponent
-  playerSprintState: Map<string, boolean>;
-  playerLastDamageSource: Map<string, DeathCause>;
-  // NOTE: Should be ECS component. See godcell epic for ECS migration
-  playerLastBeamShooter: Map<string, string>; // Map of victim ID -> shooter ID
+  // NOTE: playerVelocities, playerInputDirections, playerSprintState migrated to ECS components
+  // NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
   // NOTE: Should be ECS component (damage decay on entity)
   pseudopodHitDecays: Map<string, { rate: number; expiresAt: number }>;
 
-  // Cooldown tracking
-  playerEMPCooldowns: Map<string, number>;
-  playerPseudopodCooldowns: Map<string, number>;
+  // NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
 
   // Drain state tracking
   // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
@@ -139,11 +133,10 @@ export interface GameContext {
 
   updateBots: (
     timestamp: number,
-    nutrients: Map<string, Nutrient>,
+    world: World,
     obstacles: Map<string, Obstacle>,
     swarms: EntropySwarm[],
-    abilitySystem: AbilitySystem,
-    world: World
+    abilitySystem: AbilitySystem
   ) => void;
 
   updateSwarms: (

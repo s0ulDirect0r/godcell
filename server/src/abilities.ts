@@ -20,6 +20,7 @@ import {
   getStageBySocketId,
   getPositionBySocketId,
   getStunnedBySocketId,
+  getCooldownsBySocketId,
   forEachPlayer,
   type World,
 } from './ecs';
@@ -38,10 +39,7 @@ export interface AbilityContext {
   io: Server;
 
   // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
-
-  // Cooldown tracking
-  playerEMPCooldowns: Map<string, number>;
-  playerPseudopodCooldowns: Map<string, number>;
+  // NOTE: Cooldowns migrated to ECS CooldownsComponent
 
   // Functions from main module
   getSwarms: () => Map<string, EntropySwarm>;
@@ -90,8 +88,10 @@ export class AbilitySystem {
     if (stunnedComp?.until && now < stunnedComp.until) return false;
     if (energyComp.current < getConfig('EMP_ENERGY_COST')) return false;
 
-    // Cooldown check
-    const lastUse = this.ctx.playerEMPCooldowns.get(playerId) || 0;
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastEMPTime || 0;
     if (now - lastUse < getConfig('EMP_COOLDOWN')) return false;
 
     // Apply energy cost (directly to ECS)
@@ -147,8 +147,8 @@ export class AbilitySystem {
       }
     });
 
-    // Update cooldown
-    this.ctx.playerEMPCooldowns.set(playerId, now);
+    // Update cooldown in ECS
+    cooldowns.lastEMPTime = now;
 
     // Broadcast to clients
     this.ctx.io.emit('empActivated', {
@@ -195,8 +195,10 @@ export class AbilitySystem {
     if (stunnedComp?.until && now < stunnedComp.until) return false;
     if (energyComp.current < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
 
-    // Cooldown check
-    const lastUse = this.ctx.playerPseudopodCooldowns.get(playerId) || 0;
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastPseudopodTime || 0;
     if (now - lastUse < getConfig('PSEUDOPOD_COOLDOWN')) return false;
 
     const playerPosition = { x: posComp.x, y: posComp.y };
@@ -327,7 +329,8 @@ export class AbilitySystem {
       });
     }
 
-    this.ctx.playerPseudopodCooldowns.set(playerId, now);
+    // Update cooldown in ECS
+    cooldowns.lastPseudopodTime = now;
     return true;
   }
 
@@ -362,7 +365,9 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    const lastUse = this.ctx.playerEMPCooldowns.get(playerId) || 0;
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastEMPTime || 0;
     return now - lastUse >= getConfig('EMP_COOLDOWN');
   }
 
@@ -383,7 +388,9 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    const lastUse = this.ctx.playerPseudopodCooldowns.get(playerId) || 0;
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastPseudopodTime || 0;
     return now - lastUse >= getConfig('PSEUDOPOD_COOLDOWN');
   }
 }

@@ -16,6 +16,7 @@ import {
   setDrainTarget,
   clearDrainTarget,
   forEachDrainTarget,
+  getDamageTrackingBySocketId,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -44,7 +45,6 @@ export class PredationSystem implements System {
       world,
       io,
       deltaTime,
-      playerLastDamageSource,
       recordDamage,
     } = ctx;
 
@@ -102,8 +102,11 @@ export class PredationSystem implements System {
           // Track which predator is draining this prey (for kill credit)
           setDrainTarget(world, preyId, predatorId);
 
-          // Mark damage source for death tracking
-          playerLastDamageSource.set(preyId, 'predation');
+          // Mark damage source for death tracking in ECS
+          const damageTracking = getDamageTrackingBySocketId(world, preyId);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'predation';
+          }
 
           // Record damage for drain aura system
           recordDamage(preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
@@ -134,7 +137,7 @@ export class PredationSystem implements System {
     position: Position,
     preyMaxEnergy: number
   ): void {
-    const { world, io, playerLastDamageSource } = ctx;
+    const { world, io } = ctx;
 
     // Get prey color from ECS
     const preyEntity = getEntityBySocketId(preyId);
@@ -149,7 +152,11 @@ export class PredationSystem implements System {
 
     // Kill prey (energy-only: set energy to 0)
     setEnergyBySocketId(world, preyId, 0);
-    playerLastDamageSource.set(preyId, 'predation');
+    // Mark damage source in ECS for death cause logging
+    const damageTracking = getDamageTrackingBySocketId(world, preyId);
+    if (damageTracking) {
+      damageTracking.lastDamageSource = 'predation';
+    }
 
     // Broadcast engulfment
     io.emit('playerEngulfed', {

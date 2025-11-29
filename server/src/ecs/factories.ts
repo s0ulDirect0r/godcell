@@ -769,6 +769,21 @@ export function getSprintBySocketId(
 }
 
 /**
+ * Set player's sprint state by socket ID.
+ * Returns false if player doesn't have SprintComponent (Stage 1-2 players).
+ */
+export function setSprintBySocketId(
+  world: World,
+  socketId: string,
+  isSprinting: boolean
+): boolean {
+  const sprint = getSprintBySocketId(world, socketId);
+  if (!sprint) return false;
+  sprint.isSprinting = isSprinting;
+  return true;
+}
+
+/**
  * Get player's stunned component by socket ID.
  */
 export function getStunnedBySocketId(
@@ -790,6 +805,18 @@ export function getCooldownsBySocketId(
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+}
+
+/**
+ * Get player's damage tracking component by socket ID.
+ */
+export function getDamageTrackingBySocketId(
+  world: World,
+  socketId: string
+): DamageTrackingComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
 }
 
 /**
@@ -984,6 +1011,121 @@ export function getObstacleZones(
     zones.push({ position, radius: obstacle.radius });
   });
   return zones;
+}
+
+// ============================================
+// Nutrient Query Helpers
+// ============================================
+
+/**
+ * Nutrient data snapshot for iteration.
+ * Contains all data needed for collision/attraction without holding component refs.
+ */
+export interface NutrientSnapshot {
+  entity: EntityId;
+  id: string; // String ID for network messages
+  position: Position;
+  value: number;
+  capacityIncrease: number;
+  valueMultiplier: number;
+  isHighValue: boolean;
+}
+
+/**
+ * Iterate over all nutrient entities.
+ * Callback receives entity ID, string ID, position, and nutrient data.
+ */
+export function forEachNutrient(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: Position,
+    nutrient: NutrientComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Nutrient, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const nutrient = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+    const id = getStringIdByEntity(entity);
+    if (pos && nutrient && id) {
+      callback(entity, id, { x: pos.x, y: pos.y }, nutrient);
+    }
+  });
+}
+
+/**
+ * Get all nutrients as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllNutrientSnapshots(world: World): NutrientSnapshot[] {
+  const snapshots: NutrientSnapshot[] = [];
+  forEachNutrient(world, (entity, id, position, nutrient) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: position.x, y: position.y },
+      value: nutrient.value,
+      capacityIncrease: nutrient.capacityIncrease,
+      valueMultiplier: nutrient.valueMultiplier,
+      isHighValue: nutrient.isHighValue,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Get a nutrient's position component by string ID.
+ * Returns undefined if not found.
+ */
+export function getNutrientPosition(
+  world: World,
+  nutrientId: string
+): PositionComponent | undefined {
+  const entity = getEntityByStringId(nutrientId);
+  if (entity === undefined) return undefined;
+  return world.getComponent<PositionComponent>(entity, Components.Position);
+}
+
+/**
+ * Get nutrient count.
+ */
+export function getNutrientCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Nutrient).length;
+}
+
+/**
+ * Convert ECS nutrients to legacy Nutrient record for network broadcasts.
+ */
+export function buildNutrientsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  value: number;
+  capacityIncrease: number;
+  valueMultiplier: number;
+  isHighValue: boolean;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    value: number;
+    capacityIncrease: number;
+    valueMultiplier: number;
+    isHighValue: boolean;
+  }> = {};
+
+  forEachNutrient(world, (_entity, id, position, nutrient) => {
+    result[id] = {
+      id,
+      position,
+      value: nutrient.value,
+      capacityIncrease: nutrient.capacityIncrease,
+      valueMultiplier: nutrient.valueMultiplier,
+      isHighValue: nutrient.isHighValue,
+    };
+  });
+
+  return result;
 }
 
 // ============================================

@@ -14,6 +14,7 @@ import {
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
   forEachPlayer,
+  getDamageTrackingBySocketId,
   Components,
   type EntityId,
   type EnergyComponent,
@@ -106,8 +107,6 @@ export class PseudopodSystem implements System {
     const {
       world,
       io,
-      playerLastDamageSource,
-      playerLastBeamShooter,
       pseudopodHitDecays,
       getSwarms,
     } = ctx;
@@ -156,9 +155,12 @@ export class PseudopodSystem implements System {
         targetEnergy.current -= damage;
         hitSomething = true;
 
-        // Track damage source and shooter for kill credit
-        playerLastDamageSource.set(targetId, 'beam');
-        playerLastBeamShooter.set(targetId, pseudopodComp.ownerSocketId);
+        // Track damage source and shooter for kill credit in ECS
+        const damageTracking = getDamageTrackingBySocketId(world, targetId);
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'beam';
+          damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+        }
 
         // Mark this target as hit by this beam (store entity ID)
         hitEntities.add(targetEntity);
@@ -265,7 +267,7 @@ export class PseudopodSystem implements System {
    * Returns the ID of the player hit, or null if no hit
    */
   checkBeamHitscan(ctx: GameContext, start: Position, end: Position, shooterId: string): string | null {
-    const { world, playerLastDamageSource, playerLastBeamShooter } = ctx;
+    const { world } = ctx;
 
     type HitInfo = { playerId: string; distance: number; entity: number };
     let closestHit: HitInfo | null = null;
@@ -303,8 +305,12 @@ export class PseudopodSystem implements System {
       if (targetEnergy) {
         const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
         targetEnergy.current -= damage;
-        playerLastDamageSource.set(hit.playerId, 'beam');
-        playerLastBeamShooter.set(hit.playerId, shooterId);
+        // Track damage source and shooter for kill credit in ECS
+        const damageTracking = getDamageTrackingBySocketId(world, hit.playerId);
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'beam';
+          damageTracking.lastBeamShooter = shooterId;
+        }
 
         logger.info({
           event: 'beam_hit',

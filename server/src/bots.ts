@@ -1,5 +1,5 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause } from '@godcell/shared';
+import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
@@ -14,7 +14,9 @@ import {
   getInputBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
+  getStringIdByEntity,
   Components,
+  Tags,
   type World,
 } from './ecs';
 import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '@godcell/shared';
@@ -258,18 +260,32 @@ function updateBotWander(bot: BotController, currentTime: number) {
 
 /**
  * Find the nearest nutrient within search radius
+ * Uses ECS as source of truth for nutrients
  */
-function findNearestNutrient(botPosition: Position, nutrients: Map<string, Nutrient>): Nutrient | null {
+function findNearestNutrient(botPosition: Position, world: World): Nutrient | null {
   let nearest: Nutrient | null = null;
   let nearestDist = BOT_CONFIG.SEARCH_RADIUS;
 
-  for (const nutrient of nutrients.values()) {
-    const dist = distance(botPosition, nutrient.position);
+  // Query nutrients from ECS
+  world.forEachWithTag(Tags.Nutrient, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const nutrientComp = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+    const id = getStringIdByEntity(entity);
+    if (!pos || !nutrientComp || !id) return;
+
+    const dist = distance(botPosition, { x: pos.x, y: pos.y });
     if (dist < nearestDist) {
-      nearest = nutrient;
+      nearest = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        value: nutrientComp.value,
+        capacityIncrease: nutrientComp.capacityIncrease,
+        valueMultiplier: nutrientComp.valueMultiplier,
+        isHighValue: nutrientComp.isHighValue,
+      };
       nearestDist = dist;
     }
-  }
+  });
 
   return nearest;
 }
@@ -490,7 +506,7 @@ function avoidSwarms(
 function updateBotAI(
   bot: BotController,
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
+  world: World,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[]
 ) {
@@ -523,7 +539,7 @@ function updateBotAI(
     bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else if (avoidanceMag > AVOIDANCE_BLEND_THRESHOLD) {
     // MODERATE DANGER - blend avoidance with seeking (SEEKING weighted higher - hungry bots!)
-    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    const nearestNutrient = findNearestNutrient(player.position, world);
     if (nearestNutrient) {
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
@@ -542,7 +558,7 @@ function updateBotAI(
     }
   } else {
     // Safe zone - normal seeking/wandering behavior
-    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    const nearestNutrient = findNearestNutrient(player.position, world);
 
     if (nearestNutrient) {
       // SEEK state - move towards nutrient
@@ -671,10 +687,9 @@ export function initializeBots(io: Server) {
 function updateMultiCellBotAI(
   bot: BotController,
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
+  world: World,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  world: World,
   abilitySystem: AbilitySystem
 ) {
   const player = bot.player;
@@ -876,7 +891,7 @@ function updateMultiCellBotAI(
       bot.inputDirection.y = seekDirection.y;
     } else {
       // Seek nutrients (fallback behavior)
-      const nearestNutrient = findNearestNutrient(player.position, nutrients);
+      const nearestNutrient = findNearestNutrient(player.position, world);
       if (nearestNutrient) {
         const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
         bot.inputDirection.x = seekDirection.x;
@@ -905,11 +920,10 @@ function updateMultiCellBotAI(
  */
 export function updateBots(
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
+  world: World,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  abilitySystem: AbilitySystem,
-  world: World
+  abilitySystem: AbilitySystem
 ) {
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
@@ -918,7 +932,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
+    updateBotAI(bot, currentTime, world, obstacles, swarms);
   }
 
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
@@ -928,7 +942,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, world, abilitySystem);
+    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem);
   }
 }
 

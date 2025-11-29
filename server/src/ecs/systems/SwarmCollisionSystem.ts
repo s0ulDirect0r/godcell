@@ -8,7 +8,7 @@ import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageCom
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { logger } from '../../logger';
-import { getSocketIdByEntity } from '../factories';
+import { getSocketIdByEntity, getDamageTrackingBySocketId } from '../factories';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -32,7 +32,6 @@ export class SwarmCollisionSystem implements System {
       io,
       recordDamage,
       checkSwarmCollisions,
-      playerLastDamageSource,
       activeSwarmDrains,
       getPlayerRadius,
       distance,
@@ -52,9 +51,12 @@ export class SwarmCollisionSystem implements System {
     tickData.damagedPlayerIds = damagedPlayerIds;
     tickData.slowedPlayerIds = slowedPlayerIds;
 
-    // Track damage source
+    // Track damage source in ECS
     for (const playerId of damagedPlayerIds) {
-      playerLastDamageSource.set(playerId, 'swarm');
+      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      if (damageTracking) {
+        damageTracking.lastDamageSource = 'swarm';
+      }
     }
 
     // Handle swarm consumption (multi-cells eating disabled swarms)

@@ -20,7 +20,7 @@ import type {
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
-import { initNutrientModule, getNutrients, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
+import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
 import {
@@ -53,6 +53,9 @@ import {
   Tags,
   buildAlivePlayersRecord,
   buildPlayersRecord,
+  buildNutrientsRecord,
+  getNutrientCount,
+  getAllNutrientSnapshots,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -63,6 +66,7 @@ import {
   getVelocityBySocketId,
   getSprintBySocketId,
   getCooldownsBySocketId,
+  getDamageTrackingBySocketId,
   isBotBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
@@ -73,6 +77,7 @@ import {
   addEnergyBySocketId,
   setInputBySocketId,
   setVelocityBySocketId,
+  setSprintBySocketId,
   type World,
   type EntityId,
   type EnergyComponent,
@@ -131,28 +136,13 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 const world: World = createWorld();
 
 // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
+// NOTE: playerSprintState migrated to ECS SprintComponent
 
-// Player sprint state (Stage 3+ ability - hold Shift to sprint)
-// Maps socket ID → boolean (is sprinting)
-const playerSprintState: Map<string, boolean> = new Map();
-
-// Track what last damaged each player (for death cause logging)
-// Maps player ID → damage source
-const playerLastDamageSource: Map<string, DeathCause> = new Map();
-
-// Track who fired the beam that last hit each player (for kill rewards)
-// Maps target player ID → shooter player ID
-const playerLastBeamShooter: Map<string, string> = new Map();
+// NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
 
 // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
-// Pseudopod cooldowns (prevent spam)
-// Maps player ID → timestamp of last pseudopod extension
-const playerPseudopodCooldowns: Map<string, number> = new Map();
-
-// EMP cooldowns (prevent spam)
-// Maps player ID → timestamp of last EMP use
-const playerEMPCooldowns: Map<string, number> = new Map();
+// NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
 
 // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
 
@@ -217,8 +207,13 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   if (result.closestHit) {
     const targetId = result.closestHit.playerId;
     applyDamageWithResistance(targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
-    playerLastDamageSource.set(targetId, 'beam');
-    playerLastBeamShooter.set(targetId, shooterId); // Track shooter for kill rewards
+
+    // Track damage source in ECS for death cause logging
+    const damageTracking = getDamageTrackingBySocketId(world, targetId);
+    if (damageTracking) {
+      damageTracking.lastDamageSource = 'beam';
+      damageTracking.lastBeamShooter = shooterId;
+    }
 
     const energyComp = getEnergyBySocketId(world, targetId);
     logger.info({
@@ -416,8 +411,7 @@ if (isPlayground) {
 // Initialize dev handler with game context
 initDevHandler({
   io,
-  world, // ECS World for direct component access
-  nutrients: getNutrients(),
+  world, // ECS World for direct component access (nutrients queried from ECS)
   obstacles,
   swarms: getSwarms(),
   spawnNutrientAt,
@@ -436,8 +430,7 @@ initDevHandler({
 const abilitySystem = new AbilitySystem({
   world, // ECS World (source of truth)
   io,
-  playerEMPCooldowns,
-  playerPseudopodCooldowns,
+  // NOTE: Cooldowns migrated to ECS CooldownsComponent
   getSwarms,
   checkBeamHitscan,
   applyDamageWithResistance,
@@ -488,19 +481,17 @@ function buildGameContext(deltaTime: number): GameContext {
     deltaTime,
 
     // Entity Collections (non-player state still in Maps)
-    nutrients: getNutrients(),
+    // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
     obstacles,
     getSwarms,
     // NOTE: Pseudopods migrated to ECS PseudopodComponent
     // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
+    // NOTE: playerSprintState migrated to ECS SprintComponent
 
     // Player State Maps (auxiliary data not yet in ECS)
-    playerSprintState,
-    playerLastDamageSource,
-    playerLastBeamShooter,
+    // NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
     pseudopodHitDecays,
-    playerEMPCooldowns,
-    playerPseudopodCooldowns,
+    // NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
 
     // Drain state (activeDrains moved to ECS DrainTargetComponent)
     activeSwarmDrains,
@@ -574,7 +565,7 @@ io.on('connection', (socket) => {
   const gameState: GameStateMessage = {
     type: 'gameState',
     players: buildAlivePlayersRecord(world),
-    nutrients: Object.fromEntries(getNutrients()),
+    nutrients: buildNutrientsRecord(world),
     obstacles: Object.fromEntries(obstacles),
     swarms: getSwarmsRecord(),
   };
@@ -645,8 +636,8 @@ io.on('connection', (socket) => {
     if (energyComp.current <= 0) return; // Dead players can't sprint
     if (stageComp.isEvolving) return; // Can't sprint while molting
 
-    // Update sprint state
-    playerSprintState.set(socket.id, message.sprinting);
+    // Update sprint state in ECS
+    setSprintBySocketId(world, socket.id, message.sprinting);
   });
 
   // ============================================
@@ -675,9 +666,7 @@ io.on('connection', (socket) => {
       ecsDestroyEntity(world, entity);
     }
 
-    // Remove from auxiliary state Maps
-    // NOTE: InputComponent and VelocityComponent removed by ecsDestroyEntity above
-    playerSprintState.delete(socket.id);
+    // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
 
     // Notify other players
     const leftMessage: PlayerLeftMessage = {
@@ -773,7 +762,7 @@ function calculateAggregateStats() {
     totalBots: stats.totalBots,
     aliveBots: stats.aliveBots,
     avgPlayerEnergy: stats.alivePlayers > 0 ? stats.totalEnergy / stats.alivePlayers : 0,
-    totalNutrients: getNutrients().size,
+    totalNutrients: getNutrientCount(world),
     stageDistribution: stats.stageDistribution,
   };
 }
@@ -814,7 +803,7 @@ function createGameStateSnapshot() {
   return {
     timestamp: Date.now(),
     players: playerSnapshots,
-    nutrients: Array.from(getNutrients().values()).map(n => ({
+    nutrients: getAllNutrientSnapshots(world).map(n => ({
       id: n.id,
       position: { x: n.position.x, y: n.position.y },
       value: n.value,

@@ -13,7 +13,7 @@ import {
   type DevConfigUpdatedMessage,
   type DevStateMessage,
   type Position,
-  type Nutrient,
+  type Nutrient,  // Still needed for spawnNutrientAt return type
   type EntropySwarm,
   type TunableConfigKey,
   type World,
@@ -29,7 +29,15 @@ import {
   getPositionBySocketId,
   forEachPlayer,
   hasPlayer,
+  // Nutrient ECS helpers
+  forEachNutrient,
+  getEntityByStringId,
+  destroyEntity,
+  getNutrientCount,
+  Tags,
+  Components,
 } from './ecs';
+import type { PositionComponent } from '@godcell/shared';
 
 // ============================================
 // Dev State
@@ -101,7 +109,7 @@ export function shouldRunTick(): boolean {
 interface DevContext {
   io: Server;
   world: World; // ECS World for direct component access (source of truth)
-  nutrients: Map<string, Nutrient>;
+  // NOTE: nutrients migrated to ECS - use forEachNutrient/getNutrientCount
   obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
   swarms: Map<string, EntropySwarm>;
   // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
@@ -259,8 +267,10 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
 
   switch (entityType) {
     case 'nutrient': {
-      const deleted = devContext.nutrients.delete(entityId);
-      if (deleted) {
+      // Find nutrient entity in ECS by string ID
+      const nutrientEntity = getEntityByStringId(entityId);
+      if (nutrientEntity !== undefined) {
+        destroyEntity(devContext.world, nutrientEntity);
         io.emit('nutrientCollected', { type: 'nutrientCollected', nutrientId: entityId, playerId: 'dev', collectorEnergy: 0, collectorMaxEnergy: 0 });
         logger.info({ event: 'dev_delete_nutrient', entityId });
       }
@@ -386,18 +396,26 @@ function handleStepTick(): void {
 function handleClearWorld(io: Server): void {
   if (!devContext) return;
 
-  // Clear all nutrients
-  const nutrientCount = devContext.nutrients.size;
-  for (const nutrientId of devContext.nutrients.keys()) {
+  // Clear all nutrients from ECS
+  const nutrientCount = getNutrientCount(devContext.world);
+  const nutrientsToDestroy: Array<{ entity: number; id: string }> = [];
+
+  // Collect all nutrients first (can't modify during iteration)
+  forEachNutrient(devContext.world, (entity, id) => {
+    nutrientsToDestroy.push({ entity, id });
+  });
+
+  // Destroy and broadcast
+  for (const { entity, id } of nutrientsToDestroy) {
+    destroyEntity(devContext.world, entity);
     io.emit('nutrientCollected', {
       type: 'nutrientCollected',
-      nutrientId,
+      nutrientId: id,
       playerId: 'dev',
       collectorEnergy: 0,
       collectorMaxEnergy: 0,
     });
   }
-  devContext.nutrients.clear();
 
   // Clear all swarms
   const swarmCount = devContext.swarms.size;
@@ -421,19 +439,22 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
   let nearestDist = MAX_DELETE_DISTANCE;
 
   if (entityType === 'nutrient') {
-    // Find nearest nutrient
-    for (const [id, nutrient] of devContext.nutrients.entries()) {
-      const dx = nutrient.position.x - position.x;
-      const dy = nutrient.position.y - position.y;
+    // Find nearest nutrient using ECS
+    let nearestEntity: number | null = null;
+
+    forEachNutrient(devContext.world, (entity, id, nutrientPos) => {
+      const dx = nutrientPos.x - position.x;
+      const dy = nutrientPos.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestId = id;
+        nearestEntity = entity;
       }
-    }
+    });
 
-    if (nearestId) {
-      devContext.nutrients.delete(nearestId);
+    if (nearestId && nearestEntity !== null) {
+      destroyEntity(devContext.world, nearestEntity);
       io.emit('nutrientCollected', {
         type: 'nutrientCollected',
         nutrientId: nearestId,

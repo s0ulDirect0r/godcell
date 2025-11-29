@@ -11,6 +11,7 @@ import {
   forEachObstacle,
   forEachPlayer,
   setEnergyBySocketId,
+  getDamageTrackingBySocketId,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -33,7 +34,7 @@ export class GravitySystem implements System {
   readonly name = 'GravitySystem';
 
   update(ctx: GameContext): void {
-    const { world, deltaTime, playerLastDamageSource, getSwarms } = ctx;
+    const { world, deltaTime, getSwarms } = ctx;
 
     // Apply gravity to players (iterate ECS directly)
     forEachPlayer(world, (entity, playerId) => {
@@ -75,7 +76,11 @@ export class GravitySystem implements System {
           logSingularityCrush(playerId, dist);
           // Use ECS setter to persist the change
           setEnergyBySocketId(world, playerId, 0); // Instant energy depletion
-          playerLastDamageSource.set(playerId, 'singularity');
+          // Track damage source in ECS for death cause logging
+          const damageTracking = getDamageTrackingBySocketId(world, playerId);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'singularity';
+          }
           return;
         }
 

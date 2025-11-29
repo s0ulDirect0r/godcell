@@ -12,6 +12,7 @@ import type {
   StunnedComponent,
   VelocityComponent,
   InputComponent,
+  SprintComponent,
 } from '@godcell/shared';
 import type { System } from './types';
 import type { GameContext } from './GameContext';
@@ -40,7 +41,6 @@ export class MovementSystem implements System {
   update(ctx: GameContext): void {
     const {
       world,
-      playerSprintState,
       tickData,
       deltaTime,
       io,
@@ -118,15 +118,15 @@ export class MovementSystem implements System {
       } else if (stage === EvolutionStage.CYBER_ORGANISM) {
         maxSpeed *= getConfig('CYBER_ORGANISM_MAX_SPEED_MULT');
 
-        // Sprint boost (Stage 3+)
-        const isSprinting = playerSprintState.get(playerId);
-        if (isSprinting && energyComponent.current > energyComponent.max * 0.2) {
+        // Sprint boost (Stage 3+) - read directly from ECS SprintComponent
+        const sprintComponent = world.getComponent<SprintComponent>(entity, Components.Sprint);
+        if (sprintComponent?.isSprinting && energyComponent.current > energyComponent.max * 0.2) {
           maxSpeed *= getConfig('CYBER_ORGANISM_SPRINT_SPEED_MULT');
           // Deduct sprint energy cost - write to ECS component directly
           energyComponent.current -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
-        } else if (isSprinting) {
-          // Auto-disable sprint when energy too low
-          playerSprintState.set(playerId, false);
+        } else if (sprintComponent?.isSprinting) {
+          // Auto-disable sprint when energy too low - write to ECS component directly
+          sprintComponent.isSprinting = false;
         }
       }
       // TODO: HUMANOID and GODCELL max speed
