@@ -97,11 +97,13 @@ export class NetworkBroadcastSystem implements System {
     const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};
 
     for (const [playerId, damages] of activeDamage) {
+      if (damages.length === 0) continue; // Defensive check
+
       // Sum total damage rate
       const totalDamageRate = damages.reduce((sum, d) => sum + d.damageRate, 0);
 
-      // Find dominant source (highest damage)
-      const sorted = damages.sort((a, b) => b.damageRate - a.damageRate);
+      // Find dominant source (highest damage) - use spread to avoid mutating shared state
+      const sorted = [...damages].sort((a, b) => b.damageRate - a.damageRate);
       const primarySource = sorted[0].source;
 
       // Average proximity factors for gravity (if any)

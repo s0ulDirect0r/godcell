@@ -69,7 +69,7 @@ export function getEnergyDecayRate(stage: EvolutionStage): number {
     case EvolutionStage.HUMANOID:
       return getConfig('HUMANOID_ENERGY_DECAY_RATE');
     case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
+      return getConfig('GODCELL_ENERGY_DECAY_RATE');
   }
 }
 

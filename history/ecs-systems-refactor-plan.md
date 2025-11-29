@@ -2,7 +2,7 @@
 
 ---
 
-## STATUS (as of 2024-11-29)
+## STATUS (as of 2025-11-29)
 
 **Branch**: `feature/ecs-systems-refactor`
 **PR**: #61 (open, against main)

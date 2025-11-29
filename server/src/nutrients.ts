@@ -33,6 +33,15 @@ export function initNutrientModule(ecsWorld: World, socketIo: Server): void {
 }
 
 /**
+ * Guard function to ensure module is initialized before use
+ */
+function assertInitialized(): void {
+  if (!world || !io) {
+    throw new Error('Nutrient module not initialized. Call initNutrientModule first.');
+  }
+}
+
+/**
  * Get the nutrients Map (for GameContext and other modules)
  */
 export function getNutrients(): Map<string, Nutrient> {
@@ -49,6 +58,7 @@ export function getNutrients(): Map<string, Nutrient> {
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
  */
 export function spawnNutrient(emitEvent: boolean = false): Nutrient {
+  assertInitialized();
   const padding = 100;
   const maxAttempts = 20;
   let attempts = 0;
@@ -82,7 +92,7 @@ export function spawnNutrient(emitEvent: boolean = false): Nutrient {
 
   // Log warning if we had to use fallback
   if (attempts >= maxAttempts) {
-    logger.warn('Could not find safe nutrient spawn position after max attempts, using fallback');
+    logger.warn({ event: 'nutrient_spawn_fallback', attempts: maxAttempts }, 'Could not find safe nutrient spawn position after max attempts, using fallback');
   }
 
   return spawnNutrientAt(position, undefined, emitEvent);
@@ -95,6 +105,7 @@ export function spawnNutrient(emitEvent: boolean = false): Nutrient {
  * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
  */
 export function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEvent: boolean = false): Nutrient {
+  assertInitialized();
   // Calculate nutrient value based on proximity to obstacles (gradient system)
   // Or use override multiplier if provided (dev tool)
   const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position, world);
@@ -138,6 +149,12 @@ export function spawnNutrientAt(position: Position, overrideMultiplier?: number,
  * Schedule a nutrient to respawn after delay
  */
 export function respawnNutrient(nutrientId: string): void {
+  // Clear any existing timer for this nutrient to prevent leaks
+  const existingTimer = nutrientRespawnTimers.get(nutrientId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
   const timer = setTimeout(() => {
     spawnNutrient(true); // emitEvent=true for spawn animations
     nutrientRespawnTimers.delete(nutrientId);
@@ -151,6 +168,7 @@ export function respawnNutrient(nutrientId: string): void {
  * Ensures even distribution while allowing clustering near obstacles for risk/reward
  */
 export function initializeNutrients(obstacles: Map<string, Obstacle>): void {
+  assertInitialized();
   const MIN_NUTRIENT_SEPARATION = 200; // Good visual spacing across the map
   const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
 
@@ -185,6 +203,10 @@ export function initializeNutrients(obstacles: Map<string, Obstacle>): void {
   logNutrientsSpawned(nutrients.size);
 
   if (nutrients.size < GAME_CONFIG.NUTRIENT_COUNT) {
-    logger.warn(`Only placed ${nutrients.size}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
+    logger.warn({
+      event: 'nutrient_init_incomplete',
+      placed: nutrients.size,
+      target: GAME_CONFIG.NUTRIENT_COUNT,
+    }, `Only placed ${nutrients.size}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
   }
 }
