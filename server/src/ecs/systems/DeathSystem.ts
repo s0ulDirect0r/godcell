@@ -15,6 +15,8 @@ import {
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
+  getDrainPredatorId,
+  clearDrainTarget,
   type EnergyComponent,
 } from '../index';
 import { isBot, handleBotDeath } from '../../bots';
@@ -39,7 +41,6 @@ export class DeathSystem implements System {
       io,
       playerLastDamageSource,
       playerLastBeamShooter,
-      activeDrains,
     } = ctx;
 
     forEachPlayer(world, (entity, playerId) => {
@@ -58,7 +59,7 @@ export class DeathSystem implements System {
 
         // Handle predation kill rewards (contact drain)
         if (cause === 'predation') {
-          const predatorId = activeDrains.get(player.id);
+          const predatorId = getDrainPredatorId(world, player.id);
           if (predatorId) {
             const predatorEnergy = getEnergyBySocketId(world, predatorId);
             if (predatorEnergy) {
@@ -86,7 +87,7 @@ export class DeathSystem implements System {
               });
             }
             // Clear drain tracking
-            activeDrains.delete(player.id);
+            clearDrainTarget(world, player.id);
           }
         }
 

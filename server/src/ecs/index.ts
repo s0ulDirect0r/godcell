@@ -83,6 +83,12 @@ export {
   // Obstacle query helpers
   forEachObstacle,
   getObstacleZones,
+  // DrainTarget helpers (prey-predator drain relationships)
+  setDrainTarget,
+  clearDrainTarget,
+  hasDrainTarget,
+  getDrainPredatorId,
+  forEachDrainTarget,
 } from './factories';
 export type { PlayerSnapshot } from './factories';
 

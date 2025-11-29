@@ -25,6 +25,7 @@ import type {
   StunnedComponent,
   CooldownsComponent,
   DamageTrackingComponent,
+  DrainTargetComponent,
   NutrientComponent,
   ObstacleComponent,
   SwarmComponent,
@@ -57,6 +58,7 @@ export function createWorld(): World {
   world.registerStore<StunnedComponent>(Components.Stunned, new ComponentStore());
   world.registerStore<CooldownsComponent>(Components.Cooldowns, new ComponentStore());
   world.registerStore<DamageTrackingComponent>(Components.DamageTracking, new ComponentStore());
+  world.registerStore<DrainTargetComponent>(Components.DrainTarget, new ComponentStore());
   world.registerStore<NutrientComponent>(Components.Nutrient, new ComponentStore());
   world.registerStore<ObstacleComponent>(Components.Obstacle, new ComponentStore());
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
@@ -936,4 +938,98 @@ export function getObstacleZones(
     zones.push({ position, radius: obstacle.radius });
   });
   return zones;
+}
+
+// ============================================
+// DrainTarget Helpers
+// Manages prey-predator drain relationships via ECS component
+// ============================================
+
+/**
+ * Set a drain target on prey entity (when predator starts draining).
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey being drained
+ * @param predatorSocketId Socket ID of the predator doing the draining
+ * @returns true if drain was set, false if entities not found
+ */
+export function setDrainTarget(
+  world: World,
+  preySocketId: string,
+  predatorSocketId: string
+): boolean {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  const predatorEntity = getEntityBySocketId(predatorSocketId);
+  if (preyEntity === undefined || predatorEntity === undefined) return false;
+
+  world.addComponent<DrainTargetComponent>(preyEntity, Components.DrainTarget, {
+    predatorId: predatorEntity,
+  });
+  return true;
+}
+
+/**
+ * Clear drain target from prey entity (when drain ends).
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey
+ */
+export function clearDrainTarget(world: World, preySocketId: string): void {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return;
+
+  world.removeComponent(preyEntity, Components.DrainTarget);
+}
+
+/**
+ * Check if an entity is currently being drained.
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the potential prey
+ * @returns true if entity has a DrainTarget component
+ */
+export function hasDrainTarget(world: World, preySocketId: string): boolean {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return false;
+
+  return world.hasComponent(preyEntity, Components.DrainTarget);
+}
+
+/**
+ * Get the predator socket ID that is draining the given prey.
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey
+ * @returns Predator socket ID, or undefined if not being drained
+ */
+export function getDrainPredatorId(
+  world: World,
+  preySocketId: string
+): string | undefined {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return undefined;
+
+  const drainComp = world.getComponent<DrainTargetComponent>(
+    preyEntity,
+    Components.DrainTarget
+  );
+  if (!drainComp) return undefined;
+
+  return getSocketIdByEntity(drainComp.predatorId);
+}
+
+/**
+ * Iterate over all entities that have a DrainTarget component.
+ * Callback receives prey socket ID and predator socket ID.
+ */
+export function forEachDrainTarget(
+  world: World,
+  callback: (preySocketId: string, predatorSocketId: string) => void
+): void {
+  const store = world.getStore<DrainTargetComponent>(Components.DrainTarget);
+  if (!store) return;
+
+  for (const [entity, drainComp] of store.entries()) {
+    const preySocketId = getSocketIdByEntity(entity);
+    const predatorSocketId = getSocketIdByEntity(drainComp.predatorId);
+    if (preySocketId && predatorSocketId) {
+      callback(preySocketId, predatorSocketId);
+    }
+  }
 }

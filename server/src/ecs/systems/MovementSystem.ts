@@ -8,7 +8,7 @@ import type { PlayerMovedMessage, EnergyComponent, PositionComponent, StageCompo
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { getConfig } from '../../dev';
-import { getSocketIdByEntity } from '../factories';
+import { getSocketIdByEntity, hasDrainTarget } from '../factories';
 
 /**
  * MovementSystem - Handles all player movement
@@ -35,7 +35,6 @@ export class MovementSystem implements System {
       playerVelocities,
       playerInputDirections,
       playerSprintState,
-      activeDrains,
       tickData,
       deltaTime,
       io,
@@ -98,7 +97,7 @@ export class MovementSystem implements System {
       }
 
       // Contact drain slow debuff
-      if (activeDrains.has(playerId)) {
+      if (hasDrainTarget(world, playerId)) {
         acceleration *= 0.5;
       }
 
@@ -133,7 +132,7 @@ export class MovementSystem implements System {
       if (slowedPlayerIds.has(playerId)) {
         maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
       }
-      if (activeDrains.has(playerId)) {
+      if (hasDrainTarget(world, playerId)) {
         maxSpeed *= 0.5;
       }
 

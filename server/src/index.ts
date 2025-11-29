@@ -164,9 +164,7 @@ const playerPseudopodCooldowns: Map<string, number> = new Map();
 // Maps player ID → timestamp of last EMP use
 const playerEMPCooldowns: Map<string, number> = new Map();
 
-// Active energy drains (multi-cell draining prey on contact)
-// Maps prey ID → predator ID
-const activeDrains: Map<string, string> = new Map();
+// NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
 
 // Active swarm consumption (multi-cells eating disabled swarms)
 // Set of swarm IDs currently being consumed
@@ -528,8 +526,7 @@ function buildGameContext(deltaTime: number): GameContext {
     playerEMPCooldowns,
     playerPseudopodCooldowns,
 
-    // Drain state
-    activeDrains, // Map<preyId, predatorId> - see godcell-5nc for ECS migration
+    // Drain state (activeDrains moved to ECS DrainTargetComponent)
     activeSwarmDrains,
     lastBroadcastedDrains,
     activeDamage: activeDamageThisTick,

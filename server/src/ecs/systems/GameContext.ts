@@ -79,8 +79,7 @@ export interface GameContext {
   playerPseudopodCooldowns: Map<string, number>;
 
   // Drain state tracking
-  // NOTE: This should be an ECS component, not a Map. See godcell-5nc
-  activeDrains: Map<string, string>; // Map of prey ID -> predator ID
+  // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
   activeSwarmDrains: Set<string>;
   lastBroadcastedDrains: Set<string>;
 

@@ -13,6 +13,9 @@ import {
   setEnergyBySocketId,
   addEnergyBySocketId,
   getEntityBySocketId,
+  setDrainTarget,
+  clearDrainTarget,
+  forEachDrainTarget,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -42,7 +45,6 @@ export class PredationSystem implements System {
       io,
       deltaTime,
       playerLastDamageSource,
-      activeDrains,
       recordDamage,
     } = ctx;
 
@@ -98,7 +100,7 @@ export class PredationSystem implements System {
           currentDrains.add(preyId);
 
           // Track which predator is draining this prey (for kill credit)
-          activeDrains.set(preyId, predatorId);
+          setDrainTarget(world, preyId, predatorId);
 
           // Mark damage source for death tracking
           playerLastDamageSource.set(preyId, 'predation');
@@ -115,11 +117,11 @@ export class PredationSystem implements System {
     });
 
     // Clear drains for prey that escaped contact this tick
-    for (const [preyId, _predatorId] of activeDrains) {
+    forEachDrainTarget(world, (preyId, _predatorId) => {
       if (!currentDrains.has(preyId)) {
-        activeDrains.delete(preyId);
+        clearDrainTarget(world, preyId);
       }
-    }
+    });
   }
 
   /**
