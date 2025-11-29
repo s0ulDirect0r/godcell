@@ -615,3 +615,150 @@ export function buildPlayersRecord(world: World): Record<string, Player> {
 
   return result;
 }
+
+/**
+ * Build the legacy players Record with only alive players (energy > 0).
+ * Used for initial game state broadcast.
+ */
+export function buildAlivePlayersRecord(world: World): Record<string, Player> {
+  const result: Record<string, Player> = {};
+
+  world.forEachWithTag(Tags.Player, (entity) => {
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    if (!energy || energy.current <= 0) return;
+
+    const legacyPlayer = entityToLegacyPlayer(world, entity);
+    if (legacyPlayer) {
+      result[legacyPlayer.id] = legacyPlayer;
+    }
+  });
+
+  return result;
+}
+
+// ============================================
+// Direct Component Access by Socket ID
+// For game logic that needs to read/write specific component values
+// ============================================
+
+/**
+ * Get a legacy Player object by socket ID.
+ * Returns null if not found or dead.
+ */
+export function getPlayerBySocketId(world: World, socketId: string): Player | null {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return null;
+  return entityToLegacyPlayer(world, entity);
+}
+
+/**
+ * Check if a player exists by socket ID.
+ */
+export function hasPlayer(world: World, socketId: string): boolean {
+  const entity = getEntityBySocketId(socketId);
+  return entity !== undefined && world.hasTag(entity, Tags.Player);
+}
+
+/**
+ * Get player's energy component by socket ID.
+ * Returns undefined if not found.
+ */
+export function getEnergyBySocketId(
+  world: World,
+  socketId: string
+): EnergyComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<EnergyComponent>(entity, Components.Energy);
+}
+
+/**
+ * Get player's position component by socket ID.
+ */
+export function getPositionBySocketId(
+  world: World,
+  socketId: string
+): PositionComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<PositionComponent>(entity, Components.Position);
+}
+
+/**
+ * Get player's stage component by socket ID.
+ */
+export function getStageBySocketId(
+  world: World,
+  socketId: string
+): StageComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<StageComponent>(entity, Components.Stage);
+}
+
+/**
+ * Get player's velocity component by socket ID.
+ */
+export function getVelocityBySocketId(
+  world: World,
+  socketId: string
+): VelocityComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<VelocityComponent>(entity, Components.Velocity);
+}
+
+/**
+ * Get player's sprint component by socket ID.
+ */
+export function getSprintBySocketId(
+  world: World,
+  socketId: string
+): SprintComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<SprintComponent>(entity, Components.Sprint);
+}
+
+/**
+ * Get player's stunned component by socket ID.
+ */
+export function getStunnedBySocketId(
+  world: World,
+  socketId: string
+): StunnedComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<StunnedComponent>(entity, Components.Stunned);
+}
+
+/**
+ * Get player's cooldowns component by socket ID.
+ */
+export function getCooldownsBySocketId(
+  world: World,
+  socketId: string
+): CooldownsComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+}
+
+/**
+ * Check if player is a bot by socket ID.
+ */
+export function isBotBySocketId(world: World, socketId: string): boolean {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return false;
+  return world.hasTag(entity, Tags.Bot);
+}
+
+/**
+ * Delete player entity by socket ID.
+ */
+export function deletePlayerBySocketId(world: World, socketId: string): void {
+  const entity = getEntityBySocketId(socketId);
+  if (entity) {
+    destroyEntity(world, entity);
+  }
+}

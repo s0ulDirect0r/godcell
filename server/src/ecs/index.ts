@@ -58,6 +58,19 @@ export {
   getPlayerSnapshot,
   entityToLegacyPlayer,
   buildPlayersRecord,
+  buildAlivePlayersRecord,
+  // Direct component access by socket ID
+  getPlayerBySocketId,
+  hasPlayer,
+  getEnergyBySocketId,
+  getPositionBySocketId,
+  getStageBySocketId,
+  getVelocityBySocketId,
+  getSprintBySocketId,
+  getStunnedBySocketId,
+  getCooldownsBySocketId,
+  isBotBySocketId,
+  deletePlayerBySocketId,
 } from './factories';
 export type { PlayerSnapshot } from './factories';
 

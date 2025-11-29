@@ -99,7 +99,7 @@ interface DevContext {
   spawnSwarmAt: (io: Server, position: Position) => EntropySwarm;
   spawnBotAt: (position: Position, stage: EvolutionStage) => string;
   removeBotPermanently: (botId: string) => boolean;
-  respawnPlayer: (player: Player) => void;
+  respawnPlayer: (playerId: string) => void;
   getStageEnergy: (stage: EvolutionStage) => { energy: number; maxEnergy: number };
   getPlayerRadius: (stage: EvolutionStage) => number;
 }
