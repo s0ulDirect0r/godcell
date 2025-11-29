@@ -173,7 +173,6 @@ export interface GameContext {
     applyDamage?: (player: Player, baseDamage: number) => number
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
   respawnNutrient: (nutrientId: string) => void;
-  handlePlayerDeath: (player: Player, cause: DeathCause) => void;
   removeSwarm: (swarmId: string) => void;
 }
 

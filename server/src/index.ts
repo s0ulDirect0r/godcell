@@ -14,12 +14,10 @@ import type {
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
-  EnergyUpdateMessage,
-  PlayerDiedMessage,
   PlayerRespawnedMessage,
   EMPActivateMessage,
 } from '@godcell/shared';
-import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
+import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
 import { initNutrientModule, getNutrients, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
@@ -30,7 +28,6 @@ import {
   logServerStarted,
   logPlayerConnected,
   logPlayerDisconnected,
-  logPlayerDeath,
   logPlayerRespawn,
   logObstaclesSpawned,
   logAggregateStats,
@@ -40,7 +37,6 @@ import {
   maybeLogNutrientCollectionStats,
   maybeLogLifetimeStats,
   recordSpawn,
-  recordLifetimeDeath,
 } from './logger';
 
 // ECS - Entity Component System
@@ -345,103 +341,6 @@ function applyDamageWithResistance(player: Player, baseDamage: number): number {
 }
 
 /**
- * Handle player death - broadcast death event with cause
- * Bots auto-respawn, human players wait for manual respawn
- */
-function handlePlayerDeath(player: Player, cause: DeathCause) {
-  // Handle predation rewards before death (contact drain)
-  if (cause === 'predation') {
-    const predatorId = activeDrains.get(player.id);
-    if (predatorId) {
-      const predator = players.get(predatorId);
-      if (predator) {
-        // Calculate reward based on victim stage
-        let maxEnergyGain = 0;
-        if (player.stage === EvolutionStage.SINGLE_CELL) {
-          // Killing single-cell: 30% of maxEnergy
-          maxEnergyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
-        } else {
-          // Killing multi-cell: 80% of maxEnergy (huge reward)
-          maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
-        }
-
-        // Award maxEnergy increase to predator (write to ECS)
-        setMaxEnergyBySocketId(world, predatorId, predator.maxEnergy + maxEnergyGain);
-        // Clamp current energy to new max (addEnergy with 0 does this)
-        addEnergyBySocketId(world, predatorId, 0);
-
-        logger.info({
-          event: 'predation_kill',
-          predatorId,
-          victimId: player.id,
-          victimStage: player.stage,
-          maxEnergyGained: maxEnergyGain.toFixed(1),
-        });
-      }
-      // Clear drain tracking
-      activeDrains.delete(player.id);
-    }
-  }
-
-  // Handle beam kill rewards (pseudopod)
-  if (cause === 'beam') {
-    const shooterId = playerLastBeamShooter.get(player.id);
-    if (shooterId) {
-      const shooter = players.get(shooterId);
-      if (shooter) {
-        // Only multi-cells can be killed by beams, always award 80%
-        const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
-
-        // Award maxEnergy increase AND current energy to shooter (write to ECS)
-        const newMaxEnergy = shooter.maxEnergy + maxEnergyGain;
-        setMaxEnergyBySocketId(world, shooterId, newMaxEnergy);
-        const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
-        addEnergyBySocketId(world, shooterId, energyGain);
-
-        logger.info({
-          event: 'beam_kill',
-          shooterId,
-          victimId: player.id,
-          victimStage: player.stage,
-          maxEnergyGained: maxEnergyGain.toFixed(1),
-          energyGained: energyGain.toFixed(1),
-        });
-      }
-      // Clear beam shooter tracking
-      playerLastBeamShooter.delete(player.id);
-    }
-  }
-
-  // Send final energy update showing 0 before death message
-  const finalEnergyUpdate: EnergyUpdateMessage = {
-    type: 'energyUpdate',
-    playerId: player.id,
-    energy: 0, // Ensure client sees energy at 0
-  };
-  io.emit('energyUpdate', finalEnergyUpdate);
-
-  // Record death for lifetime stats
-  recordLifetimeDeath(cause);
-
-  // Broadcast death event (for dilution effect)
-  const deathMessage: PlayerDiedMessage = {
-    type: 'playerDied',
-    playerId: player.id,
-    position: { ...player.position },
-    color: player.color,
-    cause: cause as 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation',
-  };
-  io.emit('playerDied', deathMessage);
-
-  // Auto-respawn bots after delay
-  if (isBot(player.id)) {
-    handleBotDeath(player.id, cause, io, players, playerInputDirections, playerVelocities);
-  } else {
-    logPlayerDeath(player.id, cause);
-  }
-}
-
-/**
  * Respawn a dead player - reset to single-cell at random location
  * Uses ECS as source of truth.
  */
@@ -680,7 +579,6 @@ function buildGameContext(deltaTime: number): GameContext {
     processSwarmRespawns,
     checkSwarmCollisions,
     respawnNutrient,
-    handlePlayerDeath,
     removeSwarm,
   };
 }
