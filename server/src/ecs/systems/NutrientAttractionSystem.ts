@@ -27,7 +27,8 @@ export class NutrientAttractionSystem implements System {
     const { world, io, deltaTime, respawnNutrient } = ctx;
 
     // Collect nutrients to destroy after iteration (can't modify during iteration)
-    const nutrientsToDestroy: Array<{ entity: number; id: string }> = [];
+    // Use Map to dedupe - nutrient may be near multiple obstacles
+    const nutrientsToDestroy = new Map<number, string>(); // entity -> id
 
     // Iterate all nutrient entities
     world.forEachWithTag(Tags.Nutrient, (nutrientEntity) => {
@@ -66,14 +67,14 @@ export class NutrientAttractionSystem implements System {
 
           // Check if nutrient reached center (destroyed by distortion)
           if (dist < 20) {
-            nutrientsToDestroy.push({ entity: nutrientEntity, id: nutrientId });
+            nutrientsToDestroy.set(nutrientEntity, nutrientId);
           }
         }
       });
     });
 
     // Destroy nutrients that reached obstacle centers
-    for (const { entity, id } of nutrientsToDestroy) {
+    for (const [entity, id] of nutrientsToDestroy) {
       ecsDestroyEntity(world, entity);
 
       // Broadcast as "collected" by obstacle (special playerId)

@@ -263,6 +263,7 @@ export function createPlayer(
     direction: { x: 0, y: 0 },
   });
   world.addComponent<CooldownsComponent>(entity, Components.Cooldowns, {});
+  world.addComponent<StunnedComponent>(entity, Components.Stunned, { until: 0 });
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
     activeDamage: [],
   });
@@ -1373,11 +1374,6 @@ export function getAllSwarmSnapshots(world: World): SwarmSnapshot[] {
     const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
     const id = getStringIdByEntity(entity);
     if (pos && vel && swarm && energy && id) {
-      // Convert targetPlayerId from EntityId to socket ID
-      let targetPlayerId: string | undefined;
-      if (swarm.targetPlayerId !== undefined) {
-        targetPlayerId = getSocketIdByEntity(swarm.targetPlayerId);
-      }
       snapshots.push({
         entity,
         id,
@@ -1385,7 +1381,7 @@ export function getAllSwarmSnapshots(world: World): SwarmSnapshot[] {
         velocity: { x: vel.x, y: vel.y },
         size: swarm.size,
         state: swarm.state,
-        targetPlayerId,
+        targetPlayerId: swarm.targetPlayerId,
         patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
         homePosition: { ...swarm.homePosition },
         disabledUntil: swarm.disabledUntil,
@@ -1468,18 +1464,13 @@ export function buildSwarmsRecord(world: World): Record<string, {
     const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
     const id = getStringIdByEntity(entity);
     if (pos && vel && swarm && energy && id) {
-      // Convert targetPlayerId from EntityId to socket ID
-      let targetPlayerId: string | undefined;
-      if (swarm.targetPlayerId !== undefined) {
-        targetPlayerId = getSocketIdByEntity(swarm.targetPlayerId);
-      }
       result[id] = {
         id,
         position: { x: pos.x, y: pos.y },
         velocity: { x: vel.x, y: vel.y },
         size: swarm.size,
         state: swarm.state,
-        targetPlayerId,
+        targetPlayerId: swarm.targetPlayerId,
         patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
         disabledUntil: swarm.disabledUntil,
         energy: energy.current,

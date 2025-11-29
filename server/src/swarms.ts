@@ -325,9 +325,9 @@ export function updateSwarms(
 
     if (nearestPlayer) {
       // CHASE: Player detected within range
-      if (swarmComp.state !== 'chase' || swarmComp.targetPlayerId !== nearestPlayer.entityId) {
+      if (swarmComp.state !== 'chase' || swarmComp.targetPlayerId !== nearestPlayer.id) {
         swarmComp.state = 'chase';
-        swarmComp.targetPlayerId = nearestPlayer.entityId;
+        swarmComp.targetPlayerId = nearestPlayer.id;
         swarmComp.patrolTarget = undefined;
       }
 

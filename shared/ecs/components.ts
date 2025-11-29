@@ -155,7 +155,7 @@ export interface ObstacleComponent {
 export interface SwarmComponent {
   size: number;                    // Radius for collision detection
   state: 'patrol' | 'chase';       // Current AI state
-  targetPlayerId?: number;         // EntityId being chased (if state === 'chase')
+  targetPlayerId?: string;         // Socket ID being chased (if state === 'chase')
   patrolTarget?: Position;         // Where swarm is wandering toward
   homePosition: Position;          // Spawn point (for patrol radius)
   disabledUntil?: number;          // Timestamp when EMP stun expires

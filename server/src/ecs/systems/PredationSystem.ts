@@ -120,11 +120,16 @@ export class PredationSystem implements System {
     });
 
     // Clear drains for prey that escaped contact this tick
+    // Collect first, then clear - can't modify Map during iteration
+    const escapedPreyIds: string[] = [];
     forEachDrainTarget(world, (preyId, _predatorId) => {
       if (!currentDrains.has(preyId)) {
-        clearDrainTarget(world, preyId);
+        escapedPreyIds.push(preyId);
       }
     });
+    for (const preyId of escapedPreyIds) {
+      clearDrainTarget(world, preyId);
+    }
   }
 
   /**
