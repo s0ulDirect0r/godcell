@@ -71,6 +71,10 @@ export interface GameContext {
   playerInputDirections: Map<string, { x: number; y: number }>;
   playerSprintState: Map<string, boolean>;
   playerLastDamageSource: Map<string, DeathCause>;
+  // NOTE: Should be ECS component. See godcell epic for ECS migration
+  playerLastBeamShooter: Map<string, string>; // Map of victim ID -> shooter ID
+  // NOTE: Should be ECS component (damage decay on entity)
+  pseudopodHitDecays: Map<string, { rate: number; expiresAt: number }>;
 
   // Cooldown tracking
   playerEMPCooldowns: Map<string, number>;
@@ -158,7 +162,6 @@ export interface GameContext {
   ) => void;
   updateSwarmPositions: (deltaTime: number, io: Server) => void;
   processSwarmRespawns: (io: Server) => void;
-  updatePseudopods: (deltaTime: number, io: Server) => void;
   checkSwarmCollisions: (
     players: Map<string, Player>,
     deltaTime: number,
