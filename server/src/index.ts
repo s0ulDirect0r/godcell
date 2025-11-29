@@ -825,7 +825,13 @@ function applyDamageWithResistance(player: Player, baseDamage: number): number {
 
   const resistance = getDamageResistance(player.stage);
   const actualDamage = baseDamage * (1 - resistance);
-  player.energy -= actualDamage;
+
+  // Write damage to ECS (not the cached player object)
+  const energyComp = getEnergyBySocketId(world, player.id);
+  if (energyComp) {
+    energyComp.current -= actualDamage;
+  }
+
   return actualDamage;
 }
 
@@ -1103,9 +1109,10 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
       // Check if swarm died
       if (swarm.energy <= 0) {
-        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss)
-        shooter.maxEnergy += GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
+        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss) - write to ECS
+        const newMaxEnergy = shooter.maxEnergy + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+        setMaxEnergyBySocketId(world, beam.ownerId, newMaxEnergy);
+        addEnergyBySocketId(world, beam.ownerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
 
         // Remove swarm
         getSwarms().delete(swarmId);
@@ -1144,10 +1151,11 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   // Calculate rewards (gain % of victim's maxEnergy)
   const energyGain = prey.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
-  predator.energy = Math.min(predator.maxEnergy, predator.energy + energyGain);
+  // Write to ECS (not the cached player object)
+  addEnergyBySocketId(world, predatorId, energyGain);
 
   // Kill prey (energy-only: set energy to 0)
-  prey.energy = 0;
+  setEnergyBySocketId(world, preyId, 0);
   playerLastDamageSource.set(preyId, 'predation');
 
   // Broadcast engulfment
@@ -1220,7 +1228,16 @@ function checkPredationCollisions(deltaTime: number) {
         // Contact! Drain energy from prey (energy-only system)
         // Predation bypasses damage resistance - being engulfed is inescapable
         const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
-        prey.energy -= damage;
+
+        // Write damage to ECS (not the cached player object)
+        const preyEnergyComp = getEnergyBySocketId(world, preyId);
+        if (preyEnergyComp) {
+          preyEnergyComp.current -= damage;
+        }
+
+        // Transfer drained energy to predator
+        addEnergyBySocketId(world, predatorId, damage);
+
         currentDrains.add(preyId);
 
         // Track which predator is draining this prey (for kill credit)
@@ -1407,9 +1424,10 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
           maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
         }
 
-        // Award maxEnergy increase to predator
-        predator.maxEnergy += maxEnergyGain;
-        predator.energy = Math.min(predator.maxEnergy, predator.energy); // Clamp current energy
+        // Award maxEnergy increase to predator (write to ECS)
+        setMaxEnergyBySocketId(world, predatorId, predator.maxEnergy + maxEnergyGain);
+        // Clamp current energy to new max (addEnergy with 0 does this)
+        addEnergyBySocketId(world, predatorId, 0);
 
         logger.info({
           event: 'predation_kill',
@@ -1433,10 +1451,11 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
         // Only multi-cells can be killed by beams, always award 80%
         const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
 
-        // Award maxEnergy increase AND current energy to shooter
-        shooter.maxEnergy += maxEnergyGain;
+        // Award maxEnergy increase AND current energy to shooter (write to ECS)
+        const newMaxEnergy = shooter.maxEnergy + maxEnergyGain;
+        setMaxEnergyBySocketId(world, shooterId, newMaxEnergy);
         const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
-        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + energyGain);
+        addEnergyBySocketId(world, shooterId, energyGain);
 
         logger.info({
           event: 'beam_kill',

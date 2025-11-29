@@ -426,12 +426,10 @@ export function checkSwarmCollisions(
 
       if (dist < collisionDist) {
         // Deal damage over time (death handled by checkPlayerDeaths)
-        // Use applyDamage callback if provided (applies stage-based resistance)
+        // applyDamage writes to ECS - must be provided for damage to work
         const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
         if (applyDamage) {
           applyDamage(player, baseDamage);
-        } else {
-          player.energy -= baseDamage; // Fallback: raw damage
         }
         damagedPlayerIds.add(player.id);
 
