@@ -38,6 +38,7 @@ import {
   removePseudopod as ecsRemovePseudopod,
   setPlayerDamageInfo,
   clearPlayerDamageInfo,
+  type VelocityComponent,
   setSwarmDamageInfo,
   clearLookups,
   getStringIdByEntity,
@@ -186,13 +187,14 @@ export class GameState {
       if (!beamId) return;
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const vel = this.world.getComponent<VelocityComponent>(entity, Components.Velocity);
       const beam = this.world.getComponent<PseudopodComponent>(entity, Components.Pseudopod);
       if (pos && beam) {
         result.set(beamId, {
           id: beamId,
           ownerId: beam.ownerSocketId,
           position: { x: pos.x, y: pos.y },
-          velocity: { x: 0, y: 0 }, // Client doesn't need velocity
+          velocity: vel ? { x: vel.x, y: vel.y } : { x: 0, y: 0 },
           width: beam.width,
           maxDistance: beam.maxDistance,
           distanceTraveled: beam.distanceTraveled,
