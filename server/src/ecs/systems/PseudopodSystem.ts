@@ -9,9 +9,16 @@ import type { Position, Pseudopod, PseudopodMovedMessage, PseudopodRetractedMess
 import { GAME_CONFIG } from '@godcell/shared';
 import {
   getEntityByStringId,
+  getEntityBySocketId,
   destroyEntity as ecsDestroyEntity,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
+  forEachPlayer,
+  Components,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
+  type StunnedComponent,
 } from '../index';
 import { distance, rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
@@ -26,8 +33,6 @@ import { getPlayerRadius, isSoupStage } from '../../helpers';
  * - Collision detection with players and swarms
  * - Hitscan mode instant collision
  * - Damage application and kill credit tracking
- *
- * TODO Phase 5: Replace players Map iteration with ECS iteration
  */
 export class PseudopodSystem implements System {
   readonly name = 'PseudopodSystem';
@@ -85,7 +90,6 @@ export class PseudopodSystem implements System {
     const {
       world,
       io,
-      players,
       pseudopodHits,
       playerLastDamageSource,
       playerLastBeamShooter,
@@ -94,11 +98,15 @@ export class PseudopodSystem implements System {
       applyDamageWithResistance,
     } = ctx;
 
-    const shooter = players.get(beam.ownerId);
-    if (!shooter) return false;
+    // Get shooter stage from ECS
+    const shooterEntity = getEntityBySocketId(beam.ownerId);
+    if (shooterEntity === undefined) return false;
+    const shooterStage = world.getComponent<StageComponent>(shooterEntity, Components.Stage);
+    const shooterEnergy = world.getComponent<EnergyComponent>(shooterEntity, Components.Energy);
+    if (!shooterStage || !shooterEnergy) return false;
 
     // Stage 3+ shooters don't interact with soup-stage combat
-    if (!isSoupStage(shooter.stage)) return false;
+    if (!isSoupStage(shooterStage.stage)) return false;
 
     // Get or create hit tracking set for this beam
     let hitSet = pseudopodHits.get(beam.id);
@@ -109,23 +117,33 @@ export class PseudopodSystem implements System {
 
     let hitSomething = false;
 
-    // Check collision with all soup-stage players (Stage 1 and 2)
-    for (const [targetId, target] of players) {
-      if (targetId === beam.ownerId) continue; // Can't hit yourself
-      if (hitSet.has(targetId)) continue; // Already hit this target
-      if (!isSoupStage(target.stage)) continue; // Beams only hit soup-stage targets (Stage 1 & 2)
-      if (target.energy <= 0) continue; // Skip dead players
-      if (target.isEvolving) continue; // Skip evolving players
-      if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue; // Skip stunned players
+    // Check collision with all soup-stage players (Stage 1 and 2) via ECS
+    forEachPlayer(world, (targetEntity, targetId) => {
+      if (targetId === beam.ownerId) return; // Can't hit yourself
+      if (hitSet!.has(targetId)) return; // Already hit this target
+
+      const targetStage = world.getComponent<StageComponent>(targetEntity, Components.Stage);
+      const targetEnergy = world.getComponent<EnergyComponent>(targetEntity, Components.Energy);
+      const targetPos = world.getComponent<PositionComponent>(targetEntity, Components.Position);
+      const targetStunned = world.getComponent<StunnedComponent>(targetEntity, Components.Stunned);
+      if (!targetStage || !targetEnergy || !targetPos) return;
+
+      if (!isSoupStage(targetStage.stage)) return; // Beams only hit soup-stage targets
+      if (targetEnergy.current <= 0) return; // Skip dead players
+      if (targetStage.isEvolving) return; // Skip evolving players
+      if (targetStunned?.until && Date.now() < targetStunned.until) return; // Skip stunned
 
       // Circle-circle collision: beam position vs target position
-      const targetRadius = getPlayerRadius(target.stage);
-      const dist = distance(beam.position, target.position);
+      const targetRadius = getPlayerRadius(targetStage.stage);
+      const targetPosition = { x: targetPos.x, y: targetPos.y };
+      const dist = distance(beam.position, targetPosition);
       const collisionDist = beam.width / 2 + targetRadius;
 
       if (dist < collisionDist) {
         // Hit! Drain energy from target (one-time damage per beam, with resistance)
-        applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
+        // Apply damage directly to ECS component
+        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+        targetEnergy.current -= damage;
         hitSomething = true;
 
         // Track damage source and shooter for kill credit
@@ -133,14 +151,14 @@ export class PseudopodSystem implements System {
         playerLastBeamShooter.set(targetId, beam.ownerId);
 
         // Mark this target as hit by this beam
-        hitSet.add(targetId);
+        hitSet!.add(targetId);
 
         logger.info({
           event: 'beam_hit',
           shooter: beam.ownerId,
           target: targetId,
-          damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-          targetEnergyRemaining: target.energy.toFixed(0),
+          damage,
+          targetEnergyRemaining: targetEnergy.current.toFixed(0),
         });
 
         // Emit hit event for visual effects
@@ -153,13 +171,11 @@ export class PseudopodSystem implements System {
 
         // Add decay timer for brief drain aura after hit (1.5 seconds)
         pseudopodHitDecays.set(targetId, {
-          rate: getConfig('PSEUDOPOD_DRAIN_RATE'),
-          expiresAt: Date.now() + 1500, // 1.5 second decay
+          rate: damage,
+          expiresAt: Date.now() + 1500,
         });
-
-        // Beam continues traveling, can hit multiple different targets
       }
-    }
+    });
 
     // Check collision with swarms (active or disabled)
     for (const [swarmId, swarm] of getSwarms()) {
@@ -170,7 +186,6 @@ export class PseudopodSystem implements System {
 
       if (dist < collisionDist) {
         // Hit! Deal damage to swarm
-        // Initialize energy if not set (swarms gain energy pool when first damaged)
         if (swarm.energy === undefined) {
           swarm.energy = GAME_CONFIG.SWARM_ENERGY;
         }
@@ -188,15 +203,14 @@ export class PseudopodSystem implements System {
 
         // Check if swarm died
         if (swarm.energy <= 0) {
-          // Award shooter with reduced maxEnergy (ranged kill = nutrient loss) - write to ECS
-          const newMaxEnergy = shooter.maxEnergy + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+          // Award shooter - get current maxEnergy from ECS
+          const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
           setMaxEnergyBySocketId(world, beam.ownerId, newMaxEnergy);
           addEnergyBySocketId(world, beam.ownerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
 
           // Remove swarm
           getSwarms().delete(swarmId);
 
-          // Broadcast swarm death
           io.emit('swarmConsumed', {
             type: 'swarmConsumed',
             swarmId,
@@ -223,48 +237,57 @@ export class PseudopodSystem implements System {
    * Returns the ID of the player hit, or null if no hit
    */
   checkBeamHitscan(ctx: GameContext, start: Position, end: Position, shooterId: string): string | null {
-    const { players, playerLastDamageSource, playerLastBeamShooter, applyDamageWithResistance } = ctx;
+    const { world, playerLastDamageSource, playerLastBeamShooter } = ctx;
 
-    let closestHit: { playerId: string; distance: number } | null = null;
+    type HitInfo = { playerId: string; distance: number; entity: number };
+    let closestHit: HitInfo | null = null;
 
-    for (const [playerId, target] of players) {
-      // Skip shooter
-      if (playerId === shooterId) continue;
+    // Find closest hit via ECS iteration
+    forEachPlayer(world, (entity, playerId) => {
+      if (playerId === shooterId) return; // Skip shooter
+
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+      if (!stageComp || !energyComp || !posComp) return;
 
       // Skip dead/evolving/stunned players
-      if (target.energy <= 0) continue;
-      if (target.isEvolving) continue;
-      if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue;
+      if (energyComp.current <= 0) return;
+      if (stageComp.isEvolving) return;
+      if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
-      const targetRadius = getPlayerRadius(target.stage);
-      const hitDist = rayCircleIntersection(start, end, target.position, targetRadius);
+      const targetRadius = getPlayerRadius(stageComp.stage);
+      const targetPosition = { x: posComp.x, y: posComp.y };
+      const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 
       if (hitDist !== null) {
-        // Track closest hit
         if (!closestHit || hitDist < closestHit.distance) {
-          closestHit = { playerId, distance: hitDist };
+          closestHit = { playerId, distance: hitDist, entity };
         }
       }
-    }
+    });
 
-    // Apply damage to closest hit
-    if (closestHit) {
-      const target = players.get(closestHit.playerId);
-      if (target) {
-        applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
-        playerLastDamageSource.set(closestHit.playerId, 'beam');
-        playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
+    // Apply damage to closest hit (type assertion needed due to callback mutation)
+    const hit = closestHit as HitInfo | null;
+    if (hit) {
+      const targetEnergy = world.getComponent<EnergyComponent>(hit.entity, Components.Energy);
+      if (targetEnergy) {
+        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+        targetEnergy.current -= damage;
+        playerLastDamageSource.set(hit.playerId, 'beam');
+        playerLastBeamShooter.set(hit.playerId, shooterId);
 
         logger.info({
           event: 'beam_hit',
           shooter: shooterId,
-          target: closestHit.playerId,
-          damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-          targetEnergyRemaining: target.energy.toFixed(0),
+          target: hit.playerId,
+          damage,
+          targetEnergyRemaining: targetEnergy.current.toFixed(0),
         });
       }
 
-      return closestHit.playerId;
+      return hit.playerId;
     }
 
     return null;
