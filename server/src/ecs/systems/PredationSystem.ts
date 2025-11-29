@@ -7,10 +7,22 @@ import type { System } from './types';
 import type { GameContext } from './GameContext';
 import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '@godcell/shared';
 import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
-import { getEnergyBySocketId, setEnergyBySocketId, addEnergyBySocketId } from '../index';
+import {
+  forEachPlayer,
+  getEnergyBySocketId,
+  setEnergyBySocketId,
+  addEnergyBySocketId,
+  getEntityBySocketId,
+  Components,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
+  type StunnedComponent,
+  type PlayerComponent,
+} from '../index';
 import { distance, getPlayerRadius } from '../../helpers';
 import { hasGodMode, getConfig } from '../../dev';
-import { handleBotDeath } from '../../bots';
+import { isBot, handleBotDeath } from '../../bots';
 import { logger } from '../../logger';
 
 /**
@@ -20,8 +32,6 @@ import { logger } from '../../logger';
  * - Contact predation (Stage 2 draining Stage 1)
  * - Energy transfer between predator and prey
  * - Kill tracking and death broadcasts
- *
- * TODO Phase 5: Replace players Map iteration with ECS iteration
  */
 export class PredationSystem implements System {
   readonly name = 'PredationSystem';
@@ -36,46 +46,54 @@ export class PredationSystem implements System {
       playerInputDirections,
       playerLastDamageSource,
       activeDrains,
-      isBot,
       recordDamage,
     } = ctx;
 
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 
-    for (const [predatorId, predator] of players) {
-      // Only Stage 2 (MULTI_CELL) can drain via contact
-      // Stage 1 can't drain, Stage 3+ have evolved past soup predation
-      if (predator.stage !== EvolutionStage.MULTI_CELL) continue;
-      if (predator.energy <= 0) continue;
-      if (predator.isEvolving) continue;
-      if (predator.stunnedUntil && Date.now() < predator.stunnedUntil) continue; // Can't drain while stunned
+    // Iterate predators via ECS
+    forEachPlayer(world, (predatorEntity, predatorId) => {
+      const predatorStage = world.getComponent<StageComponent>(predatorEntity, Components.Stage);
+      const predatorEnergy = world.getComponent<EnergyComponent>(predatorEntity, Components.Energy);
+      const predatorPos = world.getComponent<PositionComponent>(predatorEntity, Components.Position);
+      const predatorStunned = world.getComponent<StunnedComponent>(predatorEntity, Components.Stunned);
+      if (!predatorStage || !predatorEnergy || !predatorPos) return;
 
-      const predatorRadius = getPlayerRadius(predator.stage);
+      // Only Stage 2 (MULTI_CELL) can drain via contact
+      if (predatorStage.stage !== EvolutionStage.MULTI_CELL) return;
+      if (predatorEnergy.current <= 0) return;
+      if (predatorStage.isEvolving) return;
+      if (predatorStunned?.until && Date.now() < predatorStunned.until) return;
+
+      const predatorRadius = getPlayerRadius(predatorStage.stage);
+      const predatorPosition = { x: predatorPos.x, y: predatorPos.y };
 
       // Check collision with all other players (Stage 1 only)
-      for (const [preyId, prey] of players) {
-        if (preyId === predatorId) continue; // Don't drain yourself
-        if (prey.stage !== EvolutionStage.SINGLE_CELL) continue; // Only drain Stage 1
-        if (prey.energy <= 0) continue; // Skip dead prey
-        if (prey.isEvolving) continue; // Skip evolving prey
+      forEachPlayer(world, (preyEntity, preyId) => {
+        if (preyId === predatorId) return; // Don't drain yourself
 
-        const preyRadius = getPlayerRadius(prey.stage);
-        const dist = distance(predator.position, prey.position);
+        const preyStage = world.getComponent<StageComponent>(preyEntity, Components.Stage);
+        const preyEnergy = world.getComponent<EnergyComponent>(preyEntity, Components.Energy);
+        const preyPos = world.getComponent<PositionComponent>(preyEntity, Components.Position);
+        if (!preyStage || !preyEnergy || !preyPos) return;
+
+        if (preyStage.stage !== EvolutionStage.SINGLE_CELL) return; // Only drain Stage 1
+        if (preyEnergy.current <= 0) return; // Skip dead prey
+        if (preyStage.isEvolving) return; // Skip evolving prey
+
+        const preyRadius = getPlayerRadius(preyStage.stage);
+        const preyPosition = { x: preyPos.x, y: preyPos.y };
+        const dist = distance(predatorPosition, preyPosition);
         const collisionDist = predatorRadius + preyRadius;
 
         if (dist < collisionDist) {
           // God mode players can't be drained
-          if (hasGodMode(preyId)) continue;
+          if (hasGodMode(preyId)) return;
 
           // Contact! Drain energy from prey (energy-only system)
           // Predation bypasses damage resistance - being engulfed is inescapable
           const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
-
-          // Write damage to ECS (not the cached player object)
-          const preyEnergyComp = getEnergyBySocketId(world, preyId);
-          if (preyEnergyComp) {
-            preyEnergyComp.current -= damage;
-          }
+          preyEnergy.current -= damage;
 
           // Transfer drained energy to predator
           addEnergyBySocketId(world, predatorId, damage);
@@ -92,15 +110,12 @@ export class PredationSystem implements System {
           recordDamage(preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
 
           // Check if prey is killed (instant engulf)
-          if (preyEnergyComp && preyEnergyComp.current <= 0) {
-            this.engulfPrey(ctx, predatorId, preyId, prey.position);
+          if (preyEnergy.current <= 0) {
+            this.engulfPrey(ctx, predatorId, preyId, preyPosition, preyEnergy.max);
           }
-
-          // Only one predator can drain a prey at a time (first contact wins)
-          break;
         }
-      }
-    }
+      });
+    });
 
     // Clear drains for prey that escaped contact this tick
     for (const [preyId, _predatorId] of activeDrains) {
@@ -113,17 +128,24 @@ export class PredationSystem implements System {
   /**
    * Handle prey being fully engulfed by predator
    */
-  private engulfPrey(ctx: GameContext, predatorId: string, preyId: string, position: Position): void {
-    const { world, io, players, playerVelocities, playerInputDirections, playerLastDamageSource, isBot } = ctx;
+  private engulfPrey(
+    ctx: GameContext,
+    predatorId: string,
+    preyId: string,
+    position: Position,
+    preyMaxEnergy: number
+  ): void {
+    const { world, io, players, playerVelocities, playerInputDirections, playerLastDamageSource } = ctx;
 
-    const predator = players.get(predatorId);
-    const prey = players.get(preyId);
-
-    if (!predator || !prey) return;
+    // Get prey color from ECS
+    const preyEntity = getEntityBySocketId(preyId);
+    const preyPlayer = preyEntity !== undefined
+      ? world.getComponent<PlayerComponent>(preyEntity, Components.Player)
+      : null;
+    const preyColor = preyPlayer?.color ?? '#ffffff';
 
     // Calculate rewards (gain % of victim's maxEnergy)
-    const energyGain = prey.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
-    // Write to ECS (not the cached player object)
+    const energyGain = preyMaxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
     addEnergyBySocketId(world, predatorId, energyGain);
 
     // Kill prey (energy-only: set energy to 0)
@@ -144,7 +166,7 @@ export class PredationSystem implements System {
       type: 'playerDied',
       playerId: preyId,
       position,
-      color: prey.color,
+      color: preyColor,
       cause: 'predation',
     } as PlayerDiedMessage);
 
