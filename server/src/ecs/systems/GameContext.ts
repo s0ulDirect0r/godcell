@@ -163,14 +163,13 @@ export interface GameContext {
   updateSwarmPositions: (deltaTime: number, io: Server) => void;
   processSwarmRespawns: (io: Server) => void;
   checkSwarmCollisions: (
-    players: Map<string, Player>,
+    world: World,
     deltaTime: number,
     recordDamage?: (
       entityId: string,
       damageRate: number,
       source: DamageSource
-    ) => void,
-    applyDamage?: (player: Player, baseDamage: number) => number
+    ) => void
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
   respawnNutrient: (nutrientId: string) => void;
   removeSwarm: (swarmId: string) => void;
