@@ -47,6 +47,10 @@ export const Components = {
   CanSprint: 'CanSprint',
   CanEngulf: 'CanEngulf',
   CanDetect: 'CanDetect',
+
+  // Client-only components (for interpolation and visual feedback)
+  InterpolationTarget: 'InterpolationTarget',
+  ClientDamageInfo: 'ClientDamageInfo',
 } as const;
 
 /**

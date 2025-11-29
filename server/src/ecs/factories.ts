@@ -762,3 +762,143 @@ export function deletePlayerBySocketId(world: World, socketId: string): void {
     destroyEntity(world, entity);
   }
 }
+
+// ============================================
+// ECS Setters - Update component values directly
+// ============================================
+
+/**
+ * Set player energy by socket ID.
+ * Updates the ECS component directly.
+ */
+export function setEnergyBySocketId(
+  world: World,
+  socketId: string,
+  energy: number
+): void {
+  const energyComp = getEnergyBySocketId(world, socketId);
+  if (energyComp) {
+    energyComp.current = energy;
+  }
+}
+
+/**
+ * Set player max energy by socket ID.
+ * Updates the ECS component directly.
+ */
+export function setMaxEnergyBySocketId(
+  world: World,
+  socketId: string,
+  maxEnergy: number
+): void {
+  const energyComp = getEnergyBySocketId(world, socketId);
+  if (energyComp) {
+    energyComp.max = maxEnergy;
+  }
+}
+
+/**
+ * Add energy to player by socket ID (clamped to max).
+ * Returns the new energy value, or undefined if player not found.
+ */
+export function addEnergyBySocketId(
+  world: World,
+  socketId: string,
+  amount: number
+): number | undefined {
+  const energyComp = getEnergyBySocketId(world, socketId);
+  if (energyComp) {
+    energyComp.current = Math.min(energyComp.max, energyComp.current + amount);
+    return energyComp.current;
+  }
+  return undefined;
+}
+
+/**
+ * Subtract energy from player by socket ID (clamped to 0).
+ * Returns the new energy value, or undefined if player not found.
+ */
+export function subtractEnergyBySocketId(
+  world: World,
+  socketId: string,
+  amount: number
+): number | undefined {
+  const energyComp = getEnergyBySocketId(world, socketId);
+  if (energyComp) {
+    energyComp.current = Math.max(0, energyComp.current - amount);
+    return energyComp.current;
+  }
+  return undefined;
+}
+
+/**
+ * Set player stage by socket ID.
+ * Updates the ECS component directly.
+ */
+export function setStageBySocketId(
+  world: World,
+  socketId: string,
+  stage: EvolutionStage
+): void {
+  const stageComp = getStageBySocketId(world, socketId);
+  if (stageComp) {
+    stageComp.stage = stage;
+  }
+}
+
+/**
+ * Set player position by socket ID.
+ * Updates the ECS component directly.
+ */
+export function setPositionBySocketId(
+  world: World,
+  socketId: string,
+  x: number,
+  y: number
+): void {
+  const posComp = getPositionBySocketId(world, socketId);
+  if (posComp) {
+    posComp.x = x;
+    posComp.y = y;
+  }
+}
+
+/**
+ * Update player position by adding deltas.
+ * Returns the new position, or undefined if not found.
+ */
+export function movePositionBySocketId(
+  world: World,
+  socketId: string,
+  dx: number,
+  dy: number
+): { x: number; y: number } | undefined {
+  const posComp = getPositionBySocketId(world, socketId);
+  if (posComp) {
+    posComp.x += dx;
+    posComp.y += dy;
+    return { x: posComp.x, y: posComp.y };
+  }
+  return undefined;
+}
+
+/**
+ * Clamp player position to world bounds by socket ID.
+ * Returns the clamped position, or undefined if not found.
+ */
+export function clampPositionBySocketId(
+  world: World,
+  socketId: string,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number
+): { x: number; y: number } | undefined {
+  const posComp = getPositionBySocketId(world, socketId);
+  if (posComp) {
+    posComp.x = Math.max(minX, Math.min(maxX, posComp.x));
+    posComp.y = Math.max(minY, Math.min(maxY, posComp.y));
+    return { x: posComp.x, y: posComp.y };
+  }
+  return undefined;
+}

@@ -17,8 +17,16 @@ import {
   type Nutrient,
   type EntropySwarm,
   type TunableConfigKey,
+  type World,
 } from '@godcell/shared';
 import { logger } from './logger';
+import {
+  setEnergyBySocketId,
+  setMaxEnergyBySocketId,
+  setStageBySocketId,
+  setPositionBySocketId,
+  getEnergyBySocketId,
+} from './ecs';
 
 // ============================================
 // Dev State
@@ -89,6 +97,7 @@ export function shouldRunTick(): boolean {
 
 interface DevContext {
   io: Server;
+  world: World; // ECS World for direct component access
   players: Map<string, Player>;
   nutrients: Map<string, Nutrient>;
   obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
@@ -269,7 +278,8 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     case 'player': {
       const player = devContext.players.get(entityId);
       if (player) {
-        player.energy = 0;
+        // Use ECS setter to persist the energy change
+        setEnergyBySocketId(devContext.world, entityId, 0);
         io.emit('playerDied', { type: 'playerDied', playerId: entityId, position: player.position, color: player.color, cause: 'starvation' });
         logger.info({ event: 'dev_kill_player', entityId });
       }
@@ -302,12 +312,13 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
   const player = devContext.players.get(playerId);
   if (!player) return;
 
-  // Clamp to world bounds
-  player.position.x = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
-  player.position.y = Math.max(0, Math.min(position.y, GAME_CONFIG.WORLD_HEIGHT));
+  // Clamp to world bounds and update via ECS setter
+  const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
+  const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.WORLD_HEIGHT));
+  setPositionBySocketId(devContext.world, playerId, clampedX, clampedY);
 
-  io.emit('playerMoved', { type: 'playerMoved', playerId, position: player.position });
-  logger.info({ event: 'dev_teleport', playerId, position: player.position });
+  io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });
+  logger.info({ event: 'dev_teleport', playerId, position: { x: clampedX, y: clampedY } });
 }
 
 function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, maxEnergy?: number): void {
@@ -316,13 +327,20 @@ function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, max
   const player = devContext.players.get(playerId);
   if (!player) return;
 
-  if (maxEnergy !== undefined) {
-    player.maxEnergy = maxEnergy;
-  }
-  player.energy = Math.min(energy, player.maxEnergy);
+  // Get current ECS energy component for max value
+  const energyComp = getEnergyBySocketId(devContext.world, playerId);
+  if (!energyComp) return;
 
-  io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: player.energy });
-  logger.info({ event: 'dev_set_energy', playerId, energy: player.energy, maxEnergy: player.maxEnergy });
+  // Update via ECS setters
+  if (maxEnergy !== undefined) {
+    setMaxEnergyBySocketId(devContext.world, playerId, maxEnergy);
+    energyComp.max = maxEnergy; // Update local reference for broadcast
+  }
+  const newEnergy = Math.min(energy, energyComp.max);
+  setEnergyBySocketId(devContext.world, playerId, newEnergy);
+
+  io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: newEnergy });
+  logger.info({ event: 'dev_set_energy', playerId, energy: newEnergy, maxEnergy: energyComp.max });
 }
 
 function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStage): void {
@@ -332,15 +350,17 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
   if (!player) return;
 
   const oldStage = player.stage;
-  player.stage = stage;
 
   // Set energy pools to match the new stage (dev override, not natural evolution)
   const stageStats = devContext.getStageEnergy(stage);
-  player.maxEnergy = stageStats.maxEnergy;
-  player.energy = stageStats.energy; // Reset to starting energy for this stage
 
-  io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: player.maxEnergy });
-  io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: player.energy });
+  // Update via ECS setters - stage, maxEnergy, and energy
+  setStageBySocketId(devContext.world, playerId, stage);
+  setMaxEnergyBySocketId(devContext.world, playerId, stageStats.maxEnergy);
+  setEnergyBySocketId(devContext.world, playerId, stageStats.energy);
+
+  io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy });
+  io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: stageStats.energy });
   logger.info({ event: 'dev_set_stage', playerId, oldStage, newStage: stage });
 }
 

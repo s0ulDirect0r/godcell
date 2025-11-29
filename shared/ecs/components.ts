@@ -229,3 +229,29 @@ export interface CanEngulfComponent {
 export interface CanDetectComponent {
   radius: number; // Detection range in pixels
 }
+
+// ============================================
+// Client-Only Components
+// ============================================
+
+/**
+ * InterpolationTarget - client-side smooth movement target.
+ * Stores the target position for interpolation between server updates.
+ * Used by: Players, Swarms (entities that move)
+ */
+export interface InterpolationTargetComponent {
+  targetX: number;        // Target X position from server
+  targetY: number;        // Target Y position from server
+  timestamp: number;      // When this target was received
+}
+
+/**
+ * ClientDamageInfo - client-side damage info for visual feedback.
+ * Stores damage rates and sources for drain aura rendering.
+ * Used by: Players, Swarms (entities that can be damaged)
+ */
+export interface ClientDamageInfoComponent {
+  totalDamageRate: number;       // Combined damage rate from all sources
+  primarySource: DamageSource;   // Main damage source type (for color)
+  proximityFactor?: number;      // For gradient effects (0-1)
+}

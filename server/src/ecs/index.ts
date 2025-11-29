@@ -71,6 +71,15 @@ export {
   getCooldownsBySocketId,
   isBotBySocketId,
   deletePlayerBySocketId,
+  // ECS Setters - update component values directly
+  setEnergyBySocketId,
+  setMaxEnergyBySocketId,
+  addEnergyBySocketId,
+  subtractEnergyBySocketId,
+  setStageBySocketId,
+  setPositionBySocketId,
+  movePositionBySocketId,
+  clampPositionBySocketId,
 } from './factories';
 export type { PlayerSnapshot } from './factories';
 

@@ -36,4 +36,7 @@ export type {
   CanSprintComponent,
   CanEngulfComponent,
   CanDetectComponent,
+  // Client-only components
+  InterpolationTargetComponent,
+  ClientDamageInfoComponent,
 } from './components';

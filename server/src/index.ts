@@ -93,6 +93,10 @@ import {
   deletePlayerBySocketId,
   forEachPlayer,
   setPlayerStage,
+  // ECS setters - update component values directly
+  setEnergyBySocketId,
+  setMaxEnergyBySocketId,
+  addEnergyBySocketId,
   type World,
   type EntityId,
   type EnergyComponent,
@@ -1607,7 +1611,8 @@ function checkPlayerDeaths() {
 
       // Mark as "death processed" - sentinel value prevents catch-all from re-triggering
       // Respawn will set energy back to positive value
-      player.energy = -1;
+      // IMPORTANT: Use ECS setter to persist the change
+      setEnergyBySocketId(world, playerId, -1);
 
       // Clear damage source to prevent reprocessing same death
       playerLastDamageSource.delete(playerId);
@@ -1819,16 +1824,19 @@ function checkNutrientCollisions() {
       if (dist < collisionRadius) {
         // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
         // Both scale with proximity gradient (high-risk nutrients = faster evolution!)
-        // Safety clamp to prevent negative energy gain if player.energy somehow drifts above maxEnergy
+        // Get ECS energy component directly for mutation
+        const energyComp = getEnergyBySocketId(world, playerId);
+        if (!energyComp) continue;
+
+        // Safety clamp to prevent negative energy gain if energy somehow drifts above maxEnergy
         const energyGain = Math.min(
           nutrient.value,
-          Math.max(0, player.maxEnergy - player.energy)
+          Math.max(0, energyComp.max - energyComp.current)
         );
-        player.energy += energyGain;
-        player.maxEnergy += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
 
-        // Safety clamp: ensure energy never exceeds maxEnergy
-        player.energy = Math.min(player.energy, player.maxEnergy);
+        // Update ECS components directly (persists changes)
+        energyComp.max += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
+        energyComp.current = Math.min(energyComp.current + energyGain, energyComp.max);
 
         // Track nutrient collection for telemetry
         recordNutrientCollection(playerId, energyGain);
@@ -1841,13 +1849,13 @@ function checkNutrientCollisions() {
           ecsDestroyEntity(world, nutrientEntity);
         }
 
-        // Broadcast collection event to all clients
+        // Broadcast collection event to all clients (use ECS values)
         const collectMessage: NutrientCollectedMessage = {
           type: 'nutrientCollected',
           nutrientId,
           playerId,
-          collectorEnergy: player.energy,
-          collectorMaxEnergy: player.maxEnergy,
+          collectorEnergy: energyComp.current,
+          collectorMaxEnergy: energyComp.max,
         };
         io.emit('nutrientCollected', collectMessage);
 
@@ -1893,6 +1901,7 @@ if (isPlayground) {
 // Initialize dev handler with game context
 initDevHandler({
   io,
+  world, // ECS World for direct component access
   players,
   nutrients,
   obstacles,
@@ -2232,7 +2241,8 @@ function applyGravityForces(deltaTime: number) {
       // God mode players survive singularities
       if (dist < getConfig('OBSTACLE_CORE_RADIUS') && !hasGodMode(playerId)) {
         logSingularityCrush(playerId, dist);
-        player.energy = 0; // Instant energy depletion (will be processed by checkPlayerDeaths)
+        // Use ECS setter to persist the change
+        setEnergyBySocketId(world, playerId, 0); // Instant energy depletion (will be processed by checkPlayerDeaths)
         playerLastDamageSource.set(playerId, 'singularity');
         continue;
       }

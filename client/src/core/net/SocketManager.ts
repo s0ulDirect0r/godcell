@@ -226,20 +226,12 @@ export class SocketManager {
     });
 
     this.socket.on('playerEvolutionStarted', (data: PlayerEvolutionStartedMessage) => {
-      const player = this.gameState.players.get(data.playerId);
-      if (player) {
-        player.isEvolving = true;
-      }
+      this.gameState.setPlayerEvolving(data.playerId, true);
       eventBus.emit(data);
     });
 
     this.socket.on('playerEvolved', (data: PlayerEvolvedMessage) => {
-      const player = this.gameState.players.get(data.playerId);
-      if (player) {
-        player.stage = data.newStage;
-        player.maxEnergy = data.newMaxEnergy;
-        player.isEvolving = false;
-      }
+      this.gameState.updatePlayerEvolved(data.playerId, data.newStage, data.newMaxEnergy);
       eventBus.emit(data);
     });
 
@@ -256,11 +248,7 @@ export class SocketManager {
     this.socket.on('nutrientCollected', (data: NutrientCollectedMessage) => {
       this.gameState.removeNutrient(data.nutrientId);
       // Update collector's energy and maxEnergy
-      const player = this.gameState.players.get(data.playerId);
-      if (player) {
-        player.energy = data.collectorEnergy;
-        player.maxEnergy = data.collectorMaxEnergy;
-      }
+      this.gameState.updatePlayerEnergy(data.playerId, data.collectorEnergy, data.collectorMaxEnergy);
       eventBus.emit(data);
     });
 
@@ -271,10 +259,7 @@ export class SocketManager {
 
     // Energy updates (energy is the sole life resource)
     this.socket.on('energyUpdate', (data: EnergyUpdateMessage) => {
-      const player = this.gameState.players.get(data.playerId);
-      if (player) {
-        player.energy = data.energy;
-      }
+      this.gameState.updatePlayerEnergy(data.playerId, data.energy);
       eventBus.emit(data);
     });
 
