@@ -145,7 +145,8 @@ export interface GameContext {
     obstacles: Map<string, Obstacle>,
     swarms: EntropySwarm[],
     players: Map<string, Player>,
-    abilitySystem: AbilitySystem
+    abilitySystem: AbilitySystem,
+    ecsWorld: World
   ) => void;
 
   applyGravityForces: (deltaTime: number) => void;

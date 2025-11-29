@@ -907,15 +907,26 @@ export function updateBots(
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
   players: Map<string, Player>,
-  abilitySystem: AbilitySystem
+  abilitySystem: AbilitySystem,
+  ecsWorld: World
 ) {
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
+    // Refresh bot.player from ECS (the cached reference goes stale each tick)
+    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    if (freshPlayer) {
+      bot.player = freshPlayer;
+    }
     updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
   }
 
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
   for (const [botId, bot] of multiCellBots) {
+    // Refresh bot.player from ECS (the cached reference goes stale each tick)
+    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    if (freshPlayer) {
+      bot.player = freshPlayer;
+    }
     updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players, abilitySystem);
   }
 }
