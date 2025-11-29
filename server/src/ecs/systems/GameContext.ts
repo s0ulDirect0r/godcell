@@ -13,12 +13,10 @@
 import type { Server } from 'socket.io';
 import type {
   World,
-  Obstacle,
   Position,
   EntropySwarm,
   EvolutionStage,
   DamageSource,
-  DeathCause,
 } from '@godcell/shared';
 import type { AbilitySystem } from '../../abilities';
 
@@ -48,14 +46,11 @@ export interface GameContext {
   deltaTime: number;
 
   // ============================================
-  // Entity Collections (legacy Maps)
+  // Entity Collections (all migrated to ECS)
   // ============================================
   // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
-  obstacles: Map<string, Obstacle>;
-
-  // Swarm access (through getter because it's in swarms.ts)
-  getSwarms: () => Map<string, EntropySwarm>;
-
+  // NOTE: obstacles migrated to ECS - use forEachObstacle/getAllObstacleSnapshots
+  // NOTE: swarms migrated to ECS - use forEachSwarm/getAllSwarmSnapshots
   // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
   // ============================================
@@ -131,7 +126,6 @@ export interface GameContext {
   updateBots: (
     timestamp: number,
     world: World,
-    obstacles: Map<string, Obstacle>,
     swarms: EntropySwarm[],
     abilitySystem: AbilitySystem
   ) => void;
@@ -139,11 +133,10 @@ export interface GameContext {
   updateSwarms: (
     timestamp: number,
     world: World,
-    obstacles: Map<string, Obstacle>,
     deltaTime: number
   ) => void;
-  updateSwarmPositions: (deltaTime: number, io: Server) => void;
-  processSwarmRespawns: (io: Server) => void;
+  updateSwarmPositions: (world: World, deltaTime: number, io: Server) => void;
+  processSwarmRespawns: (world: World, io: Server) => void;
   checkSwarmCollisions: (
     world: World,
     deltaTime: number,
@@ -154,7 +147,7 @@ export interface GameContext {
     ) => void
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
   respawnNutrient: (nutrientId: string) => void;
-  removeSwarm: (swarmId: string) => void;
+  removeSwarm: (world: World, swarmId: string) => void;
 }
 
 /**

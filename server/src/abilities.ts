@@ -2,7 +2,6 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
   Position,
   Pseudopod, // Still needed for local pseudopod object creation
-  EntropySwarm,
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
@@ -22,6 +21,7 @@ import {
   getStunnedBySocketId,
   getCooldownsBySocketId,
   forEachPlayer,
+  forEachSwarm,
   type World,
 } from './ecs';
 
@@ -35,14 +35,15 @@ import {
  */
 export interface AbilityContext {
   // ECS World (source of truth for all player state)
+  // Swarms are queried via forEachSwarm
   world: World;
   io: Server;
 
   // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
   // NOTE: Cooldowns migrated to ECS CooldownsComponent
+  // NOTE: Swarms migrated to ECS - use forEachSwarm
 
   // Functions from main module
-  getSwarms: () => Map<string, EntropySwarm>;
   checkBeamHitscan: (start: Position, end: Position, shooterId: string) => string | null;
   applyDamageWithResistance: (playerId: string, baseDamage: number) => number;
   getPlayerRadius: (stage: EvolutionStage) => number;
@@ -103,15 +104,17 @@ export class AbilitySystem {
     const affectedSwarmIds: string[] = [];
     const affectedPlayerIds: string[] = [];
 
-    // Check swarms
-    for (const [swarmId, swarm] of this.ctx.getSwarms()) {
-      const dist = this.distance(playerPosition, swarm.position);
+    // Check swarms (from ECS)
+    forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+      const dist = this.distance(playerPosition, swarmPosition);
       if (dist <= getConfig('EMP_RANGE')) {
-        swarm.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
-        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
+        // Disable swarm and reset energy via ECS components
+        swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
+        swarmEnergyComp.current = swarmEnergyComp.max; // Reset to full health
         affectedSwarmIds.push(swarmId);
       }
-    }
+    });
 
     // Check other players using ECS iteration
     forEachPlayer(world, (entity, otherPlayerId) => {

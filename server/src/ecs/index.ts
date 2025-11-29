@@ -88,12 +88,22 @@ export {
   // Obstacle query helpers
   forEachObstacle,
   getObstacleZones,
+  getAllObstacleSnapshots,
+  getObstacleCount,
+  buildObstaclesRecord,
   // Nutrient query helpers
   forEachNutrient,
   getAllNutrientSnapshots,
   getNutrientPosition,
   getNutrientCount,
   buildNutrientsRecord,
+  // Swarm query helpers
+  forEachSwarm,
+  getAllSwarmSnapshots,
+  getSwarmCount,
+  getSwarmEntity,
+  getSwarmComponents,
+  buildSwarmsRecord,
   // DrainTarget helpers (prey-predator drain relationships)
   setDrainTarget,
   clearDrainTarget,
@@ -101,7 +111,7 @@ export {
   getDrainPredatorId,
   forEachDrainTarget,
 } from './factories';
-export type { PlayerSnapshot, NutrientSnapshot } from './factories';
+export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot } from './factories';
 
 // Systems
 export * from './systems';

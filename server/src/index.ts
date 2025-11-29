@@ -3,7 +3,6 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
   Player,
   Position,
-  Obstacle,
   DeathCause,
   DamageSource,
   Pseudopod,
@@ -19,7 +18,8 @@ import type {
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { buildSwarmsRecord } from './ecs';
 import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
@@ -43,7 +43,7 @@ import {
 import {
   createWorld,
   createPlayer as ecsCreatePlayer,
-  createObstacle as ecsCreateObstacle,
+  createObstacle,
   createSwarm as ecsCreateSwarm,
   createPseudopod as ecsCreatePseudopod,
   destroyEntity as ecsDestroyEntity,
@@ -56,6 +56,9 @@ import {
   buildNutrientsRecord,
   getNutrientCount,
   getAllNutrientSnapshots,
+  buildObstaclesRecord,
+  getAllObstacleSnapshots,
+  getObstacleCount,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -161,9 +164,7 @@ const activeDamageThisTick = new Map<string, ActiveDamage[]>();
 
 // NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
 
-// All gravity obstacles in the world
-// Maps obstacle ID → Obstacle data
-const obstacles: Map<string, Obstacle> = new Map();
+// NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount/buildObstaclesRecord
 
 /**
  * Hitscan raycast for pseudopod beam
@@ -258,32 +259,23 @@ function initializeObstacles() {
     y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
   }));
 
-  // Create obstacles from generated positions
+  // Create obstacles from generated positions (ECS is sole source of truth)
   for (const position of offsetPositions) {
-    const obstacle: Obstacle = {
-      id: `obstacle-${obstacleIdCounter++}`,
-      position,
-      radius: getConfig('OBSTACLE_GRAVITY_RADIUS'),
-      strength: getConfig('OBSTACLE_GRAVITY_STRENGTH'),
-      damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
-    };
-
-    obstacles.set(obstacle.id, obstacle);
-
-    // Add to ECS (dual-write during migration)
-    ecsCreateObstacle(
+    const obstacleId = `obstacle-${obstacleIdCounter++}`;
+    createObstacle(
       world,
-      obstacle.id,
+      obstacleId,
       position,
-      obstacle.radius,
-      obstacle.strength
+      getConfig('OBSTACLE_GRAVITY_RADIUS'),
+      getConfig('OBSTACLE_GRAVITY_STRENGTH')
     );
   }
 
-  logObstaclesSpawned(obstacles.size);
+  const obstacleCount = getObstacleCount(world);
+  logObstaclesSpawned(obstacleCount);
 
-  if (obstacles.size < GAME_CONFIG.OBSTACLE_COUNT) {
-    logger.warn(`Only placed ${obstacles.size}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
+  if (obstacleCount < GAME_CONFIG.OBSTACLE_COUNT) {
+    logger.warn(`Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
   }
 }
 
@@ -398,22 +390,20 @@ if (isPlayground) {
   // Initialize game world (normal mode)
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
-  initializeNutrients(obstacles);
-  // Set ECS world for bots and swarms before initializing
+  initializeNutrients();
+  // Set ECS world for bots before initializing
   setBotEcsWorld(world);
   initializeBots(io);
-  setSwarmEcsWorld(world);
-  initializeSwarms(io);
+  // Swarms use ECS directly (world passed as parameter)
+  initializeSwarms(world, io);
 }
 
 // Initialize dev handler with game context
 initDevHandler({
   io,
-  world, // ECS World for direct component access (nutrients queried from ECS)
-  obstacles,
-  swarms: getSwarms(),
+  world, // ECS World for direct component access (nutrients, obstacles, swarms queried from ECS)
   spawnNutrientAt,
-  spawnSwarmAt,
+  spawnSwarmAt: (position) => spawnSwarmAt(world, io, position),
   spawnBotAt: (position, stage) => spawnBotAt(io, position, stage),
   removeBotPermanently: (botId) => removeBotPermanently(botId, io),
   respawnPlayer,
@@ -426,10 +416,9 @@ initDevHandler({
 // ============================================
 
 const abilitySystem = new AbilitySystem({
-  world, // ECS World (source of truth)
+  world, // ECS World (source of truth) - swarms queried via forEachSwarm/getAllSwarmSnapshots
   io,
   // NOTE: Cooldowns migrated to ECS CooldownsComponent
-  getSwarms,
   checkBeamHitscan,
   applyDamageWithResistance,
   getPlayerRadius,
@@ -478,10 +467,10 @@ function buildGameContext(deltaTime: number): GameContext {
     io,
     deltaTime,
 
-    // Entity Collections (non-player state still in Maps)
+    // Entity Collections
     // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
-    obstacles,
-    getSwarms,
+    // NOTE: obstacles migrated to ECS - use forEachObstacle/getAllObstacleSnapshots
+    // NOTE: swarms migrated to ECS - use forEachSwarm/getAllSwarmSnapshots
     // NOTE: Pseudopods migrated to ECS PseudopodComponent
     // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
     // NOTE: playerSprintState migrated to ECS SprintComponent
@@ -520,12 +509,13 @@ function buildGameContext(deltaTime: number): GameContext {
 
     // Legacy Functions (called by wrapper systems)
     updateBots,
-    updateSwarms,
-    updateSwarmPositions,
-    processSwarmRespawns,
+    // Swarm functions now take world parameter (ECS is source of truth)
+    updateSwarms: (timestamp: number, w: World, dt: number) => updateSwarms(timestamp, w, dt),
+    updateSwarmPositions: (w: World, dt: number, serverIo: Server) => updateSwarmPositions(w, dt, serverIo),
+    processSwarmRespawns: (w: World, serverIo: Server) => processSwarmRespawns(w, serverIo),
     checkSwarmCollisions,
     respawnNutrient,
-    removeSwarm,
+    removeSwarm: (w: World, swarmId: string) => removeSwarm(w, swarmId),
   };
 }
 
@@ -564,8 +554,8 @@ io.on('connection', (socket) => {
     type: 'gameState',
     players: buildAlivePlayersRecord(world),
     nutrients: buildNutrientsRecord(world),
-    obstacles: Object.fromEntries(obstacles),
-    swarms: getSwarmsRecord(),
+    obstacles: buildObstaclesRecord(world),
+    swarms: buildSwarmsRecord(world),
   };
   socket.emit('gameState', gameState);
 
@@ -806,7 +796,7 @@ function createGameStateSnapshot() {
       position: { x: n.position.x, y: n.position.y },
       value: n.value,
     })),
-    obstacles: Array.from(obstacles.values()).map(o => ({
+    obstacles: getAllObstacleSnapshots(world).map(o => ({
       id: o.id,
       position: { x: o.position.x, y: o.position.y },
       radius: o.radius,

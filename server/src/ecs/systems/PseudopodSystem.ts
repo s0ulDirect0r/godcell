@@ -14,6 +14,7 @@ import {
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
   forEachPlayer,
+  forEachSwarm,
   getDamageTrackingBySocketId,
   Components,
   type EntityId,
@@ -24,6 +25,7 @@ import {
   type StunnedComponent,
   type PseudopodComponent,
 } from '../index';
+import { removeSwarm } from '../../swarms';
 import { distance, rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logger } from '../../logger';
@@ -107,7 +109,6 @@ export class PseudopodSystem implements System {
     const {
       world,
       io,
-      getSwarms,
     } = ctx;
 
     // Get shooter stage from ECS
@@ -188,49 +189,47 @@ export class PseudopodSystem implements System {
       }
     });
 
-    // Check collision with swarms (active or disabled)
-    // Note: Swarms don't have ECS entities yet, so we track by negative hash of swarmId
-    for (const [swarmId, swarm] of getSwarms()) {
-      // Use a simple hash to convert swarmId to a number for the Set
-      // (Swarms will be migrated to ECS in a future task)
-      const swarmHash = this.stringToHash(swarmId);
-      if (hitEntities.has(swarmHash)) continue; // Already hit this swarm
+    // Check collision with swarms (active or disabled) - from ECS
+    // Track swarms to remove after iteration
+    const swarmsToRemove: string[] = [];
 
-      const dist = distance(beamPosition, swarm.position);
-      const collisionDist = pseudopodComp.width / 2 + swarm.size;
+    forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+      // Swarms are now ECS entities, so we can use their entity ID directly
+      if (hitEntities.has(swarmEntity)) return; // Already hit this swarm
+
+      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+      const dist = distance(beamPosition, swarmPosition);
+      const collisionDist = pseudopodComp.width / 2 + swarmComp.size;
 
       if (dist < collisionDist) {
-        // Hit! Deal damage to swarm
-        if (swarm.energy === undefined) {
-          swarm.energy = GAME_CONFIG.SWARM_ENERGY;
-        }
-        swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
+        // Hit! Deal damage to swarm via ECS component
+        swarmEnergyComp.current -= getConfig('PSEUDOPOD_DRAIN_RATE');
         hitSomething = true;
-        hitEntities.add(swarmHash);
+        hitEntities.add(swarmEntity);
 
         logger.info({
           event: 'beam_hit_swarm',
           shooter: pseudopodComp.ownerSocketId,
           swarmId,
           damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-          swarmEnergyRemaining: swarm.energy.toFixed(0),
+          swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
         });
 
         // Check if swarm died
-        if (swarm.energy <= 0) {
+        if (swarmEnergyComp.current <= 0) {
           // Award shooter - get current maxEnergy from ECS
           const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
           setMaxEnergyBySocketId(world, pseudopodComp.ownerSocketId, newMaxEnergy);
           addEnergyBySocketId(world, pseudopodComp.ownerSocketId, GAME_CONFIG.SWARM_ENERGY_GAIN);
 
-          // Remove swarm
-          getSwarms().delete(swarmId);
+          // Queue swarm for removal
+          swarmsToRemove.push(swarmId);
 
           io.emit('swarmConsumed', {
             type: 'swarmConsumed',
             swarmId,
             consumerId: pseudopodComp.ownerSocketId,
-            position: swarm.position,
+            position: swarmPosition,
           });
 
           logger.info({
@@ -242,23 +241,14 @@ export class PseudopodSystem implements System {
           });
         }
       }
+    });
+
+    // Remove killed swarms after iteration
+    for (const swarmId of swarmsToRemove) {
+      removeSwarm(world, swarmId);
     }
 
     return hitSomething;
-  }
-
-  /**
-   * Simple string hash for swarm IDs (temporary until swarms are ECS entities)
-   */
-  private stringToHash(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    // Use negative numbers to avoid collision with entity IDs
-    return hash < 0 ? hash : -hash - 1;
   }
 
   /**

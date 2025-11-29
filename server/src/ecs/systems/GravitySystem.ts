@@ -10,6 +10,7 @@ import type { VelocityComponent } from '@godcell/shared';
 import {
   forEachObstacle,
   forEachPlayer,
+  forEachSwarm,
   setEnergyBySocketId,
   getDamageTrackingBySocketId,
   Components,
@@ -34,7 +35,7 @@ export class GravitySystem implements System {
   readonly name = 'GravitySystem';
 
   update(ctx: GameContext): void {
-    const { world, deltaTime, getSwarms } = ctx;
+    const { world, deltaTime } = ctx;
 
     // Apply gravity to players (iterate ECS directly)
     forEachPlayer(world, (entity, playerId) => {
@@ -114,15 +115,18 @@ export class GravitySystem implements System {
     });
 
     // Apply gravity to entropy swarms with momentum (corrupted data, less mass)
-    for (const swarm of getSwarms().values()) {
+    // Swarms are now ECS entities - iterate via forEachSwarm
+    forEachSwarm(world, (_swarmEntity, _swarmId, swarmPosComp, swarmVelocityComp) => {
       // Apply friction to swarms (same momentum system as players)
       const swarmFrictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
-      swarm.velocity.x *= swarmFrictionFactor;
-      swarm.velocity.y *= swarmFrictionFactor;
+      swarmVelocityComp.x *= swarmFrictionFactor;
+      swarmVelocityComp.y *= swarmFrictionFactor;
+
+      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
-      forEachObstacle(world, (_entity, obstaclePos, obstacle) => {
-        const dist = distance(swarm.position, obstaclePos);
+      forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
+        const dist = distance(swarmPosition, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Swarms can get destroyed by singularities too
@@ -137,8 +141,8 @@ export class GravitySystem implements System {
         const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity
 
         // Direction FROM swarm TO obstacle (attraction)
-        const dx = obstaclePos.x - swarm.position.x;
-        const dy = obstaclePos.y - swarm.position.y;
+        const dx = obstaclePos.x - swarmPosition.x;
+        const dy = obstaclePos.y - swarmPosition.y;
         const dirLength = Math.sqrt(dx * dx + dy * dy);
 
         if (dirLength === 0) return;
@@ -146,10 +150,10 @@ export class GravitySystem implements System {
         const dirX = dx / dirLength;
         const dirY = dy / dirLength;
 
-        // Accumulate gravitational acceleration into velocity
-        swarm.velocity.x += dirX * forceMagnitude * deltaTime;
-        swarm.velocity.y += dirY * forceMagnitude * deltaTime;
+        // Accumulate gravitational acceleration into velocity (mutate ECS component)
+        swarmVelocityComp.x += dirX * forceMagnitude * deltaTime;
+        swarmVelocityComp.y += dirY * forceMagnitude * deltaTime;
       });
-    }
+    });
   }
 }

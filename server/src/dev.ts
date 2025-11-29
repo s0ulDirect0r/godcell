@@ -14,7 +14,7 @@ import {
   type DevStateMessage,
   type Position,
   type Nutrient,  // Still needed for spawnNutrientAt return type
-  type EntropySwarm,
+  type EntropySwarm,  // Still needed for spawnSwarmAt return type
   type TunableConfigKey,
   type World,
 } from '@godcell/shared';
@@ -34,9 +34,14 @@ import {
   getEntityByStringId,
   destroyEntity,
   getNutrientCount,
+  // Swarm ECS helpers
+  forEachSwarm,
+  getSwarmCount,
+  getSwarmComponents,
   Tags,
   Components,
 } from './ecs';
+import { removeSwarm } from './swarms';
 import type { PositionComponent } from '@godcell/shared';
 
 // ============================================
@@ -110,11 +115,11 @@ interface DevContext {
   io: Server;
   world: World; // ECS World for direct component access (source of truth)
   // NOTE: nutrients migrated to ECS - use forEachNutrient/getNutrientCount
-  obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
-  swarms: Map<string, EntropySwarm>;
+  // NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount
+  // NOTE: swarms migrated to ECS - use forEachSwarm/getSwarmCount
   // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
   spawnNutrientAt: (position: Position, multiplier?: number) => Nutrient;
-  spawnSwarmAt: (io: Server, position: Position) => EntropySwarm;
+  spawnSwarmAt: (position: Position) => EntropySwarm;
   spawnBotAt: (position: Position, stage: EvolutionStage) => string;
   removeBotPermanently: (botId: string) => boolean;
   respawnPlayer: (playerId: string) => void;
@@ -231,7 +236,7 @@ function handleSpawnEntity(
     }
 
     case 'swarm': {
-      const swarm = devContext.spawnSwarmAt(io, position);
+      const swarm = devContext.spawnSwarmAt(position);
       logger.info({ event: 'dev_spawn_swarm', position, swarmId: swarm.id });
       break;
     }
@@ -278,8 +283,9 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     }
 
     case 'swarm': {
-      const deleted = devContext.swarms.delete(entityId);
-      if (deleted) {
+      const swarmComponents = getSwarmComponents(devContext.world, entityId);
+      if (swarmComponents) {
+        removeSwarm(devContext.world, entityId);
         io.emit('swarmConsumed', { type: 'swarmConsumed', swarmId: entityId, consumerId: 'dev' });
         logger.info({ event: 'dev_delete_swarm', entityId });
       }
@@ -417,16 +423,20 @@ function handleClearWorld(io: Server): void {
     });
   }
 
-  // Clear all swarms
-  const swarmCount = devContext.swarms.size;
-  for (const swarmId of devContext.swarms.keys()) {
+  // Clear all swarms (from ECS)
+  const swarmCount = getSwarmCount(devContext.world);
+  const swarmIdsToRemove: string[] = [];
+  forEachSwarm(devContext.world, (_entity, swarmId) => {
+    swarmIdsToRemove.push(swarmId);
+  });
+  for (const swarmId of swarmIdsToRemove) {
+    removeSwarm(devContext.world, swarmId);
     io.emit('swarmConsumed', {
       type: 'swarmConsumed',
       swarmId,
       consumerId: 'dev',
     });
   }
-  devContext.swarms.clear();
 
   logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
 }
@@ -465,19 +475,19 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       logger.info({ event: 'dev_delete_at_nutrient', position, deletedId: nearestId });
     }
   } else if (entityType === 'swarm') {
-    // Find nearest swarm
-    for (const [id, swarm] of devContext.swarms.entries()) {
-      const dx = swarm.position.x - position.x;
-      const dy = swarm.position.y - position.y;
+    // Find nearest swarm using ECS
+    forEachSwarm(devContext.world, (_entity, swarmId, swarmPosComp) => {
+      const dx = swarmPosComp.x - position.x;
+      const dy = swarmPosComp.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < nearestDist) {
         nearestDist = dist;
-        nearestId = id;
+        nearestId = swarmId;
       }
-    }
+    });
 
     if (nearestId) {
-      devContext.swarms.delete(nearestId);
+      removeSwarm(devContext.world, nearestId);
       io.emit('swarmConsumed', {
         type: 'swarmConsumed',
         swarmId: nearestId,

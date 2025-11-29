@@ -16,6 +16,7 @@ import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
 import {
   forEachPlayer,
   forEachNutrient,
+  forEachSwarm,
   getDamageTrackingBySocketId,
   Components,
   type EnergyComponent,
@@ -155,7 +156,7 @@ export class NetworkBroadcastSystem implements System {
    * Multi-cells can "smell" nearby prey and nutrients from extended range
    */
   private broadcastDetectionUpdates(ctx: GameContext): void {
-    const { world, io, getSwarms } = ctx;
+    const { world, io } = ctx;
 
     this.detectionUpdateTicks++;
 
@@ -209,17 +210,18 @@ export class NetworkBroadcastSystem implements System {
           }
         });
 
-        // Detect swarms (potential prey for multi-cells)
-        for (const [swarmId, swarm] of getSwarms()) {
-          const dist = distance(playerPosition, swarm.position);
+        // Detect swarms (potential prey for multi-cells) - from ECS
+        forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp) => {
+          const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+          const dist = distance(playerPosition, swarmPosition);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: swarmId,
-              position: swarm.position,
+              position: swarmPosition,
               entityType: 'swarm',
             });
           }
-        }
+        });
 
         // Send detection update to this player only (private information)
         const socket = io.sockets.sockets.get(playerId);

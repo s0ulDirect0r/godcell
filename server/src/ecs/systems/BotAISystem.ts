@@ -5,6 +5,7 @@
 
 import type { System } from './types';
 import type { GameContext } from './GameContext';
+import { getAllSwarmSnapshots } from '../factories';
 
 /**
  * BotAISystem - Manages AI decision making for bots
@@ -16,14 +17,16 @@ export class BotAISystem implements System {
   readonly name = 'BotAISystem';
 
   update(ctx: GameContext): void {
-    const { updateBots, obstacles, getSwarms, abilitySystem, world } = ctx;
+    const { updateBots, abilitySystem, world } = ctx;
 
-    // updateBots now queries nutrients from ECS directly
+    // Get swarms from ECS (source of truth)
+    const swarms = getAllSwarmSnapshots(world);
+
+    // updateBots now queries nutrients, obstacles, and swarms from ECS
     updateBots(
       Date.now(),
       world,
-      obstacles,
-      Array.from(getSwarms().values()),
+      swarms,
       abilitySystem
     );
   }

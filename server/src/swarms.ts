@@ -1,18 +1,27 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
+import type { EntropySwarm, Position, SwarmSpawnedMessage, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig, hasGodMode } from './dev';
 import { getDamageResistance } from './helpers/stages';
 import {
-  createSwarm as ecsCreateSwarm,
-  destroyEntity as ecsDestroyEntity,
-  getEntityByStringId,
+  createSwarm,
+  destroyEntity,
+  getEntityBySocketId,
   forEachPlayer,
+  forEachSwarm,
+  getAllObstacleSnapshots,
+  getAllSwarmSnapshots,
+  getSwarmComponents,
+  getSwarmCount,
+  buildSwarmsRecord,
   Components,
   type World,
+  type EntityId,
   type EnergyComponent,
   type PositionComponent,
+  type VelocityComponent,
   type StageComponent,
+  type SwarmComponent,
 } from './ecs';
 
 // ============================================
@@ -30,27 +39,15 @@ function isSoupStage(stage: EvolutionStage): boolean {
 // ============================================
 // Entropy Swarm System - Virus enemies that hunt players
 // ============================================
-
-// All entropy swarms currently in the game
-const swarms: Map<string, EntropySwarm> = new Map();
+// ECS is the sole source of truth for swarm state.
+// This module handles spawning, AI decisions, and respawn scheduling.
+// ============================================
 
 // Counter for generating unique swarm IDs
 let swarmIdCounter = 0;
 
 // Swarm respawn queue (tracks consumed swarms scheduled for respawn)
 const swarmRespawnQueue: Array<{ respawnTime: number }> = [];
-
-// ECS World reference (set during initialization)
-// Used for dual-write during migration to ECS
-let ecsWorld: World | null = null;
-
-/**
- * Set the ECS world for dual-write during migration.
- * Call this before initializeSwarms.
- */
-export function setSwarmEcsWorld(world: World): void {
-  ecsWorld = world;
-}
 
 // Respawn delay in milliseconds
 const SWARM_RESPAWN_DELAY = 30000; // 30 seconds
@@ -140,34 +137,42 @@ function generatePatrolTarget(spawnPos: Position): Position {
 /**
  * Initialize all entropy swarms at server start
  * Uses structured distribution with 600px minimum separation
+ * Creates swarms directly in ECS (source of truth)
  */
-export function initializeSwarms(io: Server) {
+export function initializeSwarms(world: World, io: Server) {
   // Generate all swarm positions at once with minimum separation
   const positions = generateSwarmPositions(GAME_CONFIG.SWARM_COUNT);
 
-  // Create swarms at generated positions
+  // Create swarms at generated positions (ECS is sole source of truth)
   for (const position of positions) {
+    const swarmId = `swarm-${swarmIdCounter++}`;
+    const patrolTarget = generatePatrolTarget(position);
+
+    // Create in ECS
+    createSwarm(
+      world,
+      swarmId,
+      position,
+      GAME_CONFIG.SWARM_SIZE,
+      GAME_CONFIG.SWARM_ENERGY,
+      patrolTarget
+    );
+
+    // Build EntropySwarm for network broadcast
     const swarm: EntropySwarm = {
-      id: `swarm-${swarmIdCounter++}`,
+      id: swarmId,
       position,
       velocity: { x: 0, y: 0 },
       size: GAME_CONFIG.SWARM_SIZE,
       state: 'patrol',
-      patrolTarget: generatePatrolTarget(position),
-      energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
+      patrolTarget,
+      energy: GAME_CONFIG.SWARM_ENERGY,
     };
-
-    swarms.set(swarm.id, swarm);
-
-    // Add to ECS (dual-write during migration)
-    if (ecsWorld) {
-      ecsCreateSwarm(ecsWorld, swarm.id, position, swarm.size);
-    }
 
     // Broadcast swarm spawn to all clients
     const spawnMessage: SwarmSpawnedMessage = {
       type: 'swarmSpawned',
-      swarm: { ...swarm },
+      swarm,
     };
     io.emit('swarmSpawned', spawnMessage);
   }
@@ -180,13 +185,13 @@ export function initializeSwarms(io: Server) {
 /**
  * Find the nearest alive player within detection radius
  * Swarms only target soup-stage players (Stage 1-2)
- * Returns player info needed for chasing (id and position)
+ * Returns player info needed for chasing (id, entityId, and position)
  */
 function findNearestPlayer(
-  swarm: EntropySwarm,
+  swarmPosition: Position,
   world: World
-): { id: string; position: { x: number; y: number } } | null {
-  let nearestPlayer: { id: string; position: { x: number; y: number } } | null = null;
+): { id: string; entityId: EntityId; position: { x: number; y: number } } | null {
+  let nearestPlayer: { id: string; entityId: EntityId; position: { x: number; y: number } } | null = null;
   let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
   forEachPlayer(world, (entity, playerId) => {
@@ -202,10 +207,10 @@ function findNearestPlayer(
     if (!isSoupStage(stageComp.stage)) return;
 
     const playerPosition = { x: posComp.x, y: posComp.y };
-    const dist = distance(swarm.position, playerPosition);
+    const dist = distance(swarmPosition, playerPosition);
     if (dist < nearestDist) {
       nearestDist = dist;
-      nearestPlayer = { id: playerId, position: playerPosition };
+      nearestPlayer = { id: playerId, entityId: entity, position: playerPosition };
     }
   });
 
@@ -214,23 +219,27 @@ function findNearestPlayer(
 
 /**
  * Calculate avoidance force to steer away from dangerous obstacle cores
+ * Uses ECS to query obstacle positions
  * Returns a velocity adjustment to apply
  */
-function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, Obstacle>): { x: number; y: number } {
+function calculateObstacleAvoidance(swarmPosition: Position, world: World): { x: number; y: number } {
   let avoidanceX = 0;
   let avoidanceY = 0;
 
   // Swarms start avoiding at 2x the core radius (give them more warning)
   const avoidanceRadius = getConfig('OBSTACLE_CORE_RADIUS') * 2;
 
-  for (const obstacle of obstacles.values()) {
-    const dist = distance(swarm.position, obstacle.position);
+  // Query obstacles from ECS
+  const obstacles = getAllObstacleSnapshots(world);
+
+  for (const obstacle of obstacles) {
+    const dist = distance(swarmPosition, obstacle.position);
 
     // If within avoidance radius, apply repulsion force
     if (dist < avoidanceRadius) {
       // Direction away from obstacle
-      const dx = swarm.position.x - obstacle.position.x;
-      const dy = swarm.position.y - obstacle.position.y;
+      const dx = swarmPosition.x - obstacle.position.x;
+      const dy = swarmPosition.y - obstacle.position.y;
       const distSq = Math.max(dist * dist, 1); // Prevent division by zero
 
       // Stronger avoidance the closer we get (inverse square)
@@ -248,26 +257,33 @@ function calculateObstacleAvoidance(swarm: EntropySwarm, obstacles: Map<string, 
 /**
  * Calculate repulsion force to prevent swarms from overlapping each other
  * Swarms take up physical space and push each other away
+ * Uses ECS to query other swarm positions
  * Returns a velocity adjustment to apply
  */
-function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, EntropySwarm>): { x: number; y: number } {
+function calculateSwarmRepulsion(
+  swarmId: string,
+  swarmPosition: Position,
+  world: World
+): { x: number; y: number } {
   let repulsionX = 0;
   let repulsionY = 0;
 
   // Swarms repel when their spheres would overlap (2x swarm size = touching)
   const repulsionRadius = GAME_CONFIG.SWARM_SIZE * 2.2; // Slight buffer for smoother spacing
 
-  for (const otherSwarm of allSwarms.values()) {
+  // Query all swarms from ECS
+  forEachSwarm(world, (_entity, otherId, otherPos) => {
     // Skip self
-    if (otherSwarm.id === swarm.id) continue;
+    if (otherId === swarmId) return;
 
-    const dist = distance(swarm.position, otherSwarm.position);
+    const otherPosition = { x: otherPos.x, y: otherPos.y };
+    const dist = distance(swarmPosition, otherPosition);
 
     // If swarms are too close, apply repulsion force
     if (dist < repulsionRadius) {
       // Direction away from other swarm
-      const dx = swarm.position.x - otherSwarm.position.x;
-      const dy = swarm.position.y - otherSwarm.position.y;
+      const dx = swarmPosition.x - otherPosition.x;
+      const dy = swarmPosition.y - otherPosition.y;
       const distSq = Math.max(dist * dist, 1); // Prevent division by zero
 
       // Stronger repulsion the closer they get (inverse square)
@@ -277,133 +293,138 @@ function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, Ent
       repulsionX += (dx / dist) * accelerationMagnitude;
       repulsionY += (dy / dist) * accelerationMagnitude;
     }
-  }
+  });
 
   return { x: repulsionX, y: repulsionY };
 }
 
 /**
  * Update swarm AI decision-making with acceleration-based movement
+ * Iterates ECS swarm entities and mutates their components directly.
  */
 export function updateSwarms(
   currentTime: number,
   world: World,
-  obstacles: Map<string, Obstacle>,
   deltaTime: number
 ) {
   const now = Date.now();
 
-  for (const swarm of swarms.values()) {
+  // Iterate all swarms via ECS
+  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, energyComp) => {
     // Skip disabled swarms (hit by EMP)
-    if (swarm.disabledUntil && now < swarm.disabledUntil) {
-      swarm.velocity = { x: 0, y: 0 }; // Zero velocity while disabled
-      continue;
+    if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) {
+      velComp.x = 0; // Zero velocity while disabled
+      velComp.y = 0;
+      return;
     }
 
+    const swarmPosition = { x: posComp.x, y: posComp.y };
+
     // Check for nearby players
-    const nearestPlayer = findNearestPlayer(swarm, world);
+    const nearestPlayer = findNearestPlayer(swarmPosition, world);
 
     if (nearestPlayer) {
       // CHASE: Player detected within range
-      if (swarm.state !== 'chase' || swarm.targetPlayerId !== nearestPlayer.id) {
-        swarm.state = 'chase';
-        swarm.targetPlayerId = nearestPlayer.id;
-        swarm.patrolTarget = undefined;
+      if (swarmComp.state !== 'chase' || swarmComp.targetPlayerId !== nearestPlayer.entityId) {
+        swarmComp.state = 'chase';
+        swarmComp.targetPlayerId = nearestPlayer.entityId;
+        swarmComp.patrolTarget = undefined;
       }
 
       // Calculate direction toward player and add to existing velocity (gravity)
-      const dx = nearestPlayer.position.x - swarm.position.x;
-      const dy = nearestPlayer.position.y - swarm.position.y;
+      const dx = nearestPlayer.position.x - swarmPosition.x;
+      const dy = nearestPlayer.position.y - swarmPosition.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist > 0) {
         // Add AI movement as acceleration (like player input)
         // Use higher multiplier for responsive movement with momentum
         const acceleration = getConfig('SWARM_SPEED') * 8;
-        swarm.velocity.x += (dx / dist) * acceleration * deltaTime;
-        swarm.velocity.y += (dy / dist) * acceleration * deltaTime;
+        velComp.x += (dx / dist) * acceleration * deltaTime;
+        velComp.y += (dy / dist) * acceleration * deltaTime;
       }
     } else {
       // PATROL: No players nearby, wander around
-      if (swarm.state !== 'patrol') {
-        swarm.state = 'patrol';
-        swarm.targetPlayerId = undefined;
-        swarm.patrolTarget = generatePatrolTarget(swarm.position);
+      if (swarmComp.state !== 'patrol') {
+        swarmComp.state = 'patrol';
+        swarmComp.targetPlayerId = undefined;
+        swarmComp.patrolTarget = generatePatrolTarget(swarmComp.homePosition);
       }
 
       // Check if reached patrol target or need new one
-      if (swarm.patrolTarget) {
-        const distToTarget = distance(swarm.position, swarm.patrolTarget);
+      if (swarmComp.patrolTarget) {
+        const distToTarget = distance(swarmPosition, swarmComp.patrolTarget);
 
         if (distToTarget < 50) {
           // Reached target, pick new one
-          swarm.patrolTarget = generatePatrolTarget(swarm.position);
+          swarmComp.patrolTarget = generatePatrolTarget(swarmComp.homePosition);
         }
 
         // Move toward patrol target and add to existing velocity (gravity)
-        const dx = swarm.patrolTarget.x - swarm.position.x;
-        const dy = swarm.patrolTarget.y - swarm.position.y;
+        const dx = swarmComp.patrolTarget.x - swarmPosition.x;
+        const dy = swarmComp.patrolTarget.y - swarmPosition.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0) {
           // Slower acceleration while patrolling (60% of chase speed)
           const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6;
-          swarm.velocity.x += (dx / dist) * patrolAcceleration * deltaTime;
-          swarm.velocity.y += (dy / dist) * patrolAcceleration * deltaTime;
+          velComp.x += (dx / dist) * patrolAcceleration * deltaTime;
+          velComp.y += (dy / dist) * patrolAcceleration * deltaTime;
         }
       }
     }
 
     // Apply obstacle avoidance acceleration (high priority)
-    const avoidance = calculateObstacleAvoidance(swarm, obstacles);
-    swarm.velocity.x += avoidance.x * deltaTime;
-    swarm.velocity.y += avoidance.y * deltaTime;
+    const avoidance = calculateObstacleAvoidance(swarmPosition, world);
+    velComp.x += avoidance.x * deltaTime;
+    velComp.y += avoidance.y * deltaTime;
 
     // Apply swarm-swarm repulsion (prevent overlap)
-    const repulsion = calculateSwarmRepulsion(swarm, swarms);
-    swarm.velocity.x += repulsion.x * deltaTime;
-    swarm.velocity.y += repulsion.y * deltaTime;
+    const repulsion = calculateSwarmRepulsion(swarmId, swarmPosition, world);
+    velComp.x += repulsion.x * deltaTime;
+    velComp.y += repulsion.y * deltaTime;
 
     // Clamp to max speed (like players, allow slight overspeed for gravity)
-    const velocityMagnitude = Math.sqrt(swarm.velocity.x * swarm.velocity.x + swarm.velocity.y * swarm.velocity.y);
+    const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
     const maxSpeed = getConfig('SWARM_SPEED') * 1.2; // 20% overspeed allowance
     if (velocityMagnitude > maxSpeed) {
-      swarm.velocity.x = (swarm.velocity.x / velocityMagnitude) * maxSpeed;
-      swarm.velocity.y = (swarm.velocity.y / velocityMagnitude) * maxSpeed;
+      velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
+      velComp.y = (velComp.y / velocityMagnitude) * maxSpeed;
     }
-  }
+  });
 }
 
 /**
  * Update swarm positions based on velocity (called every tick)
  * Swarms are clamped to soup region bounds
+ * Iterates ECS swarm entities directly.
  */
-export function updateSwarmPositions(deltaTime: number, io: Server) {
+export function updateSwarmPositions(world: World, deltaTime: number, io: Server) {
   // Swarms live in the soup region
   const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
   const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
   const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-  for (const swarm of swarms.values()) {
+  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp) => {
     // Update position based on velocity (like players)
-    swarm.position.x += swarm.velocity.x * deltaTime;
-    swarm.position.y += swarm.velocity.y * deltaTime;
+    posComp.x += velComp.x * deltaTime;
+    posComp.y += velComp.y * deltaTime;
 
     // Keep swarms within soup bounds
     const padding = GAME_CONFIG.SWARM_SIZE;
-    swarm.position.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, swarm.position.x));
-    swarm.position.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, swarm.position.y));
+    posComp.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, posComp.x));
+    posComp.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, posComp.y));
 
     // Broadcast position update (including disabled state)
     io.emit('swarmMoved', {
       type: 'swarmMoved',
-      swarmId: swarm.id,
-      position: swarm.position,
-      state: swarm.state,
-      disabledUntil: swarm.disabledUntil, // Include EMP stun state
+      swarmId,
+      position: { x: posComp.x, y: posComp.y },
+      state: swarmComp.state,
+      disabledUntil: swarmComp.disabledUntil, // Include EMP stun state
     });
-  }
+  });
 }
 
 /**
@@ -413,6 +434,7 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
  *
  * Stage filtering: Swarms only interact with soup-stage players (Stage 1-2)
  * Stage 3+ players have evolved past the soup and don't interact with swarms
+ * Iterates ECS swarm entities directly.
  */
 export function checkSwarmCollisions(
   world: World,
@@ -423,9 +445,11 @@ export function checkSwarmCollisions(
   const slowedPlayerIds = new Set<string>();
   const now = Date.now();
 
-  for (const swarm of swarms.values()) {
+  forEachSwarm(world, (swarmEntity, swarmId, swarmPos, swarmVel, swarmComp) => {
     // Skip disabled swarms (hit by EMP)
-    if (swarm.disabledUntil && now < swarm.disabledUntil) continue;
+    if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
+
+    const swarmPosition = { x: swarmPos.x, y: swarmPos.y };
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -444,8 +468,8 @@ export function checkSwarmCollisions(
 
       // Check collision (circle-circle)
       const playerPosition = { x: posComp.x, y: posComp.y };
-      const dist = distance(swarm.position, playerPosition);
-      const collisionDist = swarm.size + GAME_CONFIG.PLAYER_SIZE;
+      const dist = distance(swarmPosition, playerPosition);
+      const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
 
       if (dist < collisionDist) {
         // Apply damage directly with resistance
@@ -465,21 +489,17 @@ export function checkSwarmCollisions(
         slowedPlayerIds.add(playerId);
       }
     });
-  }
+  });
 
   return { damagedPlayerIds, slowedPlayerIds };
 }
 
 /**
- * Get all swarms as a record for initial state broadcast
+ * Get all swarms as a record for initial state broadcast.
+ * Delegates to buildSwarmsRecord from ECS.
+ * @deprecated Use buildSwarmsRecord(world) directly for better type safety.
  */
-export function getSwarmsRecord(): Record<string, EntropySwarm> {
-  const record: Record<string, EntropySwarm> = {};
-  for (const [id, swarm] of swarms.entries()) {
-    record[id] = { ...swarm };
-  }
-  return record;
-}
+export { buildSwarmsRecord as getSwarmsRecord };
 
 /**
  * Check if an ID belongs to a swarm
@@ -489,24 +509,14 @@ export function isSwarm(id: string): boolean {
 }
 
 /**
- * Get swarms map for gravity force application
- */
-export function getSwarms(): Map<string, EntropySwarm> {
-  return swarms;
-}
-
-/**
  * Remove a swarm from the game (consumed by player) and schedule respawn
+ * Removes from ECS (source of truth).
  */
-export function removeSwarm(swarmId: string): void {
-  swarms.delete(swarmId);
-
-  // Remove from ECS (dual-write during migration)
-  if (ecsWorld) {
-    const entity = getEntityByStringId(swarmId);
-    if (entity !== undefined) {
-      ecsDestroyEntity(ecsWorld, entity);
-    }
+export function removeSwarm(world: World, swarmId: string): void {
+  // Get entity from ECS lookup
+  const components = getSwarmComponents(world, swarmId);
+  if (components) {
+    destroyEntity(world, components.entity);
   }
 
   // Schedule respawn to maintain swarm population
@@ -517,29 +527,37 @@ export function removeSwarm(swarmId: string): void {
 
 /**
  * Spawn a swarm at a specific position (dev tool)
+ * Creates directly in ECS (source of truth).
  */
-export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
+export function spawnSwarmAt(world: World, io: Server, position: Position): EntropySwarm {
+  const swarmId = `swarm-${swarmIdCounter++}`;
+  const patrolTarget = generatePatrolTarget(position);
+
+  // Create in ECS (source of truth)
+  createSwarm(
+    world,
+    swarmId,
+    position,
+    GAME_CONFIG.SWARM_SIZE,
+    GAME_CONFIG.SWARM_ENERGY,
+    patrolTarget
+  );
+
+  // Build EntropySwarm for network broadcast
   const swarm: EntropySwarm = {
-    id: `swarm-${swarmIdCounter++}`,
+    id: swarmId,
     position: { ...position },
     velocity: { x: 0, y: 0 },
     size: GAME_CONFIG.SWARM_SIZE,
     state: 'patrol',
-    patrolTarget: generatePatrolTarget(position),
-    energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
+    patrolTarget,
+    energy: GAME_CONFIG.SWARM_ENERGY,
   };
-
-  swarms.set(swarm.id, swarm);
-
-  // Add to ECS (dual-write during migration)
-  if (ecsWorld) {
-    ecsCreateSwarm(ecsWorld, swarm.id, position, swarm.size);
-  }
 
   // Broadcast to all clients for immediate visibility
   const spawnMessage: SwarmSpawnedMessage = {
     type: 'swarmSpawned',
-    swarm: { ...swarm },
+    swarm,
   };
   io.emit('swarmSpawned', spawnMessage);
 
@@ -550,7 +568,7 @@ export function spawnSwarmAt(io: Server, position: Position): EntropySwarm {
  * Process swarm respawn queue and spawn new swarms when timers expire
  * Call this every game tick
  */
-export function processSwarmRespawns(io: Server): void {
+export function processSwarmRespawns(world: World, io: Server): void {
   const now = Date.now();
 
   // Process all swarms ready to respawn
@@ -559,23 +577,34 @@ export function processSwarmRespawns(io: Server): void {
 
     // Generate new spawn position (random, with spacing from existing swarms)
     const newPosition = generateSwarmPositions(1)[0];
+    const swarmId = `swarm-${swarmIdCounter++}`;
+    const patrolTarget = generatePatrolTarget(newPosition);
 
+    // Create in ECS (source of truth)
+    createSwarm(
+      world,
+      swarmId,
+      newPosition,
+      GAME_CONFIG.SWARM_SIZE,
+      GAME_CONFIG.SWARM_ENERGY,
+      patrolTarget
+    );
+
+    // Build EntropySwarm for network broadcast
     const swarm: EntropySwarm = {
-      id: `swarm-${swarmIdCounter++}`,
-      position: newPosition,
+      id: swarmId,
+      position: { ...newPosition },
       velocity: { x: 0, y: 0 },
       size: GAME_CONFIG.SWARM_SIZE,
       state: 'patrol',
-      patrolTarget: generatePatrolTarget(newPosition),
-      energy: GAME_CONFIG.SWARM_ENERGY, // Health pool for beam damage
+      patrolTarget,
+      energy: GAME_CONFIG.SWARM_ENERGY,
     };
-
-    swarms.set(swarm.id, swarm);
 
     // Broadcast respawn to all clients
     const spawnMessage: SwarmSpawnedMessage = {
       type: 'swarmSpawned',
-      swarm: { ...swarm },
+      swarm,
     };
     io.emit('swarmSpawned', spawnMessage);
   }

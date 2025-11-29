@@ -8,7 +8,7 @@ import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageCom
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { logger } from '../../logger';
-import { getSocketIdByEntity, getDamageTrackingBySocketId } from '../factories';
+import { getSocketIdByEntity, getDamageTrackingBySocketId, forEachSwarm } from '../factories';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -27,7 +27,6 @@ export class SwarmCollisionSystem implements System {
   update(ctx: GameContext): void {
     const {
       world,
-      getSwarms,
       deltaTime,
       io,
       recordDamage,
@@ -77,23 +76,26 @@ export class SwarmCollisionSystem implements System {
       if (stageComp.stage !== EvolutionStage.MULTI_CELL) return;
       if (energyComp.current <= 0) return;
 
-      for (const [swarmId, swarm] of getSwarms()) {
+      // Track swarms to remove (can't modify during iteration)
+      const swarmsToRemove: string[] = [];
+
+      forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
         // Only consume disabled swarms with health remaining
-        if (!swarm.disabledUntil || Date.now() >= swarm.disabledUntil) continue;
-        if (!swarm.energy || swarm.energy <= 0) continue;
+        if (!swarmComp.disabledUntil || Date.now() >= swarmComp.disabledUntil) return;
+        if (swarmEnergyComp.current <= 0) return;
 
         // Check if multi-cell is touching the swarm
-        const dist = distance({ x: posComp.x, y: posComp.y }, swarm.position);
-        const collisionDist = swarm.size + getPlayerRadius(stageComp.stage);
+        const dist = distance({ x: posComp.x, y: posComp.y }, { x: swarmPosComp.x, y: swarmPosComp.y });
+        const collisionDist = swarmComp.size + getPlayerRadius(stageComp.stage);
 
         if (dist < collisionDist) {
           currentSwarmDrains.add(swarmId);
 
-          // Gradual consumption
+          // Gradual consumption - mutate ECS component directly
           const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
-          swarm.energy -= damageDealt;
+          swarmEnergyComp.current -= damageDealt;
 
-          if (swarm.energy <= 0) {
+          if (swarmEnergyComp.current <= 0) {
             // Swarm fully consumed - grant rewards via ECS components directly
             energyComp.current = Math.min(energyComp.max, energyComp.current + GAME_CONFIG.SWARM_ENERGY_GAIN);
             energyComp.max += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
@@ -112,9 +114,14 @@ export class SwarmCollisionSystem implements System {
               maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
             });
 
-            removeSwarm(swarmId);
+            swarmsToRemove.push(swarmId);
           }
         }
+      });
+
+      // Remove consumed swarms after iteration
+      for (const swarmId of swarmsToRemove) {
+        removeSwarm(world, swarmId);
       }
     });
 

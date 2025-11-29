@@ -365,12 +365,16 @@ export function createObstacle(
 
 /**
  * Create an entropy swarm entity.
+ * Energy is the swarm's health pool (used during EMP disable + consumption)
+ * patrolTarget is the initial wander target (optional, can be set later)
  */
 export function createSwarm(
   world: World,
   swarmId: string,
   position: Position,
-  size: number
+  size: number,
+  energy: number,
+  patrolTarget?: Position
 ): EntityId {
   const entity = world.createEntity();
 
@@ -379,10 +383,15 @@ export function createSwarm(
     y: position.y,
   });
   world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0 });
+  world.addComponent<EnergyComponent>(entity, Components.Energy, {
+    current: energy,
+    max: energy,
+  });
   world.addComponent<SwarmComponent>(entity, Components.Swarm, {
     size,
     state: 'patrol',
     homePosition: { x: position.x, y: position.y },
+    patrolTarget,
   });
 
   world.addTag(entity, Tags.Swarm);
@@ -983,6 +992,18 @@ export function clampPositionBySocketId(
 // ============================================
 
 /**
+ * Obstacle data snapshot for iteration.
+ * Contains all data needed for collision/gravity without holding component refs.
+ */
+export interface ObstacleSnapshot {
+  entity: EntityId;
+  id: string; // String ID for network messages
+  position: Position;
+  radius: number;
+  strength: number;
+}
+
+/**
  * Iterate over all obstacle entities.
  * Callback receives entity ID and obstacle's position.
  */
@@ -1000,6 +1021,29 @@ export function forEachObstacle(
 }
 
 /**
+ * Get all obstacles as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllObstacleSnapshots(world: World): ObstacleSnapshot[] {
+  const snapshots: ObstacleSnapshot[] = [];
+  world.forEachWithTag(Tags.Obstacle, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+    const id = getStringIdByEntity(entity);
+    if (pos && obs && id) {
+      snapshots.push({
+        entity,
+        id,
+        position: { x: pos.x, y: pos.y },
+        radius: obs.radius,
+        strength: obs.strength,
+      });
+    }
+  });
+  return snapshots;
+}
+
+/**
  * Get all obstacle positions for spawn safety checks.
  * Returns array of { position, radius } for distance calculations.
  */
@@ -1011,6 +1055,50 @@ export function getObstacleZones(
     zones.push({ position, radius: obstacle.radius });
   });
   return zones;
+}
+
+/**
+ * Get obstacle count.
+ */
+export function getObstacleCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Obstacle).length;
+}
+
+/**
+ * Convert ECS obstacles to legacy Obstacle record for network broadcasts.
+ */
+export function buildObstaclesRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  radius: number;
+  strength: number;
+  damageRate: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    radius: number;
+    strength: number;
+    damageRate: number;
+  }> = {};
+
+  world.forEachWithTag(Tags.Obstacle, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+    const id = getStringIdByEntity(entity);
+    if (pos && obs && id) {
+      result[id] = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        radius: obs.radius,
+        strength: obs.strength,
+        // damageRate is derived from config, not stored in component
+        damageRate: 0, // Will be set from GAME_CONFIG when needed
+      };
+    }
+  });
+
+  return result;
 }
 
 // ============================================
@@ -1220,4 +1308,184 @@ export function forEachDrainTarget(
       callback(preySocketId, predatorSocketId);
     }
   }
+}
+
+// ============================================
+// Swarm Query Helpers
+// ============================================
+
+/**
+ * Swarm data snapshot for iteration.
+ * Contains all data needed for AI/collision without holding component refs.
+ * Matches EntropySwarm interface for network compatibility.
+ */
+export interface SwarmSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase';
+  targetPlayerId?: string;  // Socket ID (converted from EntityId)
+  patrolTarget?: Position;
+  homePosition: Position;
+  disabledUntil?: number;
+  energy: number;
+}
+
+/**
+ * Iterate over all swarm entities.
+ * Callback receives entity, string ID, and components.
+ */
+export function forEachSwarm(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    velocity: VelocityComponent,
+    swarm: SwarmComponent,
+    energy: EnergyComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      callback(entity, id, pos, vel, swarm, energy);
+    }
+  });
+}
+
+/**
+ * Get all swarms as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllSwarmSnapshots(world: World): SwarmSnapshot[] {
+  const snapshots: SwarmSnapshot[] = [];
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      // Convert targetPlayerId from EntityId to socket ID
+      let targetPlayerId: string | undefined;
+      if (swarm.targetPlayerId !== undefined) {
+        targetPlayerId = getSocketIdByEntity(swarm.targetPlayerId);
+      }
+      snapshots.push({
+        entity,
+        id,
+        position: { x: pos.x, y: pos.y },
+        velocity: { x: vel.x, y: vel.y },
+        size: swarm.size,
+        state: swarm.state,
+        targetPlayerId,
+        patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
+        homePosition: { ...swarm.homePosition },
+        disabledUntil: swarm.disabledUntil,
+        energy: energy.current,
+      });
+    }
+  });
+  return snapshots;
+}
+
+/**
+ * Get swarm count.
+ */
+export function getSwarmCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Swarm).length;
+}
+
+/**
+ * Get swarm entity by string ID.
+ */
+export function getSwarmEntity(world: World, swarmId: string): EntityId | undefined {
+  return getEntityByStringId(swarmId);
+}
+
+/**
+ * Get swarm components by string ID.
+ * Returns all components needed for swarm operations.
+ */
+export function getSwarmComponents(world: World, swarmId: string): {
+  entity: EntityId;
+  position: PositionComponent;
+  velocity: VelocityComponent;
+  swarm: SwarmComponent;
+  energy: EnergyComponent;
+} | null {
+  const entity = getEntityByStringId(swarmId);
+  if (entity === undefined) return null;
+
+  const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+  const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+  const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+
+  if (!pos || !vel || !swarm || !energy) return null;
+
+  return { entity, position: pos, velocity: vel, swarm, energy };
+}
+
+/**
+ * Convert ECS swarms to EntropySwarm record for network broadcasts.
+ * Matches the EntropySwarm interface expected by clients.
+ */
+export function buildSwarmsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase';
+  targetPlayerId?: string;
+  patrolTarget?: Position;
+  disabledUntil?: number;
+  energy?: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    velocity: { x: number; y: number };
+    size: number;
+    state: 'patrol' | 'chase';
+    targetPlayerId?: string;
+    patrolTarget?: Position;
+    disabledUntil?: number;
+    energy?: number;
+  }> = {};
+
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      // Convert targetPlayerId from EntityId to socket ID
+      let targetPlayerId: string | undefined;
+      if (swarm.targetPlayerId !== undefined) {
+        targetPlayerId = getSocketIdByEntity(swarm.targetPlayerId);
+      }
+      result[id] = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        velocity: { x: vel.x, y: vel.y },
+        size: swarm.size,
+        state: swarm.state,
+        targetPlayerId,
+        patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
+        disabledUntil: swarm.disabledUntil,
+        energy: energy.current,
+      };
+    }
+  });
+
+  return result;
 }
