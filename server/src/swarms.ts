@@ -180,25 +180,34 @@ export function initializeSwarms(io: Server) {
 /**
  * Find the nearest alive player within detection radius
  * Swarms only target soup-stage players (Stage 1-2)
+ * Returns player info needed for chasing (id and position)
  */
-function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): Player | null {
-  let nearestPlayer: Player | null = null;
+function findNearestPlayer(
+  swarm: EntropySwarm,
+  world: World
+): { id: string; position: { x: number; y: number } } | null {
+  let nearestPlayer: { id: string; position: { x: number; y: number } } | null = null;
   let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
-  for (const player of players.values()) {
+  forEachPlayer(world, (entity, playerId) => {
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    if (!energyComp || !posComp || !stageComp) return;
+
     // Skip dead players and evolving players
-    if (player.energy <= 0 || player.isEvolving) continue;
+    if (energyComp.current <= 0 || stageComp.isEvolving) return;
 
     // Swarms only chase soup-stage players (Stage 1-2)
-    // Stage 3+ players have evolved past the soup
-    if (!isSoupStage(player.stage)) continue;
+    if (!isSoupStage(stageComp.stage)) return;
 
-    const dist = distance(swarm.position, player.position);
+    const playerPosition = { x: posComp.x, y: posComp.y };
+    const dist = distance(swarm.position, playerPosition);
     if (dist < nearestDist) {
       nearestDist = dist;
-      nearestPlayer = player;
+      nearestPlayer = { id: playerId, position: playerPosition };
     }
-  }
+  });
 
   return nearestPlayer;
 }
@@ -278,7 +287,7 @@ function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, Ent
  */
 export function updateSwarms(
   currentTime: number,
-  players: Map<string, Player>,
+  world: World,
   obstacles: Map<string, Obstacle>,
   deltaTime: number
 ) {
@@ -292,7 +301,7 @@ export function updateSwarms(
     }
 
     // Check for nearby players
-    const nearestPlayer = findNearestPlayer(swarm, players);
+    const nearestPlayer = findNearestPlayer(swarm, world);
 
     if (nearestPlayer) {
       // CHASE: Player detected within range

@@ -156,7 +156,7 @@ export interface GameContext {
 
   updateSwarms: (
     timestamp: number,
-    players: Map<string, Player>,
+    world: World,
     obstacles: Map<string, Obstacle>,
     deltaTime: number
   ) => void;

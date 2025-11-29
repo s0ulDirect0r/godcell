@@ -16,10 +16,10 @@ export class SwarmAISystem implements System {
   readonly name = 'SwarmAISystem';
 
   update(ctx: GameContext): void {
-    const { updateSwarms, updateSwarmPositions, processSwarmRespawns, players, obstacles, io, deltaTime } = ctx;
+    const { world, updateSwarms, updateSwarmPositions, processSwarmRespawns, obstacles, io, deltaTime } = ctx;
 
-    // Update swarm AI decisions
-    updateSwarms(Date.now(), players, obstacles, deltaTime);
+    // Update swarm AI decisions (now uses ECS for player queries)
+    updateSwarms(Date.now(), world, obstacles, deltaTime);
 
     // Update swarm positions based on velocity
     updateSwarmPositions(deltaTime, io);
