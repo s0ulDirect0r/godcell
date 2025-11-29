@@ -37,12 +37,9 @@ export class DeathSystem implements System {
     const {
       world,
       io,
-      players,
       playerLastDamageSource,
       playerLastBeamShooter,
       activeDrains,
-      playerInputDirections,
-      playerVelocities,
     } = ctx;
 
     forEachPlayer(world, (entity, playerId) => {
@@ -63,8 +60,8 @@ export class DeathSystem implements System {
         if (cause === 'predation') {
           const predatorId = activeDrains.get(player.id);
           if (predatorId) {
-            const predator = players.get(predatorId);
-            if (predator) {
+            const predatorEnergy = getEnergyBySocketId(world, predatorId);
+            if (predatorEnergy) {
               // Calculate reward based on victim stage
               let maxEnergyGain = 0;
               if (player.stage === EvolutionStage.SINGLE_CELL) {
@@ -76,7 +73,7 @@ export class DeathSystem implements System {
               }
 
               // Award maxEnergy increase to predator (write to ECS)
-              setMaxEnergyBySocketId(world, predatorId, predator.maxEnergy + maxEnergyGain);
+              setMaxEnergyBySocketId(world, predatorId, predatorEnergy.max + maxEnergyGain);
               // Clamp current energy to new max (addEnergy with 0 does this)
               addEnergyBySocketId(world, predatorId, 0);
 
@@ -97,13 +94,13 @@ export class DeathSystem implements System {
         if (cause === 'beam') {
           const shooterId = playerLastBeamShooter.get(player.id);
           if (shooterId) {
-            const shooter = players.get(shooterId);
-            if (shooter) {
+            const shooterEnergy = getEnergyBySocketId(world, shooterId);
+            if (shooterEnergy) {
               // Only multi-cells can be killed by beams, always award 80%
               const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
 
               // Award maxEnergy increase AND current energy to shooter (write to ECS)
-              const newMaxEnergy = shooter.maxEnergy + maxEnergyGain;
+              const newMaxEnergy = shooterEnergy.max + maxEnergyGain;
               setMaxEnergyBySocketId(world, shooterId, newMaxEnergy);
               const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
               addEnergyBySocketId(world, shooterId, energyGain);
@@ -145,7 +142,7 @@ export class DeathSystem implements System {
 
         // Auto-respawn bots after delay, log human player deaths
         if (isBot(player.id)) {
-          handleBotDeath(player.id, cause, io, players, playerInputDirections, playerVelocities);
+          handleBotDeath(player.id, cause, io);
         } else {
           logPlayerDeath(player.id, cause);
         }
