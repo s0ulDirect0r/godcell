@@ -13,6 +13,13 @@ import type {
   DamageSource,
 } from '@godcell/shared';
 import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import {
+  forEachPlayer,
+  Components,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
+} from '../index';
 import { distance } from '../../helpers';
 import { getConfig } from '../../dev';
 
@@ -29,8 +36,6 @@ const DETECTION_UPDATE_INTERVAL = 15; // ~4 times/sec at 60fps
  * - Drain state updates
  *
  * This system runs last (highest priority number).
- *
- * TODO Phase 5: Replace players/nutrients Map iteration with ECS iteration
  */
 export class NetworkBroadcastSystem implements System {
   readonly name = 'NetworkBroadcastSystem';
@@ -50,24 +55,24 @@ export class NetworkBroadcastSystem implements System {
    * Energy-only system: energy is the sole resource
    */
   private broadcastEnergyUpdates(ctx: GameContext): void {
-    const { io, players } = ctx;
+    const { world, io } = ctx;
 
     this.energyUpdateTicks++;
 
     if (this.energyUpdateTicks >= ENERGY_UPDATE_INTERVAL) {
       this.energyUpdateTicks = 0;
 
-      for (const [playerId, player] of players) {
-        // Skip dead players (no need to broadcast their energy)
-        if (player.energy <= 0) continue;
+      forEachPlayer(world, (entity, playerId) => {
+        const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+        if (!energyComp || energyComp.current <= 0) return;
 
         const updateMessage: EnergyUpdateMessage = {
           type: 'energyUpdate',
           playerId,
-          energy: player.energy,
+          energy: energyComp.current,
         };
         io.emit('energyUpdate', updateMessage);
-      }
+      });
     }
   }
 
@@ -141,39 +146,51 @@ export class NetworkBroadcastSystem implements System {
    * Multi-cells can "smell" nearby prey and nutrients from extended range
    */
   private broadcastDetectionUpdates(ctx: GameContext): void {
-    const { io, players, nutrients, getSwarms } = ctx;
+    const { world, io, nutrients, getSwarms } = ctx;
 
     this.detectionUpdateTicks++;
 
     if (this.detectionUpdateTicks >= DETECTION_UPDATE_INTERVAL) {
       this.detectionUpdateTicks = 0;
 
-      for (const [playerId, player] of players) {
-        // Only multi-cells and above have chemical sensing
-        if (player.stage === EvolutionStage.SINGLE_CELL) continue;
-        if (player.energy <= 0) continue; // Skip dead players
+      forEachPlayer(world, (entity, playerId) => {
+        const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+        const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+        const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+        if (!stageComp || !energyComp || !posComp) return;
 
+        // Only multi-cells and above have chemical sensing
+        if (stageComp.stage === EvolutionStage.SINGLE_CELL) return;
+        if (energyComp.current <= 0) return;
+
+        const playerPosition = { x: posComp.x, y: posComp.y };
         const detected: DetectedEntity[] = [];
 
         // Detect other players (potential prey or threats)
-        for (const [otherId, otherPlayer] of players) {
-          if (otherId === playerId) continue; // Don't detect yourself
-          if (otherPlayer.energy <= 0) continue; // Skip dead players
+        forEachPlayer(world, (otherEntity, otherId) => {
+          if (otherId === playerId) return;
 
-          const dist = distance(player.position, otherPlayer.position);
+          const otherEnergy = world.getComponent<EnergyComponent>(otherEntity, Components.Energy);
+          const otherPos = world.getComponent<PositionComponent>(otherEntity, Components.Position);
+          const otherStage = world.getComponent<StageComponent>(otherEntity, Components.Stage);
+          if (!otherEnergy || !otherPos || !otherStage) return;
+          if (otherEnergy.current <= 0) return;
+
+          const otherPosition = { x: otherPos.x, y: otherPos.y };
+          const dist = distance(playerPosition, otherPosition);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: otherId,
-              position: otherPlayer.position,
+              position: otherPosition,
               entityType: 'player',
-              stage: otherPlayer.stage,
+              stage: otherStage.stage,
             });
           }
-        }
+        });
 
         // Detect nutrients
         for (const [nutrientId, nutrient] of nutrients) {
-          const dist = distance(player.position, nutrient.position);
+          const dist = distance(playerPosition, nutrient.position);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: nutrientId,
@@ -185,7 +202,7 @@ export class NetworkBroadcastSystem implements System {
 
         // Detect swarms (potential prey for multi-cells)
         for (const [swarmId, swarm] of getSwarms()) {
-          const dist = distance(player.position, swarm.position);
+          const dist = distance(playerPosition, swarm.position);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: swarmId,
@@ -204,7 +221,7 @@ export class NetworkBroadcastSystem implements System {
           };
           socket.emit('detectionUpdate', detectionMessage);
         }
-      }
+      });
     }
   }
 }
