@@ -31,7 +31,6 @@ export class SwarmCollisionSystem implements System {
       io,
       recordDamage,
       checkSwarmCollisions,
-      activeSwarmDrains,
       getPlayerRadius,
       distance,
       removeSwarm,
@@ -59,8 +58,10 @@ export class SwarmCollisionSystem implements System {
     }
 
     // Handle swarm consumption (multi-cells eating disabled swarms)
-    // Use ECS directly for player data
-    const currentSwarmDrains = new Set<string>();
+    // First, clear all beingConsumedBy flags (will be set again if still being consumed)
+    forEachSwarm(world, (_entity, _swarmId, _posComp, _velComp, swarmComp) => {
+      swarmComp.beingConsumedBy = undefined;
+    });
 
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
@@ -79,7 +80,7 @@ export class SwarmCollisionSystem implements System {
       // Track swarms to remove (can't modify during iteration)
       const swarmsToRemove: string[] = [];
 
-      forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+      forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
         // Only consume disabled swarms with health remaining
         if (!swarmComp.disabledUntil || Date.now() >= swarmComp.disabledUntil) return;
         if (swarmEnergyComp.current <= 0) return;
@@ -89,7 +90,8 @@ export class SwarmCollisionSystem implements System {
         const collisionDist = swarmComp.size + getPlayerRadius(stageComp.stage);
 
         if (dist < collisionDist) {
-          currentSwarmDrains.add(swarmId);
+          // Mark swarm as being consumed via ECS component
+          swarmComp.beingConsumedBy = playerId;
 
           // Gradual consumption - mutate ECS component directly
           const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
@@ -124,9 +126,5 @@ export class SwarmCollisionSystem implements System {
         removeSwarm(world, swarmId);
       }
     });
-
-    // Update active swarm drains tracking
-    activeSwarmDrains.clear();
-    currentSwarmDrains.forEach(id => activeSwarmDrains.add(id));
   }
 }

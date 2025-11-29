@@ -159,6 +159,7 @@ export interface SwarmComponent {
   patrolTarget?: Position;         // Where swarm is wandering toward
   homePosition: Position;          // Spawn point (for patrol radius)
   disabledUntil?: number;          // Timestamp when EMP stun expires
+  beingConsumedBy?: string;        // Player socketId currently consuming this swarm
   // Note: Swarm energy is stored in EnergyComponent when disabled
 }
 

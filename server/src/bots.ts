@@ -1,5 +1,5 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent } from '@godcell/shared';
+import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
@@ -15,9 +15,11 @@ import {
   deletePlayerBySocketId,
   forEachPlayer,
   getStringIdByEntity,
+  getAllObstacleSnapshots,
   Components,
   Tags,
   type World,
+  type ObstacleSnapshot,
 } from './ecs';
 import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '@godcell/shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
@@ -98,21 +100,7 @@ function distance(p1: Position, p2: Position): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/**
- * Check if a spawn position is safe (not inside or near gravity wells)
- * Safe distance is 1000px from obstacle center (400px buffer outside gravity influence)
- */
-function isSpawnSafe(position: Position, obstacles: Map<string, Obstacle>): boolean {
-  const SAFE_DISTANCE = 1000; // Gravity radius (600px) + buffer (400px)
-
-  for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < SAFE_DISTANCE) {
-      return false; // Too close to a gravity well
-    }
-  }
-
-  return true; // Safe from all obstacles
-}
+// NOTE: isSpawnSafe removed - spawn safety is handled by randomSpawnPosition via ECS getObstacleZones
 
 // ============================================
 // Bot Spawning
@@ -334,15 +322,16 @@ function steerTowards(
  * Bots start avoiding shortly before the event horizon and ramp up to
  * full-thrust escape as they cross it. Multi-cells use a larger caution
  * radius (350px) than single-cells (265px) because they're bigger/slower.
+ * NOTE: obstacles migrated to ECS - uses ObstacleSnapshot array
  */
 function avoidObstacles(
   botPosition: Position,
-  obstacles: Map<string, Obstacle>,
+  obstacles: ObstacleSnapshot[],
   stage: EvolutionStage = EvolutionStage.SINGLE_CELL
 ): { x: number; y: number } {
   let avoidanceForce = { x: 0, y: 0 };
 
-  for (const obstacle of obstacles.values()) {
+  for (const obstacle of obstacles) {
     const dist = distance(botPosition, obstacle.position);
 
     // Danger zones - tight buffer outside event horizon
@@ -502,12 +491,13 @@ function avoidSwarms(
 /**
  * Update a single bot's AI decision-making
  * Combines goal-seeking (nutrients/wander) with obstacle and swarm avoidance
+ * NOTE: obstacles migrated to ECS - receives ObstacleSnapshot array
  */
 function updateBotAI(
   bot: BotController,
   currentTime: number,
   world: World,
-  obstacles: Map<string, Obstacle>,
+  obstacles: ObstacleSnapshot[],
   swarms: EntropySwarm[]
 ) {
   const player = bot.player;
@@ -683,12 +673,13 @@ export function initializeBots(io: Server) {
 
 /**
  * Update multi-cell bot AI - hunts single-cells, uses EMP, devours swarms
+ * NOTE: obstacles migrated to ECS - receives ObstacleSnapshot array
  */
 function updateMultiCellBotAI(
   bot: BotController,
   currentTime: number,
   world: World,
-  obstacles: Map<string, Obstacle>,
+  obstacles: ObstacleSnapshot[],
   swarms: EntropySwarm[],
   abilitySystem: AbilitySystem
 ) {
@@ -917,14 +908,17 @@ function updateMultiCellBotAI(
 /**
  * Update all bots' AI decision-making
  * Call this before the movement loop in the game tick
+ * NOTE: obstacles migrated to ECS - queries ECS directly
  */
 export function updateBots(
   currentTime: number,
   world: World,
-  obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
   abilitySystem: AbilitySystem
 ) {
+  // Query obstacles from ECS once per tick (shared across all bots)
+  const obstacles = getAllObstacleSnapshots(world);
+
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
     // Refresh bot.player from ECS (the cached reference goes stale each tick)

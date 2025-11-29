@@ -21,19 +21,13 @@ import type {
 import type { AbilitySystem } from '../../abilities';
 
 /**
- * Active damage record for tracking damage sources (matches index.ts ActiveDamage)
- */
-export interface ActiveDamageRecord {
-  damageRate: number;
-  source: DamageSource;
-  proximityFactor?: number;
-}
-
-/**
  * GameContext - Shared state for all systems
  *
  * This is the bridge between legacy Map-based state and ECS.
  * Systems receive this context and can access whatever they need.
+ *
+ * All entity collections and player state Maps have been migrated to ECS.
+ * See buildGameContext() in index.ts for the full migration list.
  */
 export interface GameContext {
   // ECS World
@@ -44,29 +38,6 @@ export interface GameContext {
 
   // Delta time for this tick (seconds)
   deltaTime: number;
-
-  // ============================================
-  // Entity Collections (all migrated to ECS)
-  // ============================================
-  // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
-  // NOTE: obstacles migrated to ECS - use forEachObstacle/getAllObstacleSnapshots
-  // NOTE: swarms migrated to ECS - use forEachSwarm/getAllSwarmSnapshots
-  // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
-
-  // ============================================
-  // Player State Maps (all migrated to ECS)
-  // ============================================
-  // NOTE: playerVelocities, playerInputDirections, playerSprintState → ECS components
-  // NOTE: playerLastDamageSource, playerLastBeamShooter, pseudopodHitDecays → DamageTrackingComponent
-  // NOTE: playerEMPCooldowns, playerPseudopodCooldowns → CooldownsComponent
-
-  // Drain state tracking
-  // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
-  activeSwarmDrains: Set<string>;
-  lastBroadcastedDrains: Set<string>;
-
-  // Active damage tracking for HUD
-  activeDamage: Map<string, ActiveDamageRecord[]>;
 
   // ============================================
   // Per-Tick Transient Data (set by systems, read by later systems)

@@ -8,9 +8,9 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { Nutrient, Position, Obstacle, World, NutrientSpawnedMessage } from '@godcell/shared';
+import type { Nutrient, Position, World, NutrientSpawnedMessage } from '@godcell/shared';
 import { GAME_CONFIG } from '@godcell/shared';
-import { createNutrient, getNutrientCount } from './ecs';
+import { createNutrient, getNutrientCount, getAllObstacleSnapshots } from './ecs';
 import { isNutrientSpawnSafe, calculateNutrientValueMultiplier, poissonDiscSampling } from './helpers';
 import { getConfig } from './dev';
 import { logger, logNutrientsSpawned } from './logger';
@@ -168,14 +168,16 @@ export function respawnNutrient(nutrientId: string): void {
  * Initialize nutrients on server start using Bridson's algorithm
  * Ensures even distribution while allowing clustering near obstacles for risk/reward
  */
-export function initializeNutrients(obstacles: Map<string, Obstacle>): void {
+export function initializeNutrients(): void {
   assertInitialized();
   const MIN_NUTRIENT_SEPARATION = 200; // Good visual spacing across the map
   const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
 
   // Create avoidance zones for obstacle inner event horizons only
+  // Query obstacles from ECS (source of truth)
   // Obstacles are in soup-world coordinates, so offset them back to local space for sampling
-  const avoidanceZones = Array.from(obstacles.values()).map(obstacle => ({
+  const obstacles = getAllObstacleSnapshots(world);
+  const avoidanceZones = obstacles.map(obstacle => ({
     position: {
       x: obstacle.position.x - GAME_CONFIG.SOUP_ORIGIN_X,
       y: obstacle.position.y - GAME_CONFIG.SOUP_ORIGIN_Y,

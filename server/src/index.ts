@@ -148,20 +148,8 @@ const world: World = createWorld();
 // NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
 
 // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
-
-// Active swarm consumption (multi-cells eating disabled swarms)
-// Set of swarm IDs currently being consumed
-const activeSwarmDrains: Set<string> = new Set();
-
-// NEW: Damage tracking system for variable-intensity drain auras
-// Track all active damage sources per entity this tick
-interface ActiveDamage {
-  damageRate: number;        // DPS this tick
-  source: DamageSource;      // Which damage source
-  proximityFactor?: number;  // For gravity gradient (0-1, higher = closer to center)
-}
-const activeDamageThisTick = new Map<string, ActiveDamage[]>();
-
+// NOTE: activeSwarmDrains migrated to ECS SwarmComponent.beingConsumedBy
+// NOTE: activeDamage migrated to ECS DamageTrackingComponent.activeDamage
 // NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
 
 // NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount/buildObstaclesRecord
@@ -353,6 +341,7 @@ function respawnPlayer(playerId: string) {
 /**
  * Helper function to record damage for this tick
  * Used by all damage sources to contribute to drain aura intensity
+ * Now writes directly to ECS DamageTrackingComponent
  */
 function recordDamage(
   entityId: string,
@@ -360,10 +349,10 @@ function recordDamage(
   source: DamageSource,
   proximityFactor?: number
 ) {
-  if (!activeDamageThisTick.has(entityId)) {
-    activeDamageThisTick.set(entityId, []);
+  const damageTracking = getDamageTrackingBySocketId(world, entityId);
+  if (damageTracking) {
+    damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
   }
-  activeDamageThisTick.get(entityId)!.push({ damageRate, source, proximityFactor });
 }
 
 // ============================================
@@ -453,9 +442,6 @@ logger.info({
   systems: systemRunner.getSystemNames(),
 });
 
-// Track last broadcasted drains for comparison
-const lastBroadcastedDrains = new Set<string>();
-
 /**
  * Build the GameContext for this tick
  * This provides systems access to all game state and helper functions
@@ -467,23 +453,19 @@ function buildGameContext(deltaTime: number): GameContext {
     io,
     deltaTime,
 
-    // Entity Collections
-    // NOTE: nutrients migrated to ECS - use forEachNutrient/getAllNutrientSnapshots
-    // NOTE: obstacles migrated to ECS - use forEachObstacle/getAllObstacleSnapshots
-    // NOTE: swarms migrated to ECS - use forEachSwarm/getAllSwarmSnapshots
-    // NOTE: Pseudopods migrated to ECS PseudopodComponent
-    // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
-    // NOTE: playerSprintState migrated to ECS SprintComponent
-
-    // NOTE: Player state Maps migrated to ECS:
+    // Entity Collections - ALL migrated to ECS:
+    // - nutrients → forEachNutrient/getAllNutrientSnapshots
+    // - obstacles → forEachObstacle/getAllObstacleSnapshots
+    // - swarms → forEachSwarm/getAllSwarmSnapshots
+    // - pseudopods → PseudopodComponent
+    // - playerInputDirections/playerVelocities → InputComponent/VelocityComponent
+    // - playerSprintState → SprintComponent
     // - playerLastDamageSource/playerLastBeamShooter → DamageTrackingComponent
     // - pseudopodHitDecays → DamageTrackingComponent
     // - playerEMPCooldowns/playerPseudopodCooldowns → CooldownsComponent
-
-    // Drain state (activeDrains moved to ECS DrainTargetComponent)
-    activeSwarmDrains,
-    lastBroadcastedDrains,
-    activeDamage: activeDamageThisTick,
+    // - activeDrains → DrainTargetComponent
+    // - activeSwarmDrains → SwarmComponent.beingConsumedBy
+    // - activeDamage → DamageTrackingComponent.activeDamage
 
     // Per-tick transient data (will be populated by systems)
     tickData: {

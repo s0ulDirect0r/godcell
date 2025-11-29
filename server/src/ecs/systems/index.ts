@@ -5,7 +5,7 @@
 // Types and Context
 export type { System } from './types';
 export { SystemPriority } from './types';
-export type { GameContext, ActiveDamageRecord } from './GameContext';
+export type { GameContext } from './GameContext';
 
 // Runner
 export { SystemRunner } from './SystemRunner';
