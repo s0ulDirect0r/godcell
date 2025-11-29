@@ -1167,74 +1167,6 @@ function broadcastDetectionUpdates() {
   }
 }
 
-/**
- * Check for nutrient collection collisions
- * Called each game tick to detect when players touch nutrients
- */
-function checkNutrientCollisions() {
-  for (const [playerId, player] of players) {
-    // Skip dead players (waiting for manual respawn)
-    if (player.energy <= 0) continue;
-
-    // Skip if player is evolving (invulnerable during molting)
-    if (player.isEvolving) continue;
-
-    // Stage 3+ players don't interact with soup nutrients (they've transcended)
-    if (isJungleStage(player.stage)) continue;
-
-    for (const [nutrientId, nutrient] of nutrients) {
-      const dist = distance(player.position, nutrient.position);
-      const playerRadius = getPlayerRadius(player.stage);
-      const collisionRadius = playerRadius + GAME_CONFIG.NUTRIENT_SIZE;
-
-      if (dist < collisionRadius) {
-        // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
-        // Both scale with proximity gradient (high-risk nutrients = faster evolution!)
-        // Get ECS energy component directly for mutation
-        const energyComp = getEnergyBySocketId(world, playerId);
-        if (!energyComp) continue;
-
-        // Safety clamp to prevent negative energy gain if energy somehow drifts above maxEnergy
-        const energyGain = Math.min(
-          nutrient.value,
-          Math.max(0, energyComp.max - energyComp.current)
-        );
-
-        // Update ECS components directly (persists changes)
-        energyComp.max += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
-        energyComp.current = Math.min(energyComp.current + energyGain, energyComp.max);
-
-        // Track nutrient collection for telemetry
-        recordNutrientCollection(playerId, energyGain);
-
-        // Remove nutrient from world
-        nutrients.delete(nutrientId);
-        // Remove from ECS (dual-write during migration)
-        const nutrientEntity = getEntityByStringId(nutrientId);
-        if (nutrientEntity !== undefined) {
-          ecsDestroyEntity(world, nutrientEntity);
-        }
-
-        // Broadcast collection event to all clients (use ECS values)
-        const collectMessage: NutrientCollectedMessage = {
-          type: 'nutrientCollected',
-          nutrientId,
-          playerId,
-          collectorEnergy: energyComp.current,
-          collectorMaxEnergy: energyComp.max,
-        };
-        io.emit('nutrientCollected', collectMessage);
-
-        // Schedule respawn after delay
-        respawnNutrient(nutrientId);
-
-        // Only collect one nutrient per tick per player
-        break;
-      }
-    }
-  }
-}
-
 // ============================================
 // Socket.io Server Setup
 // ============================================
@@ -1400,7 +1332,7 @@ function buildGameContext(deltaTime: number): GameContext {
     updatePseudopods,
     checkPredationCollisions,
     checkSwarmCollisions,
-    checkNutrientCollisions,
+    respawnNutrient,
     attractNutrientsToObstacles,
     handlePlayerDeath,
     broadcastEnergyUpdates,

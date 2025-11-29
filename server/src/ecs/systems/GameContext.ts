@@ -170,7 +170,7 @@ export interface GameContext {
     ) => void,
     applyDamage?: (player: Player, baseDamage: number) => number
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
-  checkNutrientCollisions: () => void;
+  respawnNutrient: (nutrientId: string) => void;
   attractNutrientsToObstacles: (deltaTime: number) => void;
   handlePlayerDeath: (player: Player, cause: DeathCause) => void;
   broadcastEnergyUpdates: () => void;
