@@ -980,10 +980,7 @@ export function getBotCount(): number {
 export function handleBotDeath(
   botId: string,
   cause: DeathCause,
-  io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
+  io: Server
 ) {
   if (!ecsWorld) {
     logger.warn({ event: 'bot_death_no_ecs', botId });
