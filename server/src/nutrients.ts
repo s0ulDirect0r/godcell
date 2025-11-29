@@ -2,11 +2,15 @@
 // Nutrient Management
 // Handles nutrient spawning, respawning, and lifecycle
 // ============================================
+//
+// ECS is the source of truth for nutrients.
+// This module handles spawning/respawning and timers only.
+// ============================================
 
 import type { Server } from 'socket.io';
-import type { Nutrient, Position, Obstacle, World, NutrientSpawnedMessage } from '@godcell/shared';
+import type { Nutrient, Position, World, NutrientSpawnedMessage } from '@godcell/shared';
 import { GAME_CONFIG } from '@godcell/shared';
-import { createNutrient as ecsCreateNutrient } from './ecs';
+import { createNutrient, getNutrientCount, getAllObstacleSnapshots } from './ecs';
 import { isNutrientSpawnSafe, calculateNutrientValueMultiplier, poissonDiscSampling } from './helpers';
 import { getConfig } from './dev';
 import { logger, logNutrientsSpawned } from './logger';
@@ -15,7 +19,7 @@ import { logger, logNutrientsSpawned } from './logger';
 // Module State
 // ============================================
 
-const nutrients: Map<string, Nutrient> = new Map();
+// Respawn timers (keyed by old nutrient ID, spawns new nutrient with new ID)
 const nutrientRespawnTimers: Map<string, NodeJS.Timeout> = new Map();
 let nutrientIdCounter = 0;
 
@@ -39,13 +43,6 @@ function assertInitialized(): void {
   if (!world || !io) {
     throw new Error('Nutrient module not initialized. Call initNutrientModule first.');
   }
-}
-
-/**
- * Get the nutrients Map (for GameContext and other modules)
- */
-export function getNutrients(): Map<string, Nutrient> {
-  return nutrients;
 }
 
 // ============================================
@@ -103,6 +100,7 @@ export function spawnNutrient(emitEvent: boolean = false): Nutrient {
  * Used for prey drops and specific spawn locations
  * @param position - Where to spawn the nutrient
  * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
+ * @returns Nutrient data (for network messages)
  */
 export function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEvent: boolean = false): Nutrient {
   assertInitialized();
@@ -111,27 +109,30 @@ export function spawnNutrientAt(position: Position, overrideMultiplier?: number,
   const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position, world);
   const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
 
-  const nutrient: Nutrient = {
-    id: `nutrient-${nutrientIdCounter++}`,
-    position,
-    value: getConfig('NUTRIENT_ENERGY_VALUE') * valueMultiplier,
-    capacityIncrease: getConfig('NUTRIENT_CAPACITY_INCREASE') * valueMultiplier,
-    valueMultiplier, // Store multiplier for client color rendering
-    isHighValue,
-  };
+  const id = `nutrient-${nutrientIdCounter++}`;
+  const value = getConfig('NUTRIENT_ENERGY_VALUE') * valueMultiplier;
+  const capacityIncrease = getConfig('NUTRIENT_CAPACITY_INCREASE') * valueMultiplier;
 
-  nutrients.set(nutrient.id, nutrient);
-
-  // Add to ECS (dual-write during migration)
-  ecsCreateNutrient(
+  // Create in ECS (source of truth)
+  createNutrient(
     world,
-    nutrient.id,
+    id,
     position,
-    nutrient.value,
-    nutrient.capacityIncrease,
+    value,
+    capacityIncrease,
     valueMultiplier,
     isHighValue
   );
+
+  // Build nutrient data for return/broadcast
+  const nutrient: Nutrient = {
+    id,
+    position: { x: position.x, y: position.y },
+    value,
+    capacityIncrease,
+    valueMultiplier,
+    isHighValue,
+  };
 
   // Emit spawn event for client-side spawn animations (only after initial load)
   if (emitEvent && io) {
@@ -167,14 +168,16 @@ export function respawnNutrient(nutrientId: string): void {
  * Initialize nutrients on server start using Bridson's algorithm
  * Ensures even distribution while allowing clustering near obstacles for risk/reward
  */
-export function initializeNutrients(obstacles: Map<string, Obstacle>): void {
+export function initializeNutrients(): void {
   assertInitialized();
   const MIN_NUTRIENT_SEPARATION = 200; // Good visual spacing across the map
   const INNER_EVENT_HORIZON = 180; // Don't spawn in inescapable zones
 
   // Create avoidance zones for obstacle inner event horizons only
+  // Query obstacles from ECS (source of truth)
   // Obstacles are in soup-world coordinates, so offset them back to local space for sampling
-  const avoidanceZones = Array.from(obstacles.values()).map(obstacle => ({
+  const obstacles = getAllObstacleSnapshots(world);
+  const avoidanceZones = obstacles.map(obstacle => ({
     position: {
       x: obstacle.position.x - GAME_CONFIG.SOUP_ORIGIN_X,
       y: obstacle.position.y - GAME_CONFIG.SOUP_ORIGIN_Y,
@@ -200,13 +203,14 @@ export function initializeNutrients(obstacles: Map<string, Obstacle>): void {
     });
   }
 
-  logNutrientsSpawned(nutrients.size);
+  const count = getNutrientCount(world);
+  logNutrientsSpawned(count);
 
-  if (nutrients.size < GAME_CONFIG.NUTRIENT_COUNT) {
+  if (count < GAME_CONFIG.NUTRIENT_COUNT) {
     logger.warn({
       event: 'nutrient_init_incomplete',
-      placed: nutrients.size,
+      placed: count,
       target: GAME_CONFIG.NUTRIENT_COUNT,
-    }, `Only placed ${nutrients.size}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
+    }, `Only placed ${count}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
   }
 }

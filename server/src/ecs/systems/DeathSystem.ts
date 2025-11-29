@@ -15,7 +15,11 @@ import {
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
+  getDrainPredatorId,
+  clearDrainTarget,
+  getDamageTrackingBySocketId,
   type EnergyComponent,
+  type DamageTrackingComponent,
 } from '../index';
 import { isBot, handleBotDeath } from '../../bots';
 import { logger, recordLifetimeDeath, logPlayerDeath } from '../../logger';
@@ -34,23 +38,20 @@ export class DeathSystem implements System {
   readonly name = 'DeathSystem';
 
   update(ctx: GameContext): void {
-    const {
-      world,
-      io,
-      playerLastDamageSource,
-      playerLastBeamShooter,
-      activeDrains,
-    } = ctx;
+    const { world, io } = ctx;
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
       if (!energyComp) return;
 
+      // Get damage tracking from ECS
+      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+
       // Only process if:
       // 1. Energy is at or below 0
       // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
-      if (energyComp.current <= 0 && playerLastDamageSource.has(playerId)) {
-        const cause = playerLastDamageSource.get(playerId)!;
+      if (energyComp.current <= 0 && damageTracking?.lastDamageSource) {
+        const cause = damageTracking.lastDamageSource;
 
         // Get Player object for death handling
         const player = getPlayerBySocketId(world, playerId);
@@ -58,7 +59,7 @@ export class DeathSystem implements System {
 
         // Handle predation kill rewards (contact drain)
         if (cause === 'predation') {
-          const predatorId = activeDrains.get(player.id);
+          const predatorId = getDrainPredatorId(world, player.id);
           if (predatorId) {
             const predatorEnergy = getEnergyBySocketId(world, predatorId);
             if (predatorEnergy) {
@@ -86,13 +87,13 @@ export class DeathSystem implements System {
               });
             }
             // Clear drain tracking
-            activeDrains.delete(player.id);
+            clearDrainTarget(world, player.id);
           }
         }
 
         // Handle beam kill rewards (pseudopod)
         if (cause === 'beam') {
-          const shooterId = playerLastBeamShooter.get(player.id);
+          const shooterId = damageTracking.lastBeamShooter;
           if (shooterId) {
             const shooterEnergy = getEnergyBySocketId(world, shooterId);
             if (shooterEnergy) {
@@ -114,8 +115,8 @@ export class DeathSystem implements System {
                 energyGained: energyGain.toFixed(1),
               });
             }
-            // Clear beam shooter tracking
-            playerLastBeamShooter.delete(player.id);
+            // Clear beam shooter tracking in ECS
+            damageTracking.lastBeamShooter = undefined;
           }
         }
 
@@ -151,8 +152,8 @@ export class DeathSystem implements System {
         // Respawn will set energy back to positive value
         setEnergyBySocketId(world, playerId, -1);
 
-        // Clear damage source to prevent reprocessing same death
-        playerLastDamageSource.delete(playerId);
+        // Clear damage source in ECS to prevent reprocessing same death
+        damageTracking.lastDamageSource = undefined;
       }
     });
   }

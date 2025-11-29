@@ -110,6 +110,9 @@ export interface DamageTrackingComponent {
     source: DamageSource;
     proximityFactor?: number;     // For gravity gradient (0-1)
   }>;
+  // Pseudopod hit decay - brief damage display after beam hit
+  pseudopodHitRate?: number;      // Damage rate to display
+  pseudopodHitExpiresAt?: number; // Timestamp when decay expires
 }
 
 /**
@@ -152,10 +155,11 @@ export interface ObstacleComponent {
 export interface SwarmComponent {
   size: number;                    // Radius for collision detection
   state: 'patrol' | 'chase';       // Current AI state
-  targetPlayerId?: number;         // EntityId being chased (if state === 'chase')
+  targetPlayerId?: string;         // Socket ID being chased (if state === 'chase')
   patrolTarget?: Position;         // Where swarm is wandering toward
   homePosition: Position;          // Spawn point (for patrol radius)
   disabledUntil?: number;          // Timestamp when EMP stun expires
+  beingConsumedBy?: string;        // Player socketId currently consuming this swarm
   // Note: Swarm energy is stored in EnergyComponent when disabled
 }
 

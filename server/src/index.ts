@@ -3,7 +3,6 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
   Player,
   Position,
-  Obstacle,
   DeathCause,
   DamageSource,
   Pseudopod,
@@ -19,8 +18,9 @@ import type {
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
-import { initNutrientModule, getNutrients, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { buildSwarmsRecord } from './ecs';
+import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
 import {
@@ -43,7 +43,7 @@ import {
 import {
   createWorld,
   createPlayer as ecsCreatePlayer,
-  createObstacle as ecsCreateObstacle,
+  createObstacle,
   createSwarm as ecsCreateSwarm,
   createPseudopod as ecsCreatePseudopod,
   destroyEntity as ecsDestroyEntity,
@@ -53,15 +53,23 @@ import {
   Tags,
   buildAlivePlayersRecord,
   buildPlayersRecord,
+  buildNutrientsRecord,
+  getNutrientCount,
+  getAllNutrientSnapshots,
+  buildObstaclesRecord,
+  getAllObstacleSnapshots,
+  getObstacleCount,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
+  getStunnedBySocketId,
   getVelocityBySocketId,
   getSprintBySocketId,
   getCooldownsBySocketId,
+  getDamageTrackingBySocketId,
   isBotBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
@@ -70,6 +78,9 @@ import {
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
+  setInputBySocketId,
+  setVelocityBySocketId,
+  setSprintBySocketId,
   type World,
   type EntityId,
   type EnergyComponent,
@@ -124,90 +135,24 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ============================================
 
 // ECS World - central container for all entities and components
-// ECS is the source of truth. The players Map below is a cache rebuilt each tick.
+// ECS is the sole source of truth for all player state.
 const world: World = createWorld();
 
-// All players currently in the game
-// Maps socket ID → Player data
-// IMPORTANT: This is now a CACHE that gets rebuilt from ECS each tick.
-// Write to ECS components, not to this Map. Reads are fine during tick.
-const players: Map<string, Player> = new Map();
+// NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
+// NOTE: playerSprintState migrated to ECS SprintComponent
 
-/**
- * Sync the players Map from ECS components.
- * Called at the start of each tick to ensure legacy code reads current ECS state.
- * This is a temporary bridge - once all code reads from ECS directly, remove this.
- */
-function syncPlayersFromECS(): void {
-  players.clear();
-  forEachPlayer(world, (entity, socketId) => {
-    const player = getPlayerBySocketId(world, socketId);
-    if (player) {
-      players.set(socketId, player);
-    }
-  });
-}
+// NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
 
-// Player input directions (from keyboard/controller)
-// Maps socket ID → {x, y} direction (-1, 0, or 1)
-const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
+// NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
-// Player velocities (actual velocity in pixels/second, accumulates forces)
-// Maps socket ID → {x, y} velocity
-const playerVelocities: Map<string, { x: number; y: number }> = new Map();
+// NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
 
-// Player sprint state (Stage 3+ ability - hold Shift to sprint)
-// Maps socket ID → boolean (is sprinting)
-const playerSprintState: Map<string, boolean> = new Map();
+// NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
+// NOTE: activeSwarmDrains migrated to ECS SwarmComponent.beingConsumedBy
+// NOTE: activeDamage migrated to ECS DamageTrackingComponent.activeDamage
+// NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
 
-// Track what last damaged each player (for death cause logging)
-// Maps player ID → damage source
-const playerLastDamageSource: Map<string, DeathCause> = new Map();
-
-// Track who fired the beam that last hit each player (for kill rewards)
-// Maps target player ID → shooter player ID
-const playerLastBeamShooter: Map<string, string> = new Map();
-
-// Pseudopods (hunting tentacles extended by multi-cells)
-// Maps pseudopod ID → Pseudopod data
-const pseudopods: Map<string, Pseudopod> = new Map();
-
-// Pseudopod hit tracking (prevent multiple hits on same target per beam)
-// Maps beam ID → Set of player IDs already hit
-const pseudopodHits: Map<string, Set<string>> = new Map();
-
-// Pseudopod cooldowns (prevent spam)
-// Maps player ID → timestamp of last pseudopod extension
-const playerPseudopodCooldowns: Map<string, number> = new Map();
-
-// EMP cooldowns (prevent spam)
-// Maps player ID → timestamp of last EMP use
-const playerEMPCooldowns: Map<string, number> = new Map();
-
-// Active energy drains (multi-cell draining prey on contact)
-// Maps prey ID → predator ID
-const activeDrains: Map<string, string> = new Map();
-
-// Active swarm consumption (multi-cells eating disabled swarms)
-// Set of swarm IDs currently being consumed
-const activeSwarmDrains: Set<string> = new Set();
-
-// NEW: Damage tracking system for variable-intensity drain auras
-// Track all active damage sources per entity this tick
-interface ActiveDamage {
-  damageRate: number;        // DPS this tick
-  source: DamageSource;      // Which damage source
-  proximityFactor?: number;  // For gravity gradient (0-1, higher = closer to center)
-}
-const activeDamageThisTick = new Map<string, ActiveDamage[]>();
-
-// Pseudopod hit decay timers (for brief aura after beam hits)
-// Maps playerId → {rate, expiresAt}
-const pseudopodHitDecays = new Map<string, { rate: number; expiresAt: number }>();
-
-// All gravity obstacles in the world
-// Maps obstacle ID → Obstacle data
-const obstacles: Map<string, Obstacle> = new Map();
+// NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount/buildObstaclesRecord
 
 /**
  * Hitscan raycast for pseudopod beam
@@ -215,46 +160,58 @@ const obstacles: Map<string, Obstacle> = new Map();
  * Applies damage to closest hit and returns target ID
  */
 function checkBeamHitscan(start: Position, end: Position, shooterId: string): string | null {
-  let closestHit: { playerId: string; distance: number } | null = null;
+  // Use object wrapper pattern for closure mutation
+  const result: { closestHit: { playerId: string; distance: number } | null } = { closestHit: null };
 
-  for (const [playerId, target] of players) {
+  forEachPlayer(world, (entity, playerId) => {
     // Skip shooter
-    if (playerId === shooterId) continue;
+    if (playerId === shooterId) return;
+
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp || !posComp) return;
 
     // Skip dead/evolving/stunned players
-    if (target.energy <= 0) continue;
-    if (target.isEvolving) continue;
-    if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue;
+    if (energyComp.current <= 0) return;
+    if (stageComp.isEvolving) return;
+    if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
-    const targetRadius = getPlayerRadius(target.stage);
-    const hitDist = rayCircleIntersection(start, end, target.position, targetRadius);
+    const targetRadius = getPlayerRadius(stageComp.stage);
+    const targetPosition = { x: posComp.x, y: posComp.y };
+    const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 
     if (hitDist !== null) {
       // Track closest hit
-      if (!closestHit || hitDist < closestHit.distance) {
-        closestHit = { playerId, distance: hitDist };
+      if (!result.closestHit || hitDist < result.closestHit.distance) {
+        result.closestHit = { playerId, distance: hitDist };
       }
     }
-  }
+  });
 
   // Apply damage to closest hit
-  if (closestHit) {
-    const target = players.get(closestHit.playerId);
-    if (target) {
-      applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
-      playerLastDamageSource.set(closestHit.playerId, 'beam');
-      playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
+  if (result.closestHit) {
+    const targetId = result.closestHit.playerId;
+    applyDamageWithResistance(targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
 
-      logger.info({
-        event: 'beam_hit',
-        shooter: shooterId,
-        target: closestHit.playerId,
-        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-        targetEnergyRemaining: target.energy.toFixed(0),
-      });
+    // Track damage source in ECS for death cause logging
+    const damageTracking = getDamageTrackingBySocketId(world, targetId);
+    if (damageTracking) {
+      damageTracking.lastDamageSource = 'beam';
+      damageTracking.lastBeamShooter = shooterId;
     }
 
-    return closestHit.playerId;
+    const energyComp = getEnergyBySocketId(world, targetId);
+    logger.info({
+      event: 'beam_hit',
+      shooter: shooterId,
+      target: targetId,
+      damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+      targetEnergyRemaining: energyComp ? energyComp.current.toFixed(0) : 'unknown',
+    });
+
+    return targetId;
   }
 
   return null;
@@ -290,32 +247,23 @@ function initializeObstacles() {
     y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
   }));
 
-  // Create obstacles from generated positions
+  // Create obstacles from generated positions (ECS is sole source of truth)
   for (const position of offsetPositions) {
-    const obstacle: Obstacle = {
-      id: `obstacle-${obstacleIdCounter++}`,
-      position,
-      radius: getConfig('OBSTACLE_GRAVITY_RADIUS'),
-      strength: getConfig('OBSTACLE_GRAVITY_STRENGTH'),
-      damageRate: GAME_CONFIG.OBSTACLE_DAMAGE_RATE,
-    };
-
-    obstacles.set(obstacle.id, obstacle);
-
-    // Add to ECS (dual-write during migration)
-    ecsCreateObstacle(
+    const obstacleId = `obstacle-${obstacleIdCounter++}`;
+    createObstacle(
       world,
-      obstacle.id,
+      obstacleId,
       position,
-      obstacle.radius,
-      obstacle.strength
+      getConfig('OBSTACLE_GRAVITY_RADIUS'),
+      getConfig('OBSTACLE_GRAVITY_STRENGTH')
     );
   }
 
-  logObstaclesSpawned(obstacles.size);
+  const obstacleCount = getObstacleCount(world);
+  logObstaclesSpawned(obstacleCount);
 
-  if (obstacles.size < GAME_CONFIG.OBSTACLE_COUNT) {
-    logger.warn(`Only placed ${obstacles.size}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
+  if (obstacleCount < GAME_CONFIG.OBSTACLE_COUNT) {
+    logger.warn(`Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
   }
 }
 
@@ -324,15 +272,18 @@ function initializeObstacles() {
  * Returns actual damage dealt after resistance
  * God mode players take no damage
  */
-function applyDamageWithResistance(player: Player, baseDamage: number): number {
+function applyDamageWithResistance(playerId: string, baseDamage: number): number {
   // God mode players are immune to damage
-  if (hasGodMode(player.id)) return 0;
+  if (hasGodMode(playerId)) return 0;
 
-  const resistance = getDamageResistance(player.stage);
+  const stageComp = getStageBySocketId(world, playerId);
+  if (!stageComp) return 0;
+
+  const resistance = getDamageResistance(stageComp.stage);
   const actualDamage = baseDamage * (1 - resistance);
 
-  // Write damage to ECS (not the cached player object)
-  const energyComp = getEnergyBySocketId(world, player.id);
+  // Write damage to ECS
+  const energyComp = getEnergyBySocketId(world, playerId);
   if (energyComp) {
     energyComp.current -= actualDamage;
   }
@@ -367,16 +318,8 @@ function respawnPlayer(playerId: string) {
   }
 
   // Reset input direction and velocity (stop movement if player was holding input during death)
-  const inputDirection = playerInputDirections.get(playerId);
-  if (inputDirection) {
-    inputDirection.x = 0;
-    inputDirection.y = 0;
-  }
-  const velocity = playerVelocities.get(playerId);
-  if (velocity) {
-    velocity.x = 0;
-    velocity.y = 0;
-  }
+  setInputBySocketId(world, playerId, 0, 0);
+  setVelocityBySocketId(world, playerId, 0, 0);
 
   // Get the updated player state from ECS for broadcast
   const respawnedPlayer = getPlayerBySocketId(world, playerId);
@@ -398,6 +341,7 @@ function respawnPlayer(playerId: string) {
 /**
  * Helper function to record damage for this tick
  * Used by all damage sources to contribute to drain aura intensity
+ * Now writes directly to ECS DamageTrackingComponent
  */
 function recordDamage(
   entityId: string,
@@ -405,10 +349,10 @@ function recordDamage(
   source: DamageSource,
   proximityFactor?: number
 ) {
-  if (!activeDamageThisTick.has(entityId)) {
-    activeDamageThisTick.set(entityId, []);
+  const damageTracking = getDamageTrackingBySocketId(world, entityId);
+  if (damageTracking) {
+    damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
   }
-  activeDamageThisTick.get(entityId)!.push({ damageRate, source, proximityFactor });
 }
 
 // ============================================
@@ -435,28 +379,22 @@ if (isPlayground) {
   // Initialize game world (normal mode)
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
-  initializeNutrients(obstacles);
-  // Set ECS world for bots and swarms before initializing
+  initializeNutrients();
+  // Set ECS world for bots before initializing
   setBotEcsWorld(world);
-  initializeBots(io, players, playerInputDirections, playerVelocities);
-  setSwarmEcsWorld(world);
-  initializeSwarms(io);
+  initializeBots(io);
+  // Swarms use ECS directly (world passed as parameter)
+  initializeSwarms(world, io);
 }
 
 // Initialize dev handler with game context
 initDevHandler({
   io,
-  world, // ECS World for direct component access
-  players,
-  nutrients: getNutrients(),
-  obstacles,
-  swarms: getSwarms(),
-  playerInputDirections,
-  playerVelocities,
+  world, // ECS World for direct component access (nutrients, obstacles, swarms queried from ECS)
   spawnNutrientAt,
-  spawnSwarmAt,
-  spawnBotAt: (position, stage) => spawnBotAt(io, players, playerInputDirections, playerVelocities, position, stage),
-  removeBotPermanently: (botId) => removeBotPermanently(botId, io, players, playerInputDirections, playerVelocities),
+  spawnSwarmAt: (position) => spawnSwarmAt(world, io, position),
+  spawnBotAt: (position, stage) => spawnBotAt(io, position, stage),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, io),
   respawnPlayer,
   getStageEnergy,
   getPlayerRadius,
@@ -467,14 +405,9 @@ initDevHandler({
 // ============================================
 
 const abilitySystem = new AbilitySystem({
-  players,
+  world, // ECS World (source of truth) - swarms queried via forEachSwarm/getAllSwarmSnapshots
   io,
-  ecsWorld: world, // ECS World for dual-write during migration
-  pseudopods,
-  pseudopodHits,
-  playerEMPCooldowns,
-  playerPseudopodCooldowns,
-  getSwarms,
+  // NOTE: Cooldowns migrated to ECS CooldownsComponent
   checkBeamHitscan,
   applyDamageWithResistance,
   getPlayerRadius,
@@ -509,46 +442,30 @@ logger.info({
   systems: systemRunner.getSystemNames(),
 });
 
-// Track last broadcasted drains for comparison
-const lastBroadcastedDrains = new Set<string>();
-
 /**
  * Build the GameContext for this tick
  * This provides systems access to all game state and helper functions
  */
 function buildGameContext(deltaTime: number): GameContext {
-  // Sync the players cache from ECS so legacy code reads current ECS state
-  syncPlayersFromECS();
-
   return {
-    // ECS World
+    // ECS World (source of truth)
     world,
     io,
     deltaTime,
 
-    // Entity Collections
-    players,
-    nutrients: getNutrients(),
-    obstacles,
-    getSwarms,
-    pseudopods,
-    pseudopodHits,
-
-    // Player State Maps
-    playerVelocities,
-    playerInputDirections,
-    playerSprintState,
-    playerLastDamageSource,
-    playerLastBeamShooter,
-    pseudopodHitDecays,
-    playerEMPCooldowns,
-    playerPseudopodCooldowns,
-
-    // Drain state
-    activeDrains, // Map<preyId, predatorId> - see godcell-5nc for ECS migration
-    activeSwarmDrains,
-    lastBroadcastedDrains,
-    activeDamage: activeDamageThisTick,
+    // Entity Collections - ALL migrated to ECS:
+    // - nutrients → forEachNutrient/getAllNutrientSnapshots
+    // - obstacles → forEachObstacle/getAllObstacleSnapshots
+    // - swarms → forEachSwarm/getAllSwarmSnapshots
+    // - pseudopods → PseudopodComponent
+    // - playerInputDirections/playerVelocities → InputComponent/VelocityComponent
+    // - playerSprintState → SprintComponent
+    // - playerLastDamageSource/playerLastBeamShooter → DamageTrackingComponent
+    // - pseudopodHitDecays → DamageTrackingComponent
+    // - playerEMPCooldowns/playerPseudopodCooldowns → CooldownsComponent
+    // - activeDrains → DrainTargetComponent
+    // - activeSwarmDrains → SwarmComponent.beingConsumedBy
+    // - activeDamage → DamageTrackingComponent.activeDamage
 
     // Per-tick transient data (will be populated by systems)
     tickData: {
@@ -574,12 +491,13 @@ function buildGameContext(deltaTime: number): GameContext {
 
     // Legacy Functions (called by wrapper systems)
     updateBots,
-    updateSwarms,
-    updateSwarmPositions,
-    processSwarmRespawns,
+    // Swarm functions now take world parameter (ECS is source of truth)
+    updateSwarms: (timestamp: number, w: World, dt: number) => updateSwarms(timestamp, w, dt),
+    updateSwarmPositions: (w: World, dt: number, serverIo: Server) => updateSwarmPositions(w, dt, serverIo),
+    processSwarmRespawns: (w: World, serverIo: Server) => processSwarmRespawns(w, serverIo),
     checkSwarmCollisions,
     respawnNutrient,
-    removeSwarm,
+    removeSwarm: (w: World, swarmId: string) => removeSwarm(w, swarmId),
   };
 }
 
@@ -604,9 +522,7 @@ io.on('connection', (socket) => {
     EvolutionStage.SINGLE_CELL
   );
 
-  // Legacy Maps for input/velocity tracking (will be migrated to ECS components later)
-  playerInputDirections.set(socket.id, { x: 0, y: 0 });
-  playerVelocities.set(socket.id, { x: 0, y: 0 });
+  // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
 
   // Get the legacy Player object for the joinMessage broadcast
   const newPlayer = getPlayerBySocketId(world, socket.id)!;
@@ -619,9 +535,9 @@ io.on('connection', (socket) => {
   const gameState: GameStateMessage = {
     type: 'gameState',
     players: buildAlivePlayersRecord(world),
-    nutrients: Object.fromEntries(getNutrients()),
-    obstacles: Object.fromEntries(obstacles),
-    swarms: getSwarmsRecord(),
+    nutrients: buildNutrientsRecord(world),
+    obstacles: buildObstaclesRecord(world),
+    swarms: buildSwarmsRecord(world),
   };
   socket.emit('gameState', gameState);
 
@@ -637,13 +553,9 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerMove', (message: PlayerMoveMessage) => {
-    const inputDirection = playerInputDirections.get(socket.id);
-    if (!inputDirection) return;
-
-    // Store player's input direction (will be combined with gravity in game loop)
+    // Store player's input direction via ECS (will be combined with gravity in game loop)
     // Direction values are -1, 0, or 1
-    inputDirection.x = message.direction.x;
-    inputDirection.y = message.direction.y;
+    setInputBySocketId(world, socket.id, message.direction.x, message.direction.y);
   });
 
   // ============================================
@@ -684,16 +596,18 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerSprint', (message: PlayerSprintMessage) => {
-    const player = players.get(socket.id);
-    if (!player) return;
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, socket.id);
+    const stageComp = getStageBySocketId(world, socket.id);
+    if (!energyComp || !stageComp) return;
 
     // Only Stage 3+ can sprint
-    if (!isJungleStage(player.stage)) return;
-    if (player.energy <= 0) return; // Dead players can't sprint
-    if (player.isEvolving) return; // Can't sprint while molting
+    if (!isJungleStage(stageComp.stage)) return;
+    if (energyComp.current <= 0) return; // Dead players can't sprint
+    if (stageComp.isEvolving) return; // Can't sprint while molting
 
-    // Update sprint state
-    playerSprintState.set(socket.id, message.sprinting);
+    // Update sprint state in ECS
+    setSprintBySocketId(world, socket.id, message.sprinting);
   });
 
   // ============================================
@@ -716,17 +630,13 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     logPlayerDisconnected(socket.id);
 
-    // Remove from ECS (dual-write during migration)
+    // Remove from ECS (source of truth)
     const entity = getEntityBySocketId(socket.id);
     if (entity !== undefined) {
       ecsDestroyEntity(world, entity);
     }
 
-    // Remove from game state
-    players.delete(socket.id);
-    playerInputDirections.delete(socket.id);
-    playerVelocities.delete(socket.id);
-    playerSprintState.delete(socket.id);
+    // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
 
     // Notify other players
     const leftMessage: PlayerLeftMessage = {
@@ -781,32 +691,49 @@ setInterval(() => {
  * Energy-only system: energy is the sole life resource
  */
 function calculateAggregateStats() {
-  const allPlayers = Array.from(players.values());
-  const alivePlayers = allPlayers.filter(p => p.energy > 0);
-  const deadPlayers = allPlayers.filter(p => p.energy <= 0);
-  const bots = allPlayers.filter(p => isBot(p.id));
-  const aliveBots = bots.filter(p => p.energy > 0);
+  // Collect stats using ECS iteration
+  const stats = {
+    totalPlayers: 0,
+    alivePlayers: 0,
+    deadPlayers: 0,
+    totalBots: 0,
+    aliveBots: 0,
+    totalEnergy: 0,
+    stageDistribution: {} as Record<string, number>,
+  };
 
-  // Calculate averages for alive players only
-  const avgEnergy = alivePlayers.length > 0
-    ? alivePlayers.reduce((sum, p) => sum + p.energy, 0) / alivePlayers.length
-    : 0;
+  forEachPlayer(world, (entity, id) => {
+    const energyComp = getEnergyBySocketId(world, id);
+    const stageComp = getStageBySocketId(world, id);
+    if (!energyComp || !stageComp) return;
 
-  // Stage distribution
-  const stageDistribution: Record<string, number> = {};
-  for (const player of alivePlayers) {
-    stageDistribution[player.stage] = (stageDistribution[player.stage] || 0) + 1;
-  }
+    stats.totalPlayers++;
+    const isAlive = energyComp.current > 0;
+    const isBotPlayer = isBot(id);
+
+    if (isAlive) {
+      stats.alivePlayers++;
+      stats.totalEnergy += energyComp.current;
+      stats.stageDistribution[stageComp.stage] = (stats.stageDistribution[stageComp.stage] || 0) + 1;
+    } else {
+      stats.deadPlayers++;
+    }
+
+    if (isBotPlayer) {
+      stats.totalBots++;
+      if (isAlive) stats.aliveBots++;
+    }
+  });
 
   return {
-    totalPlayers: allPlayers.length,
-    alivePlayers: alivePlayers.length,
-    deadPlayers: deadPlayers.length,
-    totalBots: bots.length,
-    aliveBots: aliveBots.length,
-    avgPlayerEnergy: avgEnergy,
-    totalNutrients: getNutrients().size,
-    stageDistribution,
+    totalPlayers: stats.totalPlayers,
+    alivePlayers: stats.alivePlayers,
+    deadPlayers: stats.deadPlayers,
+    totalBots: stats.totalBots,
+    aliveBots: stats.aliveBots,
+    avgPlayerEnergy: stats.alivePlayers > 0 ? stats.totalEnergy / stats.alivePlayers : 0,
+    totalNutrients: getNutrientCount(world),
+    stageDistribution: stats.stageDistribution,
   };
 }
 
@@ -815,23 +742,43 @@ function calculateAggregateStats() {
  * Energy-only system: energy is the sole life resource
  */
 function createGameStateSnapshot() {
+  // Build players array using ECS iteration
+  const playerSnapshots: Array<{
+    id: string;
+    isBot: boolean;
+    stage: string;
+    energy: number;
+    maxEnergy: number;
+    position: { x: number; y: number };
+    alive: boolean;
+  }> = [];
+
+  forEachPlayer(world, (entity, id) => {
+    const energyComp = getEnergyBySocketId(world, id);
+    const stageComp = getStageBySocketId(world, id);
+    const posComp = getPositionBySocketId(world, id);
+    if (!energyComp || !stageComp || !posComp) return;
+
+    playerSnapshots.push({
+      id,
+      isBot: isBot(id),
+      stage: stageComp.stage,
+      energy: energyComp.current,
+      maxEnergy: energyComp.max,
+      position: { x: posComp.x, y: posComp.y },
+      alive: energyComp.current > 0,
+    });
+  });
+
   return {
     timestamp: Date.now(),
-    players: Array.from(players.values()).map(p => ({
-      id: p.id,
-      isBot: isBot(p.id),
-      stage: p.stage,
-      energy: p.energy,
-      maxEnergy: p.maxEnergy,
-      position: { x: p.position.x, y: p.position.y },
-      alive: p.energy > 0,
-    })),
-    nutrients: Array.from(getNutrients().values()).map(n => ({
+    players: playerSnapshots,
+    nutrients: getAllNutrientSnapshots(world).map(n => ({
       id: n.id,
       position: { x: n.position.x, y: n.position.y },
       value: n.value,
     })),
-    obstacles: Array.from(obstacles.values()).map(o => ({
+    obstacles: getAllObstacleSnapshots(world).map(o => ({
       id: o.id,
       position: { x: o.position.x, y: o.position.y },
       radius: o.radius,

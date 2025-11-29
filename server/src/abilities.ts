@@ -1,9 +1,7 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
-  Player,
   Position,
-  Pseudopod,
-  EntropySwarm,
+  Pseudopod, // Still needed for local pseudopod object creation
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
@@ -16,6 +14,14 @@ import {
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   getEntityByStringId,
+  getPlayerBySocketId,
+  getEnergyBySocketId,
+  getStageBySocketId,
+  getPositionBySocketId,
+  getStunnedBySocketId,
+  getCooldownsBySocketId,
+  forEachPlayer,
+  forEachSwarm,
   type World,
 } from './ecs';
 
@@ -28,25 +34,18 @@ import {
  * Passed at construction to avoid circular dependencies.
  */
 export interface AbilityContext {
-  // Core game state
-  players: Map<string, Player>;
+  // ECS World (source of truth for all player state)
+  // Swarms are queried via forEachSwarm
+  world: World;
   io: Server;
 
-  // ECS World (for dual-write during migration)
-  ecsWorld?: World;
-
-  // Pseudopod state
-  pseudopods: Map<string, Pseudopod>;
-  pseudopodHits: Map<string, Set<string>>;
-
-  // Cooldown tracking
-  playerEMPCooldowns: Map<string, number>;
-  playerPseudopodCooldowns: Map<string, number>;
+  // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
+  // NOTE: Cooldowns migrated to ECS CooldownsComponent
+  // NOTE: Swarms migrated to ECS - use forEachSwarm
 
   // Functions from main module
-  getSwarms: () => Map<string, EntropySwarm>;
   checkBeamHitscan: (start: Position, end: Position, shooterId: string) => string | null;
-  applyDamageWithResistance: (player: Player, baseDamage: number) => number;
+  applyDamageWithResistance: (playerId: string, baseDamage: number) => number;
   getPlayerRadius: (stage: EvolutionStage) => number;
 }
 
@@ -73,69 +72,92 @@ export class AbilitySystem {
    * @returns true if EMP was fired successfully
    */
   fireEMP(playerId: string): boolean {
-    const player = this.ctx.players.get(playerId);
-    if (!player) return false;
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp || !posComp) return false;
 
     // Stage 2 (Multi-Cell) only - not available to other stages
-    if (player.stage !== EvolutionStage.MULTI_CELL) return false;
-    if (player.energy <= 0) return false;
-    if (player.isEvolving) return false;
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return false;
-    if (player.energy < getConfig('EMP_ENERGY_COST')) return false;
-
-    // Cooldown check
-    const lastUse = this.ctx.playerEMPCooldowns.get(playerId) || 0;
+    if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
     const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+    if (energyComp.current < getConfig('EMP_ENERGY_COST')) return false;
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastEMPTime || 0;
     if (now - lastUse < getConfig('EMP_COOLDOWN')) return false;
 
-    // Apply energy cost
-    player.energy -= getConfig('EMP_ENERGY_COST');
+    // Apply energy cost (directly to ECS)
+    energyComp.current -= getConfig('EMP_ENERGY_COST');
+
+    const playerPosition = { x: posComp.x, y: posComp.y };
 
     // Find affected entities within range
     const affectedSwarmIds: string[] = [];
     const affectedPlayerIds: string[] = [];
 
-    // Check swarms
-    for (const [swarmId, swarm] of this.ctx.getSwarms()) {
-      const dist = this.distance(player.position, swarm.position);
+    // Check swarms (from ECS)
+    forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+      const dist = this.distance(playerPosition, swarmPosition);
       if (dist <= getConfig('EMP_RANGE')) {
-        swarm.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
-        swarm.energy = GAME_CONFIG.SWARM_ENERGY;
+        // Disable swarm and reset energy via ECS components
+        swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
+        swarmEnergyComp.current = swarmEnergyComp.max; // Reset to full health
         affectedSwarmIds.push(swarmId);
       }
-    }
+    });
 
-    // Check other players
-    for (const [otherPlayerId, otherPlayer] of this.ctx.players) {
-      if (otherPlayerId === playerId) continue;
-      if (otherPlayer.energy <= 0) continue;
+    // Check other players using ECS iteration
+    forEachPlayer(world, (entity, otherPlayerId) => {
+      if (otherPlayerId === playerId) return;
 
-      const dist = this.distance(player.position, otherPlayer.position);
+      const otherEnergy = getEnergyBySocketId(world, otherPlayerId);
+      const otherStage = getStageBySocketId(world, otherPlayerId);
+      const otherPos = getPositionBySocketId(world, otherPlayerId);
+      const otherStunned = getStunnedBySocketId(world, otherPlayerId);
+      if (!otherEnergy || !otherStage || !otherPos) return;
+      if (otherEnergy.current <= 0) return;
+
+      const dist = this.distance(playerPosition, { x: otherPos.x, y: otherPos.y });
       if (dist <= getConfig('EMP_RANGE')) {
         // Single-cells get 50% stun duration (they're more nimble)
-        const stunDuration = otherPlayer.stage === EvolutionStage.SINGLE_CELL
+        const stunDuration = otherStage.stage === EvolutionStage.SINGLE_CELL
           ? getConfig('EMP_DISABLE_DURATION') * 0.5
           : getConfig('EMP_DISABLE_DURATION');
-        otherPlayer.stunnedUntil = now + stunDuration;
+
+        // Set stun via component (create if needed or update)
+        if (otherStunned) {
+          otherStunned.until = now + stunDuration;
+        }
+        // Note: If no stunned component, the shared ECS may need component creation
+        // For now, stun tracking happens via the component if present
 
         // Multi-cells also lose energy when hit
-        if (otherPlayer.stage === EvolutionStage.MULTI_CELL) {
-          this.ctx.applyDamageWithResistance(otherPlayer, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
+        if (otherStage.stage === EvolutionStage.MULTI_CELL) {
+          this.ctx.applyDamageWithResistance(otherPlayerId, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
         }
 
         affectedPlayerIds.push(otherPlayerId);
       }
-    }
+    });
 
-    // Update cooldown
-    this.ctx.playerEMPCooldowns.set(playerId, now);
-    player.lastEMPTime = now;
+    // Update cooldown in ECS
+    cooldowns.lastEMPTime = now;
 
     // Broadcast to clients
     this.ctx.io.emit('empActivated', {
       type: 'empActivated',
       playerId: playerId,
-      position: player.position,
+      position: playerPosition,
       affectedSwarmIds,
       affectedPlayerIds,
     } as EMPActivatedMessage);
@@ -158,24 +180,35 @@ export class AbilitySystem {
    * @returns true if pseudopod was fired successfully
    */
   firePseudopod(playerId: string, targetX: number, targetY: number): boolean {
-    const player = this.ctx.players.get(playerId);
-    if (!player) return false;
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const player = getPlayerBySocketId(world, playerId); // For color
+    if (!energyComp || !stageComp || !posComp || !player) return false;
 
     // Stage 2 (Multi-Cell) only - not available to other stages
-    if (player.stage !== EvolutionStage.MULTI_CELL) return false;
-    if (player.energy <= 0) return false;
-    if (player.isEvolving) return false;
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return false;
-    if (player.energy < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
-
-    // Cooldown check
-    const lastUse = this.ctx.playerPseudopodCooldowns.get(playerId) || 0;
+    if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
     const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+    if (energyComp.current < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastPseudopodTime || 0;
     if (now - lastUse < getConfig('PSEUDOPOD_COOLDOWN')) return false;
 
+    const playerPosition = { x: posComp.x, y: posComp.y };
+
     // Calculate direction to target
-    const dx = targetX - player.position.x;
-    const dy = targetY - player.position.y;
+    const dx = targetX - playerPosition.x;
+    const dy = targetY - playerPosition.y;
     const targetDist = Math.sqrt(dx * dx + dy * dy);
 
     if (targetDist < 1) return false;
@@ -184,24 +217,24 @@ export class AbilitySystem {
     const dirY = dy / targetDist;
 
     // Calculate max range
-    const playerRadius = this.ctx.getPlayerRadius(player.stage);
+    const playerRadius = this.ctx.getPlayerRadius(stageComp.stage);
     const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
 
-    // Deduct energy
-    player.energy -= getConfig('PSEUDOPOD_ENERGY_COST');
+    // Deduct energy (directly to ECS)
+    energyComp.current -= getConfig('PSEUDOPOD_ENERGY_COST');
 
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
       // HITSCAN MODE: Instant raycast
       const actualDist = Math.min(targetDist, maxRange);
-      const endX = player.position.x + dirX * actualDist;
-      const endY = player.position.y + dirY * actualDist;
+      const endX = playerPosition.x + dirX * actualDist;
+      const endY = playerPosition.y + dirY * actualDist;
 
-      const hitTargetId = this.ctx.checkBeamHitscan(player.position, { x: endX, y: endY }, playerId);
+      const hitTargetId = this.ctx.checkBeamHitscan(playerPosition, { x: endX, y: endY }, playerId);
 
       const pseudopod: Pseudopod = {
         id: `beam-${playerId}-${now}`,
         ownerId: playerId,
-        position: { x: player.position.x, y: player.position.y },
+        position: { x: playerPosition.x, y: playerPosition.y },
         velocity: { x: endX, y: endY }, // End position for visual
         width: GAME_CONFIG.PSEUDOPOD_WIDTH,
         maxDistance: actualDist,
@@ -210,37 +243,28 @@ export class AbilitySystem {
         color: player.color,
       };
 
-      this.ctx.pseudopods.set(pseudopod.id, pseudopod);
-
-      // Add to ECS (dual-write during migration)
-      if (this.ctx.ecsWorld) {
-        const ownerEntity = getEntityBySocketId(playerId);
-        if (ownerEntity !== undefined) {
-          ecsCreatePseudopod(
-            this.ctx.ecsWorld,
-            pseudopod.id,
-            ownerEntity,
-            playerId,
-            pseudopod.position,
-            pseudopod.velocity,
-            pseudopod.width,
-            pseudopod.maxDistance,
-            pseudopod.color
-          );
-        }
+      // Add to ECS (sole source of truth for pseudopods)
+      const ownerEntity = getEntityBySocketId(playerId);
+      if (ownerEntity !== undefined) {
+        ecsCreatePseudopod(
+          world,
+          pseudopod.id,
+          ownerEntity,
+          playerId,
+          pseudopod.position,
+          pseudopod.velocity,
+          pseudopod.width,
+          pseudopod.maxDistance,
+          pseudopod.color
+        );
       }
 
       // Auto-remove after visual duration
       const beamId = pseudopod.id;
       setTimeout(() => {
-        this.ctx.pseudopods.delete(beamId);
-        this.ctx.pseudopodHits.delete(beamId);
-        // Remove from ECS (dual-write during migration)
-        if (this.ctx.ecsWorld) {
-          const beamEntity = getEntityByStringId(beamId);
-          if (beamEntity !== undefined) {
-            ecsDestroyEntity(this.ctx.ecsWorld, beamEntity);
-          }
+        const beamEntity = getEntityByStringId(beamId);
+        if (beamEntity !== undefined) {
+          ecsDestroyEntity(world, beamEntity);
         }
         this.ctx.io.emit('pseudopodRetracted', {
           type: 'pseudopodRetracted',
@@ -266,7 +290,7 @@ export class AbilitySystem {
       const pseudopod: Pseudopod = {
         id: `beam-${playerId}-${now}`,
         ownerId: playerId,
-        position: { x: player.position.x, y: player.position.y },
+        position: { x: playerPosition.x, y: playerPosition.y },
         velocity: {
           x: dirX * getConfig('PSEUDOPOD_PROJECTILE_SPEED'),
           y: dirY * getConfig('PSEUDOPOD_PROJECTILE_SPEED'),
@@ -278,24 +302,20 @@ export class AbilitySystem {
         color: player.color,
       };
 
-      this.ctx.pseudopods.set(pseudopod.id, pseudopod);
-
-      // Add to ECS (dual-write during migration)
-      if (this.ctx.ecsWorld) {
-        const ownerEntity = getEntityBySocketId(playerId);
-        if (ownerEntity !== undefined) {
-          ecsCreatePseudopod(
-            this.ctx.ecsWorld,
-            pseudopod.id,
-            ownerEntity,
-            playerId,
-            pseudopod.position,
-            pseudopod.velocity,
-            pseudopod.width,
-            pseudopod.maxDistance,
-            pseudopod.color
-          );
-        }
+      // Add to ECS (sole source of truth for pseudopods)
+      const ownerEntity = getEntityBySocketId(playerId);
+      if (ownerEntity !== undefined) {
+        ecsCreatePseudopod(
+          world,
+          pseudopod.id,
+          ownerEntity,
+          playerId,
+          pseudopod.position,
+          pseudopod.velocity,
+          pseudopod.width,
+          pseudopod.maxDistance,
+          pseudopod.color
+        );
       }
 
       this.ctx.io.emit('pseudopodSpawned', {
@@ -312,7 +332,8 @@ export class AbilitySystem {
       });
     }
 
-    this.ctx.playerPseudopodCooldowns.set(playerId, now);
+    // Update cooldown in ECS
+    cooldowns.lastPseudopodTime = now;
     return true;
   }
 
@@ -334,31 +355,45 @@ export class AbilitySystem {
    * Check if a player can use EMP (has the ability and it's off cooldown)
    */
   canFireEMP(playerId: string): boolean {
-    const player = this.ctx.players.get(playerId);
-    if (!player) return false;
-    if (player.stage !== EvolutionStage.MULTI_CELL) return false;
-    if (player.energy <= 0) return false;
-    if (player.isEvolving) return false;
-    if (player.energy < getConfig('EMP_ENERGY_COST')) return false;
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return false;
+    const { world } = this.ctx;
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp) return false;
 
-    const lastUse = this.ctx.playerEMPCooldowns.get(playerId) || 0;
-    return Date.now() - lastUse >= getConfig('EMP_COOLDOWN');
+    if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+    if (energyComp.current < getConfig('EMP_ENERGY_COST')) return false;
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastEMPTime || 0;
+    return now - lastUse >= getConfig('EMP_COOLDOWN');
   }
 
   /**
    * Check if a player can fire pseudopod (has the ability and it's off cooldown)
    */
   canFirePseudopod(playerId: string): boolean {
-    const player = this.ctx.players.get(playerId);
-    if (!player) return false;
-    if (player.stage !== EvolutionStage.MULTI_CELL) return false;
-    if (player.energy <= 0) return false;
-    if (player.isEvolving) return false;
-    if (player.energy < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
-    if (player.stunnedUntil && Date.now() < player.stunnedUntil) return false;
+    const { world } = this.ctx;
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp) return false;
 
-    const lastUse = this.ctx.playerPseudopodCooldowns.get(playerId) || 0;
-    return Date.now() - lastUse >= getConfig('PSEUDOPOD_COOLDOWN');
+    if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+    if (energyComp.current < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastPseudopodTime || 0;
+    return now - lastUse >= getConfig('PSEUDOPOD_COOLDOWN');
   }
 }

@@ -13,6 +13,10 @@ import {
   setEnergyBySocketId,
   addEnergyBySocketId,
   getEntityBySocketId,
+  setDrainTarget,
+  clearDrainTarget,
+  forEachDrainTarget,
+  getDamageTrackingBySocketId,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -41,8 +45,6 @@ export class PredationSystem implements System {
       world,
       io,
       deltaTime,
-      playerLastDamageSource,
-      activeDrains,
       recordDamage,
     } = ctx;
 
@@ -98,10 +100,13 @@ export class PredationSystem implements System {
           currentDrains.add(preyId);
 
           // Track which predator is draining this prey (for kill credit)
-          activeDrains.set(preyId, predatorId);
+          setDrainTarget(world, preyId, predatorId);
 
-          // Mark damage source for death tracking
-          playerLastDamageSource.set(preyId, 'predation');
+          // Mark damage source for death tracking in ECS
+          const damageTracking = getDamageTrackingBySocketId(world, preyId);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'predation';
+          }
 
           // Record damage for drain aura system
           recordDamage(preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
@@ -115,10 +120,15 @@ export class PredationSystem implements System {
     });
 
     // Clear drains for prey that escaped contact this tick
-    for (const [preyId, _predatorId] of activeDrains) {
+    // Collect first, then clear - can't modify Map during iteration
+    const escapedPreyIds: string[] = [];
+    forEachDrainTarget(world, (preyId, _predatorId) => {
       if (!currentDrains.has(preyId)) {
-        activeDrains.delete(preyId);
+        escapedPreyIds.push(preyId);
       }
+    });
+    for (const preyId of escapedPreyIds) {
+      clearDrainTarget(world, preyId);
     }
   }
 
@@ -132,7 +142,7 @@ export class PredationSystem implements System {
     position: Position,
     preyMaxEnergy: number
   ): void {
-    const { world, io, playerLastDamageSource } = ctx;
+    const { world, io } = ctx;
 
     // Get prey color from ECS
     const preyEntity = getEntityBySocketId(preyId);
@@ -147,7 +157,11 @@ export class PredationSystem implements System {
 
     // Kill prey (energy-only: set energy to 0)
     setEnergyBySocketId(world, preyId, 0);
-    playerLastDamageSource.set(preyId, 'predation');
+    // Mark damage source in ECS for death cause logging
+    const damageTracking = getDamageTrackingBySocketId(world, preyId);
+    if (damageTracking) {
+      damageTracking.lastDamageSource = 'predation';
+    }
 
     // Broadcast engulfment
     io.emit('playerEngulfed', {

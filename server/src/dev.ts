@@ -13,9 +13,8 @@ import {
   type DevConfigUpdatedMessage,
   type DevStateMessage,
   type Position,
-  type Player,
-  type Nutrient,
-  type EntropySwarm,
+  type Nutrient,  // Still needed for spawnNutrientAt return type
+  type EntropySwarm,  // Still needed for spawnSwarmAt return type
   type TunableConfigKey,
   type World,
 } from '@godcell/shared';
@@ -27,7 +26,23 @@ import {
   setPositionBySocketId,
   getEnergyBySocketId,
   getStageBySocketId,
+  getPositionBySocketId,
+  forEachPlayer,
+  hasPlayer,
+  // Nutrient ECS helpers
+  forEachNutrient,
+  getEntityByStringId,
+  destroyEntity,
+  getNutrientCount,
+  // Swarm ECS helpers
+  forEachSwarm,
+  getSwarmCount,
+  getSwarmComponents,
+  Tags,
+  Components,
 } from './ecs';
+import { removeSwarm } from './swarms';
+import type { PositionComponent } from '@godcell/shared';
 
 // ============================================
 // Dev State
@@ -98,15 +113,13 @@ export function shouldRunTick(): boolean {
 
 interface DevContext {
   io: Server;
-  world: World; // ECS World for direct component access
-  players: Map<string, Player>;
-  nutrients: Map<string, Nutrient>;
-  obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
-  swarms: Map<string, EntropySwarm>;
-  playerInputDirections: Map<string, { x: number; y: number }>;
-  playerVelocities: Map<string, { x: number; y: number }>;
+  world: World; // ECS World for direct component access (source of truth)
+  // NOTE: nutrients migrated to ECS - use forEachNutrient/getNutrientCount
+  // NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount
+  // NOTE: swarms migrated to ECS - use forEachSwarm/getSwarmCount
+  // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
   spawnNutrientAt: (position: Position, multiplier?: number) => Nutrient;
-  spawnSwarmAt: (io: Server, position: Position) => EntropySwarm;
+  spawnSwarmAt: (position: Position) => EntropySwarm;
   spawnBotAt: (position: Position, stage: EvolutionStage) => string;
   removeBotPermanently: (botId: string) => boolean;
   respawnPlayer: (playerId: string) => void;
@@ -223,7 +236,7 @@ function handleSpawnEntity(
     }
 
     case 'swarm': {
-      const swarm = devContext.spawnSwarmAt(io, position);
+      const swarm = devContext.spawnSwarmAt(position);
       logger.info({ event: 'dev_spawn_swarm', position, swarmId: swarm.id });
       break;
     }
@@ -259,8 +272,10 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
 
   switch (entityType) {
     case 'nutrient': {
-      const deleted = devContext.nutrients.delete(entityId);
-      if (deleted) {
+      // Find nutrient entity in ECS by string ID
+      const nutrientEntity = getEntityByStringId(entityId);
+      if (nutrientEntity !== undefined) {
+        destroyEntity(devContext.world, nutrientEntity);
         io.emit('nutrientCollected', { type: 'nutrientCollected', nutrientId: entityId, playerId: 'dev', collectorEnergy: 0, collectorMaxEnergy: 0 });
         logger.info({ event: 'dev_delete_nutrient', entityId });
       }
@@ -268,8 +283,9 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     }
 
     case 'swarm': {
-      const deleted = devContext.swarms.delete(entityId);
-      if (deleted) {
+      const swarmComponents = getSwarmComponents(devContext.world, entityId);
+      if (swarmComponents) {
+        removeSwarm(devContext.world, entityId);
         io.emit('swarmConsumed', { type: 'swarmConsumed', swarmId: entityId, consumerId: 'dev' });
         logger.info({ event: 'dev_delete_swarm', entityId });
       }
@@ -277,11 +293,18 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     }
 
     case 'player': {
-      const player = devContext.players.get(entityId);
-      if (player) {
+      // Check if player exists via ECS
+      if (hasPlayer(devContext.world, entityId)) {
+        const posComp = getPositionBySocketId(devContext.world, entityId);
         // Use ECS setter to persist the energy change
         setEnergyBySocketId(devContext.world, entityId, 0);
-        io.emit('playerDied', { type: 'playerDied', playerId: entityId, position: player.position, color: player.color, cause: 'starvation' });
+        io.emit('playerDied', {
+          type: 'playerDied',
+          playerId: entityId,
+          position: posComp ? { x: posComp.x, y: posComp.y } : { x: 0, y: 0 },
+          color: '#ff0000', // Color not critical for dev kill
+          cause: 'starvation',
+        });
         logger.info({ event: 'dev_kill_player', entityId });
       }
       break;
@@ -310,8 +333,8 @@ function handleSetTimeScale(io: Server, scale: number): void {
 function handleTeleportPlayer(io: Server, playerId: string, position: Position): void {
   if (!devContext) return;
 
-  const player = devContext.players.get(playerId);
-  if (!player) return;
+  // Check if player exists via ECS
+  if (!hasPlayer(devContext.world, playerId)) return;
 
   // Clamp to world bounds and update via ECS setter
   const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
@@ -325,10 +348,7 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
 function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, maxEnergy?: number): void {
   if (!devContext) return;
 
-  const player = devContext.players.get(playerId);
-  if (!player) return;
-
-  // Get current ECS energy component for max value
+  // Get current ECS energy component (source of truth)
   const energyComp = getEnergyBySocketId(devContext.world, playerId);
   if (!energyComp) return;
 
@@ -382,29 +402,41 @@ function handleStepTick(): void {
 function handleClearWorld(io: Server): void {
   if (!devContext) return;
 
-  // Clear all nutrients
-  const nutrientCount = devContext.nutrients.size;
-  for (const nutrientId of devContext.nutrients.keys()) {
+  // Clear all nutrients from ECS
+  const nutrientCount = getNutrientCount(devContext.world);
+  const nutrientsToDestroy: Array<{ entity: number; id: string }> = [];
+
+  // Collect all nutrients first (can't modify during iteration)
+  forEachNutrient(devContext.world, (entity, id) => {
+    nutrientsToDestroy.push({ entity, id });
+  });
+
+  // Destroy and broadcast
+  for (const { entity, id } of nutrientsToDestroy) {
+    destroyEntity(devContext.world, entity);
     io.emit('nutrientCollected', {
       type: 'nutrientCollected',
-      nutrientId,
+      nutrientId: id,
       playerId: 'dev',
       collectorEnergy: 0,
       collectorMaxEnergy: 0,
     });
   }
-  devContext.nutrients.clear();
 
-  // Clear all swarms
-  const swarmCount = devContext.swarms.size;
-  for (const swarmId of devContext.swarms.keys()) {
+  // Clear all swarms (from ECS)
+  const swarmCount = getSwarmCount(devContext.world);
+  const swarmIdsToRemove: string[] = [];
+  forEachSwarm(devContext.world, (_entity, swarmId) => {
+    swarmIdsToRemove.push(swarmId);
+  });
+  for (const swarmId of swarmIdsToRemove) {
+    removeSwarm(devContext.world, swarmId);
     io.emit('swarmConsumed', {
       type: 'swarmConsumed',
       swarmId,
       consumerId: 'dev',
     });
   }
-  devContext.swarms.clear();
 
   logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
 }
@@ -417,19 +449,22 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
   let nearestDist = MAX_DELETE_DISTANCE;
 
   if (entityType === 'nutrient') {
-    // Find nearest nutrient
-    for (const [id, nutrient] of devContext.nutrients.entries()) {
-      const dx = nutrient.position.x - position.x;
-      const dy = nutrient.position.y - position.y;
+    // Find nearest nutrient using ECS
+    let nearestEntity: number | null = null;
+
+    forEachNutrient(devContext.world, (entity, id, nutrientPos) => {
+      const dx = nutrientPos.x - position.x;
+      const dy = nutrientPos.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestId = id;
+        nearestEntity = entity;
       }
-    }
+    });
 
-    if (nearestId) {
-      devContext.nutrients.delete(nearestId);
+    if (nearestId && nearestEntity !== null) {
+      destroyEntity(devContext.world, nearestEntity);
       io.emit('nutrientCollected', {
         type: 'nutrientCollected',
         nutrientId: nearestId,
@@ -440,19 +475,19 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       logger.info({ event: 'dev_delete_at_nutrient', position, deletedId: nearestId });
     }
   } else if (entityType === 'swarm') {
-    // Find nearest swarm
-    for (const [id, swarm] of devContext.swarms.entries()) {
-      const dx = swarm.position.x - position.x;
-      const dy = swarm.position.y - position.y;
+    // Find nearest swarm using ECS
+    forEachSwarm(devContext.world, (_entity, swarmId, swarmPosComp) => {
+      const dx = swarmPosComp.x - position.x;
+      const dy = swarmPosComp.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < nearestDist) {
         nearestDist = dist;
-        nearestId = id;
+        nearestId = swarmId;
       }
-    }
+    });
 
     if (nearestId) {
-      devContext.swarms.delete(nearestId);
+      removeSwarm(devContext.world, nearestId);
       io.emit('swarmConsumed', {
         type: 'swarmConsumed',
         swarmId: nearestId,
@@ -461,42 +496,52 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
     }
   } else if (entityType === 'single-cell' || entityType === 'multi-cell' || entityType === 'cyber-organism') {
-    // Find nearest bot of the specified type
-    for (const [id, player] of devContext.players.entries()) {
+    // Find nearest bot of the specified type using ECS iteration
+    // Use object wrapper pattern for closure mutation
+    const result: { nearestId: string | null; nearestDist: number; nearestPos: Position | null } = {
+      nearestId: null,
+      nearestDist: MAX_DELETE_DISTANCE,
+      nearestPos: null,
+    };
+
+    // Capture world reference before callback to satisfy TypeScript narrowing
+    const world = devContext.world;
+    forEachPlayer(world, (entity, id) => {
       // Only consider bots (players with 'bot-' prefix)
-      if (!id.startsWith('bot-')) continue;
+      if (!id.startsWith('bot-')) return;
+
+      const stageComp = getStageBySocketId(world, id);
+      const posComp = getPositionBySocketId(world, id);
+      if (!stageComp || !posComp) return;
 
       // Filter by stage matching the entity type
-      const playerStage = player.stage;
       const matchesType =
-        (entityType === 'single-cell' && playerStage === EvolutionStage.SINGLE_CELL) ||
-        (entityType === 'multi-cell' && playerStage === EvolutionStage.MULTI_CELL) ||
-        (entityType === 'cyber-organism' && playerStage === EvolutionStage.CYBER_ORGANISM);
-      if (!matchesType) continue;
+        (entityType === 'single-cell' && stageComp.stage === EvolutionStage.SINGLE_CELL) ||
+        (entityType === 'multi-cell' && stageComp.stage === EvolutionStage.MULTI_CELL) ||
+        (entityType === 'cyber-organism' && stageComp.stage === EvolutionStage.CYBER_ORGANISM);
+      if (!matchesType) return;
 
-      const dx = player.position.x - position.x;
-      const dy = player.position.y - position.y;
+      const dx = posComp.x - position.x;
+      const dy = posComp.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestId = id;
+      if (dist < result.nearestDist) {
+        result.nearestDist = dist;
+        result.nearestId = id;
+        result.nearestPos = { x: posComp.x, y: posComp.y };
       }
-    }
+    });
 
-    if (nearestId) {
-      const player = devContext.players.get(nearestId);
-      if (player) {
-        // Permanently remove the bot (no respawn)
-        devContext.removeBotPermanently(nearestId);
-        io.emit('playerDied', {
-          type: 'playerDied',
-          playerId: nearestId,
-          position: player.position,
-          color: player.color,
-          cause: 'starvation',
-        });
-        logger.info({ event: 'dev_delete_at_bot', position, deletedId: nearestId, entityType });
-      }
+    if (result.nearestId && result.nearestPos) {
+      // Permanently remove the bot (no respawn)
+      devContext.removeBotPermanently(result.nearestId);
+      io.emit('playerDied', {
+        type: 'playerDied',
+        playerId: result.nearestId,
+        position: result.nearestPos,
+        color: '#ff0000', // Color not critical for dev kill
+        cause: 'starvation',
+      });
+      logger.info({ event: 'dev_delete_at_bot', position, deletedId: result.nearestId, entityType });
     }
   }
 }

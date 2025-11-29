@@ -1,5 +1,5 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, Obstacle, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause } from '@godcell/shared';
+import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
@@ -10,12 +10,18 @@ import {
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
+  getVelocityBySocketId,
+  getInputBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
+  getStringIdByEntity,
+  getAllObstacleSnapshots,
   Components,
+  Tags,
   type World,
+  type ObstacleSnapshot,
 } from './ecs';
-import type { EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
+import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '@godcell/shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
@@ -24,9 +30,9 @@ import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // Bot controller - manages AI state for each bot
 export interface BotController {
-  player: Player; // Reference to player object in players Map
-  inputDirection: { x: number; y: number }; // Reference to input direction in playerInputDirections Map
-  velocity: { x: number; y: number }; // Reference to velocity in playerVelocities Map (for gravity)
+  player: Player; // Reference to player object built from ECS components
+  inputDirection: { x: number; y: number }; // Reference to InputComponent.direction (ECS)
+  velocity: { x: number; y: number }; // Reference to VelocityComponent (ECS)
   ai: {
     state: 'wander' | 'seek_nutrient';
     targetNutrient?: string; // ID of nutrient being pursued
@@ -94,21 +100,7 @@ function distance(p1: Position, p2: Position): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/**
- * Check if a spawn position is safe (not inside or near gravity wells)
- * Safe distance is 1000px from obstacle center (400px buffer outside gravity influence)
- */
-function isSpawnSafe(position: Position, obstacles: Map<string, Obstacle>): boolean {
-  const SAFE_DISTANCE = 1000; // Gravity radius (600px) + buffer (400px)
-
-  for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < SAFE_DISTANCE) {
-      return false; // Too close to a gravity well
-    }
-  }
-
-  return true; // Safe from all obstacles
-}
+// NOTE: isSpawnSafe removed - spawn safety is handled by randomSpawnPosition via ECS getObstacleZones
 
 // ============================================
 // Bot Spawning
@@ -117,12 +109,7 @@ function isSpawnSafe(position: Position, obstacles: Map<string, Obstacle>): bool
 /**
  * Spawn a single AI bot
  */
-function spawnBot(
-  io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): BotController {
+function spawnBot(io: Server): BotController {
   if (!ecsWorld) {
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
@@ -141,15 +128,18 @@ function spawnBot(
     throw new Error(`Failed to create bot ${botId} in ECS`);
   }
 
-  // Create input direction and velocity objects
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for bot ${botId}`);
+  }
 
-  // Create bot controller with AI state
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
@@ -157,10 +147,6 @@ function spawnBot(
     },
   };
 
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
   singleCellBots.set(botId, bot);
 
   // Broadcast to all clients (bots appear as regular players)
@@ -179,12 +165,7 @@ function spawnBot(
 /**
  * Spawn a multi-cell bot (Stage 2)
  */
-function spawnMultiCellBot(
-  io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): BotController {
+function spawnMultiCellBot(io: Server): BotController {
   if (!ecsWorld) {
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
@@ -203,15 +184,18 @@ function spawnMultiCellBot(
     throw new Error(`Failed to create multi-cell bot ${botId} in ECS`);
   }
 
-  // Create input direction and velocity objects
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for multi-cell bot ${botId}`);
+  }
 
-  // Create bot controller with simple AI state (just wander for now)
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
@@ -219,10 +203,6 @@ function spawnMultiCellBot(
     },
   };
 
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
   multiCellBots.set(botId, bot);
 
   // Broadcast to all clients
@@ -268,18 +248,32 @@ function updateBotWander(bot: BotController, currentTime: number) {
 
 /**
  * Find the nearest nutrient within search radius
+ * Uses ECS as source of truth for nutrients
  */
-function findNearestNutrient(botPosition: Position, nutrients: Map<string, Nutrient>): Nutrient | null {
+function findNearestNutrient(botPosition: Position, world: World): Nutrient | null {
   let nearest: Nutrient | null = null;
   let nearestDist = BOT_CONFIG.SEARCH_RADIUS;
 
-  for (const nutrient of nutrients.values()) {
-    const dist = distance(botPosition, nutrient.position);
+  // Query nutrients from ECS
+  world.forEachWithTag(Tags.Nutrient, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const nutrientComp = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+    const id = getStringIdByEntity(entity);
+    if (!pos || !nutrientComp || !id) return;
+
+    const dist = distance(botPosition, { x: pos.x, y: pos.y });
     if (dist < nearestDist) {
-      nearest = nutrient;
+      nearest = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        value: nutrientComp.value,
+        capacityIncrease: nutrientComp.capacityIncrease,
+        valueMultiplier: nutrientComp.valueMultiplier,
+        isHighValue: nutrientComp.isHighValue,
+      };
       nearestDist = dist;
     }
-  }
+  });
 
   return nearest;
 }
@@ -328,15 +322,16 @@ function steerTowards(
  * Bots start avoiding shortly before the event horizon and ramp up to
  * full-thrust escape as they cross it. Multi-cells use a larger caution
  * radius (350px) than single-cells (265px) because they're bigger/slower.
+ * NOTE: obstacles migrated to ECS - uses ObstacleSnapshot array
  */
 function avoidObstacles(
   botPosition: Position,
-  obstacles: Map<string, Obstacle>,
+  obstacles: ObstacleSnapshot[],
   stage: EvolutionStage = EvolutionStage.SINGLE_CELL
 ): { x: number; y: number } {
   let avoidanceForce = { x: 0, y: 0 };
 
-  for (const obstacle of obstacles.values()) {
+  for (const obstacle of obstacles) {
     const dist = distance(botPosition, obstacle.position);
 
     // Danger zones - tight buffer outside event horizon
@@ -496,12 +491,13 @@ function avoidSwarms(
 /**
  * Update a single bot's AI decision-making
  * Combines goal-seeking (nutrients/wander) with obstacle and swarm avoidance
+ * NOTE: obstacles migrated to ECS - receives ObstacleSnapshot array
  */
 function updateBotAI(
   bot: BotController,
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
-  obstacles: Map<string, Obstacle>,
+  world: World,
+  obstacles: ObstacleSnapshot[],
   swarms: EntropySwarm[]
 ) {
   const player = bot.player;
@@ -533,7 +529,7 @@ function updateBotAI(
     bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else if (avoidanceMag > AVOIDANCE_BLEND_THRESHOLD) {
     // MODERATE DANGER - blend avoidance with seeking (SEEKING weighted higher - hungry bots!)
-    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    const nearestNutrient = findNearestNutrient(player.position, world);
     if (nearestNutrient) {
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
@@ -552,7 +548,7 @@ function updateBotAI(
     }
   } else {
     // Safe zone - normal seeking/wandering behavior
-    const nearestNutrient = findNearestNutrient(player.position, nutrients);
+    const nearestNutrient = findNearestNutrient(player.position, world);
 
     if (nearestNutrient) {
       // SEEK state - move towards nutrient
@@ -594,9 +590,6 @@ function updateBotAI(
  */
 export function spawnBotAt(
   io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>,
   position: Position,
   stage: EvolutionStage
 ): string {
@@ -619,24 +612,24 @@ export function spawnBotAt(
     throw new Error(`Failed to create bot ${botId} in ECS`);
   }
 
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for bot ${botId}`);
+  }
 
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
     },
   };
-
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
 
   // Track in appropriate bot map
   if (isMultiCell) {
@@ -664,20 +657,15 @@ export function spawnBotAt(
  * Initialize AI bots on server start
  * Uses ECS world (set via setBotEcsWorld) for spawn position queries
  */
-export function initializeBots(
-  io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-) {
+export function initializeBots(io: Server) {
   // Spawn Stage 1 bots
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
-    spawnBot(io, players, playerInputDirections, playerVelocities);
+    spawnBot(io);
   }
 
   // Spawn multi-cell bots
   for (let i = 0; i < BOT_CONFIG.STAGE2_COUNT; i++) {
-    spawnMultiCellBot(io, players, playerInputDirections, playerVelocities);
+    spawnMultiCellBot(io);
   }
 
   logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT);
@@ -685,14 +673,14 @@ export function initializeBots(
 
 /**
  * Update multi-cell bot AI - hunts single-cells, uses EMP, devours swarms
+ * NOTE: obstacles migrated to ECS - receives ObstacleSnapshot array
  */
 function updateMultiCellBotAI(
   bot: BotController,
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
-  obstacles: Map<string, Obstacle>,
-  swarms: EntropySwarm[],
   world: World,
+  obstacles: ObstacleSnapshot[],
+  swarms: EntropySwarm[],
   abilitySystem: AbilitySystem
 ) {
   const player = bot.player;
@@ -894,7 +882,7 @@ function updateMultiCellBotAI(
       bot.inputDirection.y = seekDirection.y;
     } else {
       // Seek nutrients (fallback behavior)
-      const nearestNutrient = findNearestNutrient(player.position, nutrients);
+      const nearestNutrient = findNearestNutrient(player.position, world);
       if (nearestNutrient) {
         const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
         bot.inputDirection.x = seekDirection.x;
@@ -920,15 +908,17 @@ function updateMultiCellBotAI(
 /**
  * Update all bots' AI decision-making
  * Call this before the movement loop in the game tick
+ * NOTE: obstacles migrated to ECS - queries ECS directly
  */
 export function updateBots(
   currentTime: number,
-  nutrients: Map<string, Nutrient>,
-  obstacles: Map<string, Obstacle>,
+  world: World,
   swarms: EntropySwarm[],
-  abilitySystem: AbilitySystem,
-  world: World
+  abilitySystem: AbilitySystem
 ) {
+  // Query obstacles from ECS once per tick (shared across all bots)
+  const obstacles = getAllObstacleSnapshots(world);
+
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
     // Refresh bot.player from ECS (the cached reference goes stale each tick)
@@ -936,7 +926,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
+    updateBotAI(bot, currentTime, world, obstacles, swarms);
   }
 
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
@@ -946,7 +936,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, world, abilitySystem);
+    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem);
   }
 }
 
@@ -960,13 +950,7 @@ export function isBot(playerId: string): boolean {
 /**
  * Permanently remove a bot (no respawn) - for dev tools
  */
-export function removeBotPermanently(
-  botId: string,
-  io: Server,
-  players: Map<string, Player>,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): boolean {
+export function removeBotPermanently(botId: string, io: Server): boolean {
   // Remove from bot tracking (prevents respawn)
   const wasSingleCell = singleCellBots.delete(botId);
   const wasMultiCell = multiCellBots.delete(botId);
@@ -975,14 +959,10 @@ export function removeBotPermanently(
     return false; // Not a tracked bot
   }
 
-  // Remove from ECS (source of truth)
+  // Remove from ECS (source of truth) - this removes all components including Input and Velocity
   if (ecsWorld) {
     deletePlayerBySocketId(ecsWorld, botId);
   }
-
-  // Remove from legacy Maps
-  playerInputDirections.delete(botId);
-  playerVelocities.delete(botId);
 
   // Notify clients so they remove the bot immediately
   io.emit('playerLeft', { type: 'playerLeft', playerId: botId });

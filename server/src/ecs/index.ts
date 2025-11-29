@@ -66,9 +66,12 @@ export {
   getPositionBySocketId,
   getStageBySocketId,
   getVelocityBySocketId,
+  getInputBySocketId,
   getSprintBySocketId,
+  setSprintBySocketId,
   getStunnedBySocketId,
   getCooldownsBySocketId,
+  getDamageTrackingBySocketId,
   isBotBySocketId,
   deletePlayerBySocketId,
   // ECS Setters - update component values directly
@@ -80,11 +83,35 @@ export {
   setPositionBySocketId,
   movePositionBySocketId,
   clampPositionBySocketId,
+  setVelocityBySocketId,
+  setInputBySocketId,
   // Obstacle query helpers
   forEachObstacle,
   getObstacleZones,
+  getAllObstacleSnapshots,
+  getObstacleCount,
+  buildObstaclesRecord,
+  // Nutrient query helpers
+  forEachNutrient,
+  getAllNutrientSnapshots,
+  getNutrientPosition,
+  getNutrientCount,
+  buildNutrientsRecord,
+  // Swarm query helpers
+  forEachSwarm,
+  getAllSwarmSnapshots,
+  getSwarmCount,
+  getSwarmEntity,
+  getSwarmComponents,
+  buildSwarmsRecord,
+  // DrainTarget helpers (prey-predator drain relationships)
+  setDrainTarget,
+  clearDrainTarget,
+  hasDrainTarget,
+  getDrainPredatorId,
+  forEachDrainTarget,
 } from './factories';
-export type { PlayerSnapshot } from './factories';
+export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot } from './factories';
 
 // Systems
 export * from './systems';

@@ -11,11 +11,14 @@ import type {
   PlayerDrainStateMessage,
   DetectedEntity,
   DamageSource,
+  DamageTrackingComponent,
 } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, Components } from '@godcell/shared';
 import {
   forEachPlayer,
-  Components,
+  forEachNutrient,
+  forEachSwarm,
+  getDamageTrackingBySocketId,
   type EnergyComponent,
   type PositionComponent,
   type StageComponent,
@@ -79,25 +82,35 @@ export class NetworkBroadcastSystem implements System {
   /**
    * Broadcast drain state updates to clients
    * Sends comprehensive damage info for variable-intensity drain auras
+   * Now reads from ECS components instead of Maps/Sets
    */
   private broadcastDrainState(ctx: GameContext): void {
-    const { io, pseudopodHitDecays, activeSwarmDrains, activeDamage, recordDamage } = ctx;
+    const { world, io } = ctx;
 
-    // Add pseudopod hit decays to active damage (if not expired)
-    const now = Date.now();
-    for (const [playerId, decay] of pseudopodHitDecays) {
-      if (now < decay.expiresAt) {
-        recordDamage(playerId, decay.rate, 'beam');
-      } else {
-        pseudopodHitDecays.delete(playerId); // Clean up expired
-      }
-    }
-
-    // Aggregate damage info per player
+    // Aggregate damage info per player from ECS components
     const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};
+    const now = Date.now();
 
-    for (const [playerId, damages] of activeDamage) {
-      if (damages.length === 0) continue; // Defensive check
+    forEachPlayer(world, (_entity, playerId) => {
+      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      if (!damageTracking) return;
+
+      // Add pseudopod hit decay to activeDamage array (if not expired)
+      if (damageTracking.pseudopodHitExpiresAt) {
+        if (now < damageTracking.pseudopodHitExpiresAt && damageTracking.pseudopodHitRate) {
+          damageTracking.activeDamage.push({
+            damageRate: damageTracking.pseudopodHitRate,
+            source: 'beam',
+          });
+        } else {
+          // Clean up expired
+          damageTracking.pseudopodHitRate = undefined;
+          damageTracking.pseudopodHitExpiresAt = undefined;
+        }
+      }
+
+      const damages = damageTracking.activeDamage;
+      if (damages.length === 0) return;
 
       // Sum total damage rate
       const totalDamageRate = damages.reduce((sum, d) => sum + d.damageRate, 0);
@@ -116,18 +129,22 @@ export class NetworkBroadcastSystem implements System {
           : undefined;
 
       damageInfo[playerId] = { totalDamageRate, primarySource, proximityFactor };
-    }
 
-    // Build damage info for swarms being consumed
+      // Clear activeDamage for next tick
+      damageTracking.activeDamage = [];
+    });
+
+    // Build damage info for swarms being consumed (from SwarmComponent.beingConsumedBy)
     const swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }> = {};
 
-    for (const swarmId of activeSwarmDrains) {
-      // Swarms being consumed are taking damage from predation (multi-cell contact drain)
-      swarmDamageInfo[swarmId] = {
-        totalDamageRate: GAME_CONFIG.SWARM_CONSUMPTION_RATE,
-        primarySource: 'predation',
-      };
-    }
+    forEachSwarm(world, (_entity, swarmId, _posComp, _velComp, swarmComp) => {
+      if (swarmComp.beingConsumedBy) {
+        swarmDamageInfo[swarmId] = {
+          totalDamageRate: GAME_CONFIG.SWARM_CONSUMPTION_RATE,
+          primarySource: 'predation',
+        };
+      }
+    });
 
     const drainStateMessage: PlayerDrainStateMessage = {
       type: 'playerDrainState',
@@ -138,9 +155,6 @@ export class NetworkBroadcastSystem implements System {
     };
 
     io.emit('playerDrainState', drainStateMessage);
-
-    // Clear for next tick
-    activeDamage.clear();
   }
 
   /**
@@ -148,7 +162,7 @@ export class NetworkBroadcastSystem implements System {
    * Multi-cells can "smell" nearby prey and nutrients from extended range
    */
   private broadcastDetectionUpdates(ctx: GameContext): void {
-    const { world, io, nutrients, getSwarms } = ctx;
+    const { world, io } = ctx;
 
     this.detectionUpdateTicks++;
 
@@ -190,29 +204,30 @@ export class NetworkBroadcastSystem implements System {
           }
         });
 
-        // Detect nutrients
-        for (const [nutrientId, nutrient] of nutrients) {
-          const dist = distance(playerPosition, nutrient.position);
+        // Detect nutrients (from ECS)
+        forEachNutrient(world, (_entity, nutrientId, nutrientPos) => {
+          const dist = distance(playerPosition, nutrientPos);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: nutrientId,
-              position: nutrient.position,
+              position: nutrientPos,
               entityType: 'nutrient',
             });
           }
-        }
+        });
 
-        // Detect swarms (potential prey for multi-cells)
-        for (const [swarmId, swarm] of getSwarms()) {
-          const dist = distance(playerPosition, swarm.position);
+        // Detect swarms (potential prey for multi-cells) - from ECS
+        forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp) => {
+          const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+          const dist = distance(playerPosition, swarmPosition);
           if (dist <= getConfig('MULTI_CELL_DETECTION_RADIUS')) {
             detected.push({
               id: swarmId,
-              position: swarm.position,
+              position: swarmPosition,
               entityType: 'swarm',
             });
           }
-        }
+        });
 
         // Send detection update to this player only (private information)
         const socket = io.sockets.sockets.get(playerId);

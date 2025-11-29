@@ -25,6 +25,7 @@ import type {
   StunnedComponent,
   CooldownsComponent,
   DamageTrackingComponent,
+  DrainTargetComponent,
   NutrientComponent,
   ObstacleComponent,
   SwarmComponent,
@@ -57,6 +58,7 @@ export function createWorld(): World {
   world.registerStore<StunnedComponent>(Components.Stunned, new ComponentStore());
   world.registerStore<CooldownsComponent>(Components.Cooldowns, new ComponentStore());
   world.registerStore<DamageTrackingComponent>(Components.DamageTracking, new ComponentStore());
+  world.registerStore<DrainTargetComponent>(Components.DrainTarget, new ComponentStore());
   world.registerStore<NutrientComponent>(Components.Nutrient, new ComponentStore());
   world.registerStore<ObstacleComponent>(Components.Obstacle, new ComponentStore());
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
@@ -261,6 +263,7 @@ export function createPlayer(
     direction: { x: 0, y: 0 },
   });
   world.addComponent<CooldownsComponent>(entity, Components.Cooldowns, {});
+  world.addComponent<StunnedComponent>(entity, Components.Stunned, { until: 0 });
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
     activeDamage: [],
   });
@@ -363,12 +366,16 @@ export function createObstacle(
 
 /**
  * Create an entropy swarm entity.
+ * Energy is the swarm's health pool (used during EMP disable + consumption)
+ * patrolTarget is the initial wander target (optional, can be set later)
  */
 export function createSwarm(
   world: World,
   swarmId: string,
   position: Position,
-  size: number
+  size: number,
+  energy: number,
+  patrolTarget?: Position
 ): EntityId {
   const entity = world.createEntity();
 
@@ -377,10 +384,15 @@ export function createSwarm(
     y: position.y,
   });
   world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0 });
+  world.addComponent<EnergyComponent>(entity, Components.Energy, {
+    current: energy,
+    max: energy,
+  });
   world.addComponent<SwarmComponent>(entity, Components.Swarm, {
     size,
     state: 'patrol',
     homePosition: { x: position.x, y: position.y },
+    patrolTarget,
   });
 
   world.addTag(entity, Tags.Swarm);
@@ -709,6 +721,52 @@ export function getVelocityBySocketId(
 }
 
 /**
+ * Set player's velocity by socket ID.
+ * Mutates the existing component in place.
+ */
+export function setVelocityBySocketId(
+  world: World,
+  socketId: string,
+  x: number,
+  y: number
+): boolean {
+  const vel = getVelocityBySocketId(world, socketId);
+  if (!vel) return false;
+  vel.x = x;
+  vel.y = y;
+  return true;
+}
+
+/**
+ * Get player's input component by socket ID.
+ */
+export function getInputBySocketId(
+  world: World,
+  socketId: string
+): InputComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<InputComponent>(entity, Components.Input);
+}
+
+/**
+ * Set player's input direction by socket ID.
+ * Mutates the existing component in place.
+ */
+export function setInputBySocketId(
+  world: World,
+  socketId: string,
+  x: number,
+  y: number
+): boolean {
+  const input = getInputBySocketId(world, socketId);
+  if (!input) return false;
+  input.direction.x = x;
+  input.direction.y = y;
+  return true;
+}
+
+/**
  * Get player's sprint component by socket ID.
  */
 export function getSprintBySocketId(
@@ -718,6 +776,21 @@ export function getSprintBySocketId(
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<SprintComponent>(entity, Components.Sprint);
+}
+
+/**
+ * Set player's sprint state by socket ID.
+ * Returns false if player doesn't have SprintComponent (Stage 1-2 players).
+ */
+export function setSprintBySocketId(
+  world: World,
+  socketId: string,
+  isSprinting: boolean
+): boolean {
+  const sprint = getSprintBySocketId(world, socketId);
+  if (!sprint) return false;
+  sprint.isSprinting = isSprinting;
+  return true;
 }
 
 /**
@@ -742,6 +815,18 @@ export function getCooldownsBySocketId(
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+}
+
+/**
+ * Get player's damage tracking component by socket ID.
+ */
+export function getDamageTrackingBySocketId(
+  world: World,
+  socketId: string
+): DamageTrackingComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
 }
 
 /**
@@ -908,6 +993,18 @@ export function clampPositionBySocketId(
 // ============================================
 
 /**
+ * Obstacle data snapshot for iteration.
+ * Contains all data needed for collision/gravity without holding component refs.
+ */
+export interface ObstacleSnapshot {
+  entity: EntityId;
+  id: string; // String ID for network messages
+  position: Position;
+  radius: number;
+  strength: number;
+}
+
+/**
  * Iterate over all obstacle entities.
  * Callback receives entity ID and obstacle's position.
  */
@@ -925,6 +1022,29 @@ export function forEachObstacle(
 }
 
 /**
+ * Get all obstacles as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllObstacleSnapshots(world: World): ObstacleSnapshot[] {
+  const snapshots: ObstacleSnapshot[] = [];
+  world.forEachWithTag(Tags.Obstacle, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+    const id = getStringIdByEntity(entity);
+    if (pos && obs && id) {
+      snapshots.push({
+        entity,
+        id,
+        position: { x: pos.x, y: pos.y },
+        radius: obs.radius,
+        strength: obs.strength,
+      });
+    }
+  });
+  return snapshots;
+}
+
+/**
  * Get all obstacle positions for spawn safety checks.
  * Returns array of { position, radius } for distance calculations.
  */
@@ -936,4 +1056,427 @@ export function getObstacleZones(
     zones.push({ position, radius: obstacle.radius });
   });
   return zones;
+}
+
+/**
+ * Get obstacle count.
+ */
+export function getObstacleCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Obstacle).length;
+}
+
+/**
+ * Convert ECS obstacles to legacy Obstacle record for network broadcasts.
+ */
+export function buildObstaclesRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  radius: number;
+  strength: number;
+  damageRate: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    radius: number;
+    strength: number;
+    damageRate: number;
+  }> = {};
+
+  world.forEachWithTag(Tags.Obstacle, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+    const id = getStringIdByEntity(entity);
+    if (pos && obs && id) {
+      result[id] = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        radius: obs.radius,
+        strength: obs.strength,
+        // damageRate is derived from config, not stored in component
+        damageRate: 0, // Will be set from GAME_CONFIG when needed
+      };
+    }
+  });
+
+  return result;
+}
+
+// ============================================
+// Nutrient Query Helpers
+// ============================================
+
+/**
+ * Nutrient data snapshot for iteration.
+ * Contains all data needed for collision/attraction without holding component refs.
+ */
+export interface NutrientSnapshot {
+  entity: EntityId;
+  id: string; // String ID for network messages
+  position: Position;
+  value: number;
+  capacityIncrease: number;
+  valueMultiplier: number;
+  isHighValue: boolean;
+}
+
+/**
+ * Iterate over all nutrient entities.
+ * Callback receives entity ID, string ID, position, and nutrient data.
+ */
+export function forEachNutrient(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: Position,
+    nutrient: NutrientComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Nutrient, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const nutrient = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+    const id = getStringIdByEntity(entity);
+    if (pos && nutrient && id) {
+      callback(entity, id, { x: pos.x, y: pos.y }, nutrient);
+    }
+  });
+}
+
+/**
+ * Get all nutrients as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllNutrientSnapshots(world: World): NutrientSnapshot[] {
+  const snapshots: NutrientSnapshot[] = [];
+  forEachNutrient(world, (entity, id, position, nutrient) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: position.x, y: position.y },
+      value: nutrient.value,
+      capacityIncrease: nutrient.capacityIncrease,
+      valueMultiplier: nutrient.valueMultiplier,
+      isHighValue: nutrient.isHighValue,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Get a nutrient's position component by string ID.
+ * Returns undefined if not found.
+ */
+export function getNutrientPosition(
+  world: World,
+  nutrientId: string
+): PositionComponent | undefined {
+  const entity = getEntityByStringId(nutrientId);
+  if (entity === undefined) return undefined;
+  return world.getComponent<PositionComponent>(entity, Components.Position);
+}
+
+/**
+ * Get nutrient count.
+ */
+export function getNutrientCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Nutrient).length;
+}
+
+/**
+ * Convert ECS nutrients to legacy Nutrient record for network broadcasts.
+ */
+export function buildNutrientsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  value: number;
+  capacityIncrease: number;
+  valueMultiplier: number;
+  isHighValue: boolean;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    value: number;
+    capacityIncrease: number;
+    valueMultiplier: number;
+    isHighValue: boolean;
+  }> = {};
+
+  forEachNutrient(world, (_entity, id, position, nutrient) => {
+    result[id] = {
+      id,
+      position,
+      value: nutrient.value,
+      capacityIncrease: nutrient.capacityIncrease,
+      valueMultiplier: nutrient.valueMultiplier,
+      isHighValue: nutrient.isHighValue,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// DrainTarget Helpers
+// Manages prey-predator drain relationships via ECS component
+// ============================================
+
+/**
+ * Set a drain target on prey entity (when predator starts draining).
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey being drained
+ * @param predatorSocketId Socket ID of the predator doing the draining
+ * @returns true if drain was set, false if entities not found
+ */
+export function setDrainTarget(
+  world: World,
+  preySocketId: string,
+  predatorSocketId: string
+): boolean {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  const predatorEntity = getEntityBySocketId(predatorSocketId);
+  if (preyEntity === undefined || predatorEntity === undefined) return false;
+
+  world.addComponent<DrainTargetComponent>(preyEntity, Components.DrainTarget, {
+    predatorId: predatorEntity,
+  });
+  return true;
+}
+
+/**
+ * Clear drain target from prey entity (when drain ends).
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey
+ */
+export function clearDrainTarget(world: World, preySocketId: string): void {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return;
+
+  world.removeComponent(preyEntity, Components.DrainTarget);
+}
+
+/**
+ * Check if an entity is currently being drained.
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the potential prey
+ * @returns true if entity has a DrainTarget component
+ */
+export function hasDrainTarget(world: World, preySocketId: string): boolean {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return false;
+
+  return world.hasComponent(preyEntity, Components.DrainTarget);
+}
+
+/**
+ * Get the predator socket ID that is draining the given prey.
+ * @param world The ECS world
+ * @param preySocketId Socket ID of the prey
+ * @returns Predator socket ID, or undefined if not being drained
+ */
+export function getDrainPredatorId(
+  world: World,
+  preySocketId: string
+): string | undefined {
+  const preyEntity = getEntityBySocketId(preySocketId);
+  if (preyEntity === undefined) return undefined;
+
+  const drainComp = world.getComponent<DrainTargetComponent>(
+    preyEntity,
+    Components.DrainTarget
+  );
+  if (!drainComp) return undefined;
+
+  return getSocketIdByEntity(drainComp.predatorId);
+}
+
+/**
+ * Iterate over all entities that have a DrainTarget component.
+ * Callback receives prey socket ID and predator socket ID.
+ */
+export function forEachDrainTarget(
+  world: World,
+  callback: (preySocketId: string, predatorSocketId: string) => void
+): void {
+  const store = world.getStore<DrainTargetComponent>(Components.DrainTarget);
+  if (!store) return;
+
+  for (const [entity, drainComp] of store.entries()) {
+    const preySocketId = getSocketIdByEntity(entity);
+    const predatorSocketId = getSocketIdByEntity(drainComp.predatorId);
+    if (preySocketId && predatorSocketId) {
+      callback(preySocketId, predatorSocketId);
+    }
+  }
+}
+
+// ============================================
+// Swarm Query Helpers
+// ============================================
+
+/**
+ * Swarm data snapshot for iteration.
+ * Contains all data needed for AI/collision without holding component refs.
+ * Matches EntropySwarm interface for network compatibility.
+ */
+export interface SwarmSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase';
+  targetPlayerId?: string;  // Socket ID (converted from EntityId)
+  patrolTarget?: Position;
+  homePosition: Position;
+  disabledUntil?: number;
+  energy: number;
+}
+
+/**
+ * Iterate over all swarm entities.
+ * Callback receives entity, string ID, and components.
+ */
+export function forEachSwarm(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    velocity: VelocityComponent,
+    swarm: SwarmComponent,
+    energy: EnergyComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      callback(entity, id, pos, vel, swarm, energy);
+    }
+  });
+}
+
+/**
+ * Get all swarms as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllSwarmSnapshots(world: World): SwarmSnapshot[] {
+  const snapshots: SwarmSnapshot[] = [];
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      snapshots.push({
+        entity,
+        id,
+        position: { x: pos.x, y: pos.y },
+        velocity: { x: vel.x, y: vel.y },
+        size: swarm.size,
+        state: swarm.state,
+        targetPlayerId: swarm.targetPlayerId,
+        patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
+        homePosition: { ...swarm.homePosition },
+        disabledUntil: swarm.disabledUntil,
+        energy: energy.current,
+      });
+    }
+  });
+  return snapshots;
+}
+
+/**
+ * Get swarm count.
+ */
+export function getSwarmCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Swarm).length;
+}
+
+/**
+ * Get swarm entity by string ID.
+ */
+export function getSwarmEntity(world: World, swarmId: string): EntityId | undefined {
+  return getEntityByStringId(swarmId);
+}
+
+/**
+ * Get swarm components by string ID.
+ * Returns all components needed for swarm operations.
+ */
+export function getSwarmComponents(world: World, swarmId: string): {
+  entity: EntityId;
+  position: PositionComponent;
+  velocity: VelocityComponent;
+  swarm: SwarmComponent;
+  energy: EnergyComponent;
+} | null {
+  const entity = getEntityByStringId(swarmId);
+  if (entity === undefined) return null;
+
+  const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+  const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+  const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+
+  if (!pos || !vel || !swarm || !energy) return null;
+
+  return { entity, position: pos, velocity: vel, swarm, energy };
+}
+
+/**
+ * Convert ECS swarms to EntropySwarm record for network broadcasts.
+ * Matches the EntropySwarm interface expected by clients.
+ */
+export function buildSwarmsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase';
+  targetPlayerId?: string;
+  patrolTarget?: Position;
+  disabledUntil?: number;
+  energy?: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    velocity: { x: number; y: number };
+    size: number;
+    state: 'patrol' | 'chase';
+    targetPlayerId?: string;
+    patrolTarget?: Position;
+    disabledUntil?: number;
+    energy?: number;
+  }> = {};
+
+  world.forEachWithTag(Tags.Swarm, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const swarm = world.getComponent<SwarmComponent>(entity, Components.Swarm);
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && swarm && energy && id) {
+      result[id] = {
+        id,
+        position: { x: pos.x, y: pos.y },
+        velocity: { x: vel.x, y: vel.y },
+        size: swarm.size,
+        state: swarm.state,
+        targetPlayerId: swarm.targetPlayerId,
+        patrolTarget: swarm.patrolTarget ? { ...swarm.patrolTarget } : undefined,
+        disabledUntil: swarm.disabledUntil,
+        energy: energy.current,
+      };
+    }
+  });
+
+  return result;
 }

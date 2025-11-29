@@ -10,8 +10,7 @@ import { GAME_CONFIG } from '@godcell/shared';
 import {
   Components,
   forEachPlayer,
-  getEnergyBySocketId,
-  getEntityByStringId,
+  getAllNutrientSnapshots,
   destroyEntity as ecsDestroyEntity,
   type PositionComponent,
   type StageComponent,
@@ -27,12 +26,19 @@ import { recordNutrientCollection } from '../../logger';
  * - Detecting player-nutrient collisions
  * - Awarding energy and capacity increases
  * - Removing collected nutrients and scheduling respawn
+ *
+ * Uses ECS as source of truth for nutrients.
  */
 export class NutrientCollisionSystem implements System {
   readonly name = 'NutrientCollisionSystem';
 
   update(ctx: GameContext): void {
-    const { world, io, nutrients, respawnNutrient } = ctx;
+    const { world, io, respawnNutrient } = ctx;
+
+    // Get nutrient snapshots once per tick (stable during iteration)
+    const nutrientSnapshots = getAllNutrientSnapshots(world);
+    // Track collected nutrients this tick to handle multiple players
+    const collectedThisTick = new Set<string>();
 
     forEachPlayer(world, (entity, playerId) => {
       const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -52,7 +58,10 @@ export class NutrientCollisionSystem implements System {
       const playerPos = { x: posComp.x, y: posComp.y };
       const playerRadius = getPlayerRadius(stageComp.stage);
 
-      for (const [nutrientId, nutrient] of nutrients) {
+      for (const nutrient of nutrientSnapshots) {
+        // Skip if already collected this tick
+        if (collectedThisTick.has(nutrient.id)) continue;
+
         const dist = distance(playerPos, nutrient.position);
         const collisionRadius = playerRadius + GAME_CONFIG.NUTRIENT_SIZE;
 
@@ -73,18 +82,14 @@ export class NutrientCollisionSystem implements System {
           // Track nutrient collection for telemetry
           recordNutrientCollection(playerId, energyGain);
 
-          // Remove nutrient from world
-          nutrients.delete(nutrientId);
-          // Remove from ECS
-          const nutrientEntity = getEntityByStringId(nutrientId);
-          if (nutrientEntity !== undefined) {
-            ecsDestroyEntity(world, nutrientEntity);
-          }
+          // Mark as collected and destroy ECS entity
+          collectedThisTick.add(nutrient.id);
+          ecsDestroyEntity(world, nutrient.entity);
 
           // Broadcast collection event to all clients (use ECS values)
           const collectMessage: NutrientCollectedMessage = {
             type: 'nutrientCollected',
-            nutrientId,
+            nutrientId: nutrient.id,
             playerId,
             collectorEnergy: energyComp.current,
             collectorMaxEnergy: energyComp.max,
@@ -92,7 +97,7 @@ export class NutrientCollisionSystem implements System {
           io.emit('nutrientCollected', collectMessage);
 
           // Schedule respawn after delay
-          respawnNutrient(nutrientId);
+          respawnNutrient(nutrient.id);
 
           // Only collect one nutrient per tick per player
           return; // Using return instead of break since we're in a callback

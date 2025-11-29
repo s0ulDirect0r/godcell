@@ -13,32 +13,21 @@
 import type { Server } from 'socket.io';
 import type {
   World,
-  Player,
-  Nutrient,
-  Obstacle,
   Position,
   EntropySwarm,
-  Pseudopod,
   EvolutionStage,
   DamageSource,
-  DeathCause,
 } from '@godcell/shared';
 import type { AbilitySystem } from '../../abilities';
-
-/**
- * Active damage record for tracking damage sources (matches index.ts ActiveDamage)
- */
-export interface ActiveDamageRecord {
-  damageRate: number;
-  source: DamageSource;
-  proximityFactor?: number;
-}
 
 /**
  * GameContext - Shared state for all systems
  *
  * This is the bridge between legacy Map-based state and ECS.
  * Systems receive this context and can access whatever they need.
+ *
+ * All entity collections and player state Maps have been migrated to ECS.
+ * See buildGameContext() in index.ts for the full migration list.
  */
 export interface GameContext {
   // ECS World
@@ -49,45 +38,6 @@ export interface GameContext {
 
   // Delta time for this tick (seconds)
   deltaTime: number;
-
-  // ============================================
-  // Entity Collections (legacy Maps)
-  // ============================================
-  players: Map<string, Player>;
-  nutrients: Map<string, Nutrient>;
-  obstacles: Map<string, Obstacle>;
-
-  // Swarm access (through getter because it's in swarms.ts)
-  getSwarms: () => Map<string, EntropySwarm>;
-
-  // Pseudopod state
-  pseudopods: Map<string, Pseudopod>;
-  pseudopodHits: Map<string, Set<string>>;
-
-  // ============================================
-  // Player State Maps
-  // ============================================
-  playerVelocities: Map<string, { x: number; y: number }>;
-  playerInputDirections: Map<string, { x: number; y: number }>;
-  playerSprintState: Map<string, boolean>;
-  playerLastDamageSource: Map<string, DeathCause>;
-  // NOTE: Should be ECS component. See godcell epic for ECS migration
-  playerLastBeamShooter: Map<string, string>; // Map of victim ID -> shooter ID
-  // NOTE: Should be ECS component (damage decay on entity)
-  pseudopodHitDecays: Map<string, { rate: number; expiresAt: number }>;
-
-  // Cooldown tracking
-  playerEMPCooldowns: Map<string, number>;
-  playerPseudopodCooldowns: Map<string, number>;
-
-  // Drain state tracking
-  // NOTE: This should be an ECS component, not a Map. See godcell-5nc
-  activeDrains: Map<string, string>; // Map of prey ID -> predator ID
-  activeSwarmDrains: Set<string>;
-  lastBroadcastedDrains: Set<string>;
-
-  // Active damage tracking for HUD
-  activeDamage: Map<string, ActiveDamageRecord[]>;
 
   // ============================================
   // Per-Tick Transient Data (set by systems, read by later systems)
@@ -118,7 +68,7 @@ export interface GameContext {
   };
 
   // Damage helpers
-  applyDamageWithResistance: (player: Player, baseDamage: number) => number;
+  applyDamageWithResistance: (playerId: string, baseDamage: number) => number;
   recordDamage: (
     entityId: string,
     damageRate: number,
@@ -146,21 +96,18 @@ export interface GameContext {
 
   updateBots: (
     timestamp: number,
-    nutrients: Map<string, Nutrient>,
-    obstacles: Map<string, Obstacle>,
+    world: World,
     swarms: EntropySwarm[],
-    abilitySystem: AbilitySystem,
-    world: World
+    abilitySystem: AbilitySystem
   ) => void;
 
   updateSwarms: (
     timestamp: number,
     world: World,
-    obstacles: Map<string, Obstacle>,
     deltaTime: number
   ) => void;
-  updateSwarmPositions: (deltaTime: number, io: Server) => void;
-  processSwarmRespawns: (io: Server) => void;
+  updateSwarmPositions: (world: World, deltaTime: number, io: Server) => void;
+  processSwarmRespawns: (world: World, io: Server) => void;
   checkSwarmCollisions: (
     world: World,
     deltaTime: number,
@@ -171,7 +118,7 @@ export interface GameContext {
     ) => void
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
   respawnNutrient: (nutrientId: string) => void;
-  removeSwarm: (swarmId: string) => void;
+  removeSwarm: (world: World, swarmId: string) => void;
 }
 
 /**
