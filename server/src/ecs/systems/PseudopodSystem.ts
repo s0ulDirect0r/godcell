@@ -107,7 +107,6 @@ export class PseudopodSystem implements System {
     const {
       world,
       io,
-      pseudopodHitDecays,
       getSwarms,
     } = ctx;
 
@@ -182,10 +181,10 @@ export class PseudopodSystem implements System {
         });
 
         // Add decay timer for brief drain aura after hit (1.5 seconds)
-        pseudopodHitDecays.set(targetId, {
-          rate: damage,
-          expiresAt: Date.now() + 1500,
-        });
+        if (damageTracking) {
+          damageTracking.pseudopodHitRate = damage;
+          damageTracking.pseudopodHitExpiresAt = Date.now() + 1500;
+        }
       }
     });
 

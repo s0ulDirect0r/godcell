@@ -59,14 +59,11 @@ export interface GameContext {
   // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
   // ============================================
-  // Player State Maps
+  // Player State Maps (all migrated to ECS)
   // ============================================
-  // NOTE: playerVelocities, playerInputDirections, playerSprintState migrated to ECS components
-  // NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
-  // NOTE: Should be ECS component (damage decay on entity)
-  pseudopodHitDecays: Map<string, { rate: number; expiresAt: number }>;
-
-  // NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
+  // NOTE: playerVelocities, playerInputDirections, playerSprintState → ECS components
+  // NOTE: playerLastDamageSource, playerLastBeamShooter, pseudopodHitDecays → DamageTrackingComponent
+  // NOTE: playerEMPCooldowns, playerPseudopodCooldowns → CooldownsComponent
 
   // Drain state tracking
   // NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget

@@ -16,6 +16,7 @@ import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
 import {
   forEachPlayer,
   forEachNutrient,
+  getDamageTrackingBySocketId,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -82,17 +83,22 @@ export class NetworkBroadcastSystem implements System {
    * Sends comprehensive damage info for variable-intensity drain auras
    */
   private broadcastDrainState(ctx: GameContext): void {
-    const { io, pseudopodHitDecays, activeSwarmDrains, activeDamage, recordDamage } = ctx;
+    const { world, io, activeSwarmDrains, activeDamage, recordDamage } = ctx;
 
     // Add pseudopod hit decays to active damage (if not expired)
     const now = Date.now();
-    for (const [playerId, decay] of pseudopodHitDecays) {
-      if (now < decay.expiresAt) {
-        recordDamage(playerId, decay.rate, 'beam');
-      } else {
-        pseudopodHitDecays.delete(playerId); // Clean up expired
+    forEachPlayer(world, (_entity, playerId) => {
+      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      if (damageTracking?.pseudopodHitExpiresAt) {
+        if (now < damageTracking.pseudopodHitExpiresAt && damageTracking.pseudopodHitRate) {
+          recordDamage(playerId, damageTracking.pseudopodHitRate, 'beam');
+        } else {
+          // Clean up expired
+          damageTracking.pseudopodHitRate = undefined;
+          damageTracking.pseudopodHitExpiresAt = undefined;
+        }
       }
-    }
+    });
 
     // Aggregate damage info per player
     const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};

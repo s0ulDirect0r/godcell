@@ -159,9 +159,7 @@ interface ActiveDamage {
 }
 const activeDamageThisTick = new Map<string, ActiveDamage[]>();
 
-// Pseudopod hit decay timers (for brief aura after beam hits)
-// Maps playerId → {rate, expiresAt}
-const pseudopodHitDecays = new Map<string, { rate: number; expiresAt: number }>();
+// NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
 
 // All gravity obstacles in the world
 // Maps obstacle ID → Obstacle data
@@ -488,10 +486,10 @@ function buildGameContext(deltaTime: number): GameContext {
     // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
     // NOTE: playerSprintState migrated to ECS SprintComponent
 
-    // Player State Maps (auxiliary data not yet in ECS)
-    // NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
-    pseudopodHitDecays,
-    // NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
+    // NOTE: Player state Maps migrated to ECS:
+    // - playerLastDamageSource/playerLastBeamShooter → DamageTrackingComponent
+    // - pseudopodHitDecays → DamageTrackingComponent
+    // - playerEMPCooldowns/playerPseudopodCooldowns → CooldownsComponent
 
     // Drain state (activeDrains moved to ECS DrainTargetComponent)
     activeSwarmDrains,

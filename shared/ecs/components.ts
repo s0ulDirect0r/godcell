@@ -110,6 +110,9 @@ export interface DamageTrackingComponent {
     source: DamageSource;
     proximityFactor?: number;     // For gravity gradient (0-1)
   }>;
+  // Pseudopod hit decay - brief damage display after beam hit
+  pseudopodHitRate?: number;      // Damage rate to display
+  pseudopodHitExpiresAt?: number; // Timestamp when decay expires
 }
 
 /**
