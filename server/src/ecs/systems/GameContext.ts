@@ -11,8 +11,8 @@
 // Eventually, systems will only need the ECS World.
 
 import type { Server } from 'socket.io';
-import type { World } from '../World';
 import type {
+  World,
   Player,
   Nutrient,
   Obstacle,

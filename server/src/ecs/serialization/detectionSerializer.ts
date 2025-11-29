@@ -3,18 +3,22 @@
 // Build detection messages for multi-cell chemical sensing
 // ============================================
 
-import type { World } from '../World';
-import type { EntityId } from '../types';
-import { Components, Tags } from '../types';
-import { getSocketIdByEntity, getStringIdByEntity } from '../factories';
+import {
+  EvolutionStage,
+  Components,
+  Tags,
+} from '@godcell/shared';
 import type {
+  World,
+  EntityId,
   PositionComponent,
   EnergyComponent,
   StageComponent,
   NutrientComponent,
-} from '../components';
-import type { DetectedEntity, DetectionUpdateMessage } from '@godcell/shared';
-import { EvolutionStage } from '@godcell/shared';
+  DetectedEntity,
+  DetectionUpdateMessage,
+} from '@godcell/shared';
+import { getSocketIdByEntity, getStringIdByEntity } from '../factories';
 
 /**
  * Calculate distance between two positions.

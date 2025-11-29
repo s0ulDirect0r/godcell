@@ -3,11 +3,18 @@
 // Functions to create entities with proper components
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Position } from '@godcell/shared';
-import { World, ComponentStore, Components, Tags } from './index';
-import type { EntityId } from './types';
+import {
+  GAME_CONFIG,
+  EvolutionStage,
+  World,
+  ComponentStore,
+  Components,
+  Tags,
+} from '@godcell/shared';
 import type {
+  Position,
+  Player,
+  EntityId,
   PositionComponent,
   VelocityComponent,
   EnergyComponent,
@@ -27,7 +34,7 @@ import type {
   CanSprintComponent,
   CanEngulfComponent,
   CanDetectComponent,
-} from './components';
+} from '@godcell/shared';
 
 // ============================================
 // World Setup
@@ -469,4 +476,142 @@ export function clearLookups(): void {
   socketToEntity.clear();
   entityToStringId.clear();
   stringIdToEntity.clear();
+}
+
+// ============================================
+// Query Helpers (for migrating away from players Map)
+// ============================================
+
+/**
+ * Get all player entity IDs.
+ */
+export function getAllPlayerEntities(world: World): EntityId[] {
+  return world.getEntitiesWithTag(Tags.Player);
+}
+
+/**
+ * Iterate over all player entities with a callback.
+ * More efficient than allocating an array.
+ */
+export function forEachPlayer(
+  world: World,
+  callback: (entity: EntityId, socketId: string) => void
+): void {
+  world.forEachWithTag(Tags.Player, (entity) => {
+    const socketId = getSocketIdByEntity(entity);
+    if (socketId) {
+      callback(entity, socketId);
+    }
+  });
+}
+
+/**
+ * Player data snapshot - all component data needed for game logic.
+ * Use this to read player state without holding component references.
+ */
+export interface PlayerSnapshot {
+  entity: EntityId;
+  socketId: string;
+  name: string;
+  color: string;
+  position: { x: number; y: number };
+  velocity: { x: number; y: number };
+  energy: number;
+  maxEnergy: number;
+  stage: EvolutionStage;
+  isEvolving: boolean;
+  evolvingUntil?: number;
+  stunnedUntil?: number;
+  isSprinting: boolean;
+  lastEMPTime?: number;
+  lastPseudopodTime?: number;
+  isBot: boolean;
+}
+
+/**
+ * Get a snapshot of a player entity's state.
+ * Returns null if entity is not a valid player.
+ */
+export function getPlayerSnapshot(world: World, entity: EntityId): PlayerSnapshot | null {
+  const player = world.getComponent<PlayerComponent>(entity, Components.Player);
+  const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+  const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+  const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+
+  if (!player || !pos || !energy || !stage) {
+    return null;
+  }
+
+  const stunned = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+  const sprint = world.getComponent<SprintComponent>(entity, Components.Sprint);
+  const cooldowns = world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+  const socketId = getSocketIdByEntity(entity);
+
+  return {
+    entity,
+    socketId: socketId || player.socketId,
+    name: player.name,
+    color: player.color,
+    position: { x: pos.x, y: pos.y },
+    velocity: vel ? { x: vel.x, y: vel.y } : { x: 0, y: 0 },
+    energy: energy.current,
+    maxEnergy: energy.max,
+    stage: stage.stage,
+    isEvolving: stage.isEvolving,
+    evolvingUntil: stage.evolvingUntil,
+    stunnedUntil: stunned?.until,
+    isSprinting: sprint?.isSprinting ?? false,
+    lastEMPTime: cooldowns?.lastEMPTime,
+    lastPseudopodTime: cooldowns?.lastPseudopodTime,
+    isBot: world.hasTag(entity, Tags.Bot),
+  };
+}
+
+/**
+ * Convert an ECS player entity to the legacy Player interface format.
+ * Used for network serialization until client migrates to ECS.
+ */
+export function entityToLegacyPlayer(world: World, entity: EntityId): Player | null {
+  const player = world.getComponent<PlayerComponent>(entity, Components.Player);
+  const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+  const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+  const socketId = getSocketIdByEntity(entity);
+
+  if (!player || !pos || !energy || !stage || !socketId) {
+    return null;
+  }
+
+  const stunned = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+  const cooldowns = world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+
+  return {
+    id: socketId,
+    position: { x: pos.x, y: pos.y },
+    color: player.color,
+    energy: energy.current,
+    maxEnergy: energy.max,
+    stage: stage.stage,
+    isEvolving: stage.isEvolving,
+    stunnedUntil: stunned?.until,
+    lastEMPTime: cooldowns?.lastEMPTime,
+  };
+}
+
+/**
+ * Build the legacy players Record for network broadcasts.
+ * Used until client migrates to component-based state.
+ */
+export function buildPlayersRecord(world: World): Record<string, Player> {
+  const result: Record<string, Player> = {};
+
+  world.forEachWithTag(Tags.Player, (entity) => {
+    const legacyPlayer = entityToLegacyPlayer(world, entity);
+    if (legacyPlayer) {
+      result[legacyPlayer.id] = legacyPlayer;
+    }
+  });
+
+  return result;
 }

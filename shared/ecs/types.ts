@@ -33,6 +33,7 @@ export const Components = {
   Stunned: 'Stunned',
   Cooldowns: 'Cooldowns',
   DamageTracking: 'DamageTracking',
+  DrainTarget: 'DrainTarget',
 
   // Entity-type components
   Nutrient: 'Nutrient',
@@ -44,6 +45,8 @@ export const Components = {
   CanFireEMP: 'CanFireEMP',
   CanFirePseudopod: 'CanFirePseudopod',
   CanSprint: 'CanSprint',
+  CanEngulf: 'CanEngulf',
+  CanDetect: 'CanDetect',
 } as const;
 
 /**
