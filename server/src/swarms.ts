@@ -1,12 +1,18 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { EntropySwarm, Position, Player, SwarmSpawnedMessage, Obstacle, DamageSource } from '@godcell/shared';
 import type { Server } from 'socket.io';
-import { getConfig } from './dev';
+import { getConfig, hasGodMode } from './dev';
+import { getDamageResistance } from './helpers/stages';
 import {
   createSwarm as ecsCreateSwarm,
   destroyEntity as ecsDestroyEntity,
   getEntityByStringId,
+  forEachPlayer,
+  Components,
   type World,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
 } from './ecs';
 
 // ============================================
@@ -174,25 +180,34 @@ export function initializeSwarms(io: Server) {
 /**
  * Find the nearest alive player within detection radius
  * Swarms only target soup-stage players (Stage 1-2)
+ * Returns player info needed for chasing (id and position)
  */
-function findNearestPlayer(swarm: EntropySwarm, players: Map<string, Player>): Player | null {
-  let nearestPlayer: Player | null = null;
+function findNearestPlayer(
+  swarm: EntropySwarm,
+  world: World
+): { id: string; position: { x: number; y: number } } | null {
+  let nearestPlayer: { id: string; position: { x: number; y: number } } | null = null;
   let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
-  for (const player of players.values()) {
+  forEachPlayer(world, (entity, playerId) => {
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    if (!energyComp || !posComp || !stageComp) return;
+
     // Skip dead players and evolving players
-    if (player.energy <= 0 || player.isEvolving) continue;
+    if (energyComp.current <= 0 || stageComp.isEvolving) return;
 
     // Swarms only chase soup-stage players (Stage 1-2)
-    // Stage 3+ players have evolved past the soup
-    if (!isSoupStage(player.stage)) continue;
+    if (!isSoupStage(stageComp.stage)) return;
 
-    const dist = distance(swarm.position, player.position);
+    const playerPosition = { x: posComp.x, y: posComp.y };
+    const dist = distance(swarm.position, playerPosition);
     if (dist < nearestDist) {
       nearestDist = dist;
-      nearestPlayer = player;
+      nearestPlayer = { id: playerId, position: playerPosition };
     }
-  }
+  });
 
   return nearestPlayer;
 }
@@ -272,7 +287,7 @@ function calculateSwarmRepulsion(swarm: EntropySwarm, allSwarms: Map<string, Ent
  */
 export function updateSwarms(
   currentTime: number,
-  players: Map<string, Player>,
+  world: World,
   obstacles: Map<string, Obstacle>,
   deltaTime: number
 ) {
@@ -286,7 +301,7 @@ export function updateSwarms(
     }
 
     // Check for nearby players
-    const nearestPlayer = findNearestPlayer(swarm, players);
+    const nearestPlayer = findNearestPlayer(swarm, world);
 
     if (nearestPlayer) {
       // CHASE: Player detected within range
@@ -400,10 +415,9 @@ export function updateSwarmPositions(deltaTime: number, io: Server) {
  * Stage 3+ players have evolved past the soup and don't interact with swarms
  */
 export function checkSwarmCollisions(
-  players: Map<string, Player>,
+  world: World,
   deltaTime: number,
-  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void,
-  applyDamage?: (player: Player, baseDamage: number) => number
+  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void
 ): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
   const damagedPlayerIds = new Set<string>();
   const slowedPlayerIds = new Set<string>();
@@ -413,35 +427,44 @@ export function checkSwarmCollisions(
     // Skip disabled swarms (hit by EMP)
     if (swarm.disabledUntil && now < swarm.disabledUntil) continue;
 
-    for (const player of players.values()) {
+    forEachPlayer(world, (entity, playerId) => {
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!energyComp || !posComp || !stageComp) return;
+
       // Skip dead/evolving players
-      if (player.energy <= 0 || player.isEvolving) continue;
+      if (energyComp.current <= 0 || stageComp.isEvolving) return;
 
       // Stage 3+ players don't interact with soup swarms (they've evolved past)
-      if (!isSoupStage(player.stage)) continue;
+      if (!isSoupStage(stageComp.stage)) return;
+
+      // God mode players are immune
+      if (hasGodMode(playerId)) return;
 
       // Check collision (circle-circle)
-      const dist = distance(swarm.position, player.position);
+      const playerPosition = { x: posComp.x, y: posComp.y };
+      const dist = distance(swarm.position, playerPosition);
       const collisionDist = swarm.size + GAME_CONFIG.PLAYER_SIZE;
 
       if (dist < collisionDist) {
-        // Deal damage over time (death handled by checkPlayerDeaths)
-        // applyDamage writes to ECS - must be provided for damage to work
+        // Apply damage directly with resistance
         const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
-        if (applyDamage) {
-          applyDamage(player, baseDamage);
-        }
-        damagedPlayerIds.add(player.id);
+        const resistance = getDamageResistance(stageComp.stage);
+        const actualDamage = baseDamage * (1 - resistance);
+        energyComp.current -= actualDamage;
+
+        damagedPlayerIds.add(playerId);
 
         // Record damage for drain aura system
         if (recordDamage) {
-          recordDamage(player.id, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
+          recordDamage(playerId, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
         }
 
         // Apply movement slow debuff
-        slowedPlayerIds.add(player.id);
+        slowedPlayerIds.add(playerId);
       }
-    }
+    });
   }
 
   return { damagedPlayerIds, slowedPlayerIds };

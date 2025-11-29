@@ -5,17 +5,152 @@
 
 import type { System } from './types';
 import type { GameContext } from './GameContext';
+import {
+  Components,
+  forEachPlayer,
+  getStageBySocketId,
+  getEnergyBySocketId,
+  getEntityBySocketId,
+  setPlayerStage,
+  hasPlayer,
+  type EnergyComponent,
+  type StageComponent,
+} from '../index';
+import { hasGodMode, getConfig } from '../../dev';
+import { getNextEvolutionStage, getStageMaxEnergy } from '../../helpers';
+import { recordEvolution } from '../../logger';
+import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 
 /**
  * MetabolismSystem - Manages player metabolism
  *
- * Currently wraps the existing updateMetabolism() function.
- * Future: Move to operate on ECS Energy/Stage components directly.
+ * Handles:
+ * - Passive energy decay (starvation)
+ * - Death detection (energy <= 0)
+ * - Evolution checks and progression
  */
 export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
   update(ctx: GameContext): void {
-    ctx.updateMetabolism(ctx.deltaTime);
+    const { world, deltaTime, io, playerLastDamageSource, recordDamage, getEnergyDecayRate, isBot } = ctx;
+
+    forEachPlayer(world, (entity, playerId) => {
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!energyComp || !stageComp) return;
+
+      // Skip dead players waiting for respawn (energy < 0 means death already processed)
+      // Catch-all: if energy is exactly 0 but no death cause tracked (e.g., from movement/ability costs),
+      // set 'starvation' as default cause so DeathSystem will process them
+      if (energyComp.current < 0) {
+        return; // Already dead, waiting for respawn
+      }
+      if (energyComp.current === 0 && !playerLastDamageSource.has(playerId)) {
+        playerLastDamageSource.set(playerId, 'starvation');
+        return;
+      }
+      if (energyComp.current === 0) {
+        return; // Death already tracked, will be processed by DeathSystem
+      }
+
+      // Skip metabolism during evolution molting (invulnerable)
+      if (stageComp.isEvolving) return;
+
+      // God mode players don't decay
+      if (hasGodMode(playerId)) return;
+
+      // Energy decay (passive drain) - stage-specific metabolic efficiency
+      // No damage resistance applies to passive decay
+      const decayRate = getEnergyDecayRate(stageComp.stage);
+      energyComp.current -= decayRate * deltaTime;
+
+      // Energy-only: when energy hits 0, mark for death
+      if (energyComp.current <= 0) {
+        energyComp.current = 0;
+        playerLastDamageSource.set(playerId, 'starvation');
+        // Record for drain aura (shows starvation state)
+        recordDamage(playerId, decayRate, 'starvation');
+      }
+
+      // Check for evolution (only if still alive)
+      if (energyComp.current > 0) {
+        this.checkEvolution(playerId, ctx);
+      }
+    });
+  }
+
+  /**
+   * Check if player can evolve and trigger evolution if conditions met
+   */
+  private checkEvolution(playerId: string, ctx: GameContext): void {
+    const { world, io, isBot } = ctx;
+
+    const stageComp = getStageBySocketId(world, playerId);
+    const energyComp = getEnergyBySocketId(world, playerId);
+    if (!stageComp || !energyComp) return;
+
+    if (stageComp.isEvolving) return; // Already evolving
+
+    const nextEvolution = getNextEvolutionStage(stageComp.stage);
+    if (!nextEvolution) return; // Already at max stage
+
+    // Check capacity gate (maxEnergy threshold)
+    if (energyComp.max < nextEvolution.threshold) return;
+
+    // Capacity threshold met - trigger evolution!
+    stageComp.isEvolving = true;
+
+    // Broadcast evolution start
+    const startMessage: PlayerEvolutionStartedMessage = {
+      type: 'playerEvolutionStarted',
+      playerId: playerId,
+      currentStage: stageComp.stage,
+      targetStage: nextEvolution.stage,
+      duration: getConfig('EVOLUTION_MOLTING_DURATION'),
+    };
+    io.emit('playerEvolutionStarted', startMessage);
+
+    // Capture current stage before async callback (for evolution tracking)
+    const fromStage = stageComp.stage;
+    const targetStage = nextEvolution.stage;
+
+    // Schedule evolution completion after molting duration
+    setTimeout(() => {
+      // Check if player still exists (they might have disconnected during molting)
+      if (!hasPlayer(world, playerId)) return;
+
+      // Re-fetch components (they're still valid if entity exists)
+      const stageCompNow = getStageBySocketId(world, playerId);
+      const energyCompNow = getEnergyBySocketId(world, playerId);
+      if (!stageCompNow || !energyCompNow) return;
+
+      stageCompNow.stage = targetStage;
+      stageCompNow.isEvolving = false;
+
+      // Update energy pool for new stage
+      // Evolution grants the new stage's max energy pool (fully restored)
+      const newMaxEnergy = getStageMaxEnergy(stageCompNow.stage);
+      energyCompNow.max = Math.max(energyCompNow.max, newMaxEnergy);
+      energyCompNow.current = energyCompNow.max; // Evolution fully restores energy
+
+      // Also update ECS stage abilities via setPlayerStage
+      const entity = getEntityBySocketId(playerId);
+      if (entity) {
+        setPlayerStage(world, entity, targetStage);
+      }
+
+      // Broadcast evolution event
+      const evolveMessage: PlayerEvolvedMessage = {
+        type: 'playerEvolved',
+        playerId: playerId,
+        newStage: stageCompNow.stage,
+        newMaxEnergy: energyCompNow.max,
+      };
+      io.emit('playerEvolved', evolveMessage);
+
+      // Track evolution for rate tracking (includes survival time calculation)
+      recordEvolution(playerId, fromStage, stageCompNow.stage, isBot(playerId));
+    }, getConfig('EVOLUTION_MOLTING_DURATION'));
   }
 }

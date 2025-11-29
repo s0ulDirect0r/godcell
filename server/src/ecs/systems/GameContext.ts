@@ -71,13 +71,18 @@ export interface GameContext {
   playerInputDirections: Map<string, { x: number; y: number }>;
   playerSprintState: Map<string, boolean>;
   playerLastDamageSource: Map<string, DeathCause>;
+  // NOTE: Should be ECS component. See godcell epic for ECS migration
+  playerLastBeamShooter: Map<string, string>; // Map of victim ID -> shooter ID
+  // NOTE: Should be ECS component (damage decay on entity)
+  pseudopodHitDecays: Map<string, { rate: number; expiresAt: number }>;
 
   // Cooldown tracking
   playerEMPCooldowns: Map<string, number>;
   playerPseudopodCooldowns: Map<string, number>;
 
   // Drain state tracking
-  activeDrains: Set<string>; // Set of prey IDs being drained
+  // NOTE: This should be an ECS component, not a Map. See godcell-5nc
+  activeDrains: Map<string, string>; // Map of prey ID -> predator ID
   activeSwarmDrains: Set<string>;
   lastBroadcastedDrains: Set<string>;
 
@@ -144,39 +149,28 @@ export interface GameContext {
     nutrients: Map<string, Nutrient>,
     obstacles: Map<string, Obstacle>,
     swarms: EntropySwarm[],
-    players: Map<string, Player>,
     abilitySystem: AbilitySystem,
-    ecsWorld: World
+    world: World
   ) => void;
 
-  applyGravityForces: (deltaTime: number) => void;
   updateSwarms: (
     timestamp: number,
-    players: Map<string, Player>,
+    world: World,
     obstacles: Map<string, Obstacle>,
     deltaTime: number
   ) => void;
   updateSwarmPositions: (deltaTime: number, io: Server) => void;
   processSwarmRespawns: (io: Server) => void;
-  updatePseudopods: (deltaTime: number, io: Server) => void;
-  checkPredationCollisions: (deltaTime: number) => void;
   checkSwarmCollisions: (
-    players: Map<string, Player>,
+    world: World,
     deltaTime: number,
     recordDamage?: (
       entityId: string,
       damageRate: number,
       source: DamageSource
-    ) => void,
-    applyDamage?: (player: Player, baseDamage: number) => number
+    ) => void
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
-  updateMetabolism: (deltaTime: number) => void;
-  checkNutrientCollisions: () => void;
-  attractNutrientsToObstacles: (deltaTime: number) => void;
-  checkPlayerDeaths: () => void;
-  broadcastEnergyUpdates: () => void;
-  broadcastDetectionUpdates: () => void;
-  broadcastDrainState: () => void;
+  respawnNutrient: (nutrientId: string) => void;
   removeSwarm: (swarmId: string) => void;
 }
 

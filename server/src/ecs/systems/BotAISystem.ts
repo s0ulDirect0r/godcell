@@ -16,14 +16,13 @@ export class BotAISystem implements System {
   readonly name = 'BotAISystem';
 
   update(ctx: GameContext): void {
-    const { updateBots, nutrients, obstacles, getSwarms, players, abilitySystem, world } = ctx;
+    const { updateBots, nutrients, obstacles, getSwarms, abilitySystem, world } = ctx;
 
     updateBots(
       Date.now(),
       nutrients,
       obstacles,
       Array.from(getSwarms().values()),
-      players,
       abilitySystem,
       world
     );

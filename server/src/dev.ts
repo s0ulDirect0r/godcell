@@ -26,6 +26,7 @@ import {
   setStageBySocketId,
   setPositionBySocketId,
   getEnergyBySocketId,
+  getStageBySocketId,
 } from './ecs';
 
 // ============================================
@@ -346,10 +347,11 @@ function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, max
 function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStage): void {
   if (!devContext) return;
 
-  const player = devContext.players.get(playerId);
-  if (!player) return;
+  // Read stage directly from ECS (players Map may be stale between ticks)
+  const stageComp = getStageBySocketId(devContext.world, playerId);
+  if (!stageComp) return;
 
-  const oldStage = player.stage;
+  const oldStage = stageComp.stage;
 
   // Set energy pools to match the new stage (dev override, not natural evolution)
   const stageStats = devContext.getStageEnergy(stage);

@@ -902,3 +902,38 @@ export function clampPositionBySocketId(
   }
   return undefined;
 }
+
+// ============================================
+// Obstacle Query Helpers
+// ============================================
+
+/**
+ * Iterate over all obstacle entities.
+ * Callback receives entity ID and obstacle's position.
+ */
+export function forEachObstacle(
+  world: World,
+  callback: (entity: EntityId, position: Position, obstacle: ObstacleComponent) => void
+): void {
+  world.forEachWithTag(Tags.Obstacle, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+    if (pos && obs) {
+      callback(entity, { x: pos.x, y: pos.y }, obs);
+    }
+  });
+}
+
+/**
+ * Get all obstacle positions for spawn safety checks.
+ * Returns array of { position, radius } for distance calculations.
+ */
+export function getObstacleZones(
+  world: World
+): Array<{ position: Position; radius: number }> {
+  const zones: Array<{ position: Position; radius: number }> = [];
+  forEachObstacle(world, (_entity, position, obstacle) => {
+    zones.push({ position, radius: obstacle.radius });
+  });
+  return zones;
+}

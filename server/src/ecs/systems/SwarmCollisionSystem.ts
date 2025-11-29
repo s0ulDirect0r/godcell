@@ -27,12 +27,10 @@ export class SwarmCollisionSystem implements System {
   update(ctx: GameContext): void {
     const {
       world,
-      players,
       getSwarms,
       deltaTime,
       io,
       recordDamage,
-      applyDamageWithResistance,
       checkSwarmCollisions,
       playerLastDamageSource,
       activeSwarmDrains,
@@ -43,13 +41,11 @@ export class SwarmCollisionSystem implements System {
     } = ctx;
 
     // Check for swarm collisions (damage + slow)
-    // Note: checkSwarmCollisions still uses the players cache for collision detection
-    // but damage is applied directly to ECS via applyDamageWithResistance
+    // Now uses ECS iteration directly and applies damage with resistance inline
     const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(
-      players,
+      world,
       deltaTime,
-      recordDamage,
-      applyDamageWithResistance
+      recordDamage
     );
 
     // Store in tickData for access by MovementSystem
