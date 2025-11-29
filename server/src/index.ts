@@ -59,6 +59,7 @@ import {
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
+  getStunnedBySocketId,
   getVelocityBySocketId,
   getSprintBySocketId,
   getCooldownsBySocketId,
@@ -124,29 +125,8 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ============================================
 
 // ECS World - central container for all entities and components
-// ECS is the source of truth. The players Map below is a cache rebuilt each tick.
+// ECS is the sole source of truth for all player state.
 const world: World = createWorld();
-
-// All players currently in the game
-// Maps socket ID → Player data
-// IMPORTANT: This is now a CACHE that gets rebuilt from ECS each tick.
-// Write to ECS components, not to this Map. Reads are fine during tick.
-const players: Map<string, Player> = new Map();
-
-/**
- * Sync the players Map from ECS components.
- * Called at the start of each tick to ensure legacy code reads current ECS state.
- * This is a temporary bridge - once all code reads from ECS directly, remove this.
- */
-function syncPlayersFromECS(): void {
-  players.clear();
-  forEachPlayer(world, (entity, socketId) => {
-    const player = getPlayerBySocketId(world, socketId);
-    if (player) {
-      players.set(socketId, player);
-    }
-  });
-}
 
 // Player input directions (from keyboard/controller)
 // Maps socket ID → {x, y} direction (-1, 0, or 1)
@@ -215,46 +195,53 @@ const obstacles: Map<string, Obstacle> = new Map();
  * Applies damage to closest hit and returns target ID
  */
 function checkBeamHitscan(start: Position, end: Position, shooterId: string): string | null {
-  let closestHit: { playerId: string; distance: number } | null = null;
+  // Use object wrapper pattern for closure mutation
+  const result: { closestHit: { playerId: string; distance: number } | null } = { closestHit: null };
 
-  for (const [playerId, target] of players) {
+  forEachPlayer(world, (entity, playerId) => {
     // Skip shooter
-    if (playerId === shooterId) continue;
+    if (playerId === shooterId) return;
+
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp || !posComp) return;
 
     // Skip dead/evolving/stunned players
-    if (target.energy <= 0) continue;
-    if (target.isEvolving) continue;
-    if (target.stunnedUntil && Date.now() < target.stunnedUntil) continue;
+    if (energyComp.current <= 0) return;
+    if (stageComp.isEvolving) return;
+    if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
-    const targetRadius = getPlayerRadius(target.stage);
-    const hitDist = rayCircleIntersection(start, end, target.position, targetRadius);
+    const targetRadius = getPlayerRadius(stageComp.stage);
+    const targetPosition = { x: posComp.x, y: posComp.y };
+    const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 
     if (hitDist !== null) {
       // Track closest hit
-      if (!closestHit || hitDist < closestHit.distance) {
-        closestHit = { playerId, distance: hitDist };
+      if (!result.closestHit || hitDist < result.closestHit.distance) {
+        result.closestHit = { playerId, distance: hitDist };
       }
     }
-  }
+  });
 
   // Apply damage to closest hit
-  if (closestHit) {
-    const target = players.get(closestHit.playerId);
-    if (target) {
-      applyDamageWithResistance(target, getConfig('PSEUDOPOD_DRAIN_RATE'));
-      playerLastDamageSource.set(closestHit.playerId, 'beam');
-      playerLastBeamShooter.set(closestHit.playerId, shooterId); // Track shooter for kill rewards
+  if (result.closestHit) {
+    const targetId = result.closestHit.playerId;
+    applyDamageWithResistance(targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
+    playerLastDamageSource.set(targetId, 'beam');
+    playerLastBeamShooter.set(targetId, shooterId); // Track shooter for kill rewards
 
-      logger.info({
-        event: 'beam_hit',
-        shooter: shooterId,
-        target: closestHit.playerId,
-        damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-        targetEnergyRemaining: target.energy.toFixed(0),
-      });
-    }
+    const energyComp = getEnergyBySocketId(world, targetId);
+    logger.info({
+      event: 'beam_hit',
+      shooter: shooterId,
+      target: targetId,
+      damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+      targetEnergyRemaining: energyComp ? energyComp.current.toFixed(0) : 'unknown',
+    });
 
-    return closestHit.playerId;
+    return targetId;
   }
 
   return null;
@@ -324,15 +311,18 @@ function initializeObstacles() {
  * Returns actual damage dealt after resistance
  * God mode players take no damage
  */
-function applyDamageWithResistance(player: Player, baseDamage: number): number {
+function applyDamageWithResistance(playerId: string, baseDamage: number): number {
   // God mode players are immune to damage
-  if (hasGodMode(player.id)) return 0;
+  if (hasGodMode(playerId)) return 0;
 
-  const resistance = getDamageResistance(player.stage);
+  const stageComp = getStageBySocketId(world, playerId);
+  if (!stageComp) return 0;
+
+  const resistance = getDamageResistance(stageComp.stage);
   const actualDamage = baseDamage * (1 - resistance);
 
-  // Write damage to ECS (not the cached player object)
-  const energyComp = getEnergyBySocketId(world, player.id);
+  // Write damage to ECS
+  const energyComp = getEnergyBySocketId(world, playerId);
   if (energyComp) {
     energyComp.current -= actualDamage;
   }
@@ -438,7 +428,7 @@ if (isPlayground) {
   initializeNutrients(obstacles);
   // Set ECS world for bots and swarms before initializing
   setBotEcsWorld(world);
-  initializeBots(io, players, playerInputDirections, playerVelocities);
+  initializeBots(io, playerInputDirections, playerVelocities);
   setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
@@ -447,7 +437,6 @@ if (isPlayground) {
 initDevHandler({
   io,
   world, // ECS World for direct component access
-  players,
   nutrients: getNutrients(),
   obstacles,
   swarms: getSwarms(),
@@ -455,8 +444,8 @@ initDevHandler({
   playerVelocities,
   spawnNutrientAt,
   spawnSwarmAt,
-  spawnBotAt: (position, stage) => spawnBotAt(io, players, playerInputDirections, playerVelocities, position, stage),
-  removeBotPermanently: (botId) => removeBotPermanently(botId, io, players, playerInputDirections, playerVelocities),
+  spawnBotAt: (position, stage) => spawnBotAt(io, playerInputDirections, playerVelocities, position, stage),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, io, playerInputDirections, playerVelocities),
   respawnPlayer,
   getStageEnergy,
   getPlayerRadius,
@@ -467,9 +456,8 @@ initDevHandler({
 // ============================================
 
 const abilitySystem = new AbilitySystem({
-  players,
+  world, // ECS World (source of truth)
   io,
-  ecsWorld: world, // ECS World for dual-write during migration
   pseudopods,
   pseudopodHits,
   playerEMPCooldowns,
@@ -517,24 +505,20 @@ const lastBroadcastedDrains = new Set<string>();
  * This provides systems access to all game state and helper functions
  */
 function buildGameContext(deltaTime: number): GameContext {
-  // Sync the players cache from ECS so legacy code reads current ECS state
-  syncPlayersFromECS();
-
   return {
-    // ECS World
+    // ECS World (source of truth)
     world,
     io,
     deltaTime,
 
-    // Entity Collections
-    players,
+    // Entity Collections (non-player state still in Maps)
     nutrients: getNutrients(),
     obstacles,
     getSwarms,
     pseudopods,
     pseudopodHits,
 
-    // Player State Maps
+    // Player State Maps (auxiliary data not yet in ECS)
     playerVelocities,
     playerInputDirections,
     playerSprintState,
@@ -684,13 +668,15 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerSprint', (message: PlayerSprintMessage) => {
-    const player = players.get(socket.id);
-    if (!player) return;
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, socket.id);
+    const stageComp = getStageBySocketId(world, socket.id);
+    if (!energyComp || !stageComp) return;
 
     // Only Stage 3+ can sprint
-    if (!isJungleStage(player.stage)) return;
-    if (player.energy <= 0) return; // Dead players can't sprint
-    if (player.isEvolving) return; // Can't sprint while molting
+    if (!isJungleStage(stageComp.stage)) return;
+    if (energyComp.current <= 0) return; // Dead players can't sprint
+    if (stageComp.isEvolving) return; // Can't sprint while molting
 
     // Update sprint state
     playerSprintState.set(socket.id, message.sprinting);
@@ -716,14 +702,13 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     logPlayerDisconnected(socket.id);
 
-    // Remove from ECS (dual-write during migration)
+    // Remove from ECS (source of truth)
     const entity = getEntityBySocketId(socket.id);
     if (entity !== undefined) {
       ecsDestroyEntity(world, entity);
     }
 
-    // Remove from game state
-    players.delete(socket.id);
+    // Remove from auxiliary state Maps
     playerInputDirections.delete(socket.id);
     playerVelocities.delete(socket.id);
     playerSprintState.delete(socket.id);
@@ -781,32 +766,49 @@ setInterval(() => {
  * Energy-only system: energy is the sole life resource
  */
 function calculateAggregateStats() {
-  const allPlayers = Array.from(players.values());
-  const alivePlayers = allPlayers.filter(p => p.energy > 0);
-  const deadPlayers = allPlayers.filter(p => p.energy <= 0);
-  const bots = allPlayers.filter(p => isBot(p.id));
-  const aliveBots = bots.filter(p => p.energy > 0);
+  // Collect stats using ECS iteration
+  const stats = {
+    totalPlayers: 0,
+    alivePlayers: 0,
+    deadPlayers: 0,
+    totalBots: 0,
+    aliveBots: 0,
+    totalEnergy: 0,
+    stageDistribution: {} as Record<string, number>,
+  };
 
-  // Calculate averages for alive players only
-  const avgEnergy = alivePlayers.length > 0
-    ? alivePlayers.reduce((sum, p) => sum + p.energy, 0) / alivePlayers.length
-    : 0;
+  forEachPlayer(world, (entity, id) => {
+    const energyComp = getEnergyBySocketId(world, id);
+    const stageComp = getStageBySocketId(world, id);
+    if (!energyComp || !stageComp) return;
 
-  // Stage distribution
-  const stageDistribution: Record<string, number> = {};
-  for (const player of alivePlayers) {
-    stageDistribution[player.stage] = (stageDistribution[player.stage] || 0) + 1;
-  }
+    stats.totalPlayers++;
+    const isAlive = energyComp.current > 0;
+    const isBotPlayer = isBot(id);
+
+    if (isAlive) {
+      stats.alivePlayers++;
+      stats.totalEnergy += energyComp.current;
+      stats.stageDistribution[stageComp.stage] = (stats.stageDistribution[stageComp.stage] || 0) + 1;
+    } else {
+      stats.deadPlayers++;
+    }
+
+    if (isBotPlayer) {
+      stats.totalBots++;
+      if (isAlive) stats.aliveBots++;
+    }
+  });
 
   return {
-    totalPlayers: allPlayers.length,
-    alivePlayers: alivePlayers.length,
-    deadPlayers: deadPlayers.length,
-    totalBots: bots.length,
-    aliveBots: aliveBots.length,
-    avgPlayerEnergy: avgEnergy,
+    totalPlayers: stats.totalPlayers,
+    alivePlayers: stats.alivePlayers,
+    deadPlayers: stats.deadPlayers,
+    totalBots: stats.totalBots,
+    aliveBots: stats.aliveBots,
+    avgPlayerEnergy: stats.alivePlayers > 0 ? stats.totalEnergy / stats.alivePlayers : 0,
     totalNutrients: getNutrients().size,
-    stageDistribution,
+    stageDistribution: stats.stageDistribution,
   };
 }
 
@@ -815,17 +817,37 @@ function calculateAggregateStats() {
  * Energy-only system: energy is the sole life resource
  */
 function createGameStateSnapshot() {
+  // Build players array using ECS iteration
+  const playerSnapshots: Array<{
+    id: string;
+    isBot: boolean;
+    stage: string;
+    energy: number;
+    maxEnergy: number;
+    position: { x: number; y: number };
+    alive: boolean;
+  }> = [];
+
+  forEachPlayer(world, (entity, id) => {
+    const energyComp = getEnergyBySocketId(world, id);
+    const stageComp = getStageBySocketId(world, id);
+    const posComp = getPositionBySocketId(world, id);
+    if (!energyComp || !stageComp || !posComp) return;
+
+    playerSnapshots.push({
+      id,
+      isBot: isBot(id),
+      stage: stageComp.stage,
+      energy: energyComp.current,
+      maxEnergy: energyComp.max,
+      position: { x: posComp.x, y: posComp.y },
+      alive: energyComp.current > 0,
+    });
+  });
+
   return {
     timestamp: Date.now(),
-    players: Array.from(players.values()).map(p => ({
-      id: p.id,
-      isBot: isBot(p.id),
-      stage: p.stage,
-      energy: p.energy,
-      maxEnergy: p.maxEnergy,
-      position: { x: p.position.x, y: p.position.y },
-      alive: p.energy > 0,
-    })),
+    players: playerSnapshots,
     nutrients: Array.from(getNutrients().values()).map(n => ({
       id: n.id,
       position: { x: n.position.x, y: n.position.y },

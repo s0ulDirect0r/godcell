@@ -119,7 +119,6 @@ function isSpawnSafe(position: Position, obstacles: Map<string, Obstacle>): bool
  */
 function spawnBot(
   io: Server,
-  players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
@@ -181,7 +180,6 @@ function spawnBot(
  */
 function spawnMultiCellBot(
   io: Server,
-  players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
@@ -594,7 +592,6 @@ function updateBotAI(
  */
 export function spawnBotAt(
   io: Server,
-  players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>,
   position: Position,
@@ -666,18 +663,17 @@ export function spawnBotAt(
  */
 export function initializeBots(
   io: Server,
-  players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ) {
   // Spawn Stage 1 bots
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
-    spawnBot(io, players, playerInputDirections, playerVelocities);
+    spawnBot(io, playerInputDirections, playerVelocities);
   }
 
   // Spawn multi-cell bots
   for (let i = 0; i < BOT_CONFIG.STAGE2_COUNT; i++) {
-    spawnMultiCellBot(io, players, playerInputDirections, playerVelocities);
+    spawnMultiCellBot(io, playerInputDirections, playerVelocities);
   }
 
   logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT);
@@ -963,7 +959,6 @@ export function isBot(playerId: string): boolean {
 export function removeBotPermanently(
   botId: string,
   io: Server,
-  players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): boolean {

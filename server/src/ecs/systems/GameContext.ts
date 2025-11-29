@@ -13,7 +13,6 @@
 import type { Server } from 'socket.io';
 import type {
   World,
-  Player,
   Nutrient,
   Obstacle,
   Position,
@@ -53,7 +52,6 @@ export interface GameContext {
   // ============================================
   // Entity Collections (legacy Maps)
   // ============================================
-  players: Map<string, Player>;
   nutrients: Map<string, Nutrient>;
   obstacles: Map<string, Obstacle>;
 
@@ -118,7 +116,7 @@ export interface GameContext {
   };
 
   // Damage helpers
-  applyDamageWithResistance: (player: Player, baseDamage: number) => number;
+  applyDamageWithResistance: (playerId: string, baseDamage: number) => number;
   recordDamage: (
     entityId: string,
     damageRate: number,

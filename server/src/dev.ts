@@ -13,7 +13,6 @@ import {
   type DevConfigUpdatedMessage,
   type DevStateMessage,
   type Position,
-  type Player,
   type Nutrient,
   type EntropySwarm,
   type TunableConfigKey,
@@ -27,6 +26,9 @@ import {
   setPositionBySocketId,
   getEnergyBySocketId,
   getStageBySocketId,
+  getPositionBySocketId,
+  forEachPlayer,
+  hasPlayer,
 } from './ecs';
 
 // ============================================
@@ -98,8 +100,7 @@ export function shouldRunTick(): boolean {
 
 interface DevContext {
   io: Server;
-  world: World; // ECS World for direct component access
-  players: Map<string, Player>;
+  world: World; // ECS World for direct component access (source of truth)
   nutrients: Map<string, Nutrient>;
   obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
   swarms: Map<string, EntropySwarm>;
@@ -277,11 +278,18 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     }
 
     case 'player': {
-      const player = devContext.players.get(entityId);
-      if (player) {
+      // Check if player exists via ECS
+      if (hasPlayer(devContext.world, entityId)) {
+        const posComp = getPositionBySocketId(devContext.world, entityId);
         // Use ECS setter to persist the energy change
         setEnergyBySocketId(devContext.world, entityId, 0);
-        io.emit('playerDied', { type: 'playerDied', playerId: entityId, position: player.position, color: player.color, cause: 'starvation' });
+        io.emit('playerDied', {
+          type: 'playerDied',
+          playerId: entityId,
+          position: posComp ? { x: posComp.x, y: posComp.y } : { x: 0, y: 0 },
+          color: '#ff0000', // Color not critical for dev kill
+          cause: 'starvation',
+        });
         logger.info({ event: 'dev_kill_player', entityId });
       }
       break;
@@ -310,8 +318,8 @@ function handleSetTimeScale(io: Server, scale: number): void {
 function handleTeleportPlayer(io: Server, playerId: string, position: Position): void {
   if (!devContext) return;
 
-  const player = devContext.players.get(playerId);
-  if (!player) return;
+  // Check if player exists via ECS
+  if (!hasPlayer(devContext.world, playerId)) return;
 
   // Clamp to world bounds and update via ECS setter
   const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
@@ -325,10 +333,7 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
 function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, maxEnergy?: number): void {
   if (!devContext) return;
 
-  const player = devContext.players.get(playerId);
-  if (!player) return;
-
-  // Get current ECS energy component for max value
+  // Get current ECS energy component (source of truth)
   const energyComp = getEnergyBySocketId(devContext.world, playerId);
   if (!energyComp) return;
 
@@ -461,42 +466,52 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
     }
   } else if (entityType === 'single-cell' || entityType === 'multi-cell' || entityType === 'cyber-organism') {
-    // Find nearest bot of the specified type
-    for (const [id, player] of devContext.players.entries()) {
+    // Find nearest bot of the specified type using ECS iteration
+    // Use object wrapper pattern for closure mutation
+    const result: { nearestId: string | null; nearestDist: number; nearestPos: Position | null } = {
+      nearestId: null,
+      nearestDist: MAX_DELETE_DISTANCE,
+      nearestPos: null,
+    };
+
+    // Capture world reference before callback to satisfy TypeScript narrowing
+    const world = devContext.world;
+    forEachPlayer(world, (entity, id) => {
       // Only consider bots (players with 'bot-' prefix)
-      if (!id.startsWith('bot-')) continue;
+      if (!id.startsWith('bot-')) return;
+
+      const stageComp = getStageBySocketId(world, id);
+      const posComp = getPositionBySocketId(world, id);
+      if (!stageComp || !posComp) return;
 
       // Filter by stage matching the entity type
-      const playerStage = player.stage;
       const matchesType =
-        (entityType === 'single-cell' && playerStage === EvolutionStage.SINGLE_CELL) ||
-        (entityType === 'multi-cell' && playerStage === EvolutionStage.MULTI_CELL) ||
-        (entityType === 'cyber-organism' && playerStage === EvolutionStage.CYBER_ORGANISM);
-      if (!matchesType) continue;
+        (entityType === 'single-cell' && stageComp.stage === EvolutionStage.SINGLE_CELL) ||
+        (entityType === 'multi-cell' && stageComp.stage === EvolutionStage.MULTI_CELL) ||
+        (entityType === 'cyber-organism' && stageComp.stage === EvolutionStage.CYBER_ORGANISM);
+      if (!matchesType) return;
 
-      const dx = player.position.x - position.x;
-      const dy = player.position.y - position.y;
+      const dx = posComp.x - position.x;
+      const dy = posComp.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestId = id;
+      if (dist < result.nearestDist) {
+        result.nearestDist = dist;
+        result.nearestId = id;
+        result.nearestPos = { x: posComp.x, y: posComp.y };
       }
-    }
+    });
 
-    if (nearestId) {
-      const player = devContext.players.get(nearestId);
-      if (player) {
-        // Permanently remove the bot (no respawn)
-        devContext.removeBotPermanently(nearestId);
-        io.emit('playerDied', {
-          type: 'playerDied',
-          playerId: nearestId,
-          position: player.position,
-          color: player.color,
-          cause: 'starvation',
-        });
-        logger.info({ event: 'dev_delete_at_bot', position, deletedId: nearestId, entityType });
-      }
+    if (result.nearestId && result.nearestPos) {
+      // Permanently remove the bot (no respawn)
+      devContext.removeBotPermanently(result.nearestId);
+      io.emit('playerDied', {
+        type: 'playerDied',
+        playerId: result.nearestId,
+        position: result.nearestPos,
+        color: '#ff0000', // Color not critical for dev kill
+        cause: 'starvation',
+      });
+      logger.info({ event: 'dev_delete_at_bot', position, deletedId: result.nearestId, entityType });
     }
   }
 }
