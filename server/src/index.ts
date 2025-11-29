@@ -1333,7 +1333,6 @@ function buildGameContext(deltaTime: number): GameContext {
     checkPredationCollisions,
     checkSwarmCollisions,
     respawnNutrient,
-    attractNutrientsToObstacles,
     handlePlayerDeath,
     broadcastEnergyUpdates,
     broadcastDetectionUpdates,
@@ -1613,69 +1612,6 @@ function applyGravityForces(deltaTime: number) {
       // Accumulate gravitational acceleration into velocity (frame-rate independent)
       swarm.velocity.x += dirX * forceMagnitude * deltaTime;
       swarm.velocity.y += dirY * forceMagnitude * deltaTime;
-    }
-  }
-}
-
-/**
- * Attract nutrients toward obstacles and destroy them at center
- * Creates visual "feeding" effect for distortions
- */
-function attractNutrientsToObstacles(deltaTime: number) {
-  for (const [nutrientId, nutrient] of nutrients) {
-    for (const obstacle of obstacles.values()) {
-      const dist = distance(nutrient.position, obstacle.position);
-
-      if (dist < obstacle.radius) {
-        // Apply same inverse-square gravity as players
-        const distSq = Math.max(dist * dist, 100);
-        const forceMagnitude = obstacle.strength / distSq;
-
-        const dx = obstacle.position.x - nutrient.position.x;
-        const dy = obstacle.position.y - nutrient.position.y;
-        const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-        if (dirLength > 0) {
-          const dirX = dx / dirLength;
-          const dirY = dy / dirLength;
-
-          // Move nutrient toward obstacle
-          nutrient.position.x += dirX * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
-          nutrient.position.y += dirY * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
-
-          // Broadcast nutrient movement
-          const moveMessage: NutrientMovedMessage = {
-            type: 'nutrientMoved',
-            nutrientId,
-            position: nutrient.position,
-          };
-          io.emit('nutrientMoved', moveMessage);
-        }
-
-        // Check if nutrient reached center (destroyed by distortion)
-        if (dist < 20) {
-          nutrients.delete(nutrientId);
-          // Remove from ECS (dual-write during migration)
-          const nutrientEntity = getEntityByStringId(nutrientId);
-          if (nutrientEntity !== undefined) {
-            ecsDestroyEntity(world, nutrientEntity);
-          }
-
-          // Broadcast as "collected" by obstacle (special playerId)
-          const collectMessage: NutrientCollectedMessage = {
-            type: 'nutrientCollected',
-            nutrientId,
-            playerId: 'obstacle',
-            collectorEnergy: 0,
-            collectorMaxEnergy: 0,
-          };
-          io.emit('nutrientCollected', collectMessage);
-
-          // Schedule respawn
-          respawnNutrient(nutrientId);
-          break;
-        }
-      }
     }
   }
 }
