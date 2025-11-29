@@ -3,14 +3,17 @@
 // Handles player movement, velocity, and position updates
 // ============================================
 
-import { EvolutionStage } from '@godcell/shared';
-import type { PlayerMovedMessage } from '@godcell/shared';
+import { EvolutionStage, Tags, Components } from '@godcell/shared';
+import type { PlayerMovedMessage, EnergyComponent, PositionComponent, StageComponent, StunnedComponent } from '@godcell/shared';
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { getConfig } from '../../dev';
+import { getSocketIdByEntity } from '../factories';
 
 /**
  * MovementSystem - Handles all player movement
+ *
+ * Uses ECS components directly for all reads and writes.
  *
  * Responsibilities:
  * - Process player input into velocity
@@ -28,7 +31,7 @@ export class MovementSystem implements System {
 
   update(ctx: GameContext): void {
     const {
-      players,
+      world,
       playerVelocities,
       playerInputDirections,
       playerSprintState,
@@ -42,23 +45,36 @@ export class MovementSystem implements System {
 
     const slowedPlayerIds = tickData.slowedPlayerIds;
 
-    for (const [playerId, player] of players) {
+    // Iterate over all player entities in ECS
+    world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getSocketIdByEntity(entity);
+      if (!playerId) return;
+
+      // Get ECS components directly
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!energyComp || !posComp || !stageComp) return;
+
       // Skip dead players
-      if (player.energy <= 0) continue;
+      if (energyComp.current <= 0) return;
 
       // Stunned players can't move
-      if (player.stunnedUntil && Date.now() < player.stunnedUntil) {
+      const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+      if (stunnedComp?.until && Date.now() < stunnedComp.until) {
         const velocity = playerVelocities.get(playerId);
         if (velocity) {
           velocity.x = 0;
           velocity.y = 0;
         }
-        continue;
+        return;
       }
 
       const inputDirection = playerInputDirections.get(playerId);
       const velocity = playerVelocities.get(playerId);
-      if (!inputDirection || !velocity) continue;
+      if (!inputDirection || !velocity) return;
+
+      const stage = stageComp.stage;
 
       // Normalize diagonal input for consistent acceleration
       const inputLength = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
@@ -69,9 +85,9 @@ export class MovementSystem implements System {
       let acceleration = getConfig('PLAYER_SPEED') * 8;
 
       // Stage-specific acceleration modifiers
-      if (player.stage === EvolutionStage.MULTI_CELL) {
+      if (stage === EvolutionStage.MULTI_CELL) {
         acceleration *= 0.8; // 20% slower than single-cells
-      } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      } else if (stage === EvolutionStage.CYBER_ORGANISM) {
         acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT');
       }
       // TODO: HUMANOID and GODCELL acceleration
@@ -95,16 +111,17 @@ export class MovementSystem implements System {
       let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
       // Stage-specific max speed modifiers
-      if (player.stage === EvolutionStage.MULTI_CELL) {
+      if (stage === EvolutionStage.MULTI_CELL) {
         maxSpeed *= 0.8;
-      } else if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      } else if (stage === EvolutionStage.CYBER_ORGANISM) {
         maxSpeed *= getConfig('CYBER_ORGANISM_MAX_SPEED_MULT');
 
         // Sprint boost (Stage 3+)
         const isSprinting = playerSprintState.get(playerId);
-        if (isSprinting && player.energy > player.maxEnergy * 0.2) {
+        if (isSprinting && energyComp.current > energyComp.max * 0.2) {
           maxSpeed *= getConfig('CYBER_ORGANISM_SPRINT_SPEED_MULT');
-          player.energy -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
+          // Deduct sprint energy cost - write to ECS component directly
+          energyComp.current -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
         } else if (isSprinting) {
           // Auto-disable sprint when energy too low
           playerSprintState.set(playerId, false);
@@ -128,40 +145,40 @@ export class MovementSystem implements System {
       }
 
       // Skip if no movement
-      if (velocity.x === 0 && velocity.y === 0) continue;
+      if (velocity.x === 0 && velocity.y === 0) return;
 
       // Calculate distance for energy cost
       const distanceMoved = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y) * deltaTime;
 
-      // Update position
-      player.position.x += velocity.x * deltaTime;
-      player.position.y += velocity.y * deltaTime;
+      // Update position - write to ECS component directly
+      posComp.x += velocity.x * deltaTime;
+      posComp.y += velocity.y * deltaTime;
 
-      // Deduct movement energy
-      if (player.energy > 0) {
-        player.energy -= distanceMoved * getConfig('MOVEMENT_ENERGY_COST');
-        player.energy = Math.max(0, player.energy);
+      // Deduct movement energy - write to ECS component directly
+      if (energyComp.current > 0) {
+        energyComp.current -= distanceMoved * getConfig('MOVEMENT_ENERGY_COST');
+        energyComp.current = Math.max(0, energyComp.current);
       }
 
-      // Clamp to world bounds
-      const playerRadius = getPlayerRadius(player.stage);
-      const bounds = getWorldBoundsForStage(player.stage);
-      player.position.x = Math.max(
+      // Clamp to world bounds - write to ECS component directly
+      const playerRadius = getPlayerRadius(stage);
+      const bounds = getWorldBoundsForStage(stage);
+      posComp.x = Math.max(
         bounds.minX + playerRadius,
-        Math.min(bounds.maxX - playerRadius, player.position.x)
+        Math.min(bounds.maxX - playerRadius, posComp.x)
       );
-      player.position.y = Math.max(
+      posComp.y = Math.max(
         bounds.minY + playerRadius,
-        Math.min(bounds.maxY - playerRadius, player.position.y)
+        Math.min(bounds.maxY - playerRadius, posComp.y)
       );
 
       // Broadcast position update
       const moveMessage: PlayerMovedMessage = {
         type: 'playerMoved',
         playerId,
-        position: player.position,
+        position: { x: posComp.x, y: posComp.y },
       };
       io.emit('playerMoved', moveMessage);
-    }
+    });
   }
 }

@@ -35,7 +35,7 @@ import type {
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
 } from '@godcell/shared';
-import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently } from './bots';
+import { initializeBots, updateBots, isBot, handleBotDeath, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, getSwarmsRecord, getSwarms, removeSwarm, processSwarmRespawns, spawnSwarmAt, setSwarmEcsWorld } from './swarms';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
@@ -77,8 +77,31 @@ import {
   getEntityBySocketId,
   getEntityByStringId,
   Components,
+  Tags,
+  buildAlivePlayersRecord,
+  buildPlayersRecord,
+  // Direct component access helpers
+  getPlayerBySocketId,
+  hasPlayer,
+  getEnergyBySocketId,
+  getPositionBySocketId,
+  getStageBySocketId,
+  getVelocityBySocketId,
+  getSprintBySocketId,
+  getCooldownsBySocketId,
+  isBotBySocketId,
+  deletePlayerBySocketId,
+  forEachPlayer,
+  setPlayerStage,
+  // ECS setters - update component values directly
+  setEnergyBySocketId,
+  setMaxEnergyBySocketId,
+  addEnergyBySocketId,
   type World,
   type EntityId,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
   // Systems
   SystemRunner,
   SystemPriority,
@@ -110,13 +133,29 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ============================================
 
 // ECS World - central container for all entities and components
-// During migration, we run ECS in parallel with existing Maps
-// PR #2 will convert systems to read from ECS
+// ECS is the source of truth. The players Map below is a cache rebuilt each tick.
 const world: World = createWorld();
 
 // All players currently in the game
 // Maps socket ID → Player data
+// IMPORTANT: This is now a CACHE that gets rebuilt from ECS each tick.
+// Write to ECS components, not to this Map. Reads are fine during tick.
 const players: Map<string, Player> = new Map();
+
+/**
+ * Sync the players Map from ECS components.
+ * Called at the start of each tick to ensure legacy code reads current ECS state.
+ * This is a temporary bridge - once all code reads from ECS directly, remove this.
+ */
+function syncPlayersFromECS(): void {
+  players.clear();
+  forEachPlayer(world, (entity, socketId) => {
+    const player = getPlayerBySocketId(world, socketId);
+    if (player) {
+      players.set(socketId, player);
+    }
+  });
+}
 
 // Player input directions (from keyboard/controller)
 // Maps socket ID → {x, y} direction (-1, 0, or 1)
@@ -786,7 +825,13 @@ function applyDamageWithResistance(player: Player, baseDamage: number): number {
 
   const resistance = getDamageResistance(player.stage);
   const actualDamage = baseDamage * (1 - resistance);
-  player.energy -= actualDamage;
+
+  // Write damage to ECS (not the cached player object)
+  const energyComp = getEnergyBySocketId(world, player.id);
+  if (energyComp) {
+    energyComp.current -= actualDamage;
+  }
+
   return actualDamage;
 }
 
@@ -1064,9 +1109,10 @@ function checkBeamCollision(beam: Pseudopod): boolean {
 
       // Check if swarm died
       if (swarm.energy <= 0) {
-        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss)
-        shooter.maxEnergy += GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
+        // Award shooter with reduced maxEnergy (ranged kill = nutrient loss) - write to ECS
+        const newMaxEnergy = shooter.maxEnergy + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+        setMaxEnergyBySocketId(world, beam.ownerId, newMaxEnergy);
+        addEnergyBySocketId(world, beam.ownerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
 
         // Remove swarm
         getSwarms().delete(swarmId);
@@ -1105,10 +1151,11 @@ function engulfPrey(predatorId: string, preyId: string, position: Position) {
 
   // Calculate rewards (gain % of victim's maxEnergy)
   const energyGain = prey.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
-  predator.energy = Math.min(predator.maxEnergy, predator.energy + energyGain);
+  // Write to ECS (not the cached player object)
+  addEnergyBySocketId(world, predatorId, energyGain);
 
   // Kill prey (energy-only: set energy to 0)
-  prey.energy = 0;
+  setEnergyBySocketId(world, preyId, 0);
   playerLastDamageSource.set(preyId, 'predation');
 
   // Broadcast engulfment
@@ -1181,7 +1228,16 @@ function checkPredationCollisions(deltaTime: number) {
         // Contact! Drain energy from prey (energy-only system)
         // Predation bypasses damage resistance - being engulfed is inescapable
         const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
-        prey.energy -= damage;
+
+        // Write damage to ECS (not the cached player object)
+        const preyEnergyComp = getEnergyBySocketId(world, preyId);
+        if (preyEnergyComp) {
+          preyEnergyComp.current -= damage;
+        }
+
+        // Transfer drained energy to predator
+        addEnergyBySocketId(world, predatorId, damage);
+
         currentDrains.add(preyId);
 
         // Track which predator is draining this prey (for kill credit)
@@ -1275,59 +1331,75 @@ function getNextEvolutionStage(currentStage: EvolutionStage): { stage: Evolution
 
 /**
  * Check if player can evolve and trigger evolution if conditions met
+ * Uses ECS as source of truth for player state.
  */
-function checkEvolution(player: Player) {
-  if (player.isEvolving) return; // Already evolving
+function checkEvolution(playerId: string) {
+  const stageComp = getStageBySocketId(world, playerId);
+  const energyComp = getEnergyBySocketId(world, playerId);
+  if (!stageComp || !energyComp) return;
 
-  const nextEvolution = getNextEvolutionStage(player.stage);
+  if (stageComp.isEvolving) return; // Already evolving
+
+  const nextEvolution = getNextEvolutionStage(stageComp.stage);
   if (!nextEvolution) return; // Already at max stage
 
   // Check capacity gate (maxEnergy threshold)
-  if (player.maxEnergy < nextEvolution.threshold) return;
+  if (energyComp.max < nextEvolution.threshold) return;
 
   // Capacity threshold met - trigger evolution!
-  player.isEvolving = true;
+  stageComp.isEvolving = true;
 
   // Broadcast evolution start
   const startMessage: PlayerEvolutionStartedMessage = {
     type: 'playerEvolutionStarted',
-    playerId: player.id,
-    currentStage: player.stage,
+    playerId: playerId,
+    currentStage: stageComp.stage,
     targetStage: nextEvolution.stage,
     duration: getConfig('EVOLUTION_MOLTING_DURATION'),
   };
   io.emit('playerEvolutionStarted', startMessage);
 
   // Capture current stage before async callback (for evolution tracking)
-  const fromStage = player.stage;
+  const fromStage = stageComp.stage;
 
   // Schedule evolution completion after molting duration
   setTimeout(() => {
     // Check if player still exists (they might have disconnected during molting)
-    if (!players.has(player.id)) return;
+    if (!hasPlayer(world, playerId)) return;
 
-    player.stage = nextEvolution.stage;
-    player.isEvolving = false;
+    // Re-fetch components (they're still valid if entity exists)
+    const stageCompNow = getStageBySocketId(world, playerId);
+    const energyCompNow = getEnergyBySocketId(world, playerId);
+    if (!stageCompNow || !energyCompNow) return;
+
+    stageCompNow.stage = nextEvolution.stage;
+    stageCompNow.isEvolving = false;
 
     // Update energy pool for new stage
     // Evolution grants the new stage's max energy pool (fully restored)
-    const newMaxEnergy = getStageMaxEnergy(player.stage);
-    player.maxEnergy = Math.max(player.maxEnergy, newMaxEnergy);
-    player.energy = player.maxEnergy; // Evolution fully restores energy
+    const newMaxEnergy = getStageMaxEnergy(stageCompNow.stage);
+    energyCompNow.max = Math.max(energyCompNow.max, newMaxEnergy);
+    energyCompNow.current = energyCompNow.max; // Evolution fully restores energy
+
+    // Also update ECS stage abilities via setPlayerStage
+    const entity = getEntityBySocketId(playerId);
+    if (entity) {
+      setPlayerStage(world, entity, nextEvolution.stage);
+    }
 
     // Broadcast evolution event
     const evolveMessage: PlayerEvolvedMessage = {
       type: 'playerEvolved',
-      playerId: player.id,
-      newStage: player.stage,
-      newMaxEnergy: player.maxEnergy,
+      playerId: playerId,
+      newStage: stageCompNow.stage,
+      newMaxEnergy: energyCompNow.max,
     };
     io.emit('playerEvolved', evolveMessage);
 
     // Track evolution for rate tracking (includes survival time calculation)
-    recordEvolution(player.id, fromStage, player.stage, isBot(player.id));
+    recordEvolution(playerId, fromStage, stageCompNow.stage, isBot(playerId));
 
-    logPlayerEvolution(player.id, player.stage);
+    logPlayerEvolution(playerId, stageCompNow.stage);
   }, getConfig('EVOLUTION_MOLTING_DURATION'));
 }
 
@@ -1352,9 +1424,10 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
           maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
         }
 
-        // Award maxEnergy increase to predator
-        predator.maxEnergy += maxEnergyGain;
-        predator.energy = Math.min(predator.maxEnergy, predator.energy); // Clamp current energy
+        // Award maxEnergy increase to predator (write to ECS)
+        setMaxEnergyBySocketId(world, predatorId, predator.maxEnergy + maxEnergyGain);
+        // Clamp current energy to new max (addEnergy with 0 does this)
+        addEnergyBySocketId(world, predatorId, 0);
 
         logger.info({
           event: 'predation_kill',
@@ -1378,10 +1451,11 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
         // Only multi-cells can be killed by beams, always award 80%
         const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
 
-        // Award maxEnergy increase AND current energy to shooter
-        shooter.maxEnergy += maxEnergyGain;
+        // Award maxEnergy increase AND current energy to shooter (write to ECS)
+        const newMaxEnergy = shooter.maxEnergy + maxEnergyGain;
+        setMaxEnergyBySocketId(world, shooterId, newMaxEnergy);
         const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
-        shooter.energy = Math.min(shooter.maxEnergy, shooter.energy + energyGain);
+        addEnergyBySocketId(world, shooterId, energyGain);
 
         logger.info({
           event: 'beam_kill',
@@ -1428,39 +1502,57 @@ function handlePlayerDeath(player: Player, cause: DeathCause) {
 
 /**
  * Respawn a dead player - reset to single-cell at random location
+ * Uses ECS as source of truth.
  */
-function respawnPlayer(player: Player) {
+function respawnPlayer(playerId: string) {
+  // Get ECS components
+  const posComp = getPositionBySocketId(world, playerId);
+  const energyComp = getEnergyBySocketId(world, playerId);
+  const stageComp = getStageBySocketId(world, playerId);
+  if (!posComp || !energyComp || !stageComp) return;
+
   // Reset player to Stage 1 (single-cell)
-  // Energy-only system: energy is the sole resource
-  player.position = randomSpawnPosition();
-  player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
-  player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-  player.stage = EvolutionStage.SINGLE_CELL;
-  player.isEvolving = false;
+  const newPos = randomSpawnPosition();
+  posComp.x = newPos.x;
+  posComp.y = newPos.y;
+  energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
+  energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+  stageComp.stage = EvolutionStage.SINGLE_CELL;
+  stageComp.isEvolving = false;
+
+  // Also update ECS stage abilities (removes multi-cell abilities)
+  const entity = getEntityBySocketId(playerId);
+  if (entity) {
+    setPlayerStage(world, entity, EvolutionStage.SINGLE_CELL);
+  }
 
   // Reset input direction and velocity (stop movement if player was holding input during death)
-  const inputDirection = playerInputDirections.get(player.id);
+  const inputDirection = playerInputDirections.get(playerId);
   if (inputDirection) {
     inputDirection.x = 0;
     inputDirection.y = 0;
   }
-  const velocity = playerVelocities.get(player.id);
+  const velocity = playerVelocities.get(playerId);
   if (velocity) {
     velocity.x = 0;
     velocity.y = 0;
   }
 
-  // Broadcast respawn event
-  const respawnMessage: PlayerRespawnedMessage = {
-    type: 'playerRespawned',
-    player: { ...player },
-  };
-  io.emit('playerRespawned', respawnMessage);
+  // Get the updated player state from ECS for broadcast
+  const respawnedPlayer = getPlayerBySocketId(world, playerId);
+  if (respawnedPlayer) {
+    // Broadcast respawn event
+    const respawnMessage: PlayerRespawnedMessage = {
+      type: 'playerRespawned',
+      player: respawnedPlayer,
+    };
+    io.emit('playerRespawned', respawnMessage);
+  }
 
   // Track spawn time for evolution rate tracking (reset on respawn)
-  recordSpawn(player.id, EvolutionStage.SINGLE_CELL);
+  recordSpawn(playerId, EvolutionStage.SINGLE_CELL);
 
-  logPlayerRespawn(player.id);
+  logPlayerRespawn(playerId);
 }
 
 /**
@@ -1468,37 +1560,42 @@ function respawnPlayer(player: Player) {
  * Energy-only system: handles passive energy decay
  * When energy hits 0, player dies (no separate starvation damage phase)
  * Gravity wells are physics-only (no proximity damage)
+ * Uses ECS as source of truth.
  */
 function updateMetabolism(deltaTime: number) {
-  for (const [playerId, player] of players) {
+  forEachPlayer(world, (entity, playerId) => {
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    if (!energyComp || !stageComp) return;
+
     // Skip dead players waiting for respawn (energy < 0 means death already processed)
     // Catch-all: if energy is exactly 0 but no death cause tracked (e.g., from movement/ability costs),
     // set 'starvation' as default cause so checkPlayerDeaths will process them
-    if (player.energy < 0) {
-      continue; // Already dead, waiting for respawn
+    if (energyComp.current < 0) {
+      return; // Already dead, waiting for respawn
     }
-    if (player.energy === 0 && !playerLastDamageSource.has(playerId)) {
+    if (energyComp.current === 0 && !playerLastDamageSource.has(playerId)) {
       playerLastDamageSource.set(playerId, 'starvation');
-      continue;
+      return;
     }
-    if (player.energy === 0) {
-      continue; // Death already tracked, will be processed by checkPlayerDeaths
+    if (energyComp.current === 0) {
+      return; // Death already tracked, will be processed by checkPlayerDeaths
     }
 
     // Skip metabolism during evolution molting (invulnerable)
-    if (player.isEvolving) continue;
+    if (stageComp.isEvolving) return;
 
     // God mode players don't decay
-    if (hasGodMode(playerId)) continue;
+    if (hasGodMode(playerId)) return;
 
     // Energy decay (passive drain) - stage-specific metabolic efficiency
     // No damage resistance applies to passive decay
-    const decayRate = getEnergyDecayRate(player.stage);
-    player.energy -= decayRate * deltaTime;
+    const decayRate = getEnergyDecayRate(stageComp.stage);
+    energyComp.current -= decayRate * deltaTime;
 
     // Energy-only: when energy hits 0, mark for death
-    if (player.energy <= 0) {
-      player.energy = 0;
+    if (energyComp.current <= 0) {
+      energyComp.current = 0;
       playerLastDamageSource.set(playerId, 'starvation');
       // Record for drain aura (shows starvation state)
       recordDamage(playerId, decayRate, 'starvation');
@@ -1509,10 +1606,10 @@ function updateMetabolism(deltaTime: number) {
     // No gradual energy drain from being near obstacles
 
     // Check for evolution (only if still alive)
-    if (player.energy > 0) {
-      checkEvolution(player);
+    if (energyComp.current > 0) {
+      checkEvolution(playerId);
     }
-  }
+  });
 }
 
 /**
@@ -1533,7 +1630,8 @@ function checkPlayerDeaths() {
 
       // Mark as "death processed" - sentinel value prevents catch-all from re-triggering
       // Respawn will set energy back to positive value
-      player.energy = -1;
+      // IMPORTANT: Use ECS setter to persist the change
+      setEnergyBySocketId(world, playerId, -1);
 
       // Clear damage source to prevent reprocessing same death
       playerLastDamageSource.delete(playerId);
@@ -1745,16 +1843,19 @@ function checkNutrientCollisions() {
       if (dist < collisionRadius) {
         // Collect nutrient - gain energy (capped at maxEnergy) + capacity increase
         // Both scale with proximity gradient (high-risk nutrients = faster evolution!)
-        // Safety clamp to prevent negative energy gain if player.energy somehow drifts above maxEnergy
+        // Get ECS energy component directly for mutation
+        const energyComp = getEnergyBySocketId(world, playerId);
+        if (!energyComp) continue;
+
+        // Safety clamp to prevent negative energy gain if energy somehow drifts above maxEnergy
         const energyGain = Math.min(
           nutrient.value,
-          Math.max(0, player.maxEnergy - player.energy)
+          Math.max(0, energyComp.max - energyComp.current)
         );
-        player.energy += energyGain;
-        player.maxEnergy += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
 
-        // Safety clamp: ensure energy never exceeds maxEnergy
-        player.energy = Math.min(player.energy, player.maxEnergy);
+        // Update ECS components directly (persists changes)
+        energyComp.max += nutrient.capacityIncrease; // Scales with risk (10/20/30/50)
+        energyComp.current = Math.min(energyComp.current + energyGain, energyComp.max);
 
         // Track nutrient collection for telemetry
         recordNutrientCollection(playerId, energyGain);
@@ -1767,13 +1868,13 @@ function checkNutrientCollisions() {
           ecsDestroyEntity(world, nutrientEntity);
         }
 
-        // Broadcast collection event to all clients
+        // Broadcast collection event to all clients (use ECS values)
         const collectMessage: NutrientCollectedMessage = {
           type: 'nutrientCollected',
           nutrientId,
           playerId,
-          collectorEnergy: player.energy,
-          collectorMaxEnergy: player.maxEnergy,
+          collectorEnergy: energyComp.current,
+          collectorMaxEnergy: energyComp.max,
         };
         io.emit('nutrientCollected', collectMessage);
 
@@ -1809,8 +1910,9 @@ if (isPlayground) {
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
   initializeNutrients();
+  // Set ECS world for bots and swarms before initializing
+  setBotEcsWorld(world);
   initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
-  // Set ECS world for swarms before initializing
   setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
@@ -1818,6 +1920,7 @@ if (isPlayground) {
 // Initialize dev handler with game context
 initDevHandler({
   io,
+  world, // ECS World for direct component access
   players,
   nutrients,
   obstacles,
@@ -1888,6 +1991,9 @@ const lastBroadcastedDrains = new Set<string>();
  * This provides systems access to all game state and helper functions
  */
 function buildGameContext(deltaTime: number): GameContext {
+  // Sync the players cache from ECS so legacy code reads current ECS state
+  syncPlayersFromECS();
+
   return {
     // ECS World
     world,
@@ -1965,48 +2071,35 @@ function buildGameContext(deltaTime: number): GameContext {
 io.on('connection', (socket) => {
   logPlayerConnected(socket.id);
 
-  // Create a new player
+  // Create a new player in ECS (source of truth)
   // Energy-only system: energy is the sole resource (life + fuel)
-  const newPlayer: Player = {
-    id: socket.id,
-    position: randomSpawnPosition(),
-    color: randomColor(),
-    energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
-    maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
-    stage: EvolutionStage.SINGLE_CELL,
-    isEvolving: false,
-  };
+  const spawnPosition = randomSpawnPosition();
+  const playerColor = randomColor();
 
-  // Add to game state
-  players.set(socket.id, newPlayer);
-  playerInputDirections.set(socket.id, { x: 0, y: 0 });
-  playerVelocities.set(socket.id, { x: 0, y: 0 });
-
-  // Add to ECS (dual-write during migration)
   ecsCreatePlayer(
     world,
     socket.id,
     socket.id, // name defaults to socketId
-    newPlayer.color,
-    newPlayer.position,
+    playerColor,
+    spawnPosition,
     EvolutionStage.SINGLE_CELL
   );
+
+  // Legacy Maps for input/velocity tracking (will be migrated to ECS components later)
+  playerInputDirections.set(socket.id, { x: 0, y: 0 });
+  playerVelocities.set(socket.id, { x: 0, y: 0 });
+
+  // Get the legacy Player object for the joinMessage broadcast
+  const newPlayer = getPlayerBySocketId(world, socket.id)!;
 
   // Track spawn time for evolution rate tracking
   recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
 
   // Send current game state to the new player
-  // Filter out dead players (energy <= 0) from initial state
-  const alivePlayers = new Map();
-  for (const [id, player] of players) {
-    if (player.energy > 0) {
-      alivePlayers.set(id, player);
-    }
-  }
-
+  // Uses ECS to build player records, filtering out dead players (energy <= 0)
   const gameState: GameStateMessage = {
     type: 'gameState',
-    players: Object.fromEntries(alivePlayers),
+    players: buildAlivePlayersRecord(world),
     nutrients: Object.fromEntries(nutrients),
     obstacles: Object.fromEntries(obstacles),
     swarms: getSwarmsRecord(),
@@ -2039,12 +2132,13 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
-    const player = players.get(socket.id);
-    if (!player) return;
+    // Check player exists and is dead using ECS
+    const energyComp = getEnergyBySocketId(world, socket.id);
+    if (!energyComp) return;
 
-    // Only respawn if player is dead (health <= 0)
-    if (player.energy <= 0) {
-      respawnPlayer(player);
+    // Only respawn if player is dead (energy <= 0)
+    if (energyComp.current <= 0) {
+      respawnPlayer(socket.id);
     }
   });
 
@@ -2166,7 +2260,8 @@ function applyGravityForces(deltaTime: number) {
       // God mode players survive singularities
       if (dist < getConfig('OBSTACLE_CORE_RADIUS') && !hasGodMode(playerId)) {
         logSingularityCrush(playerId, dist);
-        player.energy = 0; // Instant energy depletion (will be processed by checkPlayerDeaths)
+        // Use ECS setter to persist the change
+        setEnergyBySocketId(world, playerId, 0); // Instant energy depletion (will be processed by checkPlayerDeaths)
         playerLastDamageSource.set(playerId, 'singularity');
         continue;
       }

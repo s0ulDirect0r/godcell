@@ -3,9 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./index.ts",
-  "types": "./index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ecs": {
+      "types": "./dist/ecs/index.d.ts",
+      "import": "./dist/ecs/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
   }
 }

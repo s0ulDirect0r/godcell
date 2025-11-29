@@ -1,17 +1,22 @@
 // ============================================
-// Component Exports
-// All component interfaces for the ECS
+// ECS Package Exports
 // ============================================
 
-// Core components (shared by multiple entity types)
+// Core ECS classes
+export { World } from './World';
+export { ComponentStore } from './Component';
+
+// Types and constants
+export { Components, Tags } from './types';
+export type { EntityId, ComponentType } from './types';
+
+// Component interfaces
 export type {
+  // Core components
   PositionComponent,
   VelocityComponent,
   EnergyComponent,
-} from './core';
-
-// Player-specific components
-export type {
+  // Player components
   PlayerComponent,
   StageComponent,
   InputComponent,
@@ -20,21 +25,18 @@ export type {
   CooldownsComponent,
   DamageTrackingComponent,
   DrainTargetComponent,
-} from './player';
-
-// Entity type components
-export type {
+  // Entity type components
   NutrientComponent,
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
-} from './entities';
-
-// Ability marker components
-export type {
+  // Ability components
   CanFireEMPComponent,
   CanFirePseudopodComponent,
   CanSprintComponent,
   CanEngulfComponent,
   CanDetectComponent,
-} from './abilities';
+  // Client-only components
+  InterpolationTargetComponent,
+  ClientDamageInfoComponent,
+} from './components';

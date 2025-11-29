@@ -3,6 +3,9 @@
 // Used by both client and server
 // ============================================
 
+// ECS Module - Entity Component System shared between client and server
+export * from './ecs';
+
 // Player position in the game world
 export interface Position {
   x: number;

@@ -3,12 +3,16 @@
 // Convert player entities to network formats
 // ============================================
 
-import type { World } from '../World';
-import type { EntityId } from '../types';
-import { Components, Tags } from '../types';
+import { Components, Tags } from '@godcell/shared';
+import type {
+  World,
+  EntityId,
+  PositionComponent,
+  EnergyComponent,
+  StageComponent,
+  EnergyUpdateMessage,
+} from '@godcell/shared';
 import { getSocketIdByEntity } from '../factories';
-import type { PositionComponent, EnergyComponent, StageComponent } from '../components';
-import type { EnergyUpdateMessage } from '@godcell/shared';
 
 /**
  * Get all player entities from ECS.

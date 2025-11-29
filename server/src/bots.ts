@@ -4,6 +4,16 @@ import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
 import type { AbilitySystem } from './abilities';
+import {
+  createBot as ecsCreateBot,
+  getPlayerBySocketId,
+  getEnergyBySocketId,
+  getPositionBySocketId,
+  getStageBySocketId,
+  deletePlayerBySocketId,
+  type World,
+} from './ecs';
+import type { EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -30,6 +40,17 @@ const multiCellBots: Map<string, BotController> = new Map();
 
 // Spawn position generator (injected from main module)
 let spawnPositionGenerator: (() => Position) | null = null;
+
+// ECS World (injected from main module for creating bot entities)
+let ecsWorld: World | null = null;
+
+/**
+ * Set the ECS world for bot entity creation.
+ * Must be called before spawning bots.
+ */
+export function setBotEcsWorld(world: World): void {
+  ecsWorld = world;
+}
 
 // Bot configuration
 const BOT_CONFIG = {
@@ -102,20 +123,23 @@ function spawnBot(
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
+  if (!ecsWorld) {
+    throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
+  }
+
   // Generate unique bot ID (distinct from socket IDs)
   const botId = `bot-${Math.random().toString(36).substr(2, 9)}`;
+  const botColor = randomColor();
+  const spawnPosition = randomSpawnPosition();
 
-  // Create bot player (same as human player)
-  // Energy-only system: energy is the sole resource
-  const botPlayer: Player = {
-    id: botId,
-    position: randomSpawnPosition(),
-    color: randomColor(),
-    energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
-    maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
-    stage: EvolutionStage.SINGLE_CELL,
-    isEvolving: false,
-  };
+  // Create bot in ECS (source of truth)
+  ecsCreateBot(ecsWorld, botId, botId, botColor, spawnPosition, EvolutionStage.SINGLE_CELL);
+
+  // Get the legacy Player object from ECS for BotController reference
+  const botPlayer = getPlayerBySocketId(ecsWorld, botId);
+  if (!botPlayer) {
+    throw new Error(`Failed to create bot ${botId} in ECS`);
+  }
 
   // Create input direction and velocity objects
   const botInputDirection = { x: 0, y: 0 };
@@ -133,8 +157,8 @@ function spawnBot(
     },
   };
 
-  // Add to game state (bots are treated as regular players)
-  players.set(botId, botPlayer);
+  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
+  // Note: players Map is synced from ECS each tick, so no players.set() needed
   playerInputDirections.set(botId, botInputDirection);
   playerVelocities.set(botId, botVelocity);
   singleCellBots.set(botId, bot);
@@ -161,20 +185,23 @@ function spawnMultiCellBot(
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ): BotController {
+  if (!ecsWorld) {
+    throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
+  }
+
   // Generate unique bot ID
   const botId = `bot-multicell-${Math.random().toString(36).substr(2, 9)}`;
+  const botColor = randomColor();
+  const spawnPosition = randomSpawnPosition();
 
-  // Create multi-cell bot at Stage 2
-  // Energy-only system: use stage-specific energy pool
-  const botPlayer: Player = {
-    id: botId,
-    position: randomSpawnPosition(),
-    color: randomColor(),
-    energy: GAME_CONFIG.MULTI_CELL_ENERGY, // 400 energy (Stage 2 pool)
-    maxEnergy: GAME_CONFIG.MULTI_CELL_MAX_ENERGY, // 400 max energy
-    stage: EvolutionStage.MULTI_CELL,
-    isEvolving: false,
-  };
+  // Create bot in ECS (source of truth)
+  ecsCreateBot(ecsWorld, botId, botId, botColor, spawnPosition, EvolutionStage.MULTI_CELL);
+
+  // Get the legacy Player object from ECS for BotController reference
+  const botPlayer = getPlayerBySocketId(ecsWorld, botId);
+  if (!botPlayer) {
+    throw new Error(`Failed to create multi-cell bot ${botId} in ECS`);
+  }
 
   // Create input direction and velocity objects
   const botInputDirection = { x: 0, y: 0 };
@@ -192,8 +219,8 @@ function spawnMultiCellBot(
     },
   };
 
-  // Add to game state
-  players.set(botId, botPlayer);
+  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
+  // Note: players Map is synced from ECS each tick, so no players.set() needed
   playerInputDirections.set(botId, botInputDirection);
   playerVelocities.set(botId, botVelocity);
   multiCellBots.set(botId, bot);
@@ -573,38 +600,24 @@ export function spawnBotAt(
   position: Position,
   stage: EvolutionStage
 ): string {
+  if (!ecsWorld) {
+    throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
+  }
+
   const isMultiCell = stage >= EvolutionStage.MULTI_CELL;
   const botId = isMultiCell
     ? `bot-multicell-${Math.random().toString(36).substr(2, 9)}`
     : `bot-${Math.random().toString(36).substr(2, 9)}`;
+  const botColor = randomColor();
 
-  // Determine energy based on stage
-  let energy: number;
-  let maxEnergy: number;
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
-      maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-      break;
-    case EvolutionStage.MULTI_CELL:
-      energy = GAME_CONFIG.MULTI_CELL_ENERGY;
-      maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
-      break;
-    default:
-      // For higher stages, use multi-cell as baseline
-      energy = GAME_CONFIG.MULTI_CELL_ENERGY;
-      maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
+  // Create bot in ECS (source of truth)
+  ecsCreateBot(ecsWorld, botId, botId, botColor, { x: position.x, y: position.y }, stage);
+
+  // Get the legacy Player object from ECS for BotController reference
+  const botPlayer = getPlayerBySocketId(ecsWorld, botId);
+  if (!botPlayer) {
+    throw new Error(`Failed to create bot ${botId} in ECS`);
   }
-
-  const botPlayer: Player = {
-    id: botId,
-    position: { x: position.x, y: position.y },
-    color: randomColor(),
-    energy,
-    maxEnergy,
-    stage,
-    isEvolving: false,
-  };
 
   const botInputDirection = { x: 0, y: 0 };
   const botVelocity = { x: 0, y: 0 };
@@ -620,8 +633,8 @@ export function spawnBotAt(
     },
   };
 
-  // Add to game state
-  players.set(botId, botPlayer);
+  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
+  // Note: players Map is synced from ECS each tick, so no players.set() needed
   playerInputDirections.set(botId, botInputDirection);
   playerVelocities.set(botId, botVelocity);
 
@@ -894,15 +907,26 @@ export function updateBots(
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
   players: Map<string, Player>,
-  abilitySystem: AbilitySystem
+  abilitySystem: AbilitySystem,
+  ecsWorld: World
 ) {
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
+    // Refresh bot.player from ECS (the cached reference goes stale each tick)
+    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    if (freshPlayer) {
+      bot.player = freshPlayer;
+    }
     updateBotAI(bot, currentTime, nutrients, obstacles, swarms);
   }
 
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
   for (const [botId, bot] of multiCellBots) {
+    // Refresh bot.player from ECS (the cached reference goes stale each tick)
+    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    if (freshPlayer) {
+      bot.player = freshPlayer;
+    }
     updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players, abilitySystem);
   }
 }
@@ -932,8 +956,12 @@ export function removeBotPermanently(
     return false; // Not a tracked bot
   }
 
-  // Remove from game state
-  players.delete(botId);
+  // Remove from ECS (source of truth)
+  if (ecsWorld) {
+    deletePlayerBySocketId(ecsWorld, botId);
+  }
+
+  // Remove from legacy Maps
   playerInputDirections.delete(botId);
   playerVelocities.delete(botId);
 
@@ -963,6 +991,11 @@ export function handleBotDeath(
   playerInputDirections: Map<string, { x: number; y: number }>,
   playerVelocities: Map<string, { x: number; y: number }>
 ) {
+  if (!ecsWorld) {
+    logger.warn({ event: 'bot_death_no_ecs', botId });
+    return;
+  }
+
   // Check if it's a single-cell bot
   const singleCellBot = singleCellBots.get(botId);
   if (singleCellBot) {
@@ -971,15 +1004,23 @@ export function handleBotDeath(
 
     // Schedule single-cell bot respawn
     setTimeout(() => {
-      const player = players.get(botId);
-      if (!player) return; // Bot was removed from game
+      if (!ecsWorld) return;
 
-      // Reset to single-cell at random spawn (energy-only system)
-      player.position = randomSpawnPosition();
-      player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;
-      player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-      player.stage = EvolutionStage.SINGLE_CELL;
-      player.isEvolving = false;
+      // Get ECS components
+      const posComp = getPositionBySocketId(ecsWorld, botId);
+      const energyComp = getEnergyBySocketId(ecsWorld, botId);
+      const stageComp = getStageBySocketId(ecsWorld, botId);
+
+      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
+
+      // Reset to single-cell at random spawn (energy-only system) via ECS
+      const newPos = randomSpawnPosition();
+      posComp.x = newPos.x;
+      posComp.y = newPos.y;
+      energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
+      energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+      stageComp.stage = EvolutionStage.SINGLE_CELL;
+      stageComp.isEvolving = false;
 
       // Reset input direction and velocity
       singleCellBot.inputDirection.x = 0;
@@ -991,6 +1032,13 @@ export function handleBotDeath(
       singleCellBot.ai.state = 'wander';
       singleCellBot.ai.targetNutrient = undefined;
       singleCellBot.ai.nextWanderChange = Date.now();
+
+      // Get fresh Player object from ECS for broadcast
+      const player = getPlayerBySocketId(ecsWorld, botId);
+      if (!player) return;
+
+      // Update BotController's player reference
+      singleCellBot.player = player;
 
       // Broadcast respawn to all clients
       const respawnMessage: PlayerRespawnedMessage = {
@@ -1015,15 +1063,23 @@ export function handleBotDeath(
 
     // Schedule multi-cell bot respawn (longer delay)
     setTimeout(() => {
-      const player = players.get(botId);
-      if (!player) return; // Bot was removed from game
+      if (!ecsWorld) return;
 
-      // Respawn as multi-cell (Stage 2) - energy-only system
-      player.position = randomSpawnPosition();
-      player.energy = GAME_CONFIG.MULTI_CELL_ENERGY;
-      player.maxEnergy = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
-      player.stage = EvolutionStage.MULTI_CELL;
-      player.isEvolving = false;
+      // Get ECS components
+      const posComp = getPositionBySocketId(ecsWorld, botId);
+      const energyComp = getEnergyBySocketId(ecsWorld, botId);
+      const stageComp = getStageBySocketId(ecsWorld, botId);
+
+      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
+
+      // Respawn as multi-cell (Stage 2) - energy-only system via ECS
+      const newPos = randomSpawnPosition();
+      posComp.x = newPos.x;
+      posComp.y = newPos.y;
+      energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
+      energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
+      stageComp.stage = EvolutionStage.MULTI_CELL;
+      stageComp.isEvolving = false;
 
       // Reset input direction and velocity
       multiCellBot.inputDirection.x = 0;
@@ -1035,6 +1091,13 @@ export function handleBotDeath(
       multiCellBot.ai.state = 'wander';
       multiCellBot.ai.targetNutrient = undefined;
       multiCellBot.ai.nextWanderChange = Date.now();
+
+      // Get fresh Player object from ECS for broadcast
+      const player = getPlayerBySocketId(ecsWorld, botId);
+      if (!player) return;
+
+      // Update BotController's player reference
+      multiCellBot.player = player;
 
       // Broadcast respawn to all clients
       const respawnMessage: PlayerRespawnedMessage = {
