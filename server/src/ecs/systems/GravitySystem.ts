@@ -6,10 +6,19 @@
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { EvolutionStage } from '@godcell/shared';
-import { forEachObstacle, setEnergyBySocketId } from '../index';
+import {
+  forEachObstacle,
+  forEachPlayer,
+  setEnergyBySocketId,
+  Components,
+  type EnergyComponent,
+  type PositionComponent,
+  type StageComponent,
+} from '../index';
 import { distance, isJungleStage } from '../../helpers';
 import { getConfig, hasGodMode } from '../../dev';
 import { logSingularityCrush, logGravityDebug } from '../../logger';
+import { isBot } from '../../bots';
 
 /**
  * GravitySystem - Applies gravity forces from obstacles
@@ -18,28 +27,31 @@ import { logSingularityCrush, logGravityDebug } from '../../logger';
  * - Friction/momentum decay for players and swarms
  * - Gravitational pull from obstacles (inverse-square)
  * - Singularity instant death at obstacle cores
- *
- * TODO Phase 5: Replace players/swarms Map iteration with ECS iteration
  */
 export class GravitySystem implements System {
   readonly name = 'GravitySystem';
 
   update(ctx: GameContext): void {
-    const { world, deltaTime, players, playerVelocities, playerLastDamageSource, getSwarms, isBot } = ctx;
+    const { world, deltaTime, playerVelocities, playerLastDamageSource, getSwarms } = ctx;
 
-    // Apply gravity to players
-    for (const [playerId, player] of players) {
-      if (player.energy <= 0 || player.isEvolving) continue;
+    // Apply gravity to players (iterate ECS directly)
+    forEachPlayer(world, (entity, playerId) => {
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      if (!energyComp || !stageComp || !posComp) return;
+
+      if (energyComp.current <= 0 || stageComp.isEvolving) return;
 
       const velocity = playerVelocities.get(playerId);
-      if (!velocity) continue;
+      if (!velocity) return;
 
       // Apply friction to create momentum/inertia (velocity decays over time)
       // Use exponential decay for smooth deceleration: v = v * friction^dt
       // Stage-specific friction for different movement feels
       let friction = getConfig('MOVEMENT_FRICTION'); // Default soup friction (0.66)
 
-      if (player.stage === EvolutionStage.CYBER_ORGANISM) {
+      if (stageComp.stage === EvolutionStage.CYBER_ORGANISM) {
         friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
       }
       // TODO: HUMANOID and GODCELL friction when implemented
@@ -49,11 +61,13 @@ export class GravitySystem implements System {
       velocity.y *= frictionFactor;
 
       // Stage 3+ players don't interact with soup obstacles (they've transcended)
-      if (isJungleStage(player.stage)) continue;
+      if (isJungleStage(stageComp.stage)) return;
+
+      const playerPos = { x: posComp.x, y: posComp.y };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
-      forEachObstacle(world, (_entity, obstaclePos, obstacle) => {
-        const dist = distance(player.position, obstaclePos);
+      forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
+        const dist = distance(playerPos, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Instant death at singularity core (energy-only: energy = 0)
@@ -75,8 +89,8 @@ export class GravitySystem implements System {
         const forceMagnitude = gravityStrength / distSq;
 
         // Direction FROM player TO obstacle (attraction)
-        const dx = obstaclePos.x - player.position.x;
-        const dy = obstaclePos.y - player.position.y;
+        const dx = obstaclePos.x - playerPos.x;
+        const dy = obstaclePos.y - playerPos.y;
         const dirLength = Math.sqrt(dx * dx + dy * dy);
 
         if (dirLength === 0) return;
@@ -93,7 +107,7 @@ export class GravitySystem implements System {
           logGravityDebug(playerId, dist, forceMagnitude, velocity);
         }
       });
-    }
+    });
 
     // Apply gravity to entropy swarms with momentum (corrupted data, less mass)
     for (const swarm of getSwarms().values()) {
