@@ -14,6 +14,7 @@ import {
   type World,
 } from './ecs';
 import type { EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
+import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -38,10 +39,7 @@ const singleCellBots: Map<string, BotController> = new Map();
 // Multi-cell bots (separate tracking for population management)
 const multiCellBots: Map<string, BotController> = new Map();
 
-// Spawn position generator (injected from main module)
-let spawnPositionGenerator: (() => Position) | null = null;
-
-// ECS World (injected from main module for creating bot entities)
+// ECS World (injected from main module for creating bot entities and obstacle queries)
 let ecsWorld: World | null = null;
 
 /**
@@ -72,16 +70,16 @@ function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position using the spawn point system from main module
- * Falls back to map center if spawn generator not set
+ * Generate a random spawn position using the ECS world for obstacle queries
+ * Falls back to map center if ECS world not set
  */
 function randomSpawnPosition(): Position {
-  if (spawnPositionGenerator) {
-    return spawnPositionGenerator();
+  if (ecsWorld) {
+    return helperRandomSpawnPosition(ecsWorld);
   }
 
-  // Fallback if spawn generator not injected
-  logger.warn('Bot: Spawn position generator not set, using map center fallback');
+  // Fallback if ECS world not injected
+  logger.warn('Bot: ECS world not set, using map center fallback');
   return {
     x: GAME_CONFIG.WORLD_WIDTH / 2,
     y: GAME_CONFIG.WORLD_HEIGHT / 2,
@@ -662,18 +660,14 @@ export function spawnBotAt(
 
 /**
  * Initialize AI bots on server start
- * Accepts spawn position generator from main module for consistent spawning
+ * Uses ECS world (set via setBotEcsWorld) for spawn position queries
  */
 export function initializeBots(
   io: Server,
   players: Map<string, Player>,
   playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>,
-  getSpawnPosition: () => Position
+  playerVelocities: Map<string, { x: number; y: number }>
 ) {
-  // Store spawn position generator for bot respawns
-  spawnPositionGenerator = getSpawnPosition;
-
   // Spawn Stage 1 bots
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
     spawnBot(io, players, playerInputDirections, playerVelocities);

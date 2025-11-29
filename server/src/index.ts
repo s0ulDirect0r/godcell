@@ -119,6 +119,28 @@ import {
   NetworkBroadcastSystem,
   type GameContext,
 } from './ecs';
+import {
+  // Math utilities
+  distance,
+  rayCircleIntersection,
+  lineCircleIntersection,
+  poissonDiscSampling,
+  // Stage helpers
+  getStageMaxEnergy,
+  getDamageResistance,
+  getEnergyDecayRate,
+  getPlayerRadius,
+  getWorldBoundsForStage,
+  isSoupStage,
+  isJungleStage,
+  getStageEnergy,
+  getNextEvolutionStage,
+  // Spawning utilities
+  randomColor,
+  randomSpawnPosition,
+  isNutrientSpawnSafe,
+  calculateNutrientValueMultiplier,
+} from './helpers';
 
 // ============================================
 // Server Configuration
@@ -229,244 +251,6 @@ let nutrientIdCounter = 0;
 // Maps obstacle ID → Obstacle data
 const obstacles: Map<string, Obstacle> = new Map();
 
-// ============================================
-// Helper Functions
-// ============================================
-
-/**
- * Generate a random neon color for a new cyber-cell
- */
-function randomColor(): string {
-  return GAME_CONFIG.CELL_COLORS[Math.floor(Math.random() * GAME_CONFIG.CELL_COLORS.length)];
-}
-
-/**
- * Bridson's Poisson Disc Sampling Algorithm
- * Guarantees minimum separation between points while efficiently filling space
- * Returns array of positions with guaranteed minDist separation
- */
-function poissonDiscSampling(
-  width: number,
-  height: number,
-  minDist: number,
-  maxPoints: number,
-  existingPoints: Position[] = [],
-  avoidanceZones: Array<{ position: Position; radius: number }> = []
-): Position[] {
-  const k = 30; // Candidates to try per active point
-  const cellSize = minDist / Math.sqrt(2);
-  const gridWidth = Math.ceil(width / cellSize);
-  const gridHeight = Math.ceil(height / cellSize);
-
-  // Grid for O(1) neighbor lookups
-  const grid: (Position | null)[][] = Array(gridWidth).fill(null).map(() => Array(gridHeight).fill(null));
-
-  const points: Position[] = [];
-  const active: Position[] = [];
-
-  // Helper: Check if point is valid (far enough from all existing points and avoidance zones)
-  const isValid = (point: Position): boolean => {
-    // Check bounds
-    if (point.x < 0 || point.x >= width || point.y < 0 || point.y >= height) {
-      return false;
-    }
-
-    // Check avoidance zones
-    for (const zone of avoidanceZones) {
-      if (distance(point, zone.position) < zone.radius) {
-        return false;
-      }
-    }
-
-    // Check existing points (from previous runs)
-    for (const existing of existingPoints) {
-      if (distance(point, existing) < minDist) {
-        return false;
-      }
-    }
-
-    // Check grid neighbors
-    const gridX = Math.floor(point.x / cellSize);
-    const gridY = Math.floor(point.y / cellSize);
-
-    const searchRadius = 2; // Check 5x5 grid around point
-    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
-      for (let dy = -searchRadius; dy <= searchRadius; dy++) {
-        const nx = gridX + dx;
-        const ny = gridY + dy;
-        if (nx >= 0 && nx < gridWidth && ny >= 0 && ny < gridHeight) {
-          const neighbor = grid[nx][ny];
-          if (neighbor && distance(point, neighbor) < minDist) {
-            return false;
-          }
-        }
-      }
-    }
-
-    return true;
-  };
-
-  // Start with random initial point (retry if invalid)
-  let initial: Position | null = null;
-  let initialAttempts = 0;
-  const maxInitialAttempts = 100;
-
-  while (initialAttempts < maxInitialAttempts && !initial) {
-    const candidate = {
-      x: Math.random() * width,
-      y: Math.random() * height,
-    };
-
-    if (isValid(candidate)) {
-      initial = candidate;
-      points.push(initial);
-      active.push(initial);
-      const gridX = Math.floor(initial.x / cellSize);
-      const gridY = Math.floor(initial.y / cellSize);
-      grid[gridX][gridY] = initial;
-    }
-
-    initialAttempts++;
-  }
-
-  // If we can't find a valid initial point, the constraints are too tight
-  if (!initial) {
-    return points; // Return empty array
-  }
-
-  // Generate points
-  while (active.length > 0 && points.length < maxPoints) {
-    const randomIndex = Math.floor(Math.random() * active.length);
-    const point = active[randomIndex];
-    let found = false;
-
-    // Try k candidates in annulus around this point
-    for (let i = 0; i < k; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = minDist * (1 + Math.random()); // Between minDist and 2*minDist
-
-      const candidate = {
-        x: point.x + Math.cos(angle) * radius,
-        y: point.y + Math.sin(angle) * radius,
-      };
-
-      if (isValid(candidate)) {
-        points.push(candidate);
-        active.push(candidate);
-        const gridX = Math.floor(candidate.x / cellSize);
-        const gridY = Math.floor(candidate.y / cellSize);
-        grid[gridX][gridY] = candidate;
-        found = true;
-        break;
-      }
-    }
-
-    // Remove from active list if no valid candidates found
-    if (!found) {
-      active.splice(randomIndex, 1);
-    }
-  }
-
-  return points;
-}
-
-/**
- * Generate a random spawn position in the soup region
- * Avoids spawning directly in obstacle death zones (200px safety radius)
- * Note: Players always spawn in soup (Stage 1). Soup is now a region within the jungle.
- */
-function randomSpawnPosition(): Position {
-  const padding = 100;
-  const MIN_DIST_FROM_OBSTACLE_CORE = 200; // Don't spawn in event horizon
-  const maxAttempts = 20;
-
-  // Spawn within soup region (which is centered in the jungle world)
-  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
-  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
-  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
-  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const position = {
-      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-    };
-
-    // Check distance from all obstacle cores
-    let tooClose = false;
-    for (const obstacle of obstacles.values()) {
-      if (distance(position, obstacle.position) < MIN_DIST_FROM_OBSTACLE_CORE) {
-        tooClose = true;
-        break;
-      }
-    }
-
-    if (!tooClose) {
-      return position;
-    }
-  }
-
-  // If we can't find a safe spot after maxAttempts, spawn anyway
-  // (extremely unlikely with 12 obstacles on the soup map)
-  return {
-    x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-    y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-  };
-}
-
-/**
- * Calculate distance between two positions
- */
-function distance(p1: Position, p2: Position): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * Check if a line segment (ray) intersects a circle
- * Returns the distance along the ray to the intersection, or null if no intersection
- */
-function rayCircleIntersection(
-  rayStart: Position,
-  rayEnd: Position,
-  circleCenter: Position,
-  circleRadius: number
-): number | null {
-  // Ray direction vector
-  const dx = rayEnd.x - rayStart.x;
-  const dy = rayEnd.y - rayStart.y;
-  const rayLength = Math.sqrt(dx * dx + dy * dy);
-
-  if (rayLength < 0.001) return null; // Degenerate ray
-
-  // Normalized ray direction
-  const dirX = dx / rayLength;
-  const dirY = dy / rayLength;
-
-  // Vector from ray start to circle center
-  const toCircleX = circleCenter.x - rayStart.x;
-  const toCircleY = circleCenter.y - rayStart.y;
-
-  // Project circle center onto ray
-  const projection = toCircleX * dirX + toCircleY * dirY;
-
-  // Find closest point on ray to circle center
-  const closestT = Math.max(0, Math.min(rayLength, projection));
-  const closestX = rayStart.x + dirX * closestT;
-  const closestY = rayStart.y + dirY * closestT;
-
-  // Distance from closest point to circle center
-  const distToCenter = distance({ x: closestX, y: closestY }, circleCenter);
-
-  // Check if intersection occurs
-  if (distToCenter <= circleRadius) {
-    return closestT; // Return distance along ray to intersection
-  }
-
-  return null;
-}
-
 /**
  * Hitscan raycast for pseudopod beam
  * Checks line-circle intersection against all multi-cell players
@@ -519,58 +303,6 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
 }
 
 /**
- * Check if nutrient spawn position is safe
- * Nutrients can spawn inside gravity well and even outer edge of event horizon (180-240px)
- * Only exclude the inner event horizon (0-180px) where escape is truly impossible
- */
-function isNutrientSpawnSafe(position: Position): boolean {
-  const INNER_EVENT_HORIZON = 180; // Inner 180px - truly inescapable, no nutrients
-
-  for (const obstacle of obstacles.values()) {
-    if (distance(position, obstacle.position) < INNER_EVENT_HORIZON) {
-      return false; // Inside inner event horizon - too dangerous
-    }
-  }
-
-  return true; // Safe (can spawn anywhere >= 180px from obstacle centers)
-}
-
-/**
- * Calculate nutrient value multiplier based on proximity to nearest obstacle
- * Gradient system creates risk/reward:
- * - 400-600px (outer gravity well): 2x
- * - 240-400px (inner gravity well): 3x
- * - 180-240px (outer event horizon): 5x - high risk, high reward!
- * - <180px: N/A (nutrients don't spawn here)
- */
-function calculateNutrientValueMultiplier(position: Position): number {
-  let closestDist = Infinity;
-
-  for (const obstacle of obstacles.values()) {
-    const dist = distance(position, obstacle.position);
-    if (dist < closestDist) {
-      closestDist = dist;
-    }
-  }
-
-  const GRAVITY_RADIUS = getConfig('OBSTACLE_GRAVITY_RADIUS'); // 600px
-
-  // Not in any gravity well
-  if (closestDist >= GRAVITY_RADIUS) {
-    return 1; // Base value
-  }
-
-  // Gradient system
-  if (closestDist >= 400) {
-    return 2; // Outer gravity well
-  } else if (closestDist >= 240) {
-    return 3; // Inner gravity well, approaching danger
-  } else {
-    return 5; // Outer event horizon - extreme risk, extreme reward!
-  }
-}
-
-/**
  * Spawn a nutrient at a random location within the soup region
  * Nutrients near obstacles get enhanced value based on gradient system (2x/3x/5x multipliers)
  * Note: "Respawn" creates a NEW nutrient with a new ID, not reusing the old one
@@ -599,7 +331,7 @@ function spawnNutrient(emitEvent: boolean = false): Nutrient {
       y: soupMinY + Math.random() * (soupMaxY - soupMinY),
     };
 
-    if (obstacles.size === 0 || isNutrientSpawnSafe(candidate)) {
+    if (isNutrientSpawnSafe(candidate, world)) {
       position = candidate;
       break; // Found safe position
     }
@@ -624,7 +356,7 @@ function spawnNutrient(emitEvent: boolean = false): Nutrient {
 function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEvent: boolean = false): Nutrient {
   // Calculate nutrient value based on proximity to obstacles (gradient system)
   // Or use override multiplier if provided (dev tool)
-  const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position);
+  const valueMultiplier = overrideMultiplier ?? calculateNutrientValueMultiplier(position, world);
   const isHighValue = valueMultiplier > 1; // Any multiplier > 1 is "high value"
 
   const nutrient: Nutrient = {
@@ -776,45 +508,6 @@ function initializeObstacles() {
 }
 
 /**
- * Get stage-specific max energy pool
- * Energy-only system: this is the full health+energy pool combined
- */
-function getStageMaxEnergy(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-    case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.HUMANOID_MAX_ENERGY;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_MAX_ENERGY;
-  }
-}
-
-/**
- * Get damage resistance for evolution stage
- * Higher stages have more stable information structures
- * Resistance reduces energy drain from external threats (NOT passive decay)
- */
-function getDamageResistance(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.SINGLE_CELL_DAMAGE_RESISTANCE;
-    case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.MULTI_CELL_DAMAGE_RESISTANCE;
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.CYBER_ORGANISM_DAMAGE_RESISTANCE;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.HUMANOID_DAMAGE_RESISTANCE;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_DAMAGE_RESISTANCE;
-  }
-}
-
-/**
  * Apply damage to player with resistance factored in
  * Returns actual damage dealt after resistance
  * God mode players take no damage
@@ -833,176 +526,6 @@ function applyDamageWithResistance(player: Player, baseDamage: number): number {
   }
 
   return actualDamage;
-}
-
-/**
- * Get energy decay rate based on evolution stage (metabolic efficiency)
- */
-function getEnergyDecayRate(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return getConfig('SINGLE_CELL_ENERGY_DECAY_RATE');
-    case EvolutionStage.MULTI_CELL:
-      return getConfig('MULTI_CELL_ENERGY_DECAY_RATE');
-    case EvolutionStage.CYBER_ORGANISM:
-      return getConfig('CYBER_ORGANISM_ENERGY_DECAY_RATE');
-    case EvolutionStage.HUMANOID:
-      return getConfig('HUMANOID_ENERGY_DECAY_RATE');
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_ENERGY_DECAY_RATE;
-  }
-}
-
-/**
- * Get player collision radius based on evolution stage
- * Returns scaled radius for hitbox calculations
- */
-function getPlayerRadius(stage: EvolutionStage): number {
-  const baseRadius = GAME_CONFIG.PLAYER_SIZE;
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return baseRadius * GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER;
-    case EvolutionStage.MULTI_CELL:
-      return baseRadius * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
-    case EvolutionStage.CYBER_ORGANISM:
-      return baseRadius * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
-    case EvolutionStage.HUMANOID:
-      return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
-    case EvolutionStage.GODCELL:
-      return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
-  }
-}
-
-/**
- * World bounds for each scale of existence
- * Stage 1-2 (Soup): Play within the centered soup region
- * Stage 3+ (Jungle): Play in the full jungle world
- */
-interface WorldBounds {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
-/**
- * Get world bounds based on evolution stage
- * Soup players (Stage 1-2) are confined to the soup region
- * Jungle players (Stage 3+) can roam the full jungle
- */
-function getWorldBoundsForStage(stage: EvolutionStage): WorldBounds {
-  if (stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL) {
-    // Soup bounds (centered region within jungle)
-    return {
-      minX: GAME_CONFIG.SOUP_ORIGIN_X,
-      minY: GAME_CONFIG.SOUP_ORIGIN_Y,
-      maxX: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH,
-      maxY: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT,
-    };
-  } else {
-    // Jungle bounds (full world)
-    return {
-      minX: 0,
-      minY: 0,
-      maxX: GAME_CONFIG.JUNGLE_WIDTH,
-      maxY: GAME_CONFIG.JUNGLE_HEIGHT,
-    };
-  }
-}
-
-/**
- * Check if a stage is soup-scale (Stage 1-2)
- */
-function isSoupStage(stage: EvolutionStage): boolean {
-  return stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
-}
-
-/**
- * Check if a stage is jungle-scale (Stage 3+)
- */
-function isJungleStage(stage: EvolutionStage): boolean {
-  return !isSoupStage(stage);
-}
-
-/**
- * Get energy values for an evolution stage (for dev tools)
- * Uses getConfig() to respect runtime config overrides from dev panel
- */
-function getStageEnergy(stage: EvolutionStage): { energy: number; maxEnergy: number } {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return {
-        energy: getConfig('SINGLE_CELL_ENERGY'),
-        maxEnergy: getConfig('SINGLE_CELL_MAX_ENERGY'),
-      };
-    case EvolutionStage.MULTI_CELL:
-      return {
-        energy: getConfig('MULTI_CELL_ENERGY'),
-        maxEnergy: getConfig('MULTI_CELL_MAX_ENERGY'),
-      };
-    case EvolutionStage.CYBER_ORGANISM:
-      return {
-        energy: getConfig('CYBER_ORGANISM_ENERGY'),
-        maxEnergy: getConfig('CYBER_ORGANISM_MAX_ENERGY'),
-      };
-    case EvolutionStage.HUMANOID:
-      return {
-        energy: getConfig('HUMANOID_ENERGY'),
-        maxEnergy: getConfig('HUMANOID_MAX_ENERGY'),
-      };
-    case EvolutionStage.GODCELL:
-      return {
-        energy: getConfig('GODCELL_ENERGY'),
-        maxEnergy: getConfig('GODCELL_MAX_ENERGY'),
-      };
-  }
-}
-
-/**
- * Line-circle intersection test
- * Returns true if line segment intersects circle
- */
-function lineCircleIntersection(
-  lineStart: Position,
-  lineEnd: Position,
-  circleCenter: Position,
-  circleRadius: number,
-  currentLength: number
-): boolean {
-  // Calculate actual end position based on current extension
-  const dx = lineEnd.x - lineStart.x;
-  const dy = lineEnd.y - lineStart.y;
-  const totalLength = Math.sqrt(dx * dx + dy * dy);
-  if (totalLength === 0) return false;
-
-  const progress = currentLength / totalLength;
-  const actualEndX = lineStart.x + dx * progress;
-  const actualEndY = lineStart.y + dy * progress;
-
-  // Vector from line start to circle center
-  const fx = circleCenter.x - lineStart.x;
-  const fy = circleCenter.y - lineStart.y;
-
-  // Vector from line start to actual end
-  const lx = actualEndX - lineStart.x;
-  const ly = actualEndY - lineStart.y;
-
-  // Project circle center onto line segment
-  const lineLengthSq = lx * lx + ly * ly;
-  if (lineLengthSq === 0) return false;
-
-  const t = Math.max(0, Math.min(1, (fx * lx + fy * ly) / lineLengthSq));
-
-  // Closest point on line to circle center
-  const closestX = lineStart.x + t * lx;
-  const closestY = lineStart.y + t * ly;
-
-  // Distance from closest point to circle center
-  const distX = circleCenter.x - closestX;
-  const distY = circleCenter.y - closestY;
-  const distSq = distX * distX + distY * distY;
-
-  return distSq <= circleRadius * circleRadius;
 }
 
 /**
@@ -1312,24 +835,6 @@ function updatePseudopods(deltaTime: number, io: Server) {
 }
 
 /**
- * Get next evolution stage and required maxEnergy threshold
- */
-function getNextEvolutionStage(currentStage: EvolutionStage): { stage: EvolutionStage; threshold: number } | null {
-  switch (currentStage) {
-    case EvolutionStage.SINGLE_CELL:
-      return { stage: EvolutionStage.MULTI_CELL, threshold: getConfig('EVOLUTION_MULTI_CELL') };
-    case EvolutionStage.MULTI_CELL:
-      return { stage: EvolutionStage.CYBER_ORGANISM, threshold: getConfig('EVOLUTION_CYBER_ORGANISM') };
-    case EvolutionStage.CYBER_ORGANISM:
-      return { stage: EvolutionStage.HUMANOID, threshold: getConfig('EVOLUTION_HUMANOID') };
-    case EvolutionStage.HUMANOID:
-      return { stage: EvolutionStage.GODCELL, threshold: getConfig('EVOLUTION_GODCELL') };
-    case EvolutionStage.GODCELL:
-      return null; // Already at max stage
-  }
-}
-
-/**
  * Check if player can evolve and trigger evolution if conditions met
  * Uses ECS as source of truth for player state.
  */
@@ -1512,7 +1017,7 @@ function respawnPlayer(playerId: string) {
   if (!posComp || !energyComp || !stageComp) return;
 
   // Reset player to Stage 1 (single-cell)
-  const newPos = randomSpawnPosition();
+  const newPos = randomSpawnPosition(world);
   posComp.x = newPos.x;
   posComp.y = newPos.y;
   energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
@@ -1912,7 +1417,7 @@ if (isPlayground) {
   initializeNutrients();
   // Set ECS world for bots and swarms before initializing
   setBotEcsWorld(world);
-  initializeBots(io, players, playerInputDirections, playerVelocities, randomSpawnPosition);
+  initializeBots(io, players, playerInputDirections, playerVelocities);
   setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
@@ -2073,7 +1578,7 @@ io.on('connection', (socket) => {
 
   // Create a new player in ECS (source of truth)
   // Energy-only system: energy is the sole resource (life + fuel)
-  const spawnPosition = randomSpawnPosition();
+  const spawnPosition = randomSpawnPosition(world);
   const playerColor = randomColor();
 
   ecsCreatePlayer(
