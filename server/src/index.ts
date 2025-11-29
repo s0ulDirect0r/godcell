@@ -148,13 +148,7 @@ const playerLastDamageSource: Map<string, DeathCause> = new Map();
 // Maps target player ID → shooter player ID
 const playerLastBeamShooter: Map<string, string> = new Map();
 
-// Pseudopods (hunting tentacles extended by multi-cells)
-// Maps pseudopod ID → Pseudopod data
-const pseudopods: Map<string, Pseudopod> = new Map();
-
-// Pseudopod hit tracking (prevent multiple hits on same target per beam)
-// Maps beam ID → Set of player IDs already hit
-const pseudopodHits: Map<string, Set<string>> = new Map();
+// NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
 // Pseudopod cooldowns (prevent spam)
 // Maps player ID → timestamp of last pseudopod extension
@@ -456,8 +450,6 @@ initDevHandler({
 const abilitySystem = new AbilitySystem({
   world, // ECS World (source of truth)
   io,
-  pseudopods,
-  pseudopodHits,
   playerEMPCooldowns,
   playerPseudopodCooldowns,
   getSwarms,
@@ -513,8 +505,7 @@ function buildGameContext(deltaTime: number): GameContext {
     nutrients: getNutrients(),
     obstacles,
     getSwarms,
-    pseudopods,
-    pseudopodHits,
+    // NOTE: Pseudopods migrated to ECS PseudopodComponent
 
     // Player State Maps (auxiliary data not yet in ECS)
     playerVelocities,

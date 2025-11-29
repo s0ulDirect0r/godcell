@@ -5,20 +5,23 @@
 
 import type { System } from './types';
 import type { GameContext } from './GameContext';
-import type { Position, Pseudopod, PseudopodMovedMessage, PseudopodRetractedMessage } from '@godcell/shared';
-import { GAME_CONFIG } from '@godcell/shared';
+import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '@godcell/shared';
+import { GAME_CONFIG, Tags } from '@godcell/shared';
 import {
-  getEntityByStringId,
   getEntityBySocketId,
+  getStringIdByEntity,
   destroyEntity as ecsDestroyEntity,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
   forEachPlayer,
   Components,
+  type EntityId,
   type EnergyComponent,
   type PositionComponent,
+  type VelocityComponent,
   type StageComponent,
   type StunnedComponent,
+  type PseudopodComponent,
 } from '../index';
 import { distance, rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
@@ -38,68 +41,79 @@ export class PseudopodSystem implements System {
   readonly name = 'PseudopodSystem';
 
   update(ctx: GameContext): void {
-    const { io, deltaTime, pseudopods, pseudopodHits } = ctx;
+    const { world, io, deltaTime } = ctx;
 
     // Skip if using hitscan mode (beams are visual-only and auto-removed)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;
 
-    const toRemove: string[] = [];
+    const toRemove: EntityId[] = [];
 
-    for (const [id, beam] of pseudopods) {
+    // Iterate pseudopod entities via ECS
+    world.forEachWithTag(Tags.Pseudopod, (entity) => {
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+      const pseudopodComp = world.getComponent<PseudopodComponent>(entity, Components.Pseudopod);
+      if (!posComp || !velComp || !pseudopodComp) return;
+
+      const beamId = getStringIdByEntity(entity);
+      if (!beamId) return;
+
       // Move beam (projectile mode)
-      const travelDist = Math.sqrt(beam.velocity.x * beam.velocity.x + beam.velocity.y * beam.velocity.y) * deltaTime;
-      beam.position.x += beam.velocity.x * deltaTime;
-      beam.position.y += beam.velocity.y * deltaTime;
-      beam.distanceTraveled += travelDist;
+      const travelDist = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y) * deltaTime;
+      posComp.x += velComp.x * deltaTime;
+      posComp.y += velComp.y * deltaTime;
+      pseudopodComp.distanceTraveled += travelDist;
 
       // Broadcast position update to clients
       io.emit('pseudopodMoved', {
         type: 'pseudopodMoved',
-        pseudopodId: id,
-        position: beam.position,
+        pseudopodId: beamId,
+        position: { x: posComp.x, y: posComp.y },
       } as PseudopodMovedMessage);
 
       // Check if beam exceeded max distance
-      if (beam.distanceTraveled >= beam.maxDistance) {
-        toRemove.push(id);
-        continue;
+      if (pseudopodComp.distanceTraveled >= pseudopodComp.maxDistance) {
+        toRemove.push(entity);
+        return;
       }
 
       // Check collision with players (multi-cells only)
-      this.checkBeamCollision(ctx, beam);
+      this.checkBeamCollisionECS(ctx, entity, beamId, posComp, pseudopodComp);
       // Beam continues traveling even if it hits (can hit multiple targets)
-    }
+    });
 
     // Remove beams that exceeded range
-    for (const id of toRemove) {
-      pseudopods.delete(id);
-      pseudopodHits.delete(id); // Clean up hit tracking
-      // Remove from ECS (dual-write during migration)
-      const beamEntity = getEntityByStringId(id);
-      if (beamEntity !== undefined) {
-        ecsDestroyEntity(ctx.world, beamEntity);
+    for (const entity of toRemove) {
+      const beamId = getStringIdByEntity(entity);
+      ecsDestroyEntity(world, entity);
+      if (beamId) {
+        io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: beamId } as PseudopodRetractedMessage);
       }
-      io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: id } as PseudopodRetractedMessage);
     }
   }
 
   /**
-   * Check beam collision with players and swarms (projectile mode)
+   * Check beam collision with players and swarms (projectile mode) - ECS version
+   * Uses PseudopodComponent.hitEntities for hit tracking instead of external Map
    */
-  private checkBeamCollision(ctx: GameContext, beam: Pseudopod): boolean {
+  private checkBeamCollisionECS(
+    ctx: GameContext,
+    beamEntity: EntityId,
+    beamId: string,
+    posComp: PositionComponent,
+    pseudopodComp: PseudopodComponent
+  ): boolean {
     const {
       world,
       io,
-      pseudopodHits,
       playerLastDamageSource,
       playerLastBeamShooter,
       pseudopodHitDecays,
       getSwarms,
-      applyDamageWithResistance,
     } = ctx;
 
     // Get shooter stage from ECS
-    const shooterEntity = getEntityBySocketId(beam.ownerId);
+    const shooterEntity = getEntityBySocketId(pseudopodComp.ownerSocketId);
     if (shooterEntity === undefined) return false;
     const shooterStage = world.getComponent<StageComponent>(shooterEntity, Components.Stage);
     const shooterEnergy = world.getComponent<EnergyComponent>(shooterEntity, Components.Energy);
@@ -108,19 +122,16 @@ export class PseudopodSystem implements System {
     // Stage 3+ shooters don't interact with soup-stage combat
     if (!isSoupStage(shooterStage.stage)) return false;
 
-    // Get or create hit tracking set for this beam
-    let hitSet = pseudopodHits.get(beam.id);
-    if (!hitSet) {
-      hitSet = new Set<string>();
-      pseudopodHits.set(beam.id, hitSet);
-    }
+    // Use hitEntities Set from PseudopodComponent for hit tracking
+    const hitEntities = pseudopodComp.hitEntities;
+    const beamPosition = { x: posComp.x, y: posComp.y };
 
     let hitSomething = false;
 
     // Check collision with all soup-stage players (Stage 1 and 2) via ECS
     forEachPlayer(world, (targetEntity, targetId) => {
-      if (targetId === beam.ownerId) return; // Can't hit yourself
-      if (hitSet!.has(targetId)) return; // Already hit this target
+      if (targetId === pseudopodComp.ownerSocketId) return; // Can't hit yourself
+      if (hitEntities.has(targetEntity)) return; // Already hit this target (by entity ID)
 
       const targetStage = world.getComponent<StageComponent>(targetEntity, Components.Stage);
       const targetEnergy = world.getComponent<EnergyComponent>(targetEntity, Components.Energy);
@@ -136,26 +147,25 @@ export class PseudopodSystem implements System {
       // Circle-circle collision: beam position vs target position
       const targetRadius = getPlayerRadius(targetStage.stage);
       const targetPosition = { x: targetPos.x, y: targetPos.y };
-      const dist = distance(beam.position, targetPosition);
-      const collisionDist = beam.width / 2 + targetRadius;
+      const dist = distance(beamPosition, targetPosition);
+      const collisionDist = pseudopodComp.width / 2 + targetRadius;
 
       if (dist < collisionDist) {
-        // Hit! Drain energy from target (one-time damage per beam, with resistance)
-        // Apply damage directly to ECS component
+        // Hit! Drain energy from target (one-time damage per beam)
         const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
         targetEnergy.current -= damage;
         hitSomething = true;
 
         // Track damage source and shooter for kill credit
         playerLastDamageSource.set(targetId, 'beam');
-        playerLastBeamShooter.set(targetId, beam.ownerId);
+        playerLastBeamShooter.set(targetId, pseudopodComp.ownerSocketId);
 
-        // Mark this target as hit by this beam
-        hitSet!.add(targetId);
+        // Mark this target as hit by this beam (store entity ID)
+        hitEntities.add(targetEntity);
 
         logger.info({
           event: 'beam_hit',
-          shooter: beam.ownerId,
+          shooter: pseudopodComp.ownerSocketId,
           target: targetId,
           damage,
           targetEnergyRemaining: targetEnergy.current.toFixed(0),
@@ -164,9 +174,9 @@ export class PseudopodSystem implements System {
         // Emit hit event for visual effects
         io.emit('pseudopodHit', {
           type: 'pseudopodHit',
-          beamId: beam.id,
+          beamId,
           targetId,
-          hitPosition: { x: beam.position.x, y: beam.position.y },
+          hitPosition: beamPosition,
         });
 
         // Add decay timer for brief drain aura after hit (1.5 seconds)
@@ -178,11 +188,15 @@ export class PseudopodSystem implements System {
     });
 
     // Check collision with swarms (active or disabled)
+    // Note: Swarms don't have ECS entities yet, so we track by negative hash of swarmId
     for (const [swarmId, swarm] of getSwarms()) {
-      if (hitSet.has(swarmId)) continue; // Already hit this swarm
+      // Use a simple hash to convert swarmId to a number for the Set
+      // (Swarms will be migrated to ECS in a future task)
+      const swarmHash = this.stringToHash(swarmId);
+      if (hitEntities.has(swarmHash)) continue; // Already hit this swarm
 
-      const dist = distance(beam.position, swarm.position);
-      const collisionDist = beam.width / 2 + swarm.size;
+      const dist = distance(beamPosition, swarm.position);
+      const collisionDist = pseudopodComp.width / 2 + swarm.size;
 
       if (dist < collisionDist) {
         // Hit! Deal damage to swarm
@@ -191,11 +205,11 @@ export class PseudopodSystem implements System {
         }
         swarm.energy -= getConfig('PSEUDOPOD_DRAIN_RATE');
         hitSomething = true;
-        hitSet.add(swarmId);
+        hitEntities.add(swarmHash);
 
         logger.info({
           event: 'beam_hit_swarm',
-          shooter: beam.ownerId,
+          shooter: pseudopodComp.ownerSocketId,
           swarmId,
           damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
           swarmEnergyRemaining: swarm.energy.toFixed(0),
@@ -205,8 +219,8 @@ export class PseudopodSystem implements System {
         if (swarm.energy <= 0) {
           // Award shooter - get current maxEnergy from ECS
           const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-          setMaxEnergyBySocketId(world, beam.ownerId, newMaxEnergy);
-          addEnergyBySocketId(world, beam.ownerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
+          setMaxEnergyBySocketId(world, pseudopodComp.ownerSocketId, newMaxEnergy);
+          addEnergyBySocketId(world, pseudopodComp.ownerSocketId, GAME_CONFIG.SWARM_ENERGY_GAIN);
 
           // Remove swarm
           getSwarms().delete(swarmId);
@@ -214,13 +228,13 @@ export class PseudopodSystem implements System {
           io.emit('swarmConsumed', {
             type: 'swarmConsumed',
             swarmId,
-            consumerId: beam.ownerId,
+            consumerId: pseudopodComp.ownerSocketId,
             position: swarm.position,
           });
 
           logger.info({
             event: 'beam_kill_swarm',
-            shooter: beam.ownerId,
+            shooter: pseudopodComp.ownerSocketId,
             swarmId,
             maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
             energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
@@ -230,6 +244,20 @@ export class PseudopodSystem implements System {
     }
 
     return hitSomething;
+  }
+
+  /**
+   * Simple string hash for swarm IDs (temporary until swarms are ECS entities)
+   */
+  private stringToHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    // Use negative numbers to avoid collision with entity IDs
+    return hash < 0 ? hash : -hash - 1;
   }
 
   /**

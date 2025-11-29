@@ -17,7 +17,6 @@ import type {
   Obstacle,
   Position,
   EntropySwarm,
-  Pseudopod,
   EvolutionStage,
   DamageSource,
   DeathCause,
@@ -58,9 +57,7 @@ export interface GameContext {
   // Swarm access (through getter because it's in swarms.ts)
   getSwarms: () => Map<string, EntropySwarm>;
 
-  // Pseudopod state
-  pseudopods: Map<string, Pseudopod>;
-  pseudopodHits: Map<string, Set<string>>;
+  // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
   // ============================================
   // Player State Maps

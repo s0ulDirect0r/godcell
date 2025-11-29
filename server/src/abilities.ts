@@ -1,7 +1,7 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
   Position,
-  Pseudopod,
+  Pseudopod, // Still needed for local pseudopod object creation
   EntropySwarm,
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
@@ -37,9 +37,7 @@ export interface AbilityContext {
   world: World;
   io: Server;
 
-  // Pseudopod state
-  pseudopods: Map<string, Pseudopod>;
-  pseudopodHits: Map<string, Set<string>>;
+  // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
 
   // Cooldown tracking
   playerEMPCooldowns: Map<string, number>;
@@ -240,9 +238,7 @@ export class AbilitySystem {
         color: player.color,
       };
 
-      this.ctx.pseudopods.set(pseudopod.id, pseudopod);
-
-      // Add to ECS
+      // Add to ECS (sole source of truth for pseudopods)
       const ownerEntity = getEntityBySocketId(playerId);
       if (ownerEntity !== undefined) {
         ecsCreatePseudopod(
@@ -261,9 +257,6 @@ export class AbilitySystem {
       // Auto-remove after visual duration
       const beamId = pseudopod.id;
       setTimeout(() => {
-        this.ctx.pseudopods.delete(beamId);
-        this.ctx.pseudopodHits.delete(beamId);
-        // Remove from ECS
         const beamEntity = getEntityByStringId(beamId);
         if (beamEntity !== undefined) {
           ecsDestroyEntity(world, beamEntity);
@@ -304,9 +297,7 @@ export class AbilitySystem {
         color: player.color,
       };
 
-      this.ctx.pseudopods.set(pseudopod.id, pseudopod);
-
-      // Add to ECS
+      // Add to ECS (sole source of truth for pseudopods)
       const ownerEntity = getEntityBySocketId(playerId);
       if (ownerEntity !== undefined) {
         ecsCreatePseudopod(
