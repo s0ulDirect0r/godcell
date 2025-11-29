@@ -41,9 +41,6 @@ export class PredationSystem implements System {
       world,
       io,
       deltaTime,
-      players,
-      playerVelocities,
-      playerInputDirections,
       playerLastDamageSource,
       activeDrains,
       recordDamage,
@@ -135,7 +132,7 @@ export class PredationSystem implements System {
     position: Position,
     preyMaxEnergy: number
   ): void {
-    const { world, io, players, playerVelocities, playerInputDirections, playerLastDamageSource } = ctx;
+    const { world, io, playerLastDamageSource } = ctx;
 
     // Get prey color from ECS
     const preyEntity = getEntityBySocketId(preyId);
@@ -172,7 +169,7 @@ export class PredationSystem implements System {
 
     // Handle bot death (respawn logic)
     if (isBot(preyId)) {
-      handleBotDeath(preyId, 'predation', io, players, playerInputDirections, playerVelocities);
+      handleBotDeath(preyId, 'predation', io);
     }
 
     logger.info({
