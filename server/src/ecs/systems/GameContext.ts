@@ -149,7 +149,6 @@ export interface GameContext {
     ecsWorld: World
   ) => void;
 
-  applyGravityForces: (deltaTime: number) => void;
   updateSwarms: (
     timestamp: number,
     players: Map<string, Player>,

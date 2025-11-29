@@ -1325,7 +1325,6 @@ function buildGameContext(deltaTime: number): GameContext {
 
     // Legacy Functions (called by wrapper systems)
     updateBots,
-    applyGravityForces,
     updateSwarms,
     updateSwarmPositions,
     processSwarmRespawns,
@@ -1494,127 +1493,6 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerLeft', leftMessage);
   });
 });
-
-// ============================================
-// Gravity Physics
-// ============================================
-
-/**
- * Apply gravity forces from obstacles to all players
- * Uses inverse-square gravity: force increases exponentially near center
- * Gravity forces are added to existing velocity (creating momentum)
- */
-function applyGravityForces(deltaTime: number) {
-  for (const [playerId, player] of players) {
-    if (player.energy <= 0 || player.isEvolving) continue;
-
-    const velocity = playerVelocities.get(playerId);
-    if (!velocity) continue;
-
-    // Apply friction to create momentum/inertia (velocity decays over time)
-    // Use exponential decay for smooth deceleration: v = v * friction^dt
-    // Stage-specific friction for different movement feels
-    let friction = getConfig('MOVEMENT_FRICTION'); // Default soup friction (0.66)
-
-    if (player.stage === EvolutionStage.CYBER_ORGANISM) {
-      friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
-    }
-    // TODO: HUMANOID and GODCELL friction when implemented
-
-    const frictionFactor = Math.pow(friction, deltaTime);
-    velocity.x *= frictionFactor;
-    velocity.y *= frictionFactor;
-
-    // Stage 3+ players don't interact with soup obstacles (they've transcended)
-    if (isJungleStage(player.stage)) continue;
-
-    // Accumulate gravity forces into existing velocity (don't reset)
-    for (const obstacle of obstacles.values()) {
-      const dist = distance(player.position, obstacle.position);
-      if (dist > obstacle.radius) continue; // Outside event horizon
-
-      // Instant death at singularity core (energy-only: energy = 0)
-      // God mode players survive singularities
-      if (dist < getConfig('OBSTACLE_CORE_RADIUS') && !hasGodMode(playerId)) {
-        logSingularityCrush(playerId, dist);
-        // Use ECS setter to persist the change
-        setEnergyBySocketId(world, playerId, 0); // Instant energy depletion (will be processed by checkPlayerDeaths)
-        playerLastDamageSource.set(playerId, 'singularity');
-        continue;
-      }
-
-      // Inverse-square gravity: F = strength / dist²
-      // Prevent divide-by-zero and extreme forces
-      const distSq = Math.max(dist * dist, 100);
-
-      // Scale gravity strength for pixels/second velocity units
-      // obstacle.strength (0.03) needs massive scaling for pixel velocities
-      const gravityStrength = obstacle.strength * 100000000; // Scale factor for pixels/second (10x more)
-      const forceMagnitude = gravityStrength / distSq;
-
-      // Direction FROM player TO obstacle (attraction)
-      const dx = obstacle.position.x - player.position.x;
-      const dy = obstacle.position.y - player.position.y;
-      const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-      if (dirLength === 0) continue;
-
-      const dirX = dx / dirLength;
-      const dirY = dy / dirLength;
-
-      // Accumulate gravitational acceleration (pixels/second²) into velocity
-      // Multiply by deltaTime to get velocity change for this frame
-      velocity.x += dirX * forceMagnitude * deltaTime;
-      velocity.y += dirY * forceMagnitude * deltaTime;
-
-      // DEBUG: Log gravity forces
-      if (!isBot(playerId)) {
-        logGravityDebug(playerId, dist, forceMagnitude, velocity);
-      }
-    }
-  }
-
-  // Apply gravity to entropy swarms with momentum (corrupted data, less mass)
-  for (const swarm of getSwarms().values()) {
-    // Apply friction to swarms (same momentum system as players)
-    const swarmFrictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
-    swarm.velocity.x *= swarmFrictionFactor;
-    swarm.velocity.y *= swarmFrictionFactor;
-
-    // Accumulate gravity forces into existing velocity
-    for (const obstacle of obstacles.values()) {
-      const dist = distance(swarm.position, obstacle.position);
-      if (dist > obstacle.radius) continue; // Outside event horizon
-
-      // Swarms can get destroyed by singularities too
-      if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
-        // For now, swarms just get pulled through - they're corrupted data, they might survive
-        // Could add swarm death logic later
-        continue;
-      }
-
-      // 80% gravity resistance compared to players (original value)
-      // Corrupted data has less mass - now works with momentum system
-      const distSq = Math.max(dist * dist, 100);
-      const gravityStrength = obstacle.strength * 100000000;
-      const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity (80% resistance)
-
-      // Direction FROM swarm TO obstacle (attraction)
-      const dx = obstacle.position.x - swarm.position.x;
-      const dy = obstacle.position.y - swarm.position.y;
-      const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-      if (dirLength === 0) continue;
-
-      const dirX = dx / dirLength;
-      const dirY = dy / dirLength;
-
-      // Accumulate gravitational acceleration into velocity (frame-rate independent)
-      swarm.velocity.x += dirX * forceMagnitude * deltaTime;
-      swarm.velocity.y += dirY * forceMagnitude * deltaTime;
-    }
-  }
-}
 
 // ============================================
 // Game Loop (Server Tick)
