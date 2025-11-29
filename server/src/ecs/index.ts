@@ -66,6 +66,7 @@ export {
   getPositionBySocketId,
   getStageBySocketId,
   getVelocityBySocketId,
+  getInputBySocketId,
   getSprintBySocketId,
   getStunnedBySocketId,
   getCooldownsBySocketId,
@@ -80,6 +81,8 @@ export {
   setPositionBySocketId,
   movePositionBySocketId,
   clampPositionBySocketId,
+  setVelocityBySocketId,
+  setInputBySocketId,
   // Obstacle query helpers
   forEachObstacle,
   getObstacleZones,

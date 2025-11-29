@@ -711,6 +711,52 @@ export function getVelocityBySocketId(
 }
 
 /**
+ * Set player's velocity by socket ID.
+ * Mutates the existing component in place.
+ */
+export function setVelocityBySocketId(
+  world: World,
+  socketId: string,
+  x: number,
+  y: number
+): boolean {
+  const vel = getVelocityBySocketId(world, socketId);
+  if (!vel) return false;
+  vel.x = x;
+  vel.y = y;
+  return true;
+}
+
+/**
+ * Get player's input component by socket ID.
+ */
+export function getInputBySocketId(
+  world: World,
+  socketId: string
+): InputComponent | undefined {
+  const entity = getEntityBySocketId(socketId);
+  if (!entity) return undefined;
+  return world.getComponent<InputComponent>(entity, Components.Input);
+}
+
+/**
+ * Set player's input direction by socket ID.
+ * Mutates the existing component in place.
+ */
+export function setInputBySocketId(
+  world: World,
+  socketId: string,
+  x: number,
+  y: number
+): boolean {
+  const input = getInputBySocketId(world, socketId);
+  if (!input) return false;
+  input.direction.x = x;
+  input.direction.y = y;
+  return true;
+}
+
+/**
  * Get player's sprint component by socket ID.
  */
 export function getSprintBySocketId(

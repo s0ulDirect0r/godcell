@@ -71,6 +71,8 @@ import {
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
   addEnergyBySocketId,
+  setInputBySocketId,
+  setVelocityBySocketId,
   type World,
   type EntityId,
   type EnergyComponent,
@@ -128,13 +130,7 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ECS is the sole source of truth for all player state.
 const world: World = createWorld();
 
-// Player input directions (from keyboard/controller)
-// Maps socket ID → {x, y} direction (-1, 0, or 1)
-const playerInputDirections: Map<string, { x: number; y: number }> = new Map();
-
-// Player velocities (actual velocity in pixels/second, accumulates forces)
-// Maps socket ID → {x, y} velocity
-const playerVelocities: Map<string, { x: number; y: number }> = new Map();
+// NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
 
 // Player sprint state (Stage 3+ ability - hold Shift to sprint)
 // Maps socket ID → boolean (is sprinting)
@@ -349,16 +345,8 @@ function respawnPlayer(playerId: string) {
   }
 
   // Reset input direction and velocity (stop movement if player was holding input during death)
-  const inputDirection = playerInputDirections.get(playerId);
-  if (inputDirection) {
-    inputDirection.x = 0;
-    inputDirection.y = 0;
-  }
-  const velocity = playerVelocities.get(playerId);
-  if (velocity) {
-    velocity.x = 0;
-    velocity.y = 0;
-  }
+  setInputBySocketId(world, playerId, 0, 0);
+  setVelocityBySocketId(world, playerId, 0, 0);
 
   // Get the updated player state from ECS for broadcast
   const respawnedPlayer = getPlayerBySocketId(world, playerId);
@@ -420,7 +408,7 @@ if (isPlayground) {
   initializeNutrients(obstacles);
   // Set ECS world for bots and swarms before initializing
   setBotEcsWorld(world);
-  initializeBots(io, playerInputDirections, playerVelocities);
+  initializeBots(io);
   setSwarmEcsWorld(world);
   initializeSwarms(io);
 }
@@ -432,12 +420,10 @@ initDevHandler({
   nutrients: getNutrients(),
   obstacles,
   swarms: getSwarms(),
-  playerInputDirections,
-  playerVelocities,
   spawnNutrientAt,
   spawnSwarmAt,
-  spawnBotAt: (position, stage) => spawnBotAt(io, playerInputDirections, playerVelocities, position, stage),
-  removeBotPermanently: (botId) => removeBotPermanently(botId, io, playerInputDirections, playerVelocities),
+  spawnBotAt: (position, stage) => spawnBotAt(io, position, stage),
+  removeBotPermanently: (botId) => removeBotPermanently(botId, io),
   respawnPlayer,
   getStageEnergy,
   getPlayerRadius,
@@ -506,10 +492,9 @@ function buildGameContext(deltaTime: number): GameContext {
     obstacles,
     getSwarms,
     // NOTE: Pseudopods migrated to ECS PseudopodComponent
+    // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
 
     // Player State Maps (auxiliary data not yet in ECS)
-    playerVelocities,
-    playerInputDirections,
     playerSprintState,
     playerLastDamageSource,
     playerLastBeamShooter,
@@ -576,9 +561,7 @@ io.on('connection', (socket) => {
     EvolutionStage.SINGLE_CELL
   );
 
-  // Legacy Maps for input/velocity tracking (will be migrated to ECS components later)
-  playerInputDirections.set(socket.id, { x: 0, y: 0 });
-  playerVelocities.set(socket.id, { x: 0, y: 0 });
+  // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
 
   // Get the legacy Player object for the joinMessage broadcast
   const newPlayer = getPlayerBySocketId(world, socket.id)!;
@@ -609,13 +592,9 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('playerMove', (message: PlayerMoveMessage) => {
-    const inputDirection = playerInputDirections.get(socket.id);
-    if (!inputDirection) return;
-
-    // Store player's input direction (will be combined with gravity in game loop)
+    // Store player's input direction via ECS (will be combined with gravity in game loop)
     // Direction values are -1, 0, or 1
-    inputDirection.x = message.direction.x;
-    inputDirection.y = message.direction.y;
+    setInputBySocketId(world, socket.id, message.direction.x, message.direction.y);
   });
 
   // ============================================
@@ -697,8 +676,7 @@ io.on('connection', (socket) => {
     }
 
     // Remove from auxiliary state Maps
-    playerInputDirections.delete(socket.id);
-    playerVelocities.delete(socket.id);
+    // NOTE: InputComponent and VelocityComponent removed by ecsDestroyEntity above
     playerSprintState.delete(socket.id);
 
     // Notify other players

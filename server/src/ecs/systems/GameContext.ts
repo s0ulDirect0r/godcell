@@ -62,8 +62,7 @@ export interface GameContext {
   // ============================================
   // Player State Maps
   // ============================================
-  playerVelocities: Map<string, { x: number; y: number }>;
-  playerInputDirections: Map<string, { x: number; y: number }>;
+  // NOTE: playerVelocities and playerInputDirections migrated to ECS VelocityComponent and InputComponent
   playerSprintState: Map<string, boolean>;
   playerLastDamageSource: Map<string, DeathCause>;
   // NOTE: Should be ECS component. See godcell epic for ECS migration

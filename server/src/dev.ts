@@ -104,8 +104,7 @@ interface DevContext {
   nutrients: Map<string, Nutrient>;
   obstacles: Map<string, { id: string; position: Position; radius: number; strength: number; damageRate: number }>;
   swarms: Map<string, EntropySwarm>;
-  playerInputDirections: Map<string, { x: number; y: number }>;
-  playerVelocities: Map<string, { x: number; y: number }>;
+  // NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
   spawnNutrientAt: (position: Position, multiplier?: number) => Nutrient;
   spawnSwarmAt: (io: Server, position: Position) => EntropySwarm;
   spawnBotAt: (position: Position, stage: EvolutionStage) => string;

@@ -10,12 +10,14 @@ import {
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
+  getVelocityBySocketId,
+  getInputBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
   Components,
   type World,
 } from './ecs';
-import type { EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
+import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '@godcell/shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
@@ -24,9 +26,9 @@ import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // Bot controller - manages AI state for each bot
 export interface BotController {
-  player: Player; // Reference to player object in players Map
-  inputDirection: { x: number; y: number }; // Reference to input direction in playerInputDirections Map
-  velocity: { x: number; y: number }; // Reference to velocity in playerVelocities Map (for gravity)
+  player: Player; // Reference to player object built from ECS components
+  inputDirection: { x: number; y: number }; // Reference to InputComponent.direction (ECS)
+  velocity: { x: number; y: number }; // Reference to VelocityComponent (ECS)
   ai: {
     state: 'wander' | 'seek_nutrient';
     targetNutrient?: string; // ID of nutrient being pursued
@@ -117,11 +119,7 @@ function isSpawnSafe(position: Position, obstacles: Map<string, Obstacle>): bool
 /**
  * Spawn a single AI bot
  */
-function spawnBot(
-  io: Server,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): BotController {
+function spawnBot(io: Server): BotController {
   if (!ecsWorld) {
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
@@ -140,15 +138,18 @@ function spawnBot(
     throw new Error(`Failed to create bot ${botId} in ECS`);
   }
 
-  // Create input direction and velocity objects
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for bot ${botId}`);
+  }
 
-  // Create bot controller with AI state
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
@@ -156,10 +157,6 @@ function spawnBot(
     },
   };
 
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
   singleCellBots.set(botId, bot);
 
   // Broadcast to all clients (bots appear as regular players)
@@ -178,11 +175,7 @@ function spawnBot(
 /**
  * Spawn a multi-cell bot (Stage 2)
  */
-function spawnMultiCellBot(
-  io: Server,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): BotController {
+function spawnMultiCellBot(io: Server): BotController {
   if (!ecsWorld) {
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
@@ -201,15 +194,18 @@ function spawnMultiCellBot(
     throw new Error(`Failed to create multi-cell bot ${botId} in ECS`);
   }
 
-  // Create input direction and velocity objects
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for multi-cell bot ${botId}`);
+  }
 
-  // Create bot controller with simple AI state (just wander for now)
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
@@ -217,10 +213,6 @@ function spawnMultiCellBot(
     },
   };
 
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
   multiCellBots.set(botId, bot);
 
   // Broadcast to all clients
@@ -592,8 +584,6 @@ function updateBotAI(
  */
 export function spawnBotAt(
   io: Server,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>,
   position: Position,
   stage: EvolutionStage
 ): string {
@@ -616,24 +606,24 @@ export function spawnBotAt(
     throw new Error(`Failed to create bot ${botId} in ECS`);
   }
 
-  const botInputDirection = { x: 0, y: 0 };
-  const botVelocity = { x: 0, y: 0 };
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for bot ${botId}`);
+  }
 
+  // Create bot controller with AI state - stores references to ECS components
   const bot: BotController = {
     player: botPlayer,
-    inputDirection: botInputDirection,
-    velocity: botVelocity,
+    inputDirection: inputComponent.direction, // Reference to ECS InputComponent.direction
+    velocity: velocityComponent, // Reference to ECS VelocityComponent
     ai: {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
     },
   };
-
-  // Add to legacy Maps (input/velocity still use these until migrated to ECS)
-  // Note: players Map is synced from ECS each tick, so no players.set() needed
-  playerInputDirections.set(botId, botInputDirection);
-  playerVelocities.set(botId, botVelocity);
 
   // Track in appropriate bot map
   if (isMultiCell) {
@@ -661,19 +651,15 @@ export function spawnBotAt(
  * Initialize AI bots on server start
  * Uses ECS world (set via setBotEcsWorld) for spawn position queries
  */
-export function initializeBots(
-  io: Server,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-) {
+export function initializeBots(io: Server) {
   // Spawn Stage 1 bots
   for (let i = 0; i < BOT_CONFIG.COUNT; i++) {
-    spawnBot(io, playerInputDirections, playerVelocities);
+    spawnBot(io);
   }
 
   // Spawn multi-cell bots
   for (let i = 0; i < BOT_CONFIG.STAGE2_COUNT; i++) {
-    spawnMultiCellBot(io, playerInputDirections, playerVelocities);
+    spawnMultiCellBot(io);
   }
 
   logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT);
@@ -956,12 +942,7 @@ export function isBot(playerId: string): boolean {
 /**
  * Permanently remove a bot (no respawn) - for dev tools
  */
-export function removeBotPermanently(
-  botId: string,
-  io: Server,
-  playerInputDirections: Map<string, { x: number; y: number }>,
-  playerVelocities: Map<string, { x: number; y: number }>
-): boolean {
+export function removeBotPermanently(botId: string, io: Server): boolean {
   // Remove from bot tracking (prevents respawn)
   const wasSingleCell = singleCellBots.delete(botId);
   const wasMultiCell = multiCellBots.delete(botId);
@@ -970,14 +951,10 @@ export function removeBotPermanently(
     return false; // Not a tracked bot
   }
 
-  // Remove from ECS (source of truth)
+  // Remove from ECS (source of truth) - this removes all components including Input and Velocity
   if (ecsWorld) {
     deletePlayerBySocketId(ecsWorld, botId);
   }
-
-  // Remove from legacy Maps
-  playerInputDirections.delete(botId);
-  playerVelocities.delete(botId);
 
   // Notify clients so they remove the bot immediately
   io.emit('playerLeft', { type: 'playerLeft', playerId: botId });
