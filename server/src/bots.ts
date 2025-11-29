@@ -11,6 +11,8 @@ import {
   getPositionBySocketId,
   getStageBySocketId,
   deletePlayerBySocketId,
+  forEachPlayer,
+  Components,
   type World,
 } from './ecs';
 import type { EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
@@ -690,7 +692,7 @@ function updateMultiCellBotAI(
   nutrients: Map<string, Nutrient>,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  players: Map<string, Player>,
+  world: World,
   abilitySystem: AbilitySystem
 ) {
   const player = bot.player;
@@ -732,34 +734,58 @@ function updateMultiCellBotAI(
   }
 
   // Find nearest single-cell (prey)
-  let nearestPrey: Player | null = null;
-  let nearestPreyDist = 800; // Hunting range
-  for (const [id, otherPlayer] of players) {
-    if (id === player.id) continue; // Don't hunt self
-    if (otherPlayer.stage !== EvolutionStage.SINGLE_CELL) continue; // Only hunt Stage 1
-    if (otherPlayer.energy <= 0) continue; // Skip dead
+  // Using object wrapper to help TypeScript track mutations inside callback
+  const preyResult: {
+    target: { id: string; position: { x: number; y: number }; energy: number; maxEnergy: number } | null;
+    dist: number;
+  } = { target: null, dist: 800 }; // Hunting range
+  forEachPlayer(world, (entity, otherId) => {
+    if (otherId === player.id) return; // Don't hunt self
 
-    const dist = distance(player.position, otherPlayer.position);
-    if (dist < nearestPreyDist) {
-      nearestPrey = otherPlayer;
-      nearestPreyDist = dist;
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    if (!stageComp || stageComp.stage !== EvolutionStage.SINGLE_CELL) return; // Only hunt Stage 1
+
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    if (!energyComp || energyComp.current <= 0) return; // Skip dead
+
+    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (!posComp) return;
+
+    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    if (dist < preyResult.dist) {
+      preyResult.target = { id: otherId, position: { x: posComp.x, y: posComp.y }, energy: energyComp.current, maxEnergy: energyComp.max };
+      preyResult.dist = dist;
     }
-  }
+  });
+  const nearestPrey = preyResult.target;
+  const nearestPreyDist = preyResult.dist;
 
   // Find nearest enemy multi-cell (for pseudopod attacks)
-  let nearestEnemyMultiCell: Player | null = null;
-  let nearestEnemyMultiCellDist = 500; // Pseudopod range
-  for (const [id, otherPlayer] of players) {
-    if (id === player.id) continue;
-    if (otherPlayer.stage !== EvolutionStage.MULTI_CELL) continue;
-    if (otherPlayer.energy <= 0) continue;
+  // Using object wrapper to help TypeScript track mutations inside callback
+  const enemyResult: {
+    target: { id: string; position: { x: number; y: number } } | null;
+    dist: number;
+  } = { target: null, dist: 500 }; // Pseudopod range
+  forEachPlayer(world, (entity, otherId) => {
+    if (otherId === player.id) return;
 
-    const dist = distance(player.position, otherPlayer.position);
-    if (dist < nearestEnemyMultiCellDist) {
-      nearestEnemyMultiCell = otherPlayer;
-      nearestEnemyMultiCellDist = dist;
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    if (!stageComp || stageComp.stage !== EvolutionStage.MULTI_CELL) return;
+
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    if (!energyComp || energyComp.current <= 0) return;
+
+    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (!posComp) return;
+
+    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    if (dist < enemyResult.dist) {
+      enemyResult.target = { id: otherId, position: { x: posComp.x, y: posComp.y } };
+      enemyResult.dist = dist;
     }
-  }
+  });
+  const nearestEnemyMultiCell = enemyResult.target;
+  const nearestEnemyMultiCellDist = enemyResult.dist;
 
   // ============================================
   // Ability Usage Decision Logic
@@ -900,14 +926,13 @@ export function updateBots(
   nutrients: Map<string, Nutrient>,
   obstacles: Map<string, Obstacle>,
   swarms: EntropySwarm[],
-  players: Map<string, Player>,
   abilitySystem: AbilitySystem,
-  ecsWorld: World
+  world: World
 ) {
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
     // Refresh bot.player from ECS (the cached reference goes stale each tick)
-    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    const freshPlayer = getPlayerBySocketId(world, botId);
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
@@ -917,11 +942,11 @@ export function updateBots(
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
   for (const [botId, bot] of multiCellBots) {
     // Refresh bot.player from ECS (the cached reference goes stale each tick)
-    const freshPlayer = getPlayerBySocketId(ecsWorld, botId);
+    const freshPlayer = getPlayerBySocketId(world, botId);
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, players, abilitySystem);
+    updateMultiCellBotAI(bot, currentTime, nutrients, obstacles, swarms, world, abilitySystem);
   }
 }
 

@@ -149,9 +149,8 @@ export interface GameContext {
     nutrients: Map<string, Nutrient>,
     obstacles: Map<string, Obstacle>,
     swarms: EntropySwarm[],
-    players: Map<string, Player>,
     abilitySystem: AbilitySystem,
-    ecsWorld: World
+    world: World
   ) => void;
 
   updateSwarms: (
