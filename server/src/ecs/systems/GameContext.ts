@@ -77,7 +77,8 @@ export interface GameContext {
   playerPseudopodCooldowns: Map<string, number>;
 
   // Drain state tracking
-  activeDrains: Set<string>; // Set of prey IDs being drained
+  // NOTE: This should be an ECS component, not a Map. See godcell-5nc
+  activeDrains: Map<string, string>; // Map of prey ID -> predator ID
   activeSwarmDrains: Set<string>;
   lastBroadcastedDrains: Set<string>;
 
@@ -158,7 +159,6 @@ export interface GameContext {
   updateSwarmPositions: (deltaTime: number, io: Server) => void;
   processSwarmRespawns: (io: Server) => void;
   updatePseudopods: (deltaTime: number, io: Server) => void;
-  checkPredationCollisions: (deltaTime: number) => void;
   checkSwarmCollisions: (
     players: Map<string, Player>,
     deltaTime: number,
