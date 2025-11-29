@@ -80,6 +80,9 @@ export {
   setPositionBySocketId,
   movePositionBySocketId,
   clampPositionBySocketId,
+  // Obstacle query helpers
+  forEachObstacle,
+  getObstacleZones,
 } from './factories';
 export type { PlayerSnapshot } from './factories';
 
