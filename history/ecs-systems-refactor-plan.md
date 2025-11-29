@@ -34,8 +34,41 @@
 - **`godcell-j5p`**: Replace pseudopods/pseudopodHits Maps with ECS components
 - **`godcell-t2t`**: Bug - client interpolation seems off after migration
 
-### Key Insight
-Systems now iterate ECS directly with `forEachPlayer(world, ...)`. The blocking issue for removing `players` Map is external functions in `bots.ts` and `swarms.ts` that still expect the Map as a parameter. Next step: convert these functions to take `world: World` and use ECS queries internally.
+### Key Insights
+
+**ECS iteration pattern:**
+```typescript
+forEachPlayer(world, (entity, socketId) => {
+  const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+  // ... work with components
+});
+```
+
+**TypeScript closure narrowing workaround:**
+When mutating variables inside `forEachPlayer` callbacks, use object wrapper pattern:
+```typescript
+// BAD - TypeScript loses narrowing
+let nearest: Player | null = null;
+forEachPlayer(world, (entity, id) => {
+  nearest = ...; // TypeScript thinks this is still `never` later
+});
+
+// GOOD - object wrapper preserves mutations
+const result: { target: Player | null } = { target: null };
+forEachPlayer(world, (entity, id) => {
+  result.target = ...;
+});
+const nearest = result.target; // Works correctly
+```
+
+**Death handling is centralized:**
+All death processing (broadcasts, kill rewards, bot respawns) happens in DeathSystem. Other systems just set `energy <= 0` and `playerLastDamageSource`. Fixed a double-respawn bug where PredationSystem was also calling `handleBotDeath`.
+
+**Dev tools and `players` Map timing:**
+Dev commands arrive via socket events between ticks, but `syncPlayersFromECS()` only runs at tick start. So `devContext.players.get()` can return stale/missing data. Fix: use ECS getters directly (`getStageBySocketId`, etc.). This is why Phase 4d matters.
+
+**Cleanup opportunity in bots.ts:**
+5 functions still have unused `players: Map<string, Player>` parameters from before conversion. Safe to remove in a cleanup pass.
 
 ### Key Files
 - `server/src/ecs/systems/GameContext.ts` - the bridge interface
