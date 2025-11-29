@@ -22,7 +22,7 @@ import {
 } from '../index';
 import { distance, getPlayerRadius } from '../../helpers';
 import { hasGodMode, getConfig } from '../../dev';
-import { isBot, handleBotDeath } from '../../bots';
+import { isBot } from '../../bots';
 import { logger } from '../../logger';
 
 /**
@@ -158,19 +158,8 @@ export class PredationSystem implements System {
       energyGained: energyGain,
     } as PlayerEngulfedMessage);
 
-    // Broadcast death
-    io.emit('playerDied', {
-      type: 'playerDied',
-      playerId: preyId,
-      position,
-      color: preyColor,
-      cause: 'predation',
-    } as PlayerDiedMessage);
-
-    // Handle bot death (respawn logic)
-    if (isBot(preyId)) {
-      handleBotDeath(preyId, 'predation', io);
-    }
+    // Note: Death broadcast and bot respawn handled by DeathSystem
+    // We just set energy to 0 and damage source, DeathSystem does the rest
 
     logger.info({
       event: 'player_engulfed',
