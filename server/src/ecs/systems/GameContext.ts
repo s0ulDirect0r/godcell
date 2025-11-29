@@ -174,9 +174,6 @@ export interface GameContext {
   ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
   respawnNutrient: (nutrientId: string) => void;
   handlePlayerDeath: (player: Player, cause: DeathCause) => void;
-  broadcastEnergyUpdates: () => void;
-  broadcastDetectionUpdates: () => void;
-  broadcastDrainState: () => void;
   removeSwarm: (swarmId: string) => void;
 }
 
