@@ -14,18 +14,22 @@
 - ✅ Phase 3: Extract nutrients.ts module
 - ✅ Phase 4a: handlePlayerDeath inlined into DeathSystem
 - ✅ Phase 4b: Convert systems to forEachPlayer ECS iteration (GravitySystem, PredationSystem, PseudopodSystem, NetworkBroadcastSystem)
+- ✅ Phase 4c: Convert external functions to ECS queries (bots.ts, swarms.ts)
+  - `updateBots()` now takes `world: World`
+  - `updateSwarms()` already uses `world: World`
+  - `checkSwarmCollisions()` already uses `world: World`
+  - `handleBotDeath()` never needed `players` Map
 
-### Remaining
-- ⏳ Phase 4c: Convert external functions to ECS queries (bots.ts, swarms.ts)
-  - `updateBots()` still takes `players` Map
-  - `updateSwarms()` still takes `players` Map
-  - `handleBotDeath()` still takes `players` Map
-  - `checkSwarmCollisions()` still takes `players` Map
-- ❌ Phase 4d: Remove `syncPlayersFromECS()` bridge
+### Remaining (tracked in beads)
+- ❌ Phase 4d: Remove `syncPlayersFromECS()` bridge → **`godcell-4bp`**
+  - abilities.ts: 4 usages need ECS conversion
+  - dev.ts: 4 remaining usages need ECS conversion
+  - index.ts: checkBeamHitscan + state sync usages
 - ❌ Phase 5: Eliminate legacy Maps entirely (tracked in Epic `godcell-shh`)
 
 ### Beads Issues
 - **Epic `godcell-shh`**: "Complete ECS migration - eliminate legacy state"
+- **`godcell-4bp`**: Remove syncPlayersFromECS bridge (Phase 4d)
 - **`godcell-5nc`**: Replace activeDrains Map with ECS component
 - **`godcell-j5p`**: Replace pseudopods/pseudopodHits Maps with ECS components
 - **`godcell-t2t`**: Bug - client interpolation seems off after migration
