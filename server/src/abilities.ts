@@ -22,7 +22,7 @@ import {
   getCooldownsBySocketId,
   forEachPlayer,
   forEachSwarm,
-  applyDamageWithResistance,
+  subtractEnergyBySocketId,
   type World,
 } from './ecs';
 
@@ -43,7 +43,6 @@ export interface AbilityContext {
   // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
   // NOTE: Cooldowns migrated to ECS CooldownsComponent
   // NOTE: Swarms migrated to ECS - use forEachSwarm
-  // NOTE: applyDamageWithResistance migrated to direct import from ./ecs
 
   // Functions from main module
   checkBeamHitscan: (start: Position, end: Position, shooterId: string) => string | null;
@@ -144,7 +143,7 @@ export class AbilitySystem {
 
         // Multi-cells also lose energy when hit
         if (otherStage.stage === EvolutionStage.MULTI_CELL) {
-          applyDamageWithResistance(world, otherPlayerId, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
+          subtractEnergyBySocketId(world, otherPlayerId, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
         }
 
         affectedPlayerIds.push(otherPlayerId);

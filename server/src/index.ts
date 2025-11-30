@@ -21,7 +21,7 @@ import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, processSwarmRespawns, spawnSwarmAt } from './swarms';
 import { buildSwarmsRecord } from './ecs';
 import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
-import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
+import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '@godcell/shared';
 import {
   logger,
@@ -74,7 +74,7 @@ import {
   deletePlayerBySocketId,
   forEachPlayer,
   setPlayerStage,
-  applyDamageWithResistance,
+  subtractEnergyBySocketId,
   // ECS setters - update component values directly
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
@@ -110,7 +110,6 @@ import {
   poissonDiscSampling,
   // Stage helpers
   getStageMaxEnergy,
-  getDamageResistance,
   getEnergyDecayRate,
   getPlayerRadius,
   getWorldBoundsForStage,
@@ -193,7 +192,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   // Apply damage to closest hit
   if (result.closestHit) {
     const targetId = result.closestHit.playerId;
-    applyDamageWithResistance(world, targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
+    subtractEnergyBySocketId(world, targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
 
     // Track damage source in ECS for death cause logging
     const damageTracking = getDamageTrackingBySocketId(world, targetId);
@@ -266,8 +265,6 @@ function initializeObstacles() {
     logger.warn(`Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
   }
 }
-
-// NOTE: applyDamageWithResistance moved to ecs/factories.ts
 
 /**
  * Respawn a dead player - reset to single-cell at random location
@@ -383,10 +380,8 @@ initDevHandler({
 // ============================================
 
 const abilitySystem = new AbilitySystem({
-  world, // ECS World (source of truth) - swarms queried via forEachSwarm/getAllSwarmSnapshots
+  world,
   io,
-  // NOTE: Cooldowns migrated to ECS CooldownsComponent
-  // NOTE: applyDamageWithResistance migrated to direct import from ./ecs
   checkBeamHitscan,
   getPlayerRadius,
 });
