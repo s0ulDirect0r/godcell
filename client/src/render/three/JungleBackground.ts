@@ -113,27 +113,29 @@ export function createJungleBackground(scene: THREE.Scene): {
 /**
  * Create jungle grid lines - larger spacing, darker color
  * Grid spans the full JUNGLE dimensions
+ * XZ plane: X=game X, Y=height, Z=-game Y
  */
 function createJungleGrid(group: THREE.Group): void {
   const gridSize = JUNGLE_CONFIG.GRID_SIZE;
   const gridColor = JUNGLE_CONFIG.GRID_COLOR;
+  const gridHeight = -0.5; // Below ground level
 
-  // Vertical lines across full jungle width
+  // Lines parallel to Z axis (along game Y direction)
   for (let x = 0; x <= GAME_CONFIG.JUNGLE_WIDTH; x += gridSize) {
     const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(x, 0, -1.5), // Behind soup grid (z=-1)
-      new THREE.Vector3(x, GAME_CONFIG.JUNGLE_HEIGHT, -1.5),
+      new THREE.Vector3(x, gridHeight, 0),
+      new THREE.Vector3(x, gridHeight, -GAME_CONFIG.JUNGLE_HEIGHT),
     ]);
     const material = new THREE.LineBasicMaterial({ color: gridColor });
     const line = new THREE.Line(geometry, material);
     group.add(line);
   }
 
-  // Horizontal lines across full jungle height
-  for (let y = 0; y <= GAME_CONFIG.JUNGLE_HEIGHT; y += gridSize) {
+  // Lines parallel to X axis (along game X direction)
+  for (let gameY = 0; gameY <= GAME_CONFIG.JUNGLE_HEIGHT; gameY += gridSize) {
     const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, y, -1.5),
-      new THREE.Vector3(GAME_CONFIG.JUNGLE_WIDTH, y, -1.5),
+      new THREE.Vector3(0, gridHeight, -gameY),
+      new THREE.Vector3(GAME_CONFIG.JUNGLE_WIDTH, gridHeight, -gameY),
     ]);
     const material = new THREE.LineBasicMaterial({ color: gridColor });
     const line = new THREE.Line(geometry, material);
@@ -145,6 +147,7 @@ function createJungleGrid(group: THREE.Group): void {
  * Create soup pool visualization - a small glowing ellipse with activity dots inside
  * Shows Stage 3+ players where the primordial soup is located
  * Size: ~2x player size (300px radius), centered at soup region center
+ * XZ plane: X=game X, Y=height, Z=-game Y
  */
 function createSoupPool(group: THREE.Group): {
   activityPoints: THREE.Points;
@@ -156,10 +159,10 @@ function createSoupPool(group: THREE.Group): {
   const poolRadius = JUNGLE_CONFIG.SOUP_POOL_RADIUS;
   const glowSize = JUNGLE_CONFIG.SOUP_POOL_GLOW_SIZE;
 
-  // Z positions: glow behind fill, fill behind activity dots
-  const zGlow = -1.3;
-  const zFill = -1.2;
-  const zActivity = -1.1;
+  // Height positions: glow below fill, fill below activity dots
+  const heightGlow = -0.3;
+  const heightFill = -0.2;
+  const heightActivity = -0.1;
 
   // === OUTER GLOW (larger circle behind the pool) ===
   const glowGeometry = new THREE.CircleGeometry(poolRadius + glowSize, 32);
@@ -169,7 +172,9 @@ function createSoupPool(group: THREE.Group): {
     opacity: JUNGLE_CONFIG.SOUP_POOL_GLOW_OPACITY,
   });
   const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-  glowMesh.position.set(centerX, centerY, zGlow);
+  // Rotate to lie flat on XZ plane, then position
+  glowMesh.rotation.x = -Math.PI / 2;
+  glowMesh.position.set(centerX, heightGlow, -centerY);
   glowMesh.name = 'soupPoolGlow';
   group.add(glowMesh);
 
@@ -181,7 +186,8 @@ function createSoupPool(group: THREE.Group): {
     opacity: JUNGLE_CONFIG.SOUP_POOL_FILL_OPACITY,
   });
   const fillMesh = new THREE.Mesh(fillGeometry, fillMaterial);
-  fillMesh.position.set(centerX, centerY, zFill);
+  fillMesh.rotation.x = -Math.PI / 2;
+  fillMesh.position.set(centerX, heightFill, -centerY);
   fillMesh.name = 'soupPoolFill';
   group.add(fillMesh);
 
@@ -209,10 +215,10 @@ function createSoupPool(group: THREE.Group): {
       Math.floor(Math.random() * JUNGLE_CONFIG.SOUP_ACTIVITY_COLORS.length)
     ];
 
-    // Position (offset from center)
+    // Position (XZ plane: X=centerX+offsetX, Y=height, Z=-(centerY+offsetY))
     positions[i * 3] = centerX + x;
-    positions[i * 3 + 1] = centerY + y;
-    positions[i * 3 + 2] = zActivity;
+    positions[i * 3 + 1] = heightActivity;
+    positions[i * 3 + 2] = -(centerY + y);
 
     // Color (convert hex to RGB)
     const r = ((colorHex >> 16) & 0xff) / 255;
@@ -246,7 +252,8 @@ function createSoupPool(group: THREE.Group): {
 
 /**
  * Create jungle particles with data-rain aesthetic
- * Particles drift downward (vertical) instead of diagonal
+ * Particles drift along game Y (which maps to -Z in Three.js)
+ * XZ plane: X=game X, Y=height, Z=-game Y
  */
 function createJungleParticles(): {
   particles: THREE.Points;
@@ -256,30 +263,31 @@ function createJungleParticles(): {
   const positions = new Float32Array(particleCount * 3);
   const sizes = new Float32Array(particleCount);
   const particleData: JungleParticle[] = [];
+  const particleHeight = -0.4; // Below ground level
 
   for (let i = 0; i < particleCount; i++) {
-    // Spawn across full jungle area
+    // Spawn across full jungle area (game coordinates)
     const x = Math.random() * GAME_CONFIG.JUNGLE_WIDTH;
     const y = Math.random() * GAME_CONFIG.JUNGLE_HEIGHT;
     const size =
       JUNGLE_CONFIG.PARTICLE_MIN_SIZE +
       Math.random() * (JUNGLE_CONFIG.PARTICLE_MAX_SIZE - JUNGLE_CONFIG.PARTICLE_MIN_SIZE);
 
-    // Position
+    // Position (XZ plane: X=game X, Y=height, Z=-game Y)
     positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = -1.4; // Behind jungle grid, in front of nothing
+    positions[i * 3 + 1] = particleHeight;
+    positions[i * 3 + 2] = -y;
 
     // Size
     sizes[i] = size;
 
-    // Velocity: primarily downward drift (data rain)
+    // Velocity: primarily along game Y direction (data rain)
     // Slight horizontal variance for organic feel
     const speed =
       JUNGLE_CONFIG.PARTICLE_SPEED_MIN +
       Math.random() * (JUNGLE_CONFIG.PARTICLE_SPEED_MAX - JUNGLE_CONFIG.PARTICLE_SPEED_MIN);
     const vx = (Math.random() - 0.5) * speed * 0.3; // Slight horizontal drift
-    const vy = -speed; // Downward (negative Y)
+    const vy = -speed; // "Downward" in game Y direction
 
     particleData.push({ x, y, vx, vy, size });
   }
@@ -330,7 +338,8 @@ function createJungleParticleTexture(): THREE.Texture {
 
 /**
  * Update jungle particle positions (called every frame)
- * Particles drift downward and wrap around
+ * Particles drift along game Y and wrap around
+ * XZ plane: X=game X, Y=height, Z=-game Y
  */
 export function updateJungleParticles(
   particles: THREE.Points,
@@ -342,7 +351,7 @@ export function updateJungleParticles(
   for (let i = 0; i < particleData.length; i++) {
     const data = particleData[i];
 
-    // Update position
+    // Update position (game coordinates)
     data.x += data.vx * dt;
     data.y += data.vy * dt;
 
@@ -354,9 +363,10 @@ export function updateJungleParticles(
     if (data.x < 0) data.x = GAME_CONFIG.JUNGLE_WIDTH;
     if (data.x > GAME_CONFIG.JUNGLE_WIDTH) data.x = 0;
 
-    // Update buffer
+    // Update buffer (XZ plane: X=game X, Y=height stays same, Z=-game Y)
     positions[i * 3] = data.x;
-    positions[i * 3 + 1] = data.y;
+    // positions[i * 3 + 1] stays at particle height (set during creation)
+    positions[i * 3 + 2] = -data.y;
   }
 
   particles.geometry.attributes.position.needsUpdate = true;
@@ -365,6 +375,7 @@ export function updateJungleParticles(
 /**
  * Update soup activity dots (brownian motion within pool bounds)
  * Creates the effect of "life" inside the soup pool
+ * XZ plane: X=game X, Y=height, Z=-game Y
  */
 export function updateSoupActivity(
   activityPoints: THREE.Points,
@@ -381,7 +392,7 @@ export function updateSoupActivity(
   for (let i = 0; i < activityData.length; i++) {
     const dot = activityData[i];
 
-    // Update position (brownian motion)
+    // Update position (brownian motion, game coordinates)
     dot.x += dot.vx * dt;
     dot.y += dot.vy * dt;
 
@@ -408,9 +419,10 @@ export function updateSoupActivity(
       dot.vy = Math.sin(angle) * speed;
     }
 
-    // Update buffer (absolute position = center + offset)
+    // Update buffer (XZ plane: X=center+offsetX, Y=height stays same, Z=-(center+offsetY))
     positions[i * 3] = centerX + dot.x;
-    positions[i * 3 + 1] = centerY + dot.y;
+    // positions[i * 3 + 1] stays at activity height (set during creation)
+    positions[i * 3 + 2] = -(centerY + dot.y);
   }
 
   activityPoints.geometry.attributes.position.needsUpdate = true;
