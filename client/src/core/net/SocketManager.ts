@@ -161,6 +161,24 @@ export class SocketManager {
   }
 
   /**
+   * Send client log to server (for debugging)
+   */
+  sendLog(level: 'log' | 'warn' | 'error', args: unknown[]): void {
+    this.socket.emit('clientLog', {
+      type: 'clientLog',
+      level,
+      args: args.map(arg => {
+        try {
+          return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+        } catch {
+          return '[unserializable]';
+        }
+      }),
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Disconnect and clean up
    */
   disconnect(): void {
