@@ -9,33 +9,13 @@ import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { createMultiCell, updateMultiCellEnergy } from '../meshes/MultiCellMesh';
-import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from '../meshes/SingleCellMesh';
-import {
-  createCyberOrganism,
-  updateCyberOrganismAnimation,
-  updateCyberOrganismEnergy,
-} from '../meshes/CyberOrganismMesh';
-import {
-  createHumanoidModel,
-  updateHumanoidAnimation,
-  updateHumanoidEnergy,
-  setHumanoidRotation,
-  type HumanoidAnimationState,
-} from '../meshes/HumanoidMesh';
-import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
+import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
+import { PlayerRenderSystem, type InterpolationTarget, type PlayerDamageInfo } from '../systems/PlayerRenderSystem';
 import { TrailSystem } from '../systems/TrailSystem';
 import { NutrientRenderSystem, type NutrientData } from '../systems/NutrientRenderSystem';
 import { ObstacleRenderSystem, type ObstacleData } from '../systems/ObstacleRenderSystem';
 import { SwarmRenderSystem, type SwarmData } from '../systems/SwarmRenderSystem';
 import { PseudopodRenderSystem, type PseudopodData } from '../systems/PseudopodRenderSystem';
-import {
-  calculateEvolutionProgress,
-  updateEvolutionCorona,
-  updateEvolutionRing,
-  removeEvolutionEffects,
-  applyEvolutionEffects,
-} from './EvolutionVisuals';
 import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
 import { CameraSystem } from '../systems/CameraSystem';
@@ -62,23 +42,15 @@ export class ThreeRenderer implements Renderer {
   private myPlayerId: string | null = null; // Local player ID for event filtering
   private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
 
-  // Humanoid model loading (async)
-  private pendingHumanoidLoads: Set<string> = new Set(); // Player IDs with pending humanoid loads
-  private humanoidModels: Map<string, THREE.Group> = new Map(); // Loaded humanoid models
-
-  // Multi-cell style
-  private multiCellStyle: 'colonial' | 'radial' = 'colonial';
-
   // Resource caching for performance
   private geometryCache: Map<string, THREE.BufferGeometry> = new Map();
   private materialCache: Map<string, THREE.Material> = new Map();
 
+  // Player render system (owns player meshes, outlines, evolution state)
+  private playerRenderSystem!: PlayerRenderSystem;
+
   // Nutrient render system (owns nutrient meshes)
   private nutrientRenderSystem!: NutrientRenderSystem;
-
-  // Entity meshes
-  private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
-  private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
 
   // Obstacle render system (owns obstacle meshes)
   private obstacleRenderSystem!: ObstacleRenderSystem;
@@ -94,20 +66,6 @@ export class ThreeRenderer implements Renderer {
 
   // Effects system (particle effects, animations)
   private effectsSystem!: EffectsSystem;
-
-  // Evolution state tracking
-  private playerEvolutionState: Map<string, {
-    startTime: number;
-    duration: number;
-    sourceStage: string;
-    targetStage: string;
-    sourceMesh?: THREE.Group;
-    targetMesh?: THREE.Group;
-  }> = new Map();
-
-  // Detection system (chemical sensing)
-  private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
-  private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
   // Aura system (owns drain and gain auras)
   private auraSystem!: AuraSystem;
@@ -142,6 +100,10 @@ export class ThreeRenderer implements Renderer {
     // Create trail system (owns player trail points and meshes)
     this.trailSystem = new TrailSystem();
     this.trailSystem.init(this.scene);
+
+    // Create player render system (owns player meshes, outlines, evolution state)
+    this.playerRenderSystem = new PlayerRenderSystem();
+    this.playerRenderSystem.init(this.scene, this.geometryCache);
 
     // Create nutrient render system (owns nutrient meshes)
     this.nutrientRenderSystem = new NutrientRenderSystem();
@@ -180,222 +142,54 @@ export class ThreeRenderer implements Renderer {
     // Import eventBus for death animations
     import('../../core/events/EventBus').then(({ eventBus }) => {
       eventBus.on('playerDied', (event) => {
-        // Get the player's last known position and color before they're removed
-        const playerGroup = this.playerMeshes.get(event.playerId);
-        if (playerGroup) {
-          // XZ plane: game Y = -Three.js Z
-          const position = { x: playerGroup.position.x, y: -playerGroup.position.z };
+        // Get position and color before removal
+        const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
+        const color = this.playerRenderSystem.getPlayerColor(event.playerId);
 
-          // Get color from nucleus mesh (structure varies by stage)
-          let color = 0x00ffff; // Default cyan
-          const firstChild = playerGroup.children[0];
-          if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
-            // Multi-cell: get nucleus from first cell group
-            const nucleus = firstChild.children[1] as THREE.Mesh;
-            if (nucleus && nucleus.material) {
-              const material = nucleus.material as THREE.MeshStandardMaterial;
-              color = material.emissive.getHex();
-            }
-          } else if (playerGroup.children[3]) {
-            // Single-cell: get nucleus directly (fourth child: membrane, cytoplasm, organelles, nucleus)
-            const nucleus = playerGroup.children[3] as THREE.Mesh;
-            if (nucleus && nucleus.material) {
-              const material = nucleus.material as THREE.MeshStandardMaterial;
-              color = material.emissive.getHex();
-            }
-          }
-
+        if (position) {
           this.effectsSystem.spawnDeathBurst(position.x, position.y, color);
-
-          // Immediately remove player group, outline, and trail
-          this.scene.remove(playerGroup);
-
-          // Dispose geometries and materials
-          playerGroup.children.forEach(child => {
-            if (child instanceof THREE.Mesh) {
-              // Don't dispose cached geometries
-              if ((child.material as THREE.Material).dispose) {
-                (child.material as THREE.Material).dispose();
-              }
-            }
-          });
-
-          this.playerMeshes.delete(event.playerId);
-
-          const outline = this.playerOutlines.get(event.playerId);
-          if (outline) {
-            this.scene.remove(outline);
-            this.playerOutlines.delete(event.playerId);
-          }
-
-          // Remove trail
-          this.trailSystem.removeTrail(event.playerId);
         }
+
+        // Remove player mesh, outline, and evolution state
+        this.playerRenderSystem.removePlayer(event.playerId);
+
+        // Remove trail
+        this.trailSystem.removeTrail(event.playerId);
       });
 
-      // Evolution started - track animation state, create target mesh, and spawn particles
+      // Evolution started - delegate to player render system
       eventBus.on('playerEvolutionStarted', (event) => {
-        const sourceGroup = this.playerMeshes.get(event.playerId);
-        if (!sourceGroup) return;
+        const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId);
+        const targetRadius = this.playerRenderSystem.getPlayerRadius(event.targetStage);
 
-        // Calculate target radius
-        const targetRadius = this.getPlayerRadius(event.targetStage as any);
-
-        // Get color from source mesh nucleus
-        let colorHex = 0x00ffff; // Default
-        const firstChild = sourceGroup.children[0];
-        if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
-          // Multi-cell
-          const nucleus = firstChild.children[1] as THREE.Mesh;
-          if (nucleus && nucleus.material) {
-            const material = nucleus.material as THREE.MeshStandardMaterial;
-            colorHex = material.emissive.getHex();
-          }
-        } else if (sourceGroup.children[3]) {
-          // Single-cell
-          const nucleus = sourceGroup.children[3] as THREE.Mesh;
-          if (nucleus && nucleus.material) {
-            const material = nucleus.material as THREE.MeshStandardMaterial;
-            colorHex = material.emissive.getHex();
-          }
-        }
-
-        // Create target mesh for new stage
-        let targetGroup: THREE.Group;
-        if (event.targetStage === 'cyber_organism' || event.targetStage === 'humanoid' || event.targetStage === 'godcell') {
-          // Stage 3+: Cyber-organism hexapod
-          targetGroup = createCyberOrganism(targetRadius, colorHex);
-        } else if (event.targetStage === 'multi_cell') {
-          targetGroup = createMultiCell({
-            radius: targetRadius,
-            colorHex,
-            style: this.multiCellStyle,
-          });
-        } else {
-          // Create single-cell
-          targetGroup = createSingleCell(targetRadius, colorHex);
-        }
-
-        // Position target at same location as source
-        targetGroup.position.copy(sourceGroup.position);
-        targetGroup.userData.stage = event.targetStage;
-
-        // Start target completely transparent
-        this.setGroupOpacity(targetGroup, 0);
-
-        // Add to scene
-        this.scene.add(targetGroup);
-
-        // Store evolution state
-        this.playerEvolutionState.set(event.playerId, {
-          startTime: Date.now(),
-          duration: event.duration,
-          sourceStage: event.currentStage,
-          targetStage: event.targetStage,
-          sourceMesh: sourceGroup,
-          targetMesh: targetGroup,
-        });
+        // Start evolution animation in player render system
+        this.playerRenderSystem.startEvolution(
+          event.playerId,
+          event.currentStage,
+          event.targetStage,
+          event.duration,
+          targetRadius,
+          colorHex
+        );
 
         // Spawn evolution particles
-        const playerGroup = this.playerMeshes.get(event.playerId);
-        if (playerGroup) {
-          // Get color from nucleus
-          let color = 0x00ffff; // Default cyan
-          const firstChild = playerGroup.children[0];
-          if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
-            // Multi-cell: get nucleus from first cell group
-            const nucleus = firstChild.children[1] as THREE.Mesh;
-            if (nucleus && nucleus.material) {
-              const material = nucleus.material as THREE.MeshStandardMaterial;
-              color = material.emissive.getHex();
-            }
-          } else if (playerGroup.children[3]) {
-            // Single-cell: get nucleus directly
-            const nucleus = playerGroup.children[3] as THREE.Mesh;
-            if (nucleus && nucleus.material) {
-              const material = nucleus.material as THREE.MeshStandardMaterial;
-              color = material.emissive.getHex();
-            }
-          }
-
-          // XZ plane: game Y = -Three.js Z
-          this.effectsSystem.spawnEvolution(
-            playerGroup.position.x,
-            -playerGroup.position.z,
-            color,
-            event.duration
-          );
+        const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
+        if (position) {
+          this.effectsSystem.spawnEvolution(position.x, position.y, colorHex, event.duration);
         }
       });
 
       // Evolution completed - finalize mesh swap
       eventBus.on('playerEvolved', (event) => {
-        const evolState = this.playerEvolutionState.get(event.playerId);
-        if (evolState && evolState.targetMesh && evolState.sourceMesh) {
-          // Remove source mesh from scene
-          this.scene.remove(evolState.sourceMesh);
-
-          // Dispose source mesh materials
-          evolState.sourceMesh.children.forEach(child => {
-            if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-              if ((child.material as THREE.Material).dispose) {
-                (child.material as THREE.Material).dispose();
-              }
-            } else if (child instanceof THREE.Group) {
-              child.children.forEach(subChild => {
-                if (subChild instanceof THREE.Mesh && (subChild.material as THREE.Material).dispose) {
-                  (subChild.material as THREE.Material).dispose();
-                }
-              });
-            }
-          });
-
-          // Replace playerMeshes entry with target mesh
-          this.playerMeshes.set(event.playerId, evolState.targetMesh);
-
-          // Reset target mesh opacity and scale to normal
-          this.setGroupOpacity(evolState.targetMesh, 1.0);
-          evolState.targetMesh.scale.setScalar(1.0);
-        }
-
-        // Clean up evolution state
-        setTimeout(() => {
-          this.playerEvolutionState.delete(event.playerId);
-        }, 100);
+        // Complete evolution in player render system
+        this.playerRenderSystem.completeEvolution(event.playerId);
 
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.playerId === this.myPlayerId) {
-          // Set target zoom for smooth transition
           this.cameraSystem.setTargetZoom(CameraSystem.getStageZoom(event.newStage));
 
-          // Update white outline for new size
-          const oldOutline = this.playerOutlines.get(event.playerId);
-          if (oldOutline) {
-            // Remove old outline
-            this.scene.remove(oldOutline);
-            oldOutline.geometry.dispose();
-            (oldOutline.material as THREE.Material).dispose();
-
-            // Create new outline with evolved radius
-            const newRadius = this.getPlayerRadius(event.newStage);
-            const outlineGeometry = this.getGeometry(`ring-outline-${newRadius}`, () =>
-              new THREE.RingGeometry(newRadius + 16, newRadius + 19, 32)
-            );
-            const outlineMaterial = new THREE.MeshStandardMaterial({
-              color: 0xffffff,
-              emissive: 0xffffff,
-              emissiveIntensity: 1.0,
-              transparent: true,
-              opacity: 1.0,
-              depthWrite: false,
-            });
-            const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-            newOutline.position.y = 0.1; // Slightly above player (Y=height)
-            // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
-            newOutline.rotation.x = -Math.PI / 2;
-            this.scene.add(newOutline);
-            this.playerOutlines.set(event.playerId, newOutline);
-          }
+          // Update outline for new stage
+          this.playerRenderSystem.updateOutlineForStage(event.playerId, event.newStage);
         }
       });
 
@@ -411,7 +205,7 @@ export class ThreeRenderer implements Renderer {
 
       // Detection update - chemical sensing for Stage 2+
       eventBus.on('detectionUpdate', (event) => {
-        this.detectedEntities = event.detected;
+        this.playerRenderSystem.setDetectedEntities(event.detected);
       });
 
       // EMP activation - spawn visual pulse effect
@@ -423,19 +217,18 @@ export class ThreeRenderer implements Renderer {
       eventBus.on('swarmConsumed', (event) => {
         // Get swarm position before removal (system returns game coordinates)
         const position = this.swarmRenderSystem.getSwarmPosition(event.swarmId);
-        const consumerMesh = this.playerMeshes.get(event.consumerId);
+        const consumerPos = this.playerRenderSystem.getPlayerPosition(event.consumerId);
 
         if (position) {
           this.effectsSystem.spawnSwarmDeath(position.x, position.y);
 
           // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
-          if (consumerMesh) {
-            // XZ plane: target game Y = -Three.js Z
+          if (consumerPos) {
             this.effectsSystem.spawnEnergyTransfer(
               position.x,
               position.y,
-              consumerMesh.position.x,
-              -consumerMesh.position.z,
+              consumerPos.x,
+              consumerPos.y,
               event.consumerId,
               0xff6600, // Orange for swarm energy
               30 // More particles for swarm consumption
@@ -495,16 +288,15 @@ export class ThreeRenderer implements Renderer {
       eventBus.on('nutrientCollected', (event) => {
         // Get nutrient position from cache (before it's removed)
         const nutrientPos = this.nutrientRenderSystem.getNutrientPosition(event.nutrientId);
-        const collectorMesh = this.playerMeshes.get(event.playerId);
+        const collectorPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
 
-        if (nutrientPos && collectorMesh) {
+        if (nutrientPos && collectorPos) {
           // Spawn particles flying from nutrient to collector
-          // XZ plane: target game Y = -Three.js Z
           this.effectsSystem.spawnEnergyTransfer(
             nutrientPos.x,
             nutrientPos.y,
-            collectorMesh.position.x,
-            -collectorMesh.position.z,
+            collectorPos.x,
+            collectorPos.y,
             event.playerId,
             0x00ffff // Cyan energy particles
           );
@@ -516,16 +308,15 @@ export class ThreeRenderer implements Renderer {
 
       // Player engulfed another player - energy transfer from prey to predator
       eventBus.on('playerEngulfed', (event) => {
-        const predatorMesh = this.playerMeshes.get(event.predatorId);
+        const predatorPos = this.playerRenderSystem.getPlayerPosition(event.predatorId);
 
-        if (predatorMesh) {
+        if (predatorPos) {
           // Spawn particles from prey position to predator (larger burst for player kill)
-          // XZ plane: target game Y = -Three.js Z
           this.effectsSystem.spawnEnergyTransfer(
             event.position.x,
             event.position.y,
-            predatorMesh.position.x,
-            -predatorMesh.position.z,
+            predatorPos.x,
+            predatorPos.y,
             event.predatorId,
             0x00ff88, // Green-cyan for player energy
             40 // Lots of particles for player kill
@@ -554,47 +345,7 @@ export class ThreeRenderer implements Renderer {
     // Apply to swarms (delegated to SwarmRenderSystem)
     this.swarmRenderSystem.applySpawnAnimations(spawnProgress);
 
-    // Apply to players (still managed here)
-    spawnProgress.forEach((progress, entityId) => {
-      // Ease-out curve for smoother scale-up (fast at start, slow at end)
-      const easeOut = 1 - Math.pow(1 - progress, 3);
-      const scale = 0.1 + easeOut * 0.9; // Scale from 0.1 to 1.0
-      const opacity = 0.3 + easeOut * 0.7; // Opacity from 0.3 to 1.0
-
-      // Try to find and update the entity mesh
-      // Check players
-      const playerGroup = this.playerMeshes.get(entityId);
-      if (playerGroup) {
-        playerGroup.scale.setScalar(scale);
-        this.setGroupOpacity(playerGroup, opacity);
-        return;
-      }
-    });
-  }
-
-  // ============================================
-  // Resource Caching (Performance)
-  // ============================================
-
-  private getGeometry(key: string, factory: () => THREE.BufferGeometry): THREE.BufferGeometry {
-    if (!this.geometryCache.has(key)) {
-      this.geometryCache.set(key, factory());
-    }
-    return this.geometryCache.get(key)!;
-  }
-
-  // ============================================
-  // Helper Methods
-  // ============================================
-
-  /**
-   * Calculate player visual size based on evolution stage
-   */
-  private getPlayerRadius(stage: string): number {
-    if (stage === 'multi_cell' || stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
-    }
-    return GAME_CONFIG.PLAYER_SIZE;
+    // Players don't need spawn animations (handled by materialize effect)
   }
 
   render(state: GameState, dt: number): void {
@@ -649,7 +400,14 @@ export class ThreeRenderer implements Renderer {
     const { spawnProgress, receivingEnergy } = this.effectsSystem.update(dt);
 
     // Sync all entities
-    this.syncPlayers(state);
+    this.playerRenderSystem.sync(
+      state.players,
+      state.playerTargets as Map<string, InterpolationTarget>,
+      state.playerDamageInfo as Map<string, PlayerDamageInfo>,
+      state.myPlayerId,
+      this.environmentSystem.getMode(),
+      this.cameraSystem.getYaw()
+    );
     this.nutrientRenderSystem.sync(
       state.nutrients as Map<string, NutrientData>,
       this.environmentSystem.getMode()
@@ -680,7 +438,7 @@ export class ThreeRenderer implements Renderer {
     this.auraSystem.updateDrainAuras(
       state.players,
       state.swarms,
-      this.playerMeshes,
+      this.playerRenderSystem.getPlayerMeshes(),
       this.swarmRenderSystem.getSwarmMeshes(),
       state.playerDamageInfo,
       state.swarmDamageInfo
@@ -689,7 +447,7 @@ export class ThreeRenderer implements Renderer {
     // Update gain auras (cyan glow when receiving energy)
     this.auraSystem.updateGainAuras(
       state.players,
-      this.playerMeshes,
+      this.playerRenderSystem.getPlayerMeshes(),
       receivingEnergy
     );
 
@@ -700,12 +458,12 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Update trails
-    this.trailSystem.update(this.playerMeshes, state.players);
+    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), state.players);
 
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
     if (myPlayer) {
-      const mesh = this.playerMeshes.get(myPlayer.id);
+      const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
       if (mesh) {
         this.cameraSystem.update(mesh.position.x, -mesh.position.z);
       } else {
@@ -730,13 +488,14 @@ export class ThreeRenderer implements Renderer {
         far: orthoCamera.far,
       });
       console.log('[DEBUG] Entities:', {
-        players: this.playerMeshes.size,
+        players: this.playerRenderSystem.getMeshCount(),
         nutrients: this.nutrientRenderSystem.getMeshCount(),
         swarms: this.swarmRenderSystem.getMeshCount(),
         obstacles: this.obstacleRenderSystem.getMeshCount(),
       });
-      if (this.playerMeshes.size > 0) {
-        const firstPlayer = this.playerMeshes.values().next().value;
+      const playerMeshes = this.playerRenderSystem.getPlayerMeshes();
+      if (playerMeshes.size > 0) {
+        const firstPlayer = playerMeshes.values().next().value;
         if (firstPlayer) {
           console.log('[DEBUG] First player mesh pos:', {
             x: firstPlayer.position.x.toFixed(0),
@@ -791,444 +550,6 @@ export class ThreeRenderer implements Renderer {
   private updateRenderModeForStage(stage: EvolutionStage): void {
     const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
     this.setRenderMode(isSoupStage ? 'soup' : 'jungle');
-  }
-
-  private syncPlayers(state: GameState): void {
-    // Use renderMode for cross-stage visibility (set by updateRenderModeForStage)
-    const isJungleMode = this.environmentSystem.getMode() === 'jungle';
-
-    // Remove players that left
-    this.playerMeshes.forEach((group, id) => {
-      if (!state.players.has(id)) {
-        this.scene.remove(group);
-
-        // Dispose non-cached materials
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh) {
-            if ((child.material as THREE.Material).dispose) {
-              (child.material as THREE.Material).dispose();
-            }
-          }
-        });
-
-        this.playerMeshes.delete(id);
-
-        // Also remove outline if it exists
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          this.scene.remove(outline);
-          this.playerOutlines.delete(id);
-        }
-      }
-    });
-
-    // Add or update players
-    state.players.forEach((player, id) => {
-      let cellGroup = this.playerMeshes.get(id);
-      const isMyPlayer = id === state.myPlayerId;
-
-      // Calculate size based on stage (needed for rendering and compass)
-      const radius = this.getPlayerRadius(player.stage);
-
-      // Check if stage changed (e.g., via dev panel) - need to recreate mesh
-      if (cellGroup && cellGroup.userData.stage !== player.stage) {
-        // Stage changed - remove old mesh and let it be recreated
-        this.scene.remove(cellGroup);
-        cellGroup.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry?.dispose();
-            if (Array.isArray(child.material)) {
-              child.material.forEach(m => m.dispose());
-            } else {
-              child.material?.dispose();
-            }
-          }
-        });
-        this.playerMeshes.delete(id);
-        cellGroup = undefined;
-
-        // Also remove outline if it exists (will be recreated if needed)
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          this.scene.remove(outline);
-          this.playerOutlines.delete(id);
-        }
-
-        // Clean up any evolution animation state and its meshes
-        const evolState = this.playerEvolutionState.get(id);
-        if (evolState) {
-          if (evolState.sourceMesh) {
-            this.scene.remove(evolState.sourceMesh);
-          }
-          if (evolState.targetMesh) {
-            this.scene.remove(evolState.targetMesh);
-          }
-          this.playerEvolutionState.delete(id);
-        }
-      }
-
-      if (!cellGroup) {
-
-        // Parse hex color (#RRGGBB → 0xRRGGBB)
-        const colorHex = parseInt(player.color.replace('#', ''), 16);
-
-        // Create cell based on stage
-        if (player.stage === 'humanoid') {
-          // Stage 4: Humanoid (loaded async)
-          // Check if we already have a loaded humanoid model for this player
-          const existingHumanoid = this.humanoidModels.get(id);
-          if (existingHumanoid) {
-            cellGroup = existingHumanoid;
-          } else {
-            // Start async load if not already loading
-            if (!this.pendingHumanoidLoads.has(id)) {
-              this.pendingHumanoidLoads.add(id);
-              createHumanoidModel(colorHex).then(({ model }) => {
-                this.pendingHumanoidLoads.delete(id);
-                this.humanoidModels.set(id, model);
-
-                // Replace placeholder with loaded model
-                const placeholder = this.playerMeshes.get(id);
-                if (placeholder) {
-                  this.scene.remove(placeholder);
-                }
-                model.userData.stage = 'humanoid';
-                model.userData.isHumanoid = true;
-                this.scene.add(model);
-                this.playerMeshes.set(id, model);
-              }).catch(err => {
-                console.error('Failed to load humanoid model:', err);
-                this.pendingHumanoidLoads.delete(id);
-              });
-            }
-            // Use cyber-organism as placeholder while humanoid loads
-            cellGroup = createCyberOrganism(radius, colorHex);
-            cellGroup.userData.isHumanoidPlaceholder = true;
-          }
-        } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
-          // Stage 3 and Stage 5: Cyber-organism hexapod (placeholder for godcell for now)
-          cellGroup = createCyberOrganism(radius, colorHex);
-        } else if (player.stage === 'multi_cell') {
-          // Multi-cell organism
-          cellGroup = createMultiCell({
-            radius,
-            colorHex,
-            style: this.multiCellStyle,
-          });
-        } else {
-          // Single-cell organism
-          cellGroup = createSingleCell(radius, colorHex);
-        }
-
-        // Position group at player location on XZ plane (Y=height)
-        // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
-
-        // Store stage for change detection
-        cellGroup.userData.stage = player.stage;
-
-        this.scene.add(cellGroup);
-        this.playerMeshes.set(id, cellGroup);
-
-        // Add white stroke outline for client player
-        if (isMyPlayer) {
-          const outlineGeometry = this.getGeometry(`ring-outline-${radius}`, () =>
-            new THREE.RingGeometry(radius, radius + 3, 32)
-          );
-          // Don't cache outline material - needs to change color and opacity dynamically
-          const outlineMaterial = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            emissive: 0xffffff,
-            emissiveIntensity: 1.0,
-            transparent: true,
-            opacity: 1.0, // Will fade with health
-            depthWrite: false, // Prevent z-fighting with transparent materials
-          });
-          const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-          outline.position.y = 0.1; // Slightly above player (Y=height)
-          // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
-          outline.rotation.x = -Math.PI / 2;
-          this.scene.add(outline);
-          this.playerOutlines.set(id, outline);
-        }
-      }
-
-      // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
-      if (player.stage === 'humanoid' && cellGroup.userData.isHumanoid) {
-        // Stage 4: Humanoid - update animation and energy visualization
-        const energyRatio = player.energy / player.maxEnergy;
-        updateHumanoidEnergy(cellGroup, energyRatio);
-
-        // Check if player is moving
-        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
-        const currPos = player.position;
-        const isMoving = prevPos
-          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
-          : false;
-        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
-
-        // Calculate speed for animation blending
-        const speed = prevPos
-          ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) * 60 // per second
-          : 0;
-
-        // Update humanoid animation (idle/walk/run blending)
-        const animState = cellGroup.userData.animState as HumanoidAnimationState | undefined;
-        if (animState) {
-          updateHumanoidAnimation(animState, 1 / 60, isMoving, speed);
-        }
-
-        // For first-person (local player), rotate humanoid to match camera yaw
-        // For other players, rotate to face movement direction
-        if (isMyPlayer) {
-          setHumanoidRotation(cellGroup, this.cameraSystem.getYaw());
-        } else if (prevPos && isMoving) {
-          const dx = currPos.x - prevPos.x;
-          const dy = currPos.y - prevPos.y;
-          const targetHeading = Math.atan2(dy, dx);
-          setHumanoidRotation(cellGroup, targetHeading);
-        }
-
-        // Position humanoid in world (different coordinate system - Y is up in 3D)
-        // Game coords: X = X, Y = Z (forward into world), height = Y
-        cellGroup.position.set(player.position.x, 0, -player.position.y);
-
-      } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
-        // Stage 3 and 5: Cyber-organism (hexapod)
-        const energyRatio = player.energy / player.maxEnergy;
-        updateCyberOrganismEnergy(cellGroup, energyRatio);
-
-        // Check if player is moving by comparing current to previous position
-        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
-        const currPos = player.position;
-        const isMoving = prevPos
-          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
-          : false;
-        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
-
-        // Update heading (face direction of movement)
-        if (prevPos && isMoving) {
-          const dx = currPos.x - prevPos.x;
-          const dy = currPos.y - prevPos.y;
-          // Calculate target heading - offset by PI because head points in -X direction
-          const targetHeading = Math.atan2(dy, dx) + Math.PI;
-
-          // Initialize heading if not set
-          if (cellGroup.userData.heading === undefined) {
-            cellGroup.userData.heading = targetHeading;
-          }
-
-          // Smooth rotation toward target heading (lerp with angle wrapping)
-          let currentHeading = cellGroup.userData.heading as number;
-          let delta = targetHeading - currentHeading;
-
-          // Wrap delta to [-PI, PI] for shortest rotation path
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-
-          currentHeading += delta * 0.15; // Lerp factor for smooth turning
-          cellGroup.userData.heading = currentHeading;
-          cellGroup.rotation.z = currentHeading;
-        }
-
-        updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60); // ~60fps
-      } else if (player.stage === 'multi_cell') {
-        updateMultiCellEnergy(
-          cellGroup,
-          this.multiCellStyle,
-          player.energy,
-          player.maxEnergy
-        );
-      } else {
-        this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.stage);
-      }
-
-      // Apply evolution effects if player is evolving
-      const evolState = this.playerEvolutionState.get(id);
-      if (evolState) {
-        const elapsed = Date.now() - evolState.startTime;
-        const progress = Math.min(elapsed / evolState.duration, 1.0);
-
-        // Apply glow and pulse to whichever mesh is visible
-        if (evolState.sourceMesh) {
-          applyEvolutionEffects(evolState.sourceMesh, evolState.sourceStage, progress);
-        }
-        if (evolState.targetMesh) {
-          applyEvolutionEffects(evolState.targetMesh, evolState.targetStage, progress);
-
-          // Crossfade: source fades out, target fades in
-          const sourceOpacity = 1.0 - progress;
-          const targetOpacity = progress;
-
-          this.setGroupOpacity(evolState.sourceMesh!, sourceOpacity);
-          this.setGroupOpacity(evolState.targetMesh, targetOpacity);
-
-          // Scale effects: source shrinks slightly, target grows from smaller
-          evolState.sourceMesh!.scale.setScalar(1.0 - progress * 0.15); // Shrink to 0.85
-          evolState.targetMesh.scale.setScalar(0.7 + progress * 0.3); // Grow from 0.7 to 1.0
-
-          // Keep both meshes at same position
-          evolState.targetMesh.position.copy(cellGroup.position);
-        }
-      }
-
-      // Update outline opacity and color for client player based on energy and damage
-      if (isMyPlayer) {
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          const energyRatio = player.energy / player.maxEnergy;
-          const outlineMaterial = outline.material as THREE.MeshStandardMaterial;
-          outlineMaterial.opacity = energyRatio; // Direct proportion: 1.0 at full energy, 0.0 at death
-
-          // Turn outline red when taking damage
-          const damageInfo = state.playerDamageInfo.get(id);
-          if (damageInfo && damageInfo.totalDamageRate > 0) {
-            // Taking damage - turn red
-            outlineMaterial.color.setRGB(1.0, 0.0, 0.0); // Pure red
-            outlineMaterial.emissive.setRGB(1.0, 0.0, 0.0); // Pure red glow
-            outlineMaterial.emissiveIntensity = 2.0; // Bright
-          } else {
-            // No damage - keep white
-            outlineMaterial.color.setRGB(1.0, 1.0, 1.0);
-            outlineMaterial.emissive.setRGB(1.0, 1.0, 1.0);
-            outlineMaterial.emissiveIntensity = 1.0;
-          }
-        }
-      }
-
-      // Update position with client-side interpolation
-      const target = state.playerTargets.get(id);
-      if (target) {
-        // Lerp toward server position (XZ plane: game Y maps to -Z)
-        const lerpFactor = 0.3;
-        cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-        const targetZ = -target.y;
-        cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
-
-        // Update outline position if it exists
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          outline.position.x = cellGroup.position.x;
-          outline.position.z = cellGroup.position.z;
-        }
-
-        // Update compass indicators for client player (chemical sensing)
-        if (isMyPlayer) {
-          this.compassIndicators = updateCompassIndicators(
-            this.scene,
-            this.compassIndicators,
-            this.detectedEntities,
-            { x: cellGroup.position.x, y: cellGroup.position.y },
-            radius,
-            player.stage
-          );
-        }
-      } else {
-        // Fallback to direct position if no target
-        // Maintain height offset for Stage 3+ creatures
-        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
-
-        // Update outline position if it exists
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
-        }
-
-        // Update compass indicators for client player (chemical sensing)
-        if (isMyPlayer) {
-          this.compassIndicators = updateCompassIndicators(
-            this.scene,
-            this.compassIndicators,
-            this.detectedEntities,
-            { x: player.position.x, y: player.position.y },
-            radius,
-            player.stage
-          );
-        }
-      }
-
-      // Cross-stage visibility: Only render players in the same world as local player
-      // Soup mode: only Stage 1-2 players visible
-      // Jungle mode: only Stage 3+ players visible
-      const playerIsJungleStage = (
-        player.stage === EvolutionStage.CYBER_ORGANISM ||
-        player.stage === EvolutionStage.HUMANOID ||
-        player.stage === EvolutionStage.GODCELL
-      );
-      const shouldBeVisible = isMyPlayer || (isJungleMode === playerIsJungleStage);
-      cellGroup.visible = shouldBeVisible;
-
-      // Also hide outline if it exists and player should be hidden
-      const outline = this.playerOutlines.get(id);
-      if (outline) {
-        outline.visible = shouldBeVisible;
-      }
-
-      // Hide trail for hidden players
-      this.trailSystem.setTrailVisible(id, shouldBeVisible);
-    });
-  }
-
-  /**
-   * Update cell visual state based on energy (diegetic UI)
-   * Energy is the sole life resource in the energy-only system
-   * Energy affects all visual feedback: brightness, opacity, and urgency effects
-   * Evolution progress (30-100%) triggers visual indicators
-   */
-  private updateCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number, stage: EvolutionStage): void {
-    // Update energy-based visuals (brightness, opacity, flickering)
-    updateSingleCellEnergy(cellGroup, energy, maxEnergy);
-
-    // Calculate evolution progress (0.0 = start, 1.0 = ready to evolve)
-    // Progress starts counting at 30% of next evolution threshold
-    const evolutionProgress = calculateEvolutionProgress(maxEnergy, stage);
-    const isApproachingEvolution = evolutionProgress >= 0.3; // 30% threshold
-
-    // ============================================
-    // Evolution Progress Indicators (30-100%)
-    // ============================================
-    if (isApproachingEvolution) {
-      // 1. Pulsing Scale Effect - whole cell breathes
-      const time = Date.now() * 0.003; // Slower pulse for evolution (vs starvation)
-      const pulseIntensity = 0.05 + evolutionProgress * 0.05; // 5-10% size variance
-      const cellPulse = 1.0 + Math.sin(time) * pulseIntensity;
-      cellGroup.scale.set(cellPulse, cellPulse, cellPulse);
-
-      // 2. Particle Corona - orbiting glow particles
-      updateEvolutionCorona(cellGroup, evolutionProgress);
-
-      // 3. Glow Ring - shrinking torus around cell
-      updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius || 10);
-    } else {
-      // No evolution effects - reset scale and remove corona/ring
-      cellGroup.scale.set(1, 1, 1);
-      removeEvolutionEffects(cellGroup);
-    }
-  }
-
-  /**
-   * Set opacity for all materials in a group recursively
-   */
-  private setGroupOpacity(group: THREE.Group, opacity: number): void {
-    group.children.forEach(child => {
-      if (child instanceof THREE.Mesh) {
-        const material = child.material as THREE.Material;
-        if ('opacity' in material) {
-          (material as any).opacity = opacity;
-        }
-        if ('uniforms' in material && (material as any).uniforms.opacity) {
-          (material as any).uniforms.opacity.value = opacity;
-        }
-      } else if (child instanceof THREE.Points) {
-        const material = child.material as THREE.PointsMaterial;
-        material.opacity = opacity;
-      } else if (child instanceof THREE.Group) {
-        // Recursively set opacity for nested groups (multi-cell)
-        this.setGroupOpacity(child, opacity);
-      }
-    });
   }
 
   resize(width: number, height: number): void {
@@ -1331,29 +652,11 @@ export class ThreeRenderer implements Renderer {
   }
 
   dispose(): void {
-    // Clean up humanoid models (Stage 4 GLTF instances)
-    this.humanoidModels.forEach((model) => {
-      this.scene.remove(model);
-      model.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry?.dispose();
-          if (Array.isArray(child.material)) {
-            child.material.forEach((m) => m.dispose());
-          } else {
-            child.material?.dispose();
-          }
-        }
-      });
-    });
-    this.humanoidModels.clear();
-    this.pendingHumanoidLoads.clear();
+    // Clean up player meshes (humanoids, outlines, compass, etc.)
+    this.playerRenderSystem.dispose();
 
     // Clean up nutrient meshes
     this.nutrientRenderSystem.dispose();
-
-    // Clean up meshes (geometries are cached, so don't dispose them here)
-    this.playerMeshes.clear();
-    this.playerOutlines.clear();
 
     // Clean up player trails
     this.trailSystem.dispose();
@@ -1380,13 +683,6 @@ export class ThreeRenderer implements Renderer {
     // Dispose cached materials
     this.materialCache.forEach(mat => mat.dispose());
     this.materialCache.clear();
-
-    // Clean up compass indicators
-    if (this.compassIndicators) {
-      disposeCompassIndicators(this.compassIndicators);
-      this.scene.remove(this.compassIndicators);
-      this.compassIndicators = null;
-    }
 
     // Dispose extracted module caches
     disposeSingleCellCache();
