@@ -2,7 +2,8 @@
 // ECS System Types
 // ============================================
 
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
+import type { World } from '@godcell/shared';
 
 /**
  * Base System interface
@@ -14,9 +15,11 @@ export interface System {
 
   /**
    * Called every game tick
-   * @param ctx Game context with world, io, deltaTime, and all game state
+   * @param world The ECS World containing all entities and components
+   * @param deltaTime Time since last tick in seconds
+   * @param io Socket.io server for network broadcasts
    */
-  update(ctx: GameContext): void;
+  update(world: World, deltaTime: number, io: Server): void;
 }
 
 /**

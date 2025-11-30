@@ -64,4 +64,23 @@ export const Tags = {
   Obstacle: 'obstacle',
   Swarm: 'swarm',
   Pseudopod: 'pseudopod',
+
+  // Transient per-tick tags (cleared at end of each tick)
+  // Used for cross-system communication within a single game loop iteration
+  SlowedThisTick: 'slowed_this_tick',
+  DamagedThisTick: 'damaged_this_tick',
+} as const;
+
+// ============================================
+// Resource Keys
+// ============================================
+
+/**
+ * Standard resource keys for world.getResource/setResource.
+ * Resources are singleton data not tied to entities.
+ * Currently empty - available for future game resources
+ * (global cooldowns, world events, etc.)
+ */
+export const Resources = {
+  // Add game resources here as needed
 } as const;

@@ -7,7 +7,7 @@ export { World } from './World';
 export { ComponentStore } from './Component';
 
 // Types and constants
-export { Components, Tags } from './types';
+export { Components, Tags, Resources } from './types';
 export type { EntityId, ComponentType } from './types';
 
 // Component interfaces

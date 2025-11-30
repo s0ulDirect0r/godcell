@@ -35,7 +35,10 @@ import type {
   CanSprintComponent,
   CanEngulfComponent,
   CanDetectComponent,
+  DamageSource,
 } from '@godcell/shared';
+import { getDamageResistance } from '../helpers/stages';
+import { hasGodMode } from '../dev';
 
 // ============================================
 // World Setup
@@ -1479,4 +1482,53 @@ export function buildSwarmsRecord(world: World): Record<string, {
   });
 
   return result;
+}
+
+// ============================================
+// Damage Recording (drain aura system)
+// ============================================
+
+/**
+ * Record damage for this tick - used by drain aura visual system.
+ * Writes directly to ECS DamageTrackingComponent.activeDamage.
+ */
+export function recordDamage(
+  world: World,
+  entityId: string,
+  damageRate: number,
+  source: DamageSource,
+  proximityFactor?: number
+): void {
+  const damageTracking = getDamageTrackingBySocketId(world, entityId);
+  if (damageTracking) {
+    damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
+  }
+}
+
+/**
+ * Apply damage to player with resistance factored in.
+ * Returns actual damage dealt after resistance.
+ * God mode players take no damage.
+ */
+export function applyDamageWithResistance(
+  world: World,
+  playerId: string,
+  baseDamage: number
+): number {
+  // God mode players are immune to damage
+  if (hasGodMode(playerId)) return 0;
+
+  const stageComp = getStageBySocketId(world, playerId);
+  if (!stageComp) return 0;
+
+  const resistance = getDamageResistance(stageComp.stage);
+  const actualDamage = baseDamage * (1 - resistance);
+
+  // Write damage to ECS
+  const energyComp = getEnergyBySocketId(world, playerId);
+  if (energyComp) {
+    energyComp.current -= actualDamage;
+  }
+
+  return actualDamage;
 }

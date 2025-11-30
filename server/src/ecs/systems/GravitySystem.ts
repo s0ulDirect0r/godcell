@@ -3,10 +3,10 @@
 // Applies gravitational forces from obstacles to entities
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
-import { EvolutionStage } from '@godcell/shared';
+import type { Server } from 'socket.io';
+import { EvolutionStage, type World } from '@godcell/shared';
 import type { VelocityComponent } from '@godcell/shared';
+import type { System } from './types';
 import {
   forEachObstacle,
   forEachPlayer,
@@ -34,8 +34,7 @@ import { isBot } from '../../bots';
 export class GravitySystem implements System {
   readonly name = 'GravitySystem';
 
-  update(ctx: GameContext): void {
-    const { world, deltaTime } = ctx;
+  update(world: World, deltaTime: number, _io: Server): void {
 
     // Apply gravity to players (iterate ECS directly)
     forEachPlayer(world, (entity, playerId) => {

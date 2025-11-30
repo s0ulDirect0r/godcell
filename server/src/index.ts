@@ -18,7 +18,7 @@ import type {
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, checkSwarmCollisions, removeSwarm, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initializeSwarms, updateSwarms, updateSwarmPositions, processSwarmRespawns, spawnSwarmAt } from './swarms';
 import { buildSwarmsRecord } from './ecs';
 import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, hasGodMode, shouldRunTick, getConfig } from './dev';
@@ -74,6 +74,7 @@ import {
   deletePlayerBySocketId,
   forEachPlayer,
   setPlayerStage,
+  applyDamageWithResistance,
   // ECS setters - update component values directly
   setEnergyBySocketId,
   setMaxEnergyBySocketId,
@@ -101,7 +102,6 @@ import {
   NutrientAttractionSystem,
   DeathSystem,
   NetworkBroadcastSystem,
-  type GameContext,
 } from './ecs';
 import {
   // Math utilities
@@ -193,7 +193,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
   // Apply damage to closest hit
   if (result.closestHit) {
     const targetId = result.closestHit.playerId;
-    applyDamageWithResistance(targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
+    applyDamageWithResistance(world, targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
 
     // Track damage source in ECS for death cause logging
     const damageTracking = getDamageTrackingBySocketId(world, targetId);
@@ -267,29 +267,7 @@ function initializeObstacles() {
   }
 }
 
-/**
- * Apply damage to player with resistance factored in
- * Returns actual damage dealt after resistance
- * God mode players take no damage
- */
-function applyDamageWithResistance(playerId: string, baseDamage: number): number {
-  // God mode players are immune to damage
-  if (hasGodMode(playerId)) return 0;
-
-  const stageComp = getStageBySocketId(world, playerId);
-  if (!stageComp) return 0;
-
-  const resistance = getDamageResistance(stageComp.stage);
-  const actualDamage = baseDamage * (1 - resistance);
-
-  // Write damage to ECS
-  const energyComp = getEnergyBySocketId(world, playerId);
-  if (energyComp) {
-    energyComp.current -= actualDamage;
-  }
-
-  return actualDamage;
-}
+// NOTE: applyDamageWithResistance moved to ecs/factories.ts
 
 /**
  * Respawn a dead player - reset to single-cell at random location
@@ -408,8 +386,8 @@ const abilitySystem = new AbilitySystem({
   world, // ECS World (source of truth) - swarms queried via forEachSwarm/getAllSwarmSnapshots
   io,
   // NOTE: Cooldowns migrated to ECS CooldownsComponent
+  // NOTE: applyDamageWithResistance migrated to direct import from ./ecs
   checkBeamHitscan,
-  applyDamageWithResistance,
   getPlayerRadius,
 });
 
@@ -441,65 +419,6 @@ logger.info({
   event: 'systems_registered',
   systems: systemRunner.getSystemNames(),
 });
-
-/**
- * Build the GameContext for this tick
- * This provides systems access to all game state and helper functions
- */
-function buildGameContext(deltaTime: number): GameContext {
-  return {
-    // ECS World (source of truth)
-    world,
-    io,
-    deltaTime,
-
-    // Entity Collections - ALL migrated to ECS:
-    // - nutrients → forEachNutrient/getAllNutrientSnapshots
-    // - obstacles → forEachObstacle/getAllObstacleSnapshots
-    // - swarms → forEachSwarm/getAllSwarmSnapshots
-    // - pseudopods → PseudopodComponent
-    // - playerInputDirections/playerVelocities → InputComponent/VelocityComponent
-    // - playerSprintState → SprintComponent
-    // - playerLastDamageSource/playerLastBeamShooter → DamageTrackingComponent
-    // - pseudopodHitDecays → DamageTrackingComponent
-    // - playerEMPCooldowns/playerPseudopodCooldowns → CooldownsComponent
-    // - activeDrains → DrainTargetComponent
-    // - activeSwarmDrains → SwarmComponent.beingConsumedBy
-    // - activeDamage → DamageTrackingComponent.activeDamage
-
-    // Per-tick transient data (will be populated by systems)
-    tickData: {
-      damagedPlayerIds: new Set(),
-      slowedPlayerIds: new Set(),
-    },
-
-    // Ability System
-    abilitySystem,
-
-    // Helper Functions
-    distance,
-    getPlayerRadius,
-    getWorldBoundsForStage,
-    applyDamageWithResistance,
-    recordDamage,
-    getStageMaxEnergy,
-    getDamageResistance,
-    getEnergyDecayRate,
-    isSoupStage,
-    isJungleStage,
-    isBot,
-
-    // Legacy Functions (called by wrapper systems)
-    updateBots,
-    // Swarm functions now take world parameter (ECS is source of truth)
-    updateSwarms: (timestamp: number, w: World, dt: number) => updateSwarms(timestamp, w, dt),
-    updateSwarmPositions: (w: World, dt: number, serverIo: Server) => updateSwarmPositions(w, dt, serverIo),
-    processSwarmRespawns: (w: World, serverIo: Server) => processSwarmRespawns(w, serverIo),
-    checkSwarmCollisions,
-    respawnNutrient,
-    removeSwarm: (w: World, swarmId: string) => removeSwarm(w, swarmId),
-  };
-}
 
 // ============================================
 // Connection Handling
@@ -673,13 +592,16 @@ setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
   if (!shouldRunTick()) return;
 
-  const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
-
-  // Build game context for this tick
-  const ctx = buildGameContext(deltaTime);
+  // Calculate deltaTime (seconds per tick)
+  const deltaTime = TICK_INTERVAL / 1000;
 
   // Run all systems in priority order
-  systemRunner.update(ctx);
+  // World = game state, deltaTime = frame context, io = network infrastructure
+  systemRunner.update(world, deltaTime, io);
+
+  // Clear transient per-tick tags used for cross-system communication
+  world.clearTagFromAll(Tags.SlowedThisTick);
+  world.clearTagFromAll(Tags.DamagedThisTick);
 }, TICK_INTERVAL);
 
 // ============================================

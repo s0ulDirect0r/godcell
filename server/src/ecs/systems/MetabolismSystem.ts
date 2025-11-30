@@ -3,8 +3,10 @@
 // Handles energy decay, starvation, and evolution checks
 // ============================================
 
+import type { Server } from 'socket.io';
+import type { World } from '@godcell/shared';
+import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import {
   Components,
   forEachPlayer,
@@ -14,13 +16,14 @@ import {
   setPlayerStage,
   hasPlayer,
   getDamageTrackingBySocketId,
+  recordDamage,
   type EnergyComponent,
   type StageComponent,
 } from '../index';
 import { hasGodMode, getConfig } from '../../dev';
-import { getNextEvolutionStage, getStageMaxEnergy } from '../../helpers';
+import { getNextEvolutionStage, getStageMaxEnergy, getEnergyDecayRate } from '../../helpers';
 import { recordEvolution } from '../../logger';
-import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
+import { isBot } from '../../bots';
 
 /**
  * MetabolismSystem - Manages player metabolism
@@ -33,8 +36,7 @@ import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godce
 export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
-  update(ctx: GameContext): void {
-    const { world, deltaTime, io, recordDamage, getEnergyDecayRate, isBot } = ctx;
+  update(world: World, deltaTime: number, io: Server): void {
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -78,12 +80,12 @@ export class MetabolismSystem implements System {
           damageTrackingForDeath.lastDamageSource = 'starvation';
         }
         // Record for drain aura (shows starvation state)
-        recordDamage(playerId, decayRate, 'starvation');
+        recordDamage(world, playerId, decayRate, 'starvation');
       }
 
       // Check for evolution (only if still alive)
       if (energyComp.current > 0) {
-        this.checkEvolution(playerId, ctx);
+        this.checkEvolution(playerId, world, io);
       }
     });
   }
@@ -91,8 +93,7 @@ export class MetabolismSystem implements System {
   /**
    * Check if player can evolve and trigger evolution if conditions met
    */
-  private checkEvolution(playerId: string, ctx: GameContext): void {
-    const { world, io, isBot } = ctx;
+  private checkEvolution(playerId: string, world: World, io: Server): void {
 
     const stageComp = getStageBySocketId(world, playerId);
     const energyComp = getEnergyBySocketId(world, playerId);

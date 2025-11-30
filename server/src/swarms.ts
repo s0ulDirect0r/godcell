@@ -1,18 +1,14 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { EntropySwarm, Position, SwarmSpawnedMessage, DamageSource } from '@godcell/shared';
+import type { EntropySwarm, Position, SwarmSpawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
-import { getConfig, hasGodMode } from './dev';
-import { getDamageResistance } from './helpers/stages';
+import { getConfig } from './dev';
 import {
   createSwarm,
   destroyEntity,
-  getEntityBySocketId,
   forEachPlayer,
   forEachSwarm,
   getAllObstacleSnapshots,
-  getAllSwarmSnapshots,
   getSwarmComponents,
-  getSwarmCount,
   buildSwarmsRecord,
   Components,
   type World,
@@ -427,72 +423,9 @@ export function updateSwarmPositions(world: World, deltaTime: number, io: Server
   });
 }
 
-/**
- * Check for collisions between swarms and players, deal damage and apply slow
- * Death is handled by universal death check after all damage sources
- * Returns object with damaged player IDs (for cause tracking) and slowed player IDs
- *
- * Stage filtering: Swarms only interact with soup-stage players (Stage 1-2)
- * Stage 3+ players have evolved past the soup and don't interact with swarms
- * Iterates ECS swarm entities directly.
- */
-export function checkSwarmCollisions(
-  world: World,
-  deltaTime: number,
-  recordDamage?: (entityId: string, damageRate: number, source: DamageSource) => void
-): { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> } {
-  const damagedPlayerIds = new Set<string>();
-  const slowedPlayerIds = new Set<string>();
-  const now = Date.now();
-
-  forEachSwarm(world, (swarmEntity, swarmId, swarmPos, swarmVel, swarmComp) => {
-    // Skip disabled swarms (hit by EMP)
-    if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
-
-    const swarmPosition = { x: swarmPos.x, y: swarmPos.y };
-
-    forEachPlayer(world, (entity, playerId) => {
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      if (!energyComp || !posComp || !stageComp) return;
-
-      // Skip dead/evolving players
-      if (energyComp.current <= 0 || stageComp.isEvolving) return;
-
-      // Stage 3+ players don't interact with soup swarms (they've evolved past)
-      if (!isSoupStage(stageComp.stage)) return;
-
-      // God mode players are immune
-      if (hasGodMode(playerId)) return;
-
-      // Check collision (circle-circle)
-      const playerPosition = { x: posComp.x, y: posComp.y };
-      const dist = distance(swarmPosition, playerPosition);
-      const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
-
-      if (dist < collisionDist) {
-        // Apply damage directly with resistance
-        const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
-        const resistance = getDamageResistance(stageComp.stage);
-        const actualDamage = baseDamage * (1 - resistance);
-        energyComp.current -= actualDamage;
-
-        damagedPlayerIds.add(playerId);
-
-        // Record damage for drain aura system
-        if (recordDamage) {
-          recordDamage(playerId, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
-        }
-
-        // Apply movement slow debuff
-        slowedPlayerIds.add(playerId);
-      }
-    });
-  });
-
-  return { damagedPlayerIds, slowedPlayerIds };
-}
+// NOTE: checkSwarmCollisions has been inlined into SwarmCollisionSystem
+// The collision detection logic now lives directly in the ECS system at:
+// server/src/ecs/systems/SwarmCollisionSystem.ts
 
 /**
  * Get all swarms as a record for initial state broadcast.

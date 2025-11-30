@@ -3,8 +3,7 @@
 // Handles all network broadcasts at end of tick
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type {
   EnergyUpdateMessage,
   DetectionUpdateMessage,
@@ -13,7 +12,8 @@ import type {
   DamageSource,
   DamageTrackingComponent,
 } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG, Components } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, Components, type World } from '@godcell/shared';
+import type { System } from './types';
 import {
   forEachPlayer,
   forEachNutrient,
@@ -47,19 +47,17 @@ export class NetworkBroadcastSystem implements System {
   private energyUpdateTicks = 0;
   private detectionUpdateTicks = 0;
 
-  update(ctx: GameContext): void {
-    this.broadcastEnergyUpdates(ctx);
-    this.broadcastDrainState(ctx);
-    this.broadcastDetectionUpdates(ctx);
+  update(world: World, _deltaTime: number, io: Server): void {
+    this.broadcastEnergyUpdates(world, io);
+    this.broadcastDrainState(world, io);
+    this.broadcastDetectionUpdates(world, io);
   }
 
   /**
    * Broadcast energy updates to clients (throttled)
    * Energy-only system: energy is the sole resource
    */
-  private broadcastEnergyUpdates(ctx: GameContext): void {
-    const { world, io } = ctx;
-
+  private broadcastEnergyUpdates(world: World, io: Server): void {
     this.energyUpdateTicks++;
 
     if (this.energyUpdateTicks >= ENERGY_UPDATE_INTERVAL) {
@@ -84,9 +82,7 @@ export class NetworkBroadcastSystem implements System {
    * Sends comprehensive damage info for variable-intensity drain auras
    * Now reads from ECS components instead of Maps/Sets
    */
-  private broadcastDrainState(ctx: GameContext): void {
-    const { world, io } = ctx;
-
+  private broadcastDrainState(world: World, io: Server): void {
     // Aggregate damage info per player from ECS components
     const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};
     const now = Date.now();
@@ -161,9 +157,7 @@ export class NetworkBroadcastSystem implements System {
    * Broadcast detected entities to multi-cell players (chemical sensing)
    * Multi-cells can "smell" nearby prey and nutrients from extended range
    */
-  private broadcastDetectionUpdates(ctx: GameContext): void {
-    const { world, io } = ctx;
-
+  private broadcastDetectionUpdates(world: World, io: Server): void {
     this.detectionUpdateTicks++;
 
     if (this.detectionUpdateTicks >= DETECTION_UPDATE_INTERVAL) {

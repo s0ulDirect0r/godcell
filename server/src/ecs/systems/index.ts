@@ -2,10 +2,9 @@
 // ECS Systems - Index
 // ============================================
 
-// Types and Context
+// Types
 export type { System } from './types';
 export { SystemPriority } from './types';
-export type { GameContext } from './GameContext';
 
 // Runner
 export { SystemRunner } from './SystemRunner';

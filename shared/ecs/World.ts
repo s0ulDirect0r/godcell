@@ -20,6 +20,10 @@ export class World {
   private stores = new Map<ComponentType, ComponentStore<unknown>>();
   private entityTags = new Map<EntityId, Set<string>>();
 
+  // Resources - singleton data that isn't tied to entities
+  // Examples: Time, Config, Network IO
+  private resources = new Map<string, unknown>();
+
   // ============================================
   // Entity Lifecycle
   // ============================================
@@ -225,6 +229,51 @@ export class World {
     }
   }
 
+  /**
+   * Remove a tag from all entities that have it.
+   * Used for clearing transient per-tick tags.
+   */
+  clearTagFromAll(tag: string): void {
+    for (const tags of this.entityTags.values()) {
+      tags.delete(tag);
+    }
+  }
+
+  // ============================================
+  // Resources (singleton data)
+  // ============================================
+
+  /**
+   * Set a resource value.
+   * Resources are singleton data not tied to entities.
+   * Examples: Time { delta, elapsed }, Config, Network IO
+   */
+  setResource<T>(key: string, value: T): void {
+    this.resources.set(key, value);
+  }
+
+  /**
+   * Get a resource value.
+   * Returns undefined if not set.
+   */
+  getResource<T>(key: string): T | undefined {
+    return this.resources.get(key) as T | undefined;
+  }
+
+  /**
+   * Check if a resource exists.
+   */
+  hasResource(key: string): boolean {
+    return this.resources.has(key);
+  }
+
+  /**
+   * Delete a resource.
+   */
+  deleteResource(key: string): void {
+    this.resources.delete(key);
+  }
+
   // ============================================
   // Utilities
   // ============================================
@@ -239,13 +288,14 @@ export class World {
     for (const store of this.stores.values()) {
       store.clear();
     }
+    this.resources.clear();
     this.nextEntityId = 1;
   }
 
   /**
    * Debug: get stats about the world.
    */
-  getStats(): { entities: number; componentTypes: number; stores: Record<string, number> } {
+  getStats(): { entities: number; componentTypes: number; stores: Record<string, number>; resources: string[] } {
     const stores: Record<string, number> = {};
     for (const [type, store] of this.stores) {
       stores[type] = store.size;
@@ -254,6 +304,7 @@ export class World {
       entities: this.entities.size,
       componentTypes: this.stores.size,
       stores,
+      resources: Array.from(this.resources.keys()),
     };
   }
 }

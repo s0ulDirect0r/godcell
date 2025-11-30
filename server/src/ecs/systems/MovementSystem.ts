@@ -3,7 +3,8 @@
 // Handles player movement, velocity, and position updates
 // ============================================
 
-import { EvolutionStage, Tags, Components } from '@godcell/shared';
+import type { Server } from 'socket.io';
+import { EvolutionStage, Tags, Components, type World } from '@godcell/shared';
 import type {
   PlayerMovedMessage,
   EnergyComponent,
@@ -15,9 +16,9 @@ import type {
   SprintComponent,
 } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import { getConfig } from '../../dev';
 import { getSocketIdByEntity, hasDrainTarget } from '../factories';
+import { getPlayerRadius, getWorldBoundsForStage } from '../../helpers';
 
 /**
  * MovementSystem - Handles all player movement
@@ -38,17 +39,7 @@ import { getSocketIdByEntity, hasDrainTarget } from '../factories';
 export class MovementSystem implements System {
   readonly name = 'MovementSystem';
 
-  update(ctx: GameContext): void {
-    const {
-      world,
-      tickData,
-      deltaTime,
-      io,
-      getPlayerRadius,
-      getWorldBoundsForStage,
-    } = ctx;
-
-    const slowedPlayerIds = tickData.slowedPlayerIds;
+  update(world: World, deltaTime: number, io: Server): void {
 
     // Iterate over all player entities in ECS
     world.forEachWithTag(Tags.Player, (entity) => {
@@ -94,8 +85,9 @@ export class MovementSystem implements System {
       }
       // TODO: HUMANOID and GODCELL acceleration
 
-      // Swarm slow debuff
-      if (slowedPlayerIds.has(playerId)) {
+      // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
+      const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
+      if (isSlowed) {
         acceleration *= getConfig('SWARM_SLOW_EFFECT');
       }
 
@@ -132,7 +124,7 @@ export class MovementSystem implements System {
       // TODO: HUMANOID and GODCELL max speed
 
       // Apply slow effects to max speed cap
-      if (slowedPlayerIds.has(playerId)) {
+      if (isSlowed) {
         maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
       }
       if (hasDrainTarget(world, playerId)) {

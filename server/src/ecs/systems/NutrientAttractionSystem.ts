@@ -3,12 +3,13 @@
 // Attracts nutrients toward gravity wells (visual effect)
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type { NutrientMovedMessage, NutrientCollectedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Tags, Components, type PositionComponent } from '@godcell/shared';
+import { GAME_CONFIG, Tags, Components, type World, type PositionComponent } from '@godcell/shared';
+import type { System } from './types';
 import { forEachObstacle, getStringIdByEntity, destroyEntity as ecsDestroyEntity } from '../index';
 import { distance } from '../../helpers';
+import { respawnNutrient } from '../../nutrients';
 
 /**
  * NutrientAttractionSystem - Attracts nutrients to obstacles
@@ -23,8 +24,7 @@ import { distance } from '../../helpers';
 export class NutrientAttractionSystem implements System {
   readonly name = 'NutrientAttractionSystem';
 
-  update(ctx: GameContext): void {
-    const { world, io, deltaTime, respawnNutrient } = ctx;
+  update(world: World, deltaTime: number, io: Server): void {
 
     // Collect nutrients to destroy after iteration (can't modify during iteration)
     // Use Map to dedupe - nutrient may be near multiple obstacles
