@@ -45,17 +45,17 @@ Cheat sheet for components, tags, and abilities.
 
 ---
 
-## Ability Components (Markers)
+## Ability Components
 
-These have no data — presence = ability unlocked.
+Presence = ability unlocked. Most are pure markers (no data), except `CanDetect`.
 
-| Component | Stage | Effect |
-|-----------|-------|--------|
-| `CanFireEMP` | 2+ | EMP pulse (stuns nearby, drains energy) |
-| `CanFirePseudopod` | 2+ | Lightning beam projectile |
-| `CanEngulf` | 2+ | Contact predation on smaller entities |
-| `CanDetect` | 2+ | Chemical sensing (has `radius` field) |
-| `CanSprint` | 3+ | Speed boost (energy cost) |
+| Component | Stage | Data | Effect |
+|-----------|-------|------|--------|
+| `CanFireEMP` | 2+ | — | EMP pulse (stuns nearby, drains energy) |
+| `CanFirePseudopod` | 2+ | — | Lightning beam projectile |
+| `CanEngulf` | 2+ | — | Contact predation on smaller entities |
+| `CanDetect` | 2+ | `radius: number` | Chemical sensing within radius |
+| `CanSprint` | 3+ | — | Speed boost (energy cost) |
 
 ---
 
