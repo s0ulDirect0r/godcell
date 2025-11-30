@@ -25,7 +25,7 @@ import {
   type HumanoidAnimationState,
 } from '../meshes/HumanoidMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
-import { updateTrails, disposeAllTrails } from '../effects/TrailEffect';
+import { TrailSystem } from '../systems/TrailSystem';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -97,9 +97,8 @@ export class ThreeRenderer implements Renderer {
   private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
   private pseudopodMeshes: Map<string, THREE.Mesh> = new Map(); // Lightning beam projectiles
 
-  // Trails (using tube geometry for thick ribbons)
-  private playerTrailPoints: Map<string, Array<{ x: number; y: number }>> = new Map();
-  private playerTrailLines: Map<string, THREE.Mesh> = new Map();
+  // Trail system (owns trail points and meshes)
+  private trailSystem!: TrailSystem;
 
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
@@ -153,6 +152,10 @@ export class ThreeRenderer implements Renderer {
     // Create aura system (owns drain and gain auras)
     this.auraSystem = new AuraSystem();
     this.auraSystem.init(this.scene);
+
+    // Create trail system (owns player trail points and meshes)
+    this.trailSystem = new TrailSystem();
+    this.trailSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -223,11 +226,8 @@ export class ThreeRenderer implements Renderer {
             this.playerOutlines.delete(event.playerId);
           }
 
-          const trail = this.playerTrailLines.get(event.playerId);
-          if (trail) {
-            this.scene.remove(trail);
-            this.playerTrailLines.delete(event.playerId);
-          }
+          // Remove trail
+          this.trailSystem.removeTrail(event.playerId);
         }
       });
 
@@ -696,13 +696,7 @@ export class ThreeRenderer implements Renderer {
     this.updateObstacleParticles(state, dt);
 
     // Update trails
-    updateTrails(
-      this.scene,
-      this.playerTrailPoints,
-      this.playerTrailLines,
-      this.playerMeshes,
-      state.players
-    );
+    this.trailSystem.update(this.playerMeshes, state.players);
 
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
@@ -1556,10 +1550,7 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Hide trail for hidden players
-      const trail = this.playerTrailLines.get(id);
-      if (trail) {
-        trail.visible = shouldBeVisible;
-      }
+      this.trailSystem.setTrailVisible(id, shouldBeVisible);
     });
   }
 
@@ -1746,7 +1737,7 @@ export class ThreeRenderer implements Renderer {
     this.playerOutlines.clear();
 
     // Clean up player trails
-    disposeAllTrails(this.scene, this.playerTrailPoints, this.playerTrailLines);
+    this.trailSystem.dispose();
 
     // Clean up auras (drain and gain)
     this.auraSystem.dispose();
