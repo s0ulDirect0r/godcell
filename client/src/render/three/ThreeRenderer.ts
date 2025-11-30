@@ -82,15 +82,7 @@ import {
   type SwarmOrbitingParticle,
 } from './SwarmRenderer';
 import { CameraSystem } from '../systems/CameraSystem';
-import {
-  createJungleBackground,
-  updateJungleParticles,
-  updateSoupActivity,
-  getJungleBackgroundColor,
-  getSoupBackgroundColor,
-  getFirstPersonSkyColor,
-  createFirstPersonGround,
-} from './JungleBackground';
+import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -104,6 +96,9 @@ export class ThreeRenderer implements Renderer {
 
   // Camera system (owns all camera state and behavior)
   private cameraSystem!: CameraSystem;
+
+  // Environment system (owns backgrounds, particles, ground plane)
+  private environmentSystem!: EnvironmentSystem;
 
   // Legacy references for compatibility during refactor
   private lastPlayerEnergy: number | null = null;
@@ -141,29 +136,6 @@ export class ThreeRenderer implements Renderer {
 
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
-
-  // Background particles (using efficient Points system)
-  private dataParticles!: THREE.Points;
-  private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
-
-  // Soup background group (grid + particles for Stage 1-2 soup aesthetic)
-  private soupBackgroundGroup!: THREE.Group;
-
-  // Jungle background system (for Stage 3+)
-  private jungleBackgroundGroup!: THREE.Group;
-  private jungleParticles!: THREE.Points;
-  private jungleParticleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
-
-  // Soup activity visualization (activity dots inside soup pool in jungle view)
-  private soupActivityPoints!: THREE.Points;
-  private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
-
-  // First-person ground plane (visible floor for Stage 4+ humanoid)
-  private firstPersonGround!: THREE.Group;
-
-  // Render mode: determines which world to render (soup = Stage 1-2, jungle = Stage 3+)
-  // This is the single point of control for world switching - no scattered visibility toggles
-  private renderMode: 'soup' | 'jungle' = 'soup';
 
   // Death animations (particle bursts)
   private deathAnimations: DeathAnimation[] = [];
@@ -218,32 +190,13 @@ export class ThreeRenderer implements Renderer {
 
     // Create scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
-
-    // Create soup background group (grid + particles for Stage 1-2)
-    this.soupBackgroundGroup = new THREE.Group();
-    this.soupBackgroundGroup.name = 'soupBackground';
-    this.scene.add(this.soupBackgroundGroup);
-
-    // Add soup grid and particles to the group
-    this.createGrid();
-    this.createDataParticles();
-
-    // Create jungle background (for Stage 3+) - starts hidden
-    const jungleResult = createJungleBackground(this.scene);
-    this.jungleBackgroundGroup = jungleResult.group;
-    this.jungleParticles = jungleResult.particles;
-    this.jungleParticleData = jungleResult.particleData;
-    this.soupActivityPoints = jungleResult.soupActivityPoints;
-    this.soupActivityData = jungleResult.soupActivityData;
-
-    // Create first-person ground plane (for Stage 4+ humanoid) - starts hidden
-    this.firstPersonGround = createFirstPersonGround();
-    this.firstPersonGround.visible = false;
-    this.scene.add(this.firstPersonGround);
 
     // Create camera system (owns both cameras and all camera logic)
     this.cameraSystem = new CameraSystem(width, height);
+
+    // Create environment system (owns backgrounds, particles, ground plane)
+    this.environmentSystem = new EnvironmentSystem();
+    this.environmentSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -770,14 +723,8 @@ export class ThreeRenderer implements Renderer {
       );
     }
 
-    // Update background particles based on current mode
-    if (this.renderMode === 'soup') {
-      this.updateDataParticles(dt);
-    } else {
-      updateJungleParticles(this.jungleParticles, this.jungleParticleData, dt / 1000);
-      // Update soup activity dots (life in the soup pool)
-      updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dt / 1000);
-    }
+    // Update environment particles (soup or jungle based on mode)
+    this.environmentSystem.update(dt);
 
     // Update death animations
     updateDeathAnimations(this.scene, this.deathAnimations, dt);
@@ -885,7 +832,6 @@ export class ThreeRenderer implements Renderer {
           });
         }
       }
-      console.log('[DEBUG] soupBackgroundGroup visible:', this.soupBackgroundGroup?.visible, 'children:', this.soupBackgroundGroup?.children.length);
     }
 
     // Render scene with postprocessing
@@ -894,194 +840,17 @@ export class ThreeRenderer implements Renderer {
 
   private _debugFrameCount?: number;
 
-  private createGrid(): void {
-    const gridSize = 100; // Grid cell size
-    const gridColor = GAME_CONFIG.GRID_COLOR;
-    const gridHeight = -1; // Height (below entities)
-
-    // Soup grid spans the soup region within the jungle coordinate space
-    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
-    const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
-    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
-    const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
-
-    // Create lines parallel to Z axis (along game Y direction)
-    // XZ plane: X=game X, Y=height, Z=-game Y
-    for (let x = soupMinX; x <= soupMaxX; x += gridSize) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, gridHeight, -soupMinY),
-        new THREE.Vector3(x, gridHeight, -soupMaxY),
-      ]);
-      const material = new THREE.LineBasicMaterial({ color: gridColor });
-      const line = new THREE.Line(geometry, material);
-      this.soupBackgroundGroup.add(line);
-    }
-
-    // Create lines parallel to X axis (along game X direction)
-    for (let gameY = soupMinY; gameY <= soupMaxY; gameY += gridSize) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(soupMinX, gridHeight, -gameY),
-        new THREE.Vector3(soupMaxX, gridHeight, -gameY),
-      ]);
-      const material = new THREE.LineBasicMaterial({ color: gridColor });
-      const line = new THREE.Line(geometry, material);
-      this.soupBackgroundGroup.add(line);
-    }
-  }
-
-  private createDataParticles(): void {
-    const particleCount = GAME_CONFIG.MAX_PARTICLES;
-
-    // Create positions and sizes arrays
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-
-    // Soup particles spawn within soup region
-    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
-    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
-
-    for (let i = 0; i < particleCount; i++) {
-      const x = soupMinX + Math.random() * GAME_CONFIG.SOUP_WIDTH;
-      const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
-      const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
-
-      // Position (XZ plane: X=game X, Y=height, Z=-game Y)
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = -0.8; // Height (below entities)
-      positions[i * 3 + 2] = -y;
-
-      // Size
-      sizes[i] = size;
-
-      // Calculate velocity (diagonal flow)
-      const baseAngle = Math.PI / 4; // 45 degrees
-      const variance = (Math.random() - 0.5) * Math.PI / 2;
-      const angle = baseAngle + variance;
-      const speed = GAME_CONFIG.PARTICLE_SPEED_MIN + Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
-
-      const vx = Math.cos(angle) * speed;
-      const vy = Math.sin(angle) * speed;
-
-      // Store particle data for updates
-      this.particleData.push({ x, y, vx, vy, size });
-    }
-
-    // Create BufferGeometry with position and size attributes
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    // Create PointsMaterial with transparent circles
-    const material = new THREE.PointsMaterial({
-      color: GAME_CONFIG.PARTICLE_COLOR,
-      size: 5, // Base size (will be multiplied by size attribute)
-      transparent: true,
-      opacity: 0.6,
-      sizeAttenuation: false, // Keep consistent size regardless of camera distance
-      map: this.createCircleTexture(),
-      alphaTest: 0.5,
-    });
-
-    // Create Points mesh
-    this.dataParticles = new THREE.Points(geometry, material);
-    this.soupBackgroundGroup.add(this.dataParticles);
-  }
-
-  private createCircleTexture(): THREE.Texture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 32;
-    canvas.height = 32;
-    const ctx = canvas.getContext('2d')!;
-
-    // Draw circle
-    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 32, 32);
-
-    const texture = new THREE.Texture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  }
-
-  private updateDataParticles(dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const positions = this.dataParticles.geometry.attributes.position.array as Float32Array;
-
-    // Soup region bounds for wrapping
-    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
-    const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
-    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
-    const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
-
-    for (let i = 0; i < this.particleData.length; i++) {
-      const particle = this.particleData[i];
-
-      // Update particle position
-      particle.x += particle.vx * deltaSeconds;
-      particle.y += particle.vy * deltaSeconds;
-
-      // Wrap around soup bounds
-      if (particle.x > soupMaxX + 10) particle.x = soupMinX - 10;
-      if (particle.y > soupMaxY + 10) particle.y = soupMinY - 10;
-      if (particle.x < soupMinX - 10) particle.x = soupMaxX + 10;
-      if (particle.y < soupMinY - 10) particle.y = soupMaxY + 10;
-
-      // Update BufferGeometry positions (XZ plane: X=game X, Y=height, Z=-game Y)
-      positions[i * 3] = particle.x;
-      // positions[i * 3 + 1] stays at height (-0.8)
-      positions[i * 3 + 2] = -particle.y;
-    }
-
-    // Mark positions as needing update
-    this.dataParticles.geometry.attributes.position.needsUpdate = true;
-  }
-
   /**
    * Set the render mode (soup vs jungle world)
-   * This is the single point of control for world switching.
-   * When switching to jungle: removes soup background, clears all soup entities
-   * When switching to soup: re-adds soup background
+   * Delegates to EnvironmentSystem and handles entity clearing on mode change.
    */
-  private setRenderMode(mode: 'soup' | 'jungle'): void {
-    // Skip if already in correct mode
-    if (this.renderMode === mode) return;
+  private setRenderMode(mode: RenderMode): void {
+    const modeChanged = this.environmentSystem.setMode(mode);
 
-    console.log(`[RenderMode] Switching from ${this.renderMode} to ${mode}`);
-
-    if (mode === 'jungle') {
-      // Transitioning to jungle (Stage 3+)
-      // Remove soup background from scene entirely
-      if (this.soupBackgroundGroup.parent === this.scene) {
-        this.scene.remove(this.soupBackgroundGroup);
-      }
-
-      // Clear all soup entity meshes (nutrients, swarms, obstacles)
+    // Clear soup entities when transitioning to jungle
+    if (modeChanged && mode === 'jungle') {
       this.clearSoupEntities();
-
-      // Show jungle background
-      if (this.jungleBackgroundGroup.parent !== this.scene) {
-        this.scene.add(this.jungleBackgroundGroup);
-      }
-      this.jungleBackgroundGroup.visible = true;
-      this.scene.background = new THREE.Color(getJungleBackgroundColor());
-    } else {
-      // Transitioning to soup (Stage 1-2, e.g., death respawn)
-      // Re-add soup background
-      if (this.soupBackgroundGroup.parent !== this.scene) {
-        this.scene.add(this.soupBackgroundGroup);
-      }
-      this.soupBackgroundGroup.visible = true;
-
-      // Hide jungle background
-      this.jungleBackgroundGroup.visible = false;
-      this.scene.background = new THREE.Color(getSoupBackgroundColor());
     }
-
-    this.renderMode = mode;
   }
 
   /**
@@ -1136,7 +905,7 @@ export class ThreeRenderer implements Renderer {
 
   private syncObstacles(state: GameState): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
-    if (this.renderMode === 'jungle') return;
+    if (this.environmentSystem.getMode() === 'jungle') return;
 
     // Remove obstacles that no longer exist
     this.obstacleMeshes.forEach((group, id) => {
@@ -1168,7 +937,7 @@ export class ThreeRenderer implements Renderer {
 
   private syncSwarms(state: GameState): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
-    if (this.renderMode === 'jungle') return;
+    if (this.environmentSystem.getMode() === 'jungle') return;
 
     // Remove swarms that no longer exist
     this.swarmMeshes.forEach((group, id) => {
@@ -1646,7 +1415,7 @@ export class ThreeRenderer implements Renderer {
 
   private syncNutrients(state: GameState): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
-    if (this.renderMode === 'jungle') return;
+    if (this.environmentSystem.getMode() === 'jungle') return;
 
     // Remove nutrients that no longer exist
     this.nutrientMeshes.forEach((group, id) => {
@@ -1779,7 +1548,7 @@ export class ThreeRenderer implements Renderer {
 
   private syncPlayers(state: GameState): void {
     // Use renderMode for cross-stage visibility (set by updateRenderModeForStage)
-    const isJungleMode = this.renderMode === 'jungle';
+    const isJungleMode = this.environmentSystem.getMode() === 'jungle';
 
     // Remove players that left
     this.playerMeshes.forEach((group, id) => {
@@ -2290,23 +2059,8 @@ export class ThreeRenderer implements Renderer {
     const changed = this.cameraSystem.setMode(mode);
     if (!changed) return;
 
-    if (mode === 'firstperson') {
-      // Show first-person ground plane
-      this.firstPersonGround.visible = true;
-
-      // Set sky color for first-person view
-      this.scene.background = new THREE.Color(getFirstPersonSkyColor());
-    } else {
-      // Hide first-person ground plane when returning to top-down
-      this.firstPersonGround.visible = false;
-
-      // Restore jungle or soup background color based on render mode
-      if (this.renderMode === 'jungle') {
-        this.scene.background = new THREE.Color(getJungleBackgroundColor());
-      } else {
-        this.scene.background = new THREE.Color(getSoupBackgroundColor());
-      }
-    }
+    // EnvironmentSystem handles ground plane visibility and background color
+    this.environmentSystem.setFirstPersonGroundVisible(mode === 'firstperson');
   }
 
   /**
@@ -2436,16 +2190,6 @@ export class ThreeRenderer implements Renderer {
     this.swarmParticleData.clear();
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
-
-    // Clean up particle system
-    if (this.dataParticles) {
-      this.dataParticles.geometry.dispose();
-      (this.dataParticles.material as THREE.Material).dispose();
-      const material = this.dataParticles.material as THREE.PointsMaterial;
-      if (material.map) {
-        material.map.dispose();
-      }
-    }
 
     // Clean up death animations
     this.deathAnimations.forEach(anim => {
