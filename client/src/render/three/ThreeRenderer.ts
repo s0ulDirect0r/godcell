@@ -310,7 +310,8 @@ export class ThreeRenderer implements Renderer {
         // Get the player's last known position and color before they're removed
         const playerGroup = this.playerMeshes.get(event.playerId);
         if (playerGroup) {
-          const position = { x: playerGroup.position.x, y: playerGroup.position.y };
+          // XZ plane: game Y = -Three.js Z
+          const position = { x: playerGroup.position.x, y: -playerGroup.position.z };
 
           // Get color from nucleus mesh (structure varies by stage)
           let color = 0x00ffff; // Default cyan
@@ -447,10 +448,11 @@ export class ThreeRenderer implements Renderer {
             }
           }
 
+          // XZ plane: game Y = -Three.js Z
           this.evolutionAnimations.push(spawnEvolutionParticles(
             this.scene,
             playerGroup.position.x,
-            playerGroup.position.y,
+            -playerGroup.position.z,
             color,
             event.duration
           ));
@@ -555,19 +557,20 @@ export class ThreeRenderer implements Renderer {
         const consumerMesh = this.playerMeshes.get(event.consumerId);
 
         if (swarmGroup) {
-          // Capture position before removal
-          const position = { x: swarmGroup.position.x, y: swarmGroup.position.y };
+          // Capture position before removal (XZ plane: game Y = -Three.js Z)
+          const position = { x: swarmGroup.position.x, y: -swarmGroup.position.z };
           this.swarmDeathAnimations.push(spawnSwarmDeathExplosion(this.scene, position.x, position.y));
 
           // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
           if (consumerMesh) {
+            // XZ plane: target game Y = -Three.js Z
             this.energyTransferAnimations.push(
               spawnEnergyTransferParticles(
                 this.scene,
                 position.x,
                 position.y,
                 consumerMesh.position.x,
-                consumerMesh.position.y,
+                -consumerMesh.position.z,
                 event.consumerId,
                 0xff6600, // Orange for swarm energy
                 30 // More particles for swarm consumption
@@ -632,13 +635,14 @@ export class ThreeRenderer implements Renderer {
 
         if (nutrientPos && collectorMesh) {
           // Spawn particles flying from nutrient to collector
+          // XZ plane: target game Y = -Three.js Z
           this.energyTransferAnimations.push(
             spawnEnergyTransferParticles(
               this.scene,
               nutrientPos.x,
               nutrientPos.y,
               collectorMesh.position.x,
-              collectorMesh.position.y,
+              -collectorMesh.position.z,
               event.playerId,
               0x00ffff // Cyan energy particles
             )
@@ -655,13 +659,14 @@ export class ThreeRenderer implements Renderer {
 
         if (predatorMesh) {
           // Spawn particles from prey position to predator (larger burst for player kill)
+          // XZ plane: target game Y = -Three.js Z
           this.energyTransferAnimations.push(
             spawnEnergyTransferParticles(
               this.scene,
               event.position.x,
               event.position.y,
               predatorMesh.position.x,
-              predatorMesh.position.y,
+              -predatorMesh.position.z,
               event.predatorId,
               0x00ff88, // Green-cyan for player energy
               40 // Lots of particles for player kill
@@ -1350,8 +1355,11 @@ export class ThreeRenderer implements Renderer {
         mesh.position.copy(startPos);
 
         // Rotate to point from start to end
-        const angle = Math.atan2(direction.y, direction.x);
-        mesh.rotation.z = angle - Math.PI / 2;
+        // Lightning geometry points in +Y direction by default
+        // Use quaternion to rotate from +Y to the actual direction
+        const defaultDir = new THREE.Vector3(0, 1, 0);
+        const targetDir = direction.clone().normalize();
+        mesh.quaternion.setFromUnitVectors(defaultDir, targetDir);
 
         this.scene.add(mesh);
         this.pseudopodMeshes.set(id, mesh);
