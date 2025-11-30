@@ -2,11 +2,16 @@
 // ECS System Types
 // ============================================
 
-import type { GameContext } from './GameContext';
+import type { World } from '@godcell/shared';
 
 /**
  * Base System interface
  * All game systems implement this interface
+ *
+ * Systems receive only the World - everything they need is in there:
+ * - Entities and components via world.getComponent(), world.query(), etc.
+ * - Time via world.getResource('Time')
+ * - Network IO via world.getResource('Network')
  */
 export interface System {
   /** System name for debugging/logging */
@@ -14,9 +19,9 @@ export interface System {
 
   /**
    * Called every game tick
-   * @param ctx Game context with world, io, deltaTime, and all game state
+   * @param world The ECS World containing all entities, components, and resources
    */
-  update(ctx: GameContext): void;
+  update(world: World): void;
 }
 
 /**
