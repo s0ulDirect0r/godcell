@@ -14,34 +14,39 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 
 - Implement and refactor game code in this monorepo.
 - Keep client/server/shared code consistent and type-safe.
-- Use the existing architecture and patterns; don’t reinvent them casually.
+- Use the existing architecture and patterns; don't reinvent them casually.
 
 ### Priorities (in order)
 
 1. **Correctness & Server Authority**
    - Server is the source of truth for game logic (movement, physics, damage, collisions).
-   - Don’t move logic to the client unless explicitly requested.
+   - Don't move logic to the client unless explicitly requested.
 
-2. **Shared Types & Protocol**
+2. **ECS Consistency**
+   - Both server and client use ECS. The `World` is the single source of truth.
+   - Components are defined in `shared/ecs/components.ts`.
+   - Use existing helpers and factories; don't bypass ECS with ad-hoc state.
+
+3. **Shared Types & Protocol**
    - Types and messages live in `shared/index.ts`.
    - If you change network shapes or enums, update both server and client.
    - Call out **breaking changes** explicitly in your explanation.
 
-3. **Minimal, Local Changes**
+4. **Minimal, Local Changes**
    - Prefer small, local edits over broad refactors.
    - If you see a better design, propose it briefly and (if warranted) suggest a follow-up issue via beads.
 
-4. **Work Tracking via beads / bd**
+5. **Work Tracking via beads / bd**
    - No markdown TODOs or ad-hoc tracking.
    - Use beads MCP tools when available; otherwise suggest `bd` CLI commands.
 
-5. **Consistent Style & Patterns**
+6. **Consistent Style & Patterns**
    - Match existing TypeScript style and module structure.
    - Use existing helpers (logging, config, events) instead of ad-hoc logic.
 
 ### Interaction Style
 
-- Default to: **“Here’s the diff + 2–3 lines of rationale.”**
+- Default to: **"Here's the diff + 2–3 lines of rationale."**
 - Explain where you changed things using file and symbol names.
 - When unsure, propose a small change and note tradeoffs in a few sentences.
 
@@ -49,14 +54,14 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 
 ## 2. Project Overview: GODCELL
 
-**GODCELL** is a multiplayer evolution game where players start as simple organisms in a digital primordial ocean and evolve toward a “godcell”.
+**GODCELL** is a multiplayer evolution game where players start as simple organisms in a digital primordial ocean and evolve toward a "godcell".
 
 ### Current State (Nov 2025)
 
 **Core Gameplay (implemented):**
 
 - Real-time multiplayer (Socket.io, ~60fps server tick).
-- Three.js “digital ocean” rendering (flowing particles, grid, neon, bloom).
+- Three.js "digital ocean" rendering (flowing particles, grid, neon, bloom).
 - Momentum-based movement with glowing trails.
 - Nutrient collection, metabolism, and energy decay / starvation.
 - Stage-based evolution (single-cell → multi-cell → cyber-organism → humanoid → godcell).
@@ -67,7 +72,7 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 
 - **Client:** TypeScript, Vite, Three.js, Vitest.
 - **Server:** Node.js, Socket.io, Pino (logging).
-- **Shared:** Monorepo workspace with common types and constants.
+- **Shared:** Monorepo workspace with common types, ECS core, and constants.
 - **Issues:** `bd` (beads), with MCP integration.
 
 **Running the Project**
@@ -79,64 +84,158 @@ npm run dev:client   # Client only (Vite dev server)
 npm run build        # Build all workspaces
 ```
 
-**Architecture**
+---
 
-- Workspaces: `client/`, `server/`, `shared/`.
-- Server-authoritative loop at 60fps.
-- Client:
-  - `client/core` – state, events, input, networking.
-  - `client/render` – Three.js renderer, postprocessing, HUD.
-  - `client/ui` – debug overlays, UI widgets.
-- Client interpolates and renders state; server simulates.
+## 3. Architecture: ECS-First Design
+
+Both server and client use an **Entity-Component-System (ECS)** architecture. The `World` class is the single source of truth.
+
+For detailed architecture documentation, see **SYSTEM_DESIGN.md**.
+
+### Core ECS Concepts
+
+- **World**: Container for all entities, components, tags, and resources.
+- **Entity**: Numeric ID (1, 2, 3...) representing a game object.
+- **Component**: Data attached to an entity (Position, Velocity, Energy, etc.).
+- **Tag**: Lightweight entity classification (player, bot, nutrient, etc.).
+- **System**: Logic that queries entities and modifies components.
+
+### Directory Structure
+
+```
+shared/ecs/           # ECS framework (World, components, types)
+server/src/ecs/       # Server systems, factories, serialization
+client/src/ecs/       # Client factories
+client/src/render/systems/  # Render systems (query ECS, manage Three.js)
+```
 
 ---
 
-## 3. Code Organization & Patterns
+## 4. Code Organization & Key Files
 
-### Key Files
+### Shared (`shared/`)
 
-**Shared**
+- `shared/index.ts` – network messages, constants, shared types.
+- `shared/ecs/World.ts` – ECS World class.
+- `shared/ecs/components.ts` – all component interfaces.
+- `shared/ecs/types.ts` – ComponentType enum, Tags enum.
 
-- `shared/index.ts` – shared types, interfaces, constants, and network message definitions.
+### Server (`server/src/`)
 
-**Server**
+- `index.ts` – main game loop, socket handlers.
+- `ecs/factories.ts` – entity creation (createPlayer, createNutrient, etc.).
+- `ecs/systems/` – 11 gameplay systems (Movement, Metabolism, Death, etc.).
+- `ecs/systems/SystemRunner.ts` – runs systems in priority order.
+- `ecs/serialization/` – convert entities to network format.
+- `helpers/` – math, spawning, stages, logging.
 
-- `server/src/index.ts` – main game loop (physics, metabolism, collisions, spawning).
-- `server/src/bots.ts` – AI bots (steering, obstacle/swarm avoidance).
-- `server/src/swarms.ts` – entropy swarm AI.
-- `server/src/logger.ts` – Pino logging config and helpers.
-- `server/src/...` – other feature modules as they appear.
+### Client (`client/src/`)
 
-**Client**
-
-- `client/src/main.ts` – bootstrap and main update loop.
-- `client/src/core/state/GameState.ts` – client-side game state management.
-- `client/src/core/net/SocketManager.ts` – socket connection and messages.
-- `client/src/core/input/InputManager.ts` – keyboard/mouse input.
-- `client/src/core/events/EventBus.ts` – client-side event system.
-- `client/src/render/three/ThreeRenderer.ts` – main Three.js renderer.
-- `client/src/render/three/postprocessing/composer.ts` – bloom/glow config.
-- `client/src/render/hud/HUDOverlay.ts` – HUD (energy, stats, timer).
-- `client/src/ui/DebugOverlay.ts` – debug/perf overlay.
-
-### Core Patterns
-
-- **Server-authoritative:** All real game logic on the server.
-- **Typed messages:** All network messages and payloads are defined in `shared/index.ts`.
-- **Config:** Tunable parameters live in a `GAME_CONFIG` object (on server/shared).
-- **Events:** Client subsystems talk via the EventBus; prefer that over direct cross-wiring.
+- `main.ts` – bootstrap, event wiring, render loop.
+- `ecs/factories.ts` – upsert entities from network messages.
+- `core/net/SocketManager.ts` – socket connection, updates World directly.
+- `core/input/InputManager.ts` – keyboard/mouse input, emits events.
+- `core/events/EventBus.ts` – type-safe pub/sub.
+- `render/three/ThreeRenderer.ts` – orchestrates render systems.
+- `render/systems/` – 9 render systems (PlayerRender, NutrientRender, etc.).
+- `render/meshes/` – stage-specific mesh factories.
+- `ui/` – HUD, debug overlay, start screen.
 
 ---
 
-## 4. Constraints & Conventions
+## 5. Core Patterns
+
+### ECS Queries
+
+```typescript
+// Query by tag
+world.forEachWithTag(Tags.Player, (entity) => {
+  const pos = world.getComponent(entity, Components.Position)
+  // ...
+})
+
+// Query by components
+const entities = world.query(Components.Position, Components.Velocity)
+
+// Lookup by ID
+const entity = getEntityBySocketId(socketId)
+const entity = getEntityByStringId('nutrient_5')
+```
+
+### Component Modification
+
+```typescript
+// Via helpers (preferred)
+setEnergyBySocketId(world, socketId, newEnergy)
+
+// Direct mutation
+const energy = world.getComponent(entity, Components.Energy)
+energy.current = newEnergy
+```
+
+### Server Systems
+
+Systems implement `update(world, delta, io)` and run in priority order:
+
+| Priority | System | Purpose |
+|----------|--------|---------|
+| 100 | BotAISystem | Bot decisions |
+| 110 | SwarmAISystem | Swarm movement, respawns |
+| 200 | GravitySystem | Gravity well attraction |
+| 300 | PseudopodSystem | Beam travel and hits |
+| 400 | PredationSystem | Multi-cell contact draining |
+| 410 | SwarmCollisionSystem | Swarm damage, sets SlowedThisTick |
+| 500 | MovementSystem | Physics (reads SlowedThisTick) |
+| 600 | MetabolismSystem | Energy decay |
+| 610 | NutrientCollisionSystem | Pickup detection |
+| 620 | NutrientAttractionSystem | Visual pull effect |
+| 700 | DeathSystem | Death handling |
+| 900 | NetworkBroadcastSystem | Send to clients |
+
+**Key dependency:** SwarmCollision (410) sets `SlowedThisTick` tag → Movement (500) reads it.
+
+### Render Systems
+
+Each render system owns a visual domain and queries ECS directly:
+
+```typescript
+class PlayerRenderSystem {
+  private meshes = new Map<string, THREE.Group>()
+
+  update(world: World, dt: number) {
+    world.forEachWithTag(Tags.Player, (entity) => {
+      const pos = world.getComponent(entity, Components.Position)
+      // Create/update/remove Three.js objects
+    })
+  }
+}
+```
+
+### Event-Driven Communication (Client)
+
+```typescript
+// Input → Network
+eventBus.on('client:inputMove', (e) => socketManager.sendMove(e.direction))
+
+// Network → Rendering
+eventBus.on('playerDied', (e) => {
+  effectsSystem.spawnDeathBurst(e.x, e.y, e.color)
+})
+```
+
+---
+
+## 6. Constraints & Conventions
 
 ### Server vs Client
 
 - Do not:
   - Move collision/physics/metabolism logic to the client.
-  - Trust client inputs for anything beyond “intent” (e.g., movement, actions).
+  - Trust client inputs for anything beyond "intent" (e.g., movement, actions).
+  - Bypass ECS with ad-hoc state management.
 - Do:
   - Add server-side invariants, logging, and sanity checks if you change gameplay.
+  - Use existing component types; add new ones to `shared/ecs/components.ts`.
 
 ### Types & Protocol
 
@@ -207,7 +306,7 @@ logger.info({
 
 ---
 
-## 5. Work Tracking: bd (beads) & MCP
+## 7. Work Tracking: bd (beads) & MCP
 
 All work tracking uses **beads**. No issue tracking via TODOs or ad-hoc notes.
 
@@ -230,8 +329,8 @@ Key ones:
 - Before inventing work, check `ready` for existing tasks.
 - When you discover real follow-up work that you are **not** doing in the current diff:
   - Create a new issue via `create`.
-  - Link it to the current issue / context if possible (e.g., “discovered-from”).
-- Don’t spam beads with micro-issues for changes you immediately implement.
+  - Link it to the current issue / context if possible (e.g., "discovered-from").
+- Don't spam beads with micro-issues for changes you immediately implement.
 
 ### CLI `bd` Commands (fallback / for suggestions)
 
@@ -257,38 +356,64 @@ bd update <issue-id> --status in_progress --json
 
 # Close an issue
 bd close <issue-id> --reason "Completed" --json
+```
 
-## 6. Common Tasks (Recipes)
+---
+
+## 8. Common Tasks (Recipes)
 
 Use these as templates for how to apply changes.
 
 ### Add a New Game Mechanic
 
 1. Define/update types & constants in `shared/index.ts`.
-2. Implement server logic in `server/src/index.ts` or a new server module.
-3. Broadcast required state via existing or new messages.
-4. Update client:
-   - Receive and integrate messages in `SocketManager` / `GameState`.
-   - Add rendering in `ThreeRenderer` (and HUD if needed).
-5. Expose inputs via `InputManager` and EventBus as appropriate.
-6. Tune relevant values in `GAME_CONFIG`.
-7. If new follow-up ideas appear, create beads issues (not TODOs).
+2. Add any new components to `shared/ecs/components.ts`.
+3. Implement server logic as a new system in `server/src/ecs/systems/`.
+4. Register system in `SystemRunner` with appropriate priority.
+5. Broadcast required state via `NetworkBroadcastSystem` or new messages.
+6. Update client:
+   - Add factory/upsert in `client/src/ecs/factories.ts`.
+   - Handle in `SocketManager`.
+   - Add render system or extend existing one in `client/src/render/systems/`.
+7. Expose inputs via `InputManager` and EventBus as appropriate.
+8. Tune relevant values in `GAME_CONFIG`.
+9. If new follow-up ideas appear, create beads issues (not TODOs).
 
-### Add or Change an Entity Type (bot, swarm, obstacle, etc.)
+### Add or Change an Entity Type
 
-1. Update entity definitions/types in `shared/index.ts`.
-2. Extend server spawning and behavior logic (`server/src/index.ts`, `bots.ts`, `swarms.ts`, etc.).
-3. Add or adjust server-side logging for lifecycle events.
-4. Update client rendering and HUD to reflect new entity behavior/visibility.
-5. Test with multiple clients and bots; ensure no desyncs.
+1. Add component interface(s) to `shared/ecs/components.ts`.
+2. Add tag to `shared/ecs/types.ts` if needed.
+3. Create factory function in `server/src/ecs/factories.ts`.
+4. Add serializer in `server/src/ecs/serialization/`.
+5. Update `NetworkBroadcastSystem` to include new entity type.
+6. Add network message type in `shared/index.ts`.
+7. Create client factory in `client/src/ecs/factories.ts`.
+8. Create or extend render system in `client/src/render/systems/`.
+9. Test with multiple clients and bots; ensure no desyncs.
+
+### Add a New Server System
+
+1. Create file in `server/src/ecs/systems/YourSystem.ts`.
+2. Implement `update(world: World, delta: number, io: Server)`.
+3. Query entities using `world.forEachWithTag()` or `world.query()`.
+4. Modify components directly or via helper functions.
+5. Add to `SystemRunner` with appropriate priority.
+
+### Add a New Render System
+
+1. Create file in `client/src/render/systems/YourSystem.ts`.
+2. Implement `init(scene, world)` and `update(world, dt)`.
+3. Maintain `Map<string, THREE.Object3D>` for entity → mesh mapping.
+4. Query ECS in `update()`, create/update/remove Three.js objects.
+5. Register in `ThreeRenderer.init()`.
 
 ### Debug Physics / Movement Issues
 
 1. Check `server/logs/server.log` for anomalies and patterns.
-2. Add targeted logs around the suspect logic (force application, collision resolution, etc.).
-3. Verify that messages sent to the client match expectations.
+2. Add targeted logs in the relevant system (MovementSystem, GravitySystem, etc.).
+3. Verify that components have expected values after each system runs.
 4. Use client debug overlays / query params if available (e.g., `?debug`).
-5. Avoid “fixing” issues only on the client; ensure server simulation is correct.
+5. Avoid "fixing" issues only on the client; ensure server simulation is correct.
 
 ### Tuning Balance / Metabolism / Difficulty
 
@@ -299,11 +424,11 @@ Use these as templates for how to apply changes.
 
 ---
 
-## 7. Development Philosophy (Compressed)
+## 9. Development Philosophy (Compressed)
 
 This project is intentionally experimental and emergent:
 
-- It’s fine to explore and discover better patterns while implementing features.
+- It's fine to explore and discover better patterns while implementing features.
 - When you see a meaningful refactor or design improvement:
   - Keep the current diff small.
   - Suggest the refactor as a follow-up beads issue, with a brief rationale.
@@ -313,15 +438,24 @@ Keep the game fun and legible, but keep the codebase stable and predictable.
 
 ---
 
-## 8. Documentation Map
+## 10. Documentation Map
 
-- **Game Design:** `GAME_DESIGN.md`  
+- **System Design:** `SYSTEM_DESIGN.md`
+  Technical architecture, ECS details, data flow diagrams.
+
+- **Game Design:** `GAME_DESIGN.md`
   High-level vision, stages, mechanics, and future ideas.
 
-- **Worklogs:** `worklogs/YYYY-MM-DD.md`  
+- **ECS Reference:** `shared/ecs/REFERENCE.md`
+  Quick lookup for components, tags, abilities, and stage progression.
+
+- **Gotchas:** `GOTCHAS.md`
+  Tribal knowledge, quirks, and non-obvious patterns.
+
+- **Worklogs:** `worklogs/YYYY-MM-DD.md`
   Daily progress, decisions, and learnings.
 
-- **Ephemeral Planning:** `PLAN.md`, `DESIGN.md`, etc.  
+- **Ephemeral Planning:** `PLAN.md`, `DESIGN.md`, etc.
   Temporary docs used during development; only reference these when explicitly asked.
 
 When in doubt about intent or design details, check `GAME_DESIGN.md` first, then worklogs, then ask (or propose a clarify-in-beads issue).
