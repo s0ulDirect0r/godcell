@@ -112,7 +112,6 @@ export {
   forEachDrainTarget,
   // Damage tracking helpers
   recordDamage,
-  applyDamageWithResistance,
 } from './factories';
 export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot } from './factories';
 
