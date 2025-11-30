@@ -410,15 +410,16 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Update camera position based on mode
+    // Update camera position based on mode (re-read mode after potential switch)
+    const activeMode = this.cameraSystem.getMode();
     if (myPlayer) {
-      if (currentMode === 'firstperson') {
+      if (activeMode === 'firstperson') {
         this.cameraSystem.updateFirstPersonPosition(
           myPlayer.position.x,
           myPlayer.position.y,
           GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
         );
-      } else if (currentMode === 'thirdperson') {
+      } else if (activeMode === 'thirdperson') {
         // Third-person camera for godcell - uses 3D position
         const posZ = myPlayer.position.z ?? 0;
         this.cameraSystem.updateThirdPersonPosition(

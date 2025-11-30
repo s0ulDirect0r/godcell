@@ -53,6 +53,7 @@ export function createGodcell(radius: number, colorHex: number): THREE.Group {
   });
 
   const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
+  outerSphere.name = 'outerSphere';
   godcellGroup.add(outerSphere);
 
   // === INNER NUCLEUS (Bright glowing core) ===
@@ -72,6 +73,7 @@ export function createGodcell(radius: number, colorHex: number): THREE.Group {
   });
 
   const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
+  nucleus.name = 'nucleus';
   godcellGroup.add(nucleus);
 
   // === POINT LIGHT (Dynamic lighting) ===
@@ -98,15 +100,20 @@ export function createGodcell(radius: number, colorHex: number): THREE.Group {
 export function updateGodcellEnergy(godcellGroup: THREE.Group, energyRatio: number): void {
   const ratio = Math.max(0, Math.min(1, energyRatio));
 
-  // Get components (outer, nucleus, light)
-  const outerSphere = godcellGroup.children[0] as THREE.Mesh;
-  const nucleus = godcellGroup.children[1] as THREE.Mesh;
-  const light = godcellGroup.children[2] as THREE.PointLight;
+  // Get components by name (robust to child order changes)
+  const outerSphere = godcellGroup.getObjectByName('outerSphere') as THREE.Mesh | undefined;
+  const nucleus = godcellGroup.getObjectByName('nucleus') as THREE.Mesh | undefined;
+  const light = godcellGroup.getObjectByName('godcellLight') as THREE.PointLight | undefined;
 
   if (!outerSphere || !nucleus || !light) return;
 
-  const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
-  const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
+  // Type-guard material access
+  const outerMaterial = outerSphere.material;
+  const nucleusMaterial = nucleus.material;
+  if (!(outerMaterial instanceof THREE.MeshPhysicalMaterial) ||
+      !(nucleusMaterial instanceof THREE.MeshStandardMaterial)) {
+    return;
+  }
 
   // Scale glow based on energy
   // High energy: brilliant glow, Low energy: dim but still visible
