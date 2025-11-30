@@ -133,18 +133,20 @@ export class InputManager {
     let vx = 0;
     let vy = 0;
 
-    // WASD movement (Y+ is up in world coordinates)
+    // WASD movement
+    // In first-person mode: W = forward (camera direction), S = back, A/D = strafe
+    // In top-down mode: W = up (+Y), S = down (-Y), A = left (-X), D = right (+X)
     if (this.inputState.isKeyDown('w') || this.inputState.isKeyDown('arrowup')) {
-      vy = 1;  // Up is positive Y
+      vy = 1;  // Forward
     }
     if (this.inputState.isKeyDown('s') || this.inputState.isKeyDown('arrowdown')) {
-      vy = -1;  // Down is negative Y
+      vy = -1;  // Back
     }
     if (this.inputState.isKeyDown('a') || this.inputState.isKeyDown('arrowleft')) {
-      vx = -1;
+      vx = -1;  // Strafe left
     }
     if (this.inputState.isKeyDown('d') || this.inputState.isKeyDown('arrowright')) {
-      vx = 1;
+      vx = 1;  // Strafe right
     }
 
     // Normalize diagonal movement
@@ -152,6 +154,23 @@ export class InputManager {
       const mag = Math.sqrt(vx * vx + vy * vy);
       vx /= mag;
       vy /= mag;
+    }
+
+    // In first-person mode, rotate movement by camera yaw
+    // This makes W move in the direction the camera is facing
+    if (this.firstPersonMode && (vx !== 0 || vy !== 0)) {
+      const yaw = this._firstPersonYaw;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+
+      // Rotate (vx, vy) by yaw
+      // vx = strafe (left/right), vy = forward/back
+      // In world space: X = forward, Y = right (for our coordinate system)
+      const worldX = vy * cos - vx * sin;  // Forward/back component
+      const worldY = vy * sin + vx * cos;  // Left/right component
+
+      vx = worldX;
+      vy = worldY;
     }
 
     // Only emit if direction changed (reduces network traffic)
