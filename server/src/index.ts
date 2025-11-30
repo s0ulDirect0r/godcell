@@ -102,8 +102,8 @@ import {
   NutrientAttractionSystem,
   DeathSystem,
   NetworkBroadcastSystem,
-  type GameContext,
 } from './ecs';
+import { Resources, type TimeResource } from '@godcell/shared';
 import {
   // Math utilities
   distance,
@@ -421,44 +421,25 @@ logger.info({
   systems: systemRunner.getSystemNames(),
 });
 
-/**
- * Build the GameContext for this tick
- * This provides systems access to all game state and helper functions
- */
-function buildGameContext(deltaTime: number): GameContext {
-  return {
-    // ECS World (source of truth)
-    world,
-    io,
-    deltaTime,
+// ============================================
+// World Resources Setup
+// ============================================
 
-    // Entity Collections - ALL migrated to ECS:
-    // - nutrients → forEachNutrient/getAllNutrientSnapshots
-    // - obstacles → forEachObstacle/getAllObstacleSnapshots
-    // - swarms → forEachSwarm/getAllSwarmSnapshots
-    // - pseudopods → PseudopodComponent
-    // - playerInputDirections/playerVelocities → InputComponent/VelocityComponent
-    // - playerSprintState → SprintComponent
-    // - playerLastDamageSource/playerLastBeamShooter → DamageTrackingComponent
-    // - pseudopodHitDecays → DamageTrackingComponent
-    // - playerEMPCooldowns/playerPseudopodCooldowns → CooldownsComponent
-    // - activeDrains → DrainTargetComponent
-    // - activeSwarmDrains → SwarmComponent.beingConsumedBy
-    // - activeDamage → DamageTrackingComponent.activeDamage
+// Set up Network resource (Socket.io server)
+world.setResource(Resources.Network, { io });
 
-    // NOTE: Per-tick transient data (damagedPlayerIds, slowedPlayerIds) is now
-    // handled via ECS tags: Tags.SlowedThisTick, Tags.DamagedThisTick
-    // Tags are added by SwarmCollisionSystem and cleared at end of tick.
+// Initialize Time resource (updated each tick)
+const timeResource: TimeResource = {
+  delta: 0,
+  elapsed: 0,
+  tick: 0,
+};
+world.setResource(Resources.Time, timeResource);
 
-    // All helper functions have been migrated to direct imports:
-    // - abilitySystem → direct import from ./index in BotAISystem
-    // - updateBots → direct import from ./bots
-    // - updateSwarms, updateSwarmPositions, processSwarmRespawns → direct import from ./swarms
-    // - respawnNutrient → direct import from ./nutrients
-    // - recordDamage, applyDamageWithResistance → direct import from ./ecs/factories
-    // - checkSwarmCollisions, removeSwarm → inlined or direct import from ./swarms
-  };
-}
+logger.info({
+  event: 'world_resources_initialized',
+  resources: [Resources.Network, Resources.Time],
+});
 
 // ============================================
 // Connection Handling
@@ -632,13 +613,14 @@ setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
   if (!shouldRunTick()) return;
 
-  const deltaTime = TICK_INTERVAL / 1000; // Convert to seconds
+  // Update Time resource for this tick
+  const time = world.getResource<TimeResource>(Resources.Time)!;
+  time.delta = TICK_INTERVAL / 1000; // Convert to seconds
+  time.elapsed += time.delta;
+  time.tick++;
 
-  // Build game context for this tick
-  const ctx = buildGameContext(deltaTime);
-
-  // Run all systems in priority order
-  systemRunner.update(ctx);
+  // Run all systems in priority order - World contains everything
+  systemRunner.update(world);
 
   // Clear transient per-tick tags used for cross-system communication
   world.clearTagFromAll(Tags.SlowedThisTick);
