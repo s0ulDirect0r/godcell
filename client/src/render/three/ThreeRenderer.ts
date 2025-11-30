@@ -789,9 +789,11 @@ export class ThreeRenderer implements Renderer {
 
     // Update first-person camera position if in first-person mode
     if (this.cameraMode === 'firstperson' && myPlayer) {
-      // Camera height: humanoid eye level (~160 game units above ground)
-      const eyeHeight = 160;
-      this.updateFirstPersonCamera(myPlayer.position.x, myPlayer.position.y, eyeHeight);
+      this.updateFirstPersonCamera(
+        myPlayer.position.x,
+        myPlayer.position.y,
+        GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
+      );
     }
 
     // Update background particles based on current mode

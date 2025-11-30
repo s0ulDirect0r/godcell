@@ -466,6 +466,14 @@ export const DEV_TUNABLE_CONFIGS = [
   'CYBER_ORGANISM_SPRINT_SPEED_MULT',
   'CYBER_ORGANISM_SPRINT_ENERGY_COST',
 
+  // Movement (Stage 4 - Humanoid)
+  'HUMANOID_ACCELERATION_MULT',
+  'HUMANOID_MAX_SPEED_MULT',
+  'HUMANOID_FRICTION',
+  'HUMANOID_SPRINT_SPEED_MULT',
+  'HUMANOID_SPRINT_ENERGY_COST',
+  'HUMANOID_CAMERA_HEIGHT',
+
   // Energy & Decay
   'SINGLE_CELL_ENERGY_DECAY_RATE',
   'MULTI_CELL_ENERGY_DECAY_RATE',
@@ -532,10 +540,13 @@ export const GAME_CONFIG = {
   CYBER_ORGANISM_SPRINT_SPEED_MULT: 1.8,   // Sprint burst multiplier
   CYBER_ORGANISM_SPRINT_ENERGY_COST: 0.5,  // Energy/sec while sprinting
 
-  // Stage 4 Movement (Humanoid): TODO - define when implementing
-  // HUMANOID_ACCELERATION_MULT: 1.0,
-  // HUMANOID_MAX_SPEED_MULT: 0.6,
-  // HUMANOID_FRICTION: 0.3,
+  // Stage 4 Movement (Humanoid): First-person FPS-style controls
+  HUMANOID_ACCELERATION_MULT: 1.2,    // Responsive acceleration
+  HUMANOID_MAX_SPEED_MULT: 0.8,       // Slower than cyber-organism (more deliberate)
+  HUMANOID_FRICTION: 0.35,            // Quick stop (FPS-style tight control)
+  HUMANOID_SPRINT_SPEED_MULT: 1.6,    // Sprint burst multiplier
+  HUMANOID_SPRINT_ENERGY_COST: 0.8,   // Higher energy cost for humanoid sprint
+  HUMANOID_CAMERA_HEIGHT: 160,        // First-person eye level (game units above ground)
 
   // Stage 5 Movement (Godcell): TODO - define when implementing
   // GODCELL_ACCELERATION_MULT: 1.5,
