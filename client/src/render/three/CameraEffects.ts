@@ -58,10 +58,11 @@ export function applyCameraShake(
   decayRate: number = 0.88
 ): number {
   if (shakeAmount > 0) {
+    // Shake on XZ plane (camera looks down Y-axis)
     const offsetX = (Math.random() - 0.5) * shakeAmount;
-    const offsetY = (Math.random() - 0.5) * shakeAmount;
+    const offsetZ = (Math.random() - 0.5) * shakeAmount;
     camera.position.x += offsetX;
-    camera.position.y += offsetY;
+    camera.position.z += offsetZ;
     return shakeAmount * decayRate;
   }
   return 0;
@@ -69,10 +70,11 @@ export function applyCameraShake(
 
 /**
  * Smoothly follow a target position with camera
+ * Camera is above world looking down Y-axis, so we move on XZ plane
  *
  * @param camera - Orthographic camera
- * @param targetX - Target X position
- * @param targetY - Target Y position
+ * @param targetX - Target X position (game X)
+ * @param targetY - Target Y position (game Y, maps to -Z in 3D)
  * @param lerpFactor - Interpolation factor (0-1, default 0.2)
  */
 export function followTarget(
@@ -81,8 +83,10 @@ export function followTarget(
   targetY: number,
   lerpFactor: number = 0.2
 ): void {
+  // Game Y maps to -Z in Three.js (game +Y = screen up = -Z direction)
+  const targetZ = -targetY;
   camera.position.x += (targetX - camera.position.x) * lerpFactor;
-  camera.position.y += (targetY - camera.position.y) * lerpFactor;
+  camera.position.z += (targetZ - camera.position.z) * lerpFactor;
 }
 
 /**

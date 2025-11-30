@@ -40,13 +40,14 @@ export function updateDeathAnimations(
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
 
-      // Move particle
+      // Move particle (game coordinates)
       p.x += p.vx * deltaSeconds;
       p.y += p.vy * deltaSeconds;
 
-      // Update geometry position
+      // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 1] = 0.2; // Height (constant)
+      positions[i * 3 + 2] = -p.y;
 
       // Fade out life
       p.life = 1 - progress;
@@ -114,14 +115,14 @@ export function updateEvolutionAnimations(
       const maxRadius = 100;
       p.radius = 10 + radiusProgress * maxRadius;
 
-      // Calculate new position based on polar coordinates
+      // Calculate new position based on polar coordinates (game space)
       const x = p.centerX + Math.cos(p.angle) * p.radius;
       const y = p.centerY + Math.sin(p.angle) * p.radius;
 
-      // Update geometry position
+      // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.2;
+      positions[i * 3 + 1] = 0.2; // Height
+      positions[i * 3 + 2] = -y;
     }
 
     anim.particles.geometry.attributes.position.needsUpdate = true;
@@ -178,14 +179,14 @@ export function updateEMPEffects(
       // Expand radius linearly
       p.radius = p.initialRadius + (maxRadius - p.initialRadius) * progress;
 
-      // Calculate new position based on polar coordinates
+      // Calculate new position based on polar coordinates (game space)
       const x = anim.centerX + Math.cos(p.angle) * p.radius;
       const y = anim.centerY + Math.sin(p.angle) * p.radius;
 
-      // Update geometry position
+      // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.3;
+      positions[i * 3 + 1] = 0.3; // Height (above evolution particles)
+      positions[i * 3 + 2] = -y;
     }
 
     anim.particles.geometry.attributes.position.needsUpdate = true;
@@ -241,14 +242,15 @@ export function updateSwarmDeathAnimations(
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
 
-      // Move particle based on velocity
+      // Move particle based on velocity (all in Three.js XZ space)
+      // vx = X velocity, vy = Y (height) velocity, vz = Z velocity
       p.x += p.vx * deltaSeconds;
-      p.y += p.vy * deltaSeconds;
+      p.y += p.vy * deltaSeconds; // Height movement
       p.z += p.vz * deltaSeconds;
 
-      // Update geometry position
+      // Update geometry position (already in Three.js coordinates)
       positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 1] = p.y; // Y = height
       positions[i * 3 + 2] = p.z;
     }
 
@@ -310,13 +312,14 @@ export function updateSpawnAnimations(
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
 
-      // Move particle toward center
+      // Move particle toward center (game coordinates)
       p.x += p.vx * deltaSeconds;
       p.y += p.vy * deltaSeconds;
 
-      // Update geometry position
+      // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 1] = 0.15; // Height (below entities)
+      positions[i * 3 + 2] = -p.y;
     }
 
     anim.particles.geometry.attributes.position.needsUpdate = true;
@@ -395,12 +398,17 @@ export function updateEnergyTransferAnimations(
         const t = p.progress;
         const easeT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-        // Interpolate position from start (p.x/y) toward target
+        // Interpolate position from start (p.x/y) toward target (game coordinates)
         const dx = p.targetX - p.x;
         const dy = p.targetY - p.y;
 
-        positions[i * 3] = p.x + dx * easeT;
-        positions[i * 3 + 1] = p.y + dy * easeT;
+        const currentX = p.x + dx * easeT;
+        const currentY = p.y + dy * easeT;
+
+        // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
+        positions[i * 3] = currentX;
+        positions[i * 3 + 1] = 0.25; // Height (above entities)
+        positions[i * 3 + 2] = -currentY;
       }
     }
 

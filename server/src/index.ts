@@ -538,6 +538,22 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
+  // Client Log Forwarding (for debugging)
+  // ============================================
+
+  socket.on('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
+    const prefix = `[Client:${socket.id?.slice(0, 8)}]`;
+    const logLine = message.args.join(' ');
+    if (message.level === 'error') {
+      console.error(`${prefix} ${logLine}`);
+    } else if (message.level === 'warn') {
+      console.warn(`${prefix} ${logLine}`);
+    } else {
+      console.log(`${prefix} ${logLine}`);
+    }
+  });
+
+  // ============================================
   // Disconnection Handling
   // ============================================
 

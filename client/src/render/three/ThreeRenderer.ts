@@ -268,11 +268,17 @@ export class ThreeRenderer implements Renderer {
       (frustumSize * aspect) / 2,
       frustumSize / 2,
       frustumSize / -2,
-      0.1,  // Near plane (must be non-negative for Three.js)
-      200   // Far plane
+      1,     // Near plane
+      2000   // Far plane (camera at Y=1000 needs to see ground at Y=0 and below)
     );
-    this.camera.position.set(0, 0, 10);
-    this.camera.lookAt(0, 0, 0);
+    // Camera looks down Y-axis at XZ plane (standard 3D: Y=height)
+    // Position high above soup center, looking down
+    const soupCenterX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
+    const soupCenterY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2;
+    this.camera.position.set(soupCenterX, 1000, -soupCenterY);
+    this.camera.lookAt(soupCenterX, 0, -soupCenterY);
+    // Set up vector so -Z is "up" on screen (maps to game +Y direction)
+    this.camera.up.set(0, 0, -1);
 
     // Create perspective camera (first-person for Stage 4+)
     // FOV 75 degrees, standard for FPS games
@@ -304,7 +310,8 @@ export class ThreeRenderer implements Renderer {
         // Get the player's last known position and color before they're removed
         const playerGroup = this.playerMeshes.get(event.playerId);
         if (playerGroup) {
-          const position = { x: playerGroup.position.x, y: playerGroup.position.y };
+          // XZ plane: game Y = -Three.js Z
+          const position = { x: playerGroup.position.x, y: -playerGroup.position.z };
 
           // Get color from nucleus mesh (structure varies by stage)
           let color = 0x00ffff; // Default cyan
@@ -441,10 +448,11 @@ export class ThreeRenderer implements Renderer {
             }
           }
 
+          // XZ plane: game Y = -Three.js Z
           this.evolutionAnimations.push(spawnEvolutionParticles(
             this.scene,
             playerGroup.position.x,
-            playerGroup.position.y,
+            -playerGroup.position.z,
             color,
             event.duration
           ));
@@ -513,7 +521,9 @@ export class ThreeRenderer implements Renderer {
               depthWrite: false,
             });
             const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-            newOutline.position.z = 0.1;
+            newOutline.position.y = 0.1; // Slightly above player (Y=height)
+            // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
+            newOutline.rotation.x = -Math.PI / 2;
             this.scene.add(newOutline);
             this.playerOutlines.set(event.playerId, newOutline);
           }
@@ -547,19 +557,20 @@ export class ThreeRenderer implements Renderer {
         const consumerMesh = this.playerMeshes.get(event.consumerId);
 
         if (swarmGroup) {
-          // Capture position before removal
-          const position = { x: swarmGroup.position.x, y: swarmGroup.position.y };
+          // Capture position before removal (XZ plane: game Y = -Three.js Z)
+          const position = { x: swarmGroup.position.x, y: -swarmGroup.position.z };
           this.swarmDeathAnimations.push(spawnSwarmDeathExplosion(this.scene, position.x, position.y));
 
           // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
           if (consumerMesh) {
+            // XZ plane: target game Y = -Three.js Z
             this.energyTransferAnimations.push(
               spawnEnergyTransferParticles(
                 this.scene,
                 position.x,
                 position.y,
                 consumerMesh.position.x,
-                consumerMesh.position.y,
+                -consumerMesh.position.z,
                 event.consumerId,
                 0xff6600, // Orange for swarm energy
                 30 // More particles for swarm consumption
@@ -624,13 +635,14 @@ export class ThreeRenderer implements Renderer {
 
         if (nutrientPos && collectorMesh) {
           // Spawn particles flying from nutrient to collector
+          // XZ plane: target game Y = -Three.js Z
           this.energyTransferAnimations.push(
             spawnEnergyTransferParticles(
               this.scene,
               nutrientPos.x,
               nutrientPos.y,
               collectorMesh.position.x,
-              collectorMesh.position.y,
+              -collectorMesh.position.z,
               event.playerId,
               0x00ffff // Cyan energy particles
             )
@@ -647,13 +659,14 @@ export class ThreeRenderer implements Renderer {
 
         if (predatorMesh) {
           // Spawn particles from prey position to predator (larger burst for player kill)
+          // XZ plane: target game Y = -Three.js Z
           this.energyTransferAnimations.push(
             spawnEnergyTransferParticles(
               this.scene,
               event.position.x,
               event.position.y,
               predatorMesh.position.x,
-              predatorMesh.position.y,
+              -predatorMesh.position.z,
               event.predatorId,
               0x00ff88, // Green-cyan for player energy
               40 // Lots of particles for player kill
@@ -879,10 +892,12 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Update camera to follow player's interpolated mesh position
+    // XZ plane: mesh.position.x = game X, mesh.position.z = -game Y
+    // followTarget expects game coordinates, so pass -mesh.position.z to get game Y back
     if (myPlayer) {
       const mesh = this.playerMeshes.get(myPlayer.id);
       if (mesh) {
-        followTarget(this.camera, mesh.position.x, mesh.position.y);
+        followTarget(this.camera, mesh.position.x, -mesh.position.z);
       }
     }
 
@@ -901,13 +916,45 @@ export class ThreeRenderer implements Renderer {
     // Update renderPass camera based on current mode before rendering
     this.renderPass.camera = this.getActiveCamera();
 
+    // DEBUG: Log camera and entity state every 60 frames
+    if (!this._debugFrameCount) this._debugFrameCount = 0;
+    this._debugFrameCount++;
+    if (this._debugFrameCount % 60 === 0) {
+      console.log('[DEBUG] Camera:', {
+        pos: { x: this.camera.position.x.toFixed(0), y: this.camera.position.y.toFixed(0), z: this.camera.position.z.toFixed(0) },
+        frustum: { left: this.camera.left.toFixed(0), right: this.camera.right.toFixed(0), top: this.camera.top.toFixed(0), bottom: this.camera.bottom.toFixed(0) },
+        near: this.camera.near,
+        far: this.camera.far,
+      });
+      console.log('[DEBUG] Entities:', {
+        players: this.playerMeshes.size,
+        nutrients: this.nutrientMeshes.size,
+        swarms: this.swarmMeshes.size,
+        obstacles: this.obstacleMeshes.size,
+      });
+      if (this.playerMeshes.size > 0) {
+        const firstPlayer = this.playerMeshes.values().next().value;
+        if (firstPlayer) {
+          console.log('[DEBUG] First player mesh pos:', {
+            x: firstPlayer.position.x.toFixed(0),
+            y: firstPlayer.position.y.toFixed(0),
+            z: firstPlayer.position.z.toFixed(0),
+          });
+        }
+      }
+      console.log('[DEBUG] soupBackgroundGroup visible:', this.soupBackgroundGroup?.visible, 'children:', this.soupBackgroundGroup?.children.length);
+    }
+
     // Render scene with postprocessing
     this.composer.render();
   }
 
+  private _debugFrameCount?: number;
+
   private createGrid(): void {
     const gridSize = 100; // Grid cell size
     const gridColor = GAME_CONFIG.GRID_COLOR;
+    const gridHeight = -1; // Height (below entities)
 
     // Soup grid spans the soup region within the jungle coordinate space
     const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
@@ -915,22 +962,23 @@ export class ThreeRenderer implements Renderer {
     const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
     const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-    // Create vertical lines
+    // Create lines parallel to Z axis (along game Y direction)
+    // XZ plane: X=game X, Y=height, Z=-game Y
     for (let x = soupMinX; x <= soupMaxX; x += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, soupMinY, -1),
-        new THREE.Vector3(x, soupMaxY, -1),
+        new THREE.Vector3(x, gridHeight, -soupMinY),
+        new THREE.Vector3(x, gridHeight, -soupMaxY),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
       this.soupBackgroundGroup.add(line);
     }
 
-    // Create horizontal lines
-    for (let y = soupMinY; y <= soupMaxY; y += gridSize) {
+    // Create lines parallel to X axis (along game X direction)
+    for (let gameY = soupMinY; gameY <= soupMaxY; gameY += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(soupMinX, y, -1),
-        new THREE.Vector3(soupMaxX, y, -1),
+        new THREE.Vector3(soupMinX, gridHeight, -gameY),
+        new THREE.Vector3(soupMaxX, gridHeight, -gameY),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
@@ -954,10 +1002,10 @@ export class ThreeRenderer implements Renderer {
       const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
       const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
-      // Position
+      // Position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = -0.8;
+      positions[i * 3 + 1] = -0.8; // Height (below entities)
+      positions[i * 3 + 2] = -y;
 
       // Size
       sizes[i] = size;
@@ -1039,10 +1087,10 @@ export class ThreeRenderer implements Renderer {
       if (particle.x < soupMinX - 10) particle.x = soupMaxX + 10;
       if (particle.y < soupMinY - 10) particle.y = soupMaxY + 10;
 
-      // Update BufferGeometry positions
+      // Update BufferGeometry positions (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = particle.x;
-      positions[i * 3 + 1] = particle.y;
-      // Z position stays at -0.8
+      // positions[i * 3 + 1] stays at height (-0.8)
+      positions[i * 3 + 2] = -particle.y;
     }
 
     // Mark positions as needing update
@@ -1251,20 +1299,21 @@ export class ThreeRenderer implements Renderer {
         let endPos: THREE.Vector3;
 
         if (isHitscan) {
-          // Hitscan mode: beam.velocity is the end position
-          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
-          endPos = new THREE.Vector3(beam.velocity.x, beam.velocity.y, 1);
+          // Hitscan mode: beam.velocity is the end position (XZ plane, Y=height)
+          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
+          endPos = new THREE.Vector3(beam.velocity.x, 1, -beam.velocity.y);
         } else {
           // Projectile mode: create short lightning bolt in direction of travel
           const boltLength = 80; // Fixed visual length
           const dirX = beam.velocity.x / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
           const dirY = beam.velocity.y / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
 
-          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
+          // XZ plane: game Y maps to -Z
+          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
           endPos = new THREE.Vector3(
             beam.position.x + dirX * boltLength,
-            beam.position.y + dirY * boltLength,
-            1
+            1,
+            -(beam.position.y + dirY * boltLength)
           );
         }
 
@@ -1306,8 +1355,11 @@ export class ThreeRenderer implements Renderer {
         mesh.position.copy(startPos);
 
         // Rotate to point from start to end
-        const angle = Math.atan2(direction.y, direction.x);
-        mesh.rotation.z = angle - Math.PI / 2;
+        // Lightning geometry points in +Y direction by default
+        // Use quaternion to rotate from +Y to the actual direction
+        const defaultDir = new THREE.Vector3(0, 1, 0);
+        const targetDir = direction.clone().normalize();
+        mesh.quaternion.setFromUnitVectors(defaultDir, targetDir);
 
         this.scene.add(mesh);
         this.pseudopodMeshes.set(id, mesh);
@@ -1320,9 +1372,9 @@ export class ThreeRenderer implements Renderer {
         const isProjectile = velocityMag >= 100;
 
         if (isProjectile) {
-          // Update position for moving projectile
+          // Update position for moving projectile (XZ plane)
           mesh.position.x = beam.position.x;
-          mesh.position.y = beam.position.y;
+          mesh.position.z = -beam.position.y;
         }
       }
     });
@@ -1334,8 +1386,10 @@ export class ThreeRenderer implements Renderer {
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
       if (target) {
+        // XZ plane: interpolate X and Z (game Y maps to -Z)
         group.position.x += (target.x - group.position.x) * lerpFactor;
-        group.position.y += (target.y - group.position.y) * lerpFactor;
+        const targetZ = -target.y;
+        group.position.z += (targetZ - group.position.z) * lerpFactor;
       }
     });
   }
@@ -1405,7 +1459,7 @@ export class ThreeRenderer implements Renderer {
             newAuraMesh.add(singleAura);
           }
 
-          newAuraMesh.position.z = -1; // Behind player
+          newAuraMesh.position.y = -1; // Below player (Y=height)
           this.drainAuraMeshes.set(playerId, newAuraMesh);
           this.scene.add(newAuraMesh);
           auraMesh = newAuraMesh;
@@ -1466,7 +1520,7 @@ export class ThreeRenderer implements Renderer {
           const newAuraMesh = new THREE.Group();
           const swarmAura = createCellAura(swarm.size);
           newAuraMesh.add(swarmAura);
-          newAuraMesh.position.z = -1; // Behind swarm
+          newAuraMesh.position.y = -1; // Below swarm (Y=height)
 
           this.drainAuraMeshes.set(auraId, newAuraMesh);
           this.scene.add(newAuraMesh);
@@ -1476,9 +1530,9 @@ export class ThreeRenderer implements Renderer {
         // Type guard: ensure auraMesh exists after creation
         if (!auraMesh) return;
 
-        // Position aura at swarm position
+        // Position aura at swarm position (XZ plane)
         auraMesh.position.x = swarmMesh.position.x;
-        auraMesh.position.y = swarmMesh.position.y;
+        auraMesh.position.z = swarmMesh.position.z;
 
         // Calculate intensity from damage rate
         const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
@@ -1593,14 +1647,14 @@ export class ThreeRenderer implements Renderer {
         // Create new gain aura for this player
         const radius = this.getPlayerRadius(player.stage);
         gainAura = createGainAura(radius);
-        gainAura.position.z = 0.05; // Slightly in front of player
+        gainAura.position.y = 0.05; // Slightly above player (Y=height)
         this.scene.add(gainAura);
         this.gainAuraMeshes.set(playerId, gainAura);
       }
 
-      // Position aura at player position
+      // Position aura at player position (XZ plane)
       gainAura.position.x = playerMesh.position.x;
-      gainAura.position.y = playerMesh.position.y;
+      gainAura.position.z = playerMesh.position.z;
 
       // Trigger flash animation - intensity scales with energy gain rate
       const energyGain = energyGains.get(playerId) ?? 0;
@@ -1624,9 +1678,9 @@ export class ThreeRenderer implements Renderer {
         return;
       }
 
-      // Keep aura positioned at player
+      // Keep aura positioned at player (XZ plane)
       gainAura.position.x = playerMesh.position.x;
-      gainAura.position.y = playerMesh.position.y;
+      gainAura.position.z = playerMesh.position.z;
 
       // Update animation (returns false when finished)
       updateGainAura(gainAura);
@@ -1676,9 +1730,10 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update base position (bobbing animation added in updateNutrientAnimations)
+      // XZ plane: X=game X, Y=height, Z=-game Y
       group.userData.baseX = nutrient.position.x;
-      group.userData.baseY = nutrient.position.y;
-      group.position.set(nutrient.position.x, nutrient.position.y, 0);
+      group.userData.baseZ = -nutrient.position.y;
+      group.position.set(nutrient.position.x, 0, -nutrient.position.y);
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
@@ -1757,17 +1812,17 @@ export class ThreeRenderer implements Renderer {
     const now = Date.now();
 
     this.nutrientMeshes.forEach((group) => {
-      const { rotationSpeed, bobPhase, baseX, baseY } = group.userData;
+      const { rotationSpeed, bobPhase, baseX, baseZ } = group.userData;
 
       // Rotate around Y axis (tumbling effect)
       group.rotation.y += rotationSpeed * dt;
       // Slight wobble on X axis
       group.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
 
-      // Gentle bobbing on Z axis (floating in digital ocean)
+      // Gentle bobbing on Y axis (height - floating in digital ocean)
       const bobAmount = Math.sin(now * 0.002 + bobPhase) * 2;
-      if (baseX !== undefined && baseY !== undefined) {
-        group.position.set(baseX, baseY, bobAmount);
+      if (baseX !== undefined && baseZ !== undefined) {
+        group.position.set(baseX, bobAmount, baseZ);
       }
 
       // Pulse the inner core brightness
@@ -1906,10 +1961,10 @@ export class ThreeRenderer implements Renderer {
           cellGroup = createSingleCell(radius, colorHex);
         }
 
-        // Position group at player location
+        // Position group at player location on XZ plane (Y=height)
         // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, player.position.y, zOffset);
+        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -1932,7 +1987,9 @@ export class ThreeRenderer implements Renderer {
             depthWrite: false, // Prevent z-fighting with transparent materials
           });
           const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-          outline.position.z = 0.1; // Slightly above player
+          outline.position.y = 0.1; // Slightly above player (Y=height)
+          // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
+          outline.rotation.x = -Math.PI / 2;
           this.scene.add(outline);
           this.playerOutlines.set(id, outline);
         }
@@ -2084,16 +2141,17 @@ export class ThreeRenderer implements Renderer {
       // Update position with client-side interpolation
       const target = state.playerTargets.get(id);
       if (target) {
-        // Lerp toward server position
+        // Lerp toward server position (XZ plane: game Y maps to -Z)
         const lerpFactor = 0.3;
         cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-        cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+        const targetZ = -target.y;
+        cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
           outline.position.x = cellGroup.position.x;
-          outline.position.y = cellGroup.position.y;
+          outline.position.z = cellGroup.position.z;
         }
 
         // Update compass indicators for client player (chemical sensing)
@@ -2109,14 +2167,14 @@ export class ThreeRenderer implements Renderer {
         }
       } else {
         // Fallback to direct position if no target
-        // Maintain Z offset for Stage 3+ creatures
-        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, player.position.y, zOffset);
+        // Maintain height offset for Stage 3+ creatures
+        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          outline.position.set(player.position.x, player.position.y, zOffset + 0.1);
+          outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
         }
 
         // Update compass indicators for client player (chemical sensing)
@@ -2253,20 +2311,25 @@ export class ThreeRenderer implements Renderer {
   }
 
   getCameraProjection() {
-    // Simple screen ↔ world for orthographic camera
+    // Screen ↔ world for orthographic camera on XZ plane (Y=height)
+    // Camera looks down Y-axis, game Y maps to -Z
     return {
       screenToWorld: (screenX: number, screenY: number) => {
         const rect = this.renderer.domElement.getBoundingClientRect();
-        const x = ((screenX - rect.left) / rect.width) * 2 - 1;
-        const y = -((screenY - rect.top) / rect.height) * 2 + 1;
+        // Convert screen coords to NDC (-1 to +1)
+        const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
 
-        const vector = new THREE.Vector3(x, y, 0);
+        // Unproject from NDC to world coordinates
+        const vector = new THREE.Vector3(ndcX, ndcY, 0);
         vector.unproject(this.camera);
 
-        return { x: vector.x, y: vector.y };
+        // XZ plane: game X = Three.js X, game Y = -Three.js Z
+        return { x: vector.x, y: -vector.z };
       },
       worldToScreen: (worldX: number, worldY: number) => {
-        const vector = new THREE.Vector3(worldX, worldY, 0);
+        // XZ plane: Three.js (worldX, 0, -worldY)
+        const vector = new THREE.Vector3(worldX, 0, -worldY);
         vector.project(this.camera);
 
         const rect = this.renderer.domElement.getBoundingClientRect();

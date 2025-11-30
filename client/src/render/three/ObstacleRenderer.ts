@@ -35,7 +35,12 @@ export function createObstacle(
   radius: number
 ): { group: THREE.Group; particles: AccretionParticle[]; vortexSpeed: number } {
   const group = new THREE.Group();
-  group.position.set(position.x, position.y, -0.4);
+  // XZ plane: X=game X, Y=height, Z=-game Y
+  group.position.set(position.x, -0.4, -position.y);
+
+  // Rotate group so flat elements (rings, vortex) lie on XZ plane when viewed from above
+  // Camera looks down Y axis, so rotate -90° around X to flip local XY to world XZ
+  group.rotation.x = -Math.PI / 2;
 
   // === LAYER 1: OUTER INFLUENCE ZONE (safe-ish, shows gravity) ===
   const ringWidth = 3; // Thin ring width in pixels

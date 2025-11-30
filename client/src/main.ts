@@ -83,6 +83,9 @@ function initializeGame(settings: PreGameSettings): void {
   // Connect to server (pass playground mode for port switching)
   socketManager = new SocketManager(serverUrl, gameState, settings.playgroundMode);
 
+  // Setup console log forwarding to server (for debugging)
+  setupLogForwarding(socketManager);
+
   // Pause server on connect if requested (wait for connection first)
   if (settings.pauseOnStart) {
     eventBus.once('client:socketConnected', () => {
@@ -179,4 +182,38 @@ function update(): void {
   }
 
   requestAnimationFrame(update);
+}
+
+// ============================================
+// Log Forwarding to Server
+// ============================================
+
+function setupLogForwarding(socket: SocketManager): void {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+
+  console.log = (...args: unknown[]) => {
+    originalLog.apply(console, args);
+    socket.sendLog('log', args);
+  };
+
+  console.warn = (...args: unknown[]) => {
+    originalWarn.apply(console, args);
+    socket.sendLog('warn', args);
+  };
+
+  console.error = (...args: unknown[]) => {
+    originalError.apply(console, args);
+    socket.sendLog('error', args);
+  };
+
+  // Also catch unhandled errors
+  window.addEventListener('error', (event) => {
+    socket.sendLog('error', [`[Uncaught] ${event.message} at ${event.filename}:${event.lineno}`]);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    socket.sendLog('error', [`[UnhandledPromise] ${event.reason}`]);
+  });
 }
