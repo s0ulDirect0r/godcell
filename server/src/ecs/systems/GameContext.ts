@@ -1,36 +1,32 @@
 // ============================================
-// Game Context
-// Bridge between legacy state and ECS systems
+// System Context
+// Minimal context passed to all ECS systems
 // ============================================
 //
-// During the ECS migration, systems need access to game state that's
-// currently stored in module-level Maps. This context holds references
-// to all shared state and helper functions.
-//
-// As we migrate more logic into ECS components, this context will shrink.
-// Eventually, systems will only need the ECS World.
+// All legacy helper functions have been migrated to direct imports.
+// Systems now receive only the essential context: World, io, and deltaTime.
 
 import type { Server } from 'socket.io';
-import type {
-  World,
-  Position,
-  EntropySwarm,
-  EvolutionStage,
-  DamageSource,
-} from '@godcell/shared';
-import type { AbilitySystem } from '../../abilities';
+import type { World } from '@godcell/shared';
 
 /**
- * GameContext - Shared state for all systems
+ * SystemContext - Minimal context for ECS systems
  *
- * This is the bridge between legacy Map-based state and ECS.
- * Systems receive this context and can access whatever they need.
+ * This is the streamlined context that all systems receive.
+ * Systems import any helpers they need directly from their source modules.
  *
- * All entity collections and player state Maps have been migrated to ECS.
- * See buildGameContext() in index.ts for the full migration list.
+ * Migration complete:
+ * - abilitySystem → direct import from ../../index
+ * - updateBots → direct import from ../../bots
+ * - updateSwarms, updateSwarmPositions, processSwarmRespawns → direct import from ../../swarms
+ * - respawnNutrient → direct import from ../../nutrients
+ * - recordDamage, applyDamageWithResistance → direct import from ../factories
+ * - checkSwarmCollisions → inlined into SwarmCollisionSystem
+ * - removeSwarm → direct import from ../../swarms
+ * - Per-tick transient data → ECS tags (Tags.SlowedThisTick, Tags.DamagedThisTick)
  */
-export interface GameContext {
-  // ECS World
+export interface SystemContext {
+  // ECS World (source of truth for all game state)
   world: World;
 
   // Socket.io server for broadcasting
@@ -38,97 +34,7 @@ export interface GameContext {
 
   // Delta time for this tick (seconds)
   deltaTime: number;
-
-  // ============================================
-  // Per-Tick Transient Data (set by systems, read by later systems)
-  // ============================================
-  tickData: {
-    // Set by SwarmCollisionSystem, read by MovementSystem
-    damagedPlayerIds: Set<string>;
-    slowedPlayerIds: Set<string>;
-  };
-
-  // ============================================
-  // Ability System
-  // ============================================
-  abilitySystem: AbilitySystem;
-
-  // ============================================
-  // Helper Functions
-  // ============================================
-
-  // Geometry helpers
-  distance: (p1: Position, p2: Position) => number;
-  getPlayerRadius: (stage: EvolutionStage) => number;
-  getWorldBoundsForStage: (stage: EvolutionStage) => {
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-  };
-
-  // Damage helpers
-  applyDamageWithResistance: (playerId: string, baseDamage: number) => number;
-  recordDamage: (
-    entityId: string,
-    damageRate: number,
-    source: DamageSource,
-    proximityFactor?: number
-  ) => void;
-
-  // Stage helpers
-  getStageMaxEnergy: (stage: EvolutionStage) => number;
-  getDamageResistance: (stage: EvolutionStage) => number;
-  getEnergyDecayRate: (stage: EvolutionStage) => number;
-  isSoupStage: (stage: EvolutionStage) => boolean;
-  isJungleStage: (stage: EvolutionStage) => boolean;
-
-  // Entity lifecycle
-  isBot: (playerId: string) => boolean;
-
-  // ============================================
-  // Legacy Functions (to be migrated into systems)
-  // ============================================
-
-  // These exist so systems can call existing logic during migration.
-  // As systems mature, the logic moves INTO the system and these
-  // references are removed.
-
-  updateBots: (
-    timestamp: number,
-    world: World,
-    swarms: EntropySwarm[],
-    abilitySystem: AbilitySystem
-  ) => void;
-
-  updateSwarms: (
-    timestamp: number,
-    world: World,
-    deltaTime: number
-  ) => void;
-  updateSwarmPositions: (world: World, deltaTime: number, io: Server) => void;
-  processSwarmRespawns: (world: World, io: Server) => void;
-  checkSwarmCollisions: (
-    world: World,
-    deltaTime: number,
-    recordDamage?: (
-      entityId: string,
-      damageRate: number,
-      source: DamageSource
-    ) => void
-  ) => { damagedPlayerIds: Set<string>; slowedPlayerIds: Set<string> };
-  respawnNutrient: (nutrientId: string) => void;
-  removeSwarm: (world: World, swarmId: string) => void;
 }
 
-/**
- * Create a minimal SystemContext from GameContext for systems that
- * only need World, io, and deltaTime.
- */
-export function toSystemContext(ctx: GameContext) {
-  return {
-    world: ctx.world,
-    io: ctx.io,
-    deltaTime: ctx.deltaTime,
-  };
-}
+// Legacy alias for backwards compatibility during migration
+export type GameContext = SystemContext;
