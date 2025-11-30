@@ -1,6 +1,7 @@
 // ============================================
 // SwarmRenderSystem - Manages entropy swarm rendering
 // Owns swarm meshes (outer sphere, internal storm, orbiting particles)
+// Queries ECS World directly for swarm entities
 // ============================================
 
 import * as THREE from 'three';
@@ -12,18 +13,16 @@ import {
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
 } from '../three/SwarmRenderer';
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  type PositionComponent,
+  type SwarmComponent,
+  type InterpolationTargetComponent,
+} from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
-
-/**
- * Swarm data needed for rendering
- */
-export interface SwarmData {
-  id: string;
-  position: { x: number; y: number };
-  size: number;
-  state: string;
-  disabledUntil?: number;
-}
 
 /**
  * SwarmRenderSystem - Manages entropy swarm rendering
@@ -36,6 +35,7 @@ export interface SwarmData {
  */
 export class SwarmRenderSystem {
   private scene!: THREE.Scene;
+  private world!: World;
 
   // Swarm meshes (Groups containing sphere + particles)
   private swarmMeshes: Map<string, THREE.Group> = new Map();
@@ -52,26 +52,77 @@ export class SwarmRenderSystem {
   // Interpolation targets for smooth movement
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
 
+  // Cache swarm state for animation (avoids re-querying each frame)
+  private swarmStates: Map<string, string> = new Map();
+
   /**
-   * Initialize swarm system with scene reference
+   * Initialize swarm system with scene and world references
    */
-  init(scene: THREE.Scene): void {
+  init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
+    this.world = world;
   }
 
   /**
-   * Sync swarms from game state
+   * Sync swarms by querying ECS World directly
    * Creates new meshes for new swarms, removes meshes for despawned swarms
-   * @param swarms - Map of swarm ID to swarm data
    * @param renderMode - Current render mode (soup vs jungle)
    */
-  sync(swarms: Map<string, SwarmData>, renderMode: RenderMode): void {
+  sync(renderMode: RenderMode): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
     if (renderMode === 'jungle') return;
 
-    // Remove swarms that no longer exist
+    // Track which swarms exist in ECS
+    const currentSwarmIds = new Set<string>();
+
+    // Query ECS World for all swarms
+    this.world.forEachWithTag(Tags.Swarm, (entity) => {
+      const swarmId = getStringIdByEntity(entity);
+      if (!swarmId) return;
+
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const swarm = this.world.getComponent<SwarmComponent>(entity, Components.Swarm);
+      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      if (!pos || !swarm) return;
+
+      currentSwarmIds.add(swarmId);
+
+      let group = this.swarmMeshes.get(swarmId);
+
+      if (!group) {
+        // Create swarm visual using helper
+        const result = createSwarm({ x: pos.x, y: pos.y }, swarm.size);
+        group = result.group;
+
+        // Store particle animation data
+        this.swarmInternalParticles.set(swarmId, result.internalParticles);
+        this.swarmParticleData.set(swarmId, result.orbitingParticles);
+
+        // Random phase offset for pulsing (so swarms don't pulse in sync)
+        this.swarmPulsePhase.set(swarmId, Math.random() * Math.PI * 2);
+
+        this.scene.add(group);
+        this.swarmMeshes.set(swarmId, group);
+        this.swarmTargets.set(swarmId, { x: pos.x, y: pos.y });
+      }
+
+      // Update target position for interpolation (use interp target if available)
+      const targetX = interp ? interp.targetX : pos.x;
+      const targetY = interp ? interp.targetY : pos.y;
+      this.swarmTargets.set(swarmId, { x: targetX, y: targetY });
+
+      // Cache state for animation
+      this.swarmStates.set(swarmId, swarm.state);
+
+      // Update colors and intensity based on state
+      const now = Date.now();
+      const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
+      updateSwarmState(group, swarm.state, isDisabled);
+    });
+
+    // Remove swarms that no longer exist in ECS
     this.swarmMeshes.forEach((group, id) => {
-      if (!swarms.has(id)) {
+      if (!currentSwarmIds.has(id)) {
         this.scene.remove(group);
         disposeSwarm(group);
         this.swarmMeshes.delete(id);
@@ -79,37 +130,8 @@ export class SwarmRenderSystem {
         this.swarmParticleData.delete(id);
         this.swarmInternalParticles.delete(id);
         this.swarmPulsePhase.delete(id);
+        this.swarmStates.delete(id);
       }
-    });
-
-    // Add or update swarms
-    swarms.forEach((swarm, id) => {
-      let group = this.swarmMeshes.get(id);
-
-      if (!group) {
-        // Create swarm visual using helper
-        const result = createSwarm(swarm.position, swarm.size);
-        group = result.group;
-
-        // Store particle animation data
-        this.swarmInternalParticles.set(id, result.internalParticles);
-        this.swarmParticleData.set(id, result.orbitingParticles);
-
-        // Random phase offset for pulsing (so swarms don't pulse in sync)
-        this.swarmPulsePhase.set(id, Math.random() * Math.PI * 2);
-
-        this.scene.add(group);
-        this.swarmMeshes.set(id, group);
-        this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
-      }
-
-      // Update target position for interpolation
-      this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
-
-      // Update colors and intensity based on state
-      const now = Date.now();
-      const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
-      updateSwarmState(group, swarm.state, isDisabled);
     });
   }
 
@@ -132,13 +154,11 @@ export class SwarmRenderSystem {
 
   /**
    * Update swarm particle animations (pulsing, internal storm, orbiting)
-   * @param swarms - Map of swarm ID to swarm data (for state info)
    * @param dt - Delta time in milliseconds
    */
-  updateAnimations(swarms: Map<string, SwarmData>, dt: number): void {
+  updateAnimations(dt: number): void {
     this.swarmMeshes.forEach((group, id) => {
-      const swarm = swarms.get(id);
-      const swarmState = swarm?.state || 'patrol';
+      const swarmState = this.swarmStates.get(id) || 'patrol';
       const pulsePhase = this.swarmPulsePhase.get(id) || 0;
       const internalParticles = this.swarmInternalParticles.get(id);
       const orbitingParticles = this.swarmParticleData.get(id);

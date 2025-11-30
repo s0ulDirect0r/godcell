@@ -100,10 +100,10 @@ function initializeGame(settings: PreGameSettings): void {
     });
   }
 
-  // Initialize renderer
+  // Initialize renderer (pass world for render systems to query directly)
   renderer = new ThreeRenderer();
   const container = document.getElementById('game-container')!;
-  renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+  renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT, world);
 
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());

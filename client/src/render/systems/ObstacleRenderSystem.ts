@@ -1,6 +1,7 @@
 // ============================================
 // ObstacleRenderSystem - Manages gravity well obstacle rendering
 // Owns obstacle meshes (influence rings, event horizon, vortex, accretion disk)
+// Queries ECS World directly for obstacle entities
 // ============================================
 
 import * as THREE from 'three';
@@ -10,16 +11,15 @@ import {
   disposeObstacle,
   type AccretionParticle,
 } from '../three/ObstacleRenderer';
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  type PositionComponent,
+  type ObstacleComponent,
+} from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
-
-/**
- * Obstacle data needed for rendering
- */
-export interface ObstacleData {
-  id: string;
-  position: { x: number; y: number };
-  radius: number;
-}
 
 /**
  * ObstacleRenderSystem - Manages gravity well obstacle rendering
@@ -31,6 +31,7 @@ export interface ObstacleData {
  */
 export class ObstacleRenderSystem {
   private scene!: THREE.Scene;
+  private world!: World;
 
   // Obstacle meshes (gravity wells)
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
@@ -41,67 +42,84 @@ export class ObstacleRenderSystem {
   // Phase offset for core pulsing animation (so obstacles don't pulse in sync)
   private obstaclePulsePhase: Map<string, number> = new Map();
 
+  // Cache obstacle radii for animation (obstacles don't move/change)
+  private obstacleRadii: Map<string, number> = new Map();
+
   /**
-   * Initialize obstacle system with scene reference
+   * Initialize obstacle system with scene and world references
    */
-  init(scene: THREE.Scene): void {
+  init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
+    this.world = world;
   }
 
   /**
-   * Sync obstacles from game state
+   * Sync obstacles by querying ECS World directly
    * Creates new meshes for new obstacles, removes meshes for despawned obstacles
    * Obstacles don't move, so only create once
-   * @param obstacles - Map of obstacle ID to obstacle data
    * @param renderMode - Current render mode (soup vs jungle)
    */
-  sync(obstacles: Map<string, ObstacleData>, renderMode: RenderMode): void {
+  sync(renderMode: RenderMode): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
     if (renderMode === 'jungle') return;
 
-    // Remove obstacles that no longer exist
+    // Track which obstacles exist in ECS
+    const currentObstacleIds = new Set<string>();
+
+    // Query ECS World for all obstacles
+    this.world.forEachWithTag(Tags.Obstacle, (entity) => {
+      const obstacleId = getStringIdByEntity(entity);
+      if (!obstacleId) return;
+
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const obstacle = this.world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+      if (!pos || !obstacle) return;
+
+      currentObstacleIds.add(obstacleId);
+
+      // Add obstacles (they don't move, so only create once)
+      if (!this.obstacleMeshes.has(obstacleId)) {
+        const { group, particles } = createObstacle({ x: pos.x, y: pos.y }, obstacle.radius);
+
+        // Store particle data for animation
+        this.obstacleParticles.set(obstacleId, particles);
+
+        // Random phase offset for pulsing animation
+        this.obstaclePulsePhase.set(obstacleId, Math.random() * Math.PI * 2);
+
+        // Cache radius for animation
+        this.obstacleRadii.set(obstacleId, obstacle.radius);
+
+        this.scene.add(group);
+        this.obstacleMeshes.set(obstacleId, group);
+      }
+    });
+
+    // Remove obstacles that no longer exist in ECS
     this.obstacleMeshes.forEach((group, id) => {
-      if (!obstacles.has(id)) {
+      if (!currentObstacleIds.has(id)) {
         disposeObstacle(group);
         this.scene.remove(group);
         this.obstacleMeshes.delete(id);
         this.obstacleParticles.delete(id);
         this.obstaclePulsePhase.delete(id);
-      }
-    });
-
-    // Add obstacles (they don't move, so only create once)
-    obstacles.forEach((obstacle, id) => {
-      if (!this.obstacleMeshes.has(id)) {
-        const { group, particles } = createObstacle(obstacle.position, obstacle.radius);
-
-        // Store particle data for animation
-        this.obstacleParticles.set(id, particles);
-
-        // Random phase offset for pulsing animation
-        this.obstaclePulsePhase.set(id, Math.random() * Math.PI * 2);
-
-        this.scene.add(group);
-        this.obstacleMeshes.set(id, group);
+        this.obstacleRadii.delete(id);
       }
     });
   }
 
   /**
    * Update obstacle animations (pulsing, vortex rotation, accretion disk particles)
-   * @param obstacles - Map of obstacle ID to obstacle data
    * @param dt - Delta time in milliseconds
    */
-  updateAnimations(obstacles: Map<string, ObstacleData>, dt: number): void {
+  updateAnimations(dt: number): void {
     this.obstacleMeshes.forEach((group, id) => {
-      const obstacle = obstacles.get(id);
-      if (!obstacle) return;
-
       const particleData = this.obstacleParticles.get(id);
       const pulsePhase = this.obstaclePulsePhase.get(id) || 0;
+      const radius = this.obstacleRadii.get(id) || 100;
 
       if (particleData) {
-        updateObstacleAnimation(group, particleData, obstacle.radius, pulsePhase, dt);
+        updateObstacleAnimation(group, particleData, radius, pulsePhase, dt);
       }
     });
   }

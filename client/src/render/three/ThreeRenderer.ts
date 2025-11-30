@@ -10,16 +10,17 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
-import { PlayerRenderSystem, type InterpolationTarget, type PlayerDamageInfo } from '../systems/PlayerRenderSystem';
+import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { TrailSystem } from '../systems/TrailSystem';
-import { NutrientRenderSystem, type NutrientData } from '../systems/NutrientRenderSystem';
-import { ObstacleRenderSystem, type ObstacleData } from '../systems/ObstacleRenderSystem';
-import { SwarmRenderSystem, type SwarmData } from '../systems/SwarmRenderSystem';
-import { PseudopodRenderSystem, type PseudopodData } from '../systems/PseudopodRenderSystem';
+import { NutrientRenderSystem } from '../systems/NutrientRenderSystem';
+import { ObstacleRenderSystem } from '../systems/ObstacleRenderSystem';
+import { SwarmRenderSystem } from '../systems/SwarmRenderSystem';
+import { PseudopodRenderSystem } from '../systems/PseudopodRenderSystem';
 import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
 import { CameraSystem } from '../systems/CameraSystem';
 import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
+import { World } from '../../ecs';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -30,6 +31,9 @@ export class ThreeRenderer implements Renderer {
   private container!: HTMLElement;
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
+
+  // ECS World reference (for render systems to query directly)
+  private world!: World;
 
   // Camera system (owns all camera state and behavior)
   private cameraSystem!: CameraSystem;
@@ -70,8 +74,9 @@ export class ThreeRenderer implements Renderer {
   // Aura system (owns drain and gain auras)
   private auraSystem!: AuraSystem;
 
-  init(container: HTMLElement, width: number, height: number): void {
+  init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
+    this.world = world;
 
     // Create renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -103,23 +108,23 @@ export class ThreeRenderer implements Renderer {
 
     // Create player render system (owns player meshes, outlines, evolution state)
     this.playerRenderSystem = new PlayerRenderSystem();
-    this.playerRenderSystem.init(this.scene, this.geometryCache);
+    this.playerRenderSystem.init(this.scene, this.world, this.geometryCache);
 
     // Create nutrient render system (owns nutrient meshes)
     this.nutrientRenderSystem = new NutrientRenderSystem();
-    this.nutrientRenderSystem.init(this.scene);
+    this.nutrientRenderSystem.init(this.scene, this.world);
 
     // Create obstacle render system (owns gravity well meshes)
     this.obstacleRenderSystem = new ObstacleRenderSystem();
-    this.obstacleRenderSystem.init(this.scene);
+    this.obstacleRenderSystem.init(this.scene, this.world);
 
     // Create swarm render system (owns entropy swarm meshes)
     this.swarmRenderSystem = new SwarmRenderSystem();
-    this.swarmRenderSystem.init(this.scene);
+    this.swarmRenderSystem.init(this.scene, this.world);
 
     // Create pseudopod render system (owns lightning beam meshes)
     this.pseudopodRenderSystem = new PseudopodRenderSystem();
-    this.pseudopodRenderSystem.init(this.scene);
+    this.pseudopodRenderSystem.init(this.scene, this.world);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -399,28 +404,12 @@ export class ThreeRenderer implements Renderer {
     // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
     const { spawnProgress, receivingEnergy } = this.effectsSystem.update(dt);
 
-    // Sync all entities
-    this.playerRenderSystem.sync(
-      state.players,
-      state.playerTargets as Map<string, InterpolationTarget>,
-      state.playerDamageInfo as Map<string, PlayerDamageInfo>,
-      state.myPlayerId,
-      this.environmentSystem.getMode(),
-      this.cameraSystem.getYaw()
-    );
-    this.nutrientRenderSystem.sync(
-      state.nutrients as Map<string, NutrientData>,
-      this.environmentSystem.getMode()
-    );
-    this.obstacleRenderSystem.sync(
-      state.obstacles as Map<string, ObstacleData>,
-      this.environmentSystem.getMode()
-    );
-    this.swarmRenderSystem.sync(
-      state.swarms as Map<string, SwarmData>,
-      this.environmentSystem.getMode()
-    );
-    this.pseudopodRenderSystem.sync(state.pseudopods as Map<string, PseudopodData>);
+    // Sync all entities (systems query World directly)
+    this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw());
+    this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
+    this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
+    this.swarmRenderSystem.sync(this.environmentSystem.getMode());
+    this.pseudopodRenderSystem.sync();
 
     // Apply spawn animations (scale/opacity) to entities
     this.applySpawnAnimations(spawnProgress);
@@ -432,7 +421,7 @@ export class ThreeRenderer implements Renderer {
     this.swarmRenderSystem.interpolate();
 
     // Animate swarm particles
-    this.swarmRenderSystem.updateAnimations(state.swarms as Map<string, SwarmData>, dt);
+    this.swarmRenderSystem.updateAnimations(dt);
 
     // Update drain visual feedback (red auras)
     this.auraSystem.updateDrainAuras(
@@ -452,10 +441,7 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Animate obstacle particles
-    this.obstacleRenderSystem.updateAnimations(
-      state.obstacles as Map<string, ObstacleData>,
-      dt
-    );
+    this.obstacleRenderSystem.updateAnimations(dt);
 
     // Update trails
     this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), state.players);

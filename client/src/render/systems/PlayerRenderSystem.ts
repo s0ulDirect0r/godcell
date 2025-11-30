@@ -1,11 +1,22 @@
 // ============================================
 // PlayerRenderSystem - Manages all player entity rendering
 // Owns player meshes (all stages), outlines, evolution state, humanoid models
+// Queries ECS World directly for player entities
 // ============================================
 
 import * as THREE from 'three';
 import type { Player, EvolutionStage, DamageSource } from '@godcell/shared';
 import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '@godcell/shared';
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  getPlayer,
+  getLocalPlayerId,
+  type InterpolationTargetComponent,
+  type ClientDamageInfoComponent,
+} from '../../ecs';
 import { createMultiCell, updateMultiCellEnergy } from '../meshes/MultiCellMesh';
 import { createSingleCell, updateSingleCellEnergy } from '../meshes/SingleCellMesh';
 import {
@@ -81,6 +92,7 @@ interface DetectedEntity {
  */
 export class PlayerRenderSystem {
   private scene!: THREE.Scene;
+  private world!: World;
 
   // Player meshes (Groups containing stage-appropriate geometry)
   private playerMeshes: Map<string, THREE.Group> = new Map();
@@ -110,36 +122,41 @@ export class PlayerRenderSystem {
   private geometryCache!: Map<string, THREE.BufferGeometry>;
 
   /**
-   * Initialize player system with scene reference
+   * Initialize player system with scene, world, and geometry cache
    */
-  init(scene: THREE.Scene, geometryCache: Map<string, THREE.BufferGeometry>): void {
+  init(scene: THREE.Scene, world: World, geometryCache: Map<string, THREE.BufferGeometry>): void {
     this.scene = scene;
+    this.world = world;
     this.geometryCache = geometryCache;
   }
 
   /**
    * Main sync method - called every frame
    * Creates new meshes, updates existing, removes stale
+   * Queries ECS World directly for player entities
    */
-  sync(
-    players: Map<string, Player>,
-    playerTargets: Map<string, InterpolationTarget>,
-    playerDamageInfo: Map<string, PlayerDamageInfo>,
-    myPlayerId: string | null,
-    renderMode: RenderMode,
-    cameraYaw: number
-  ): void {
+  sync(renderMode: RenderMode, cameraYaw: number): void {
     const isJungleMode = renderMode === 'jungle';
+    const myPlayerId = getLocalPlayerId(this.world);
 
-    // Remove players that left
-    this.playerMeshes.forEach((_group, id) => {
-      if (!players.has(id)) {
-        this.removePlayerInternal(id);
-      }
-    });
+    // Track which players exist in ECS
+    const currentPlayerIds = new Set<string>();
 
-    // Add or update players
-    players.forEach((player, id) => {
+    // Query ECS World for all players
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getStringIdByEntity(entity);
+      if (!playerId) return;
+
+      const player = getPlayer(this.world, playerId);
+      if (!player) return;
+
+      currentPlayerIds.add(playerId);
+
+      // Get interpolation target and damage info from components
+      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const damageInfo = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+
+      const id = playerId;
       let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === myPlayerId;
 
@@ -278,12 +295,22 @@ export class PlayerRenderSystem {
 
       // Update outline opacity and color for client player
       if (isMyPlayer) {
-        this.updatePlayerOutline(id, player, playerDamageInfo.get(id));
+        // Convert component to PlayerDamageInfo if present
+        const damageInfoForOutline = damageInfo ? {
+          totalDamageRate: damageInfo.totalDamageRate,
+          primarySource: damageInfo.primarySource,
+          proximityFactor: damageInfo.proximityFactor,
+        } : undefined;
+        this.updatePlayerOutline(id, player, damageInfoForOutline);
       }
 
       // Update position with client-side interpolation
-      const target = playerTargets.get(id);
-      if (target) {
+      if (interp) {
+        const target: InterpolationTarget = {
+          x: interp.targetX,
+          y: interp.targetY,
+          timestamp: interp.timestamp,
+        };
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
         // Fallback to direct position if no target
@@ -320,6 +347,13 @@ export class PlayerRenderSystem {
       const outline = this.playerOutlines.get(id);
       if (outline) {
         outline.visible = shouldBeVisible;
+      }
+    });
+
+    // Remove players that no longer exist in ECS
+    this.playerMeshes.forEach((_group, id) => {
+      if (!currentPlayerIds.has(id)) {
+        this.removePlayerInternal(id);
       }
     });
   }

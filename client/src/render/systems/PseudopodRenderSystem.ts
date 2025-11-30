@@ -1,21 +1,20 @@
 // ============================================
 // PseudopodRenderSystem - Manages pseudopod beam rendering
 // Owns pseudopod meshes (lightning bolt projectiles)
+// Queries ECS World directly for pseudopod entities
 // ============================================
 
 import * as THREE from 'three';
 import { LightningStrike } from 'three-stdlib';
-
-/**
- * Pseudopod beam data needed for rendering
- */
-export interface PseudopodData {
-  id: string;
-  position: { x: number; y: number };
-  velocity: { x: number; y: number };
-  width: number;
-  color: string;
-}
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  type PositionComponent,
+  type VelocityComponent,
+  type PseudopodComponent,
+} from '../../ecs';
 
 /**
  * PseudopodRenderSystem - Manages pseudopod beam rendering
@@ -25,44 +24,50 @@ export interface PseudopodData {
  */
 export class PseudopodRenderSystem {
   private scene!: THREE.Scene;
+  private world!: World;
 
   // Pseudopod meshes (lightning bolt projectiles)
   private pseudopodMeshes: Map<string, THREE.Mesh> = new Map();
 
   /**
-   * Initialize pseudopod system with scene reference
+   * Initialize pseudopod system with scene and world references
    */
-  init(scene: THREE.Scene): void {
+  init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
+    this.world = world;
   }
 
   /**
-   * Sync pseudopods from game state
+   * Sync pseudopods by querying ECS World directly
    * Creates new meshes for new pseudopods, removes meshes for retracted pseudopods
    * Updates position for projectile-mode pseudopods
-   * @param pseudopods - Map of pseudopod ID to pseudopod data
    */
-  sync(pseudopods: Map<string, PseudopodData>): void {
-    // Remove pseudopods that no longer exist
-    this.pseudopodMeshes.forEach((mesh, id) => {
-      if (!pseudopods.has(id)) {
-        this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        (mesh.material as THREE.Material).dispose();
-        this.pseudopodMeshes.delete(id);
-      }
-    });
+  sync(): void {
+    // Track which pseudopods exist in ECS
+    const currentPseudopodIds = new Set<string>();
 
-    // Add or update pseudopods
-    pseudopods.forEach((beam, id) => {
-      let mesh = this.pseudopodMeshes.get(id);
+    // Query ECS World for all pseudopods
+    this.world.forEachWithTag(Tags.Pseudopod, (entity) => {
+      const beamId = getStringIdByEntity(entity);
+      if (!beamId) return;
+
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const vel = this.world.getComponent<VelocityComponent>(entity, Components.Velocity);
+      const beam = this.world.getComponent<PseudopodComponent>(entity, Components.Pseudopod);
+      if (!pos || !beam) return;
+
+      currentPseudopodIds.add(beamId);
+
+      const velocity = vel ? { x: vel.x, y: vel.y } : { x: 0, y: 0 };
+
+      let mesh = this.pseudopodMeshes.get(beamId);
 
       if (!mesh) {
         // Determine if hitscan or projectile mode based on velocity magnitude
         // Hitscan: velocity holds end position (low magnitude from position)
         // Projectile: velocity holds actual velocity vector (high magnitude)
-        const vx = beam.velocity.x - beam.position.x;
-        const vy = beam.velocity.y - beam.position.y;
+        const vx = velocity.x - pos.x;
+        const vy = velocity.y - pos.y;
         const velocityMag = Math.sqrt(vx * vx + vy * vy);
         const isHitscan = velocityMag < 100; // Hitscan if "velocity" is actually end position
 
@@ -70,21 +75,21 @@ export class PseudopodRenderSystem {
         let endPos: THREE.Vector3;
 
         if (isHitscan) {
-          // Hitscan mode: beam.velocity is the end position (XZ plane, Y=height)
-          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
-          endPos = new THREE.Vector3(beam.velocity.x, 1, -beam.velocity.y);
+          // Hitscan mode: velocity is the end position (XZ plane, Y=height)
+          startPos = new THREE.Vector3(pos.x, 1, -pos.y);
+          endPos = new THREE.Vector3(velocity.x, 1, -velocity.y);
         } else {
           // Projectile mode: create short lightning bolt in direction of travel
           const boltLength = 80; // Fixed visual length
-          const dirX = beam.velocity.x / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
-          const dirY = beam.velocity.y / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
+          const dirX = velocity.x / Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
+          const dirY = velocity.y / Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
 
           // XZ plane: game Y maps to -Z
-          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
+          startPos = new THREE.Vector3(pos.x, 1, -pos.y);
           endPos = new THREE.Vector3(
-            beam.position.x + dirX * boltLength,
+            pos.x + dirX * boltLength,
             1,
-            -(beam.position.y + dirY * boltLength)
+            -(pos.y + dirY * boltLength)
           );
         }
 
@@ -134,20 +139,30 @@ export class PseudopodRenderSystem {
         mesh.quaternion.setFromUnitVectors(defaultDir, targetDir);
 
         this.scene.add(mesh);
-        this.pseudopodMeshes.set(id, mesh);
+        this.pseudopodMeshes.set(beamId, mesh);
       } else {
         // Update projectile position (projectile mode only - hitscan beams are static)
         // Check if this is a projectile beam
-        const vx = beam.velocity.x - beam.position.x;
-        const vy = beam.velocity.y - beam.position.y;
+        const vx = velocity.x - pos.x;
+        const vy = velocity.y - pos.y;
         const velocityMag = Math.sqrt(vx * vx + vy * vy);
         const isProjectile = velocityMag >= 100;
 
         if (isProjectile) {
           // Update position for moving projectile (XZ plane)
-          mesh.position.x = beam.position.x;
-          mesh.position.z = -beam.position.y;
+          mesh.position.x = pos.x;
+          mesh.position.z = -pos.y;
         }
+      }
+    });
+
+    // Remove pseudopods that no longer exist in ECS
+    this.pseudopodMeshes.forEach((mesh, id) => {
+      if (!currentPseudopodIds.has(id)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+        this.pseudopodMeshes.delete(id);
       }
     });
   }

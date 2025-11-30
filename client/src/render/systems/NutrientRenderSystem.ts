@@ -1,20 +1,20 @@
 // ============================================
 // NutrientRenderSystem - Manages nutrient entity rendering
 // Owns nutrient meshes (3D icosahedron crystals)
+// Queries ECS World directly for nutrient entities
 // ============================================
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@godcell/shared';
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  type PositionComponent,
+  type NutrientComponent,
+} from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
-
-/**
- * Nutrient data needed for rendering
- */
-export interface NutrientData {
-  id: string;
-  position: { x: number; y: number };
-  valueMultiplier: number;
-}
 
 /**
  * NutrientRenderSystem - Manages nutrient entity rendering
@@ -26,6 +26,7 @@ export interface NutrientData {
  */
 export class NutrientRenderSystem {
   private scene!: THREE.Scene;
+  private world!: World;
 
   // Nutrient meshes (icosahedron crystal + inner glow)
   private nutrientMeshes: Map<string, THREE.Group> = new Map();
@@ -34,25 +35,57 @@ export class NutrientRenderSystem {
   private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
 
   /**
-   * Initialize nutrient system with scene reference
+   * Initialize nutrient system with scene and world references
    */
-  init(scene: THREE.Scene): void {
+  init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
+    this.world = world;
   }
 
   /**
-   * Sync nutrients from game state
+   * Sync nutrients by querying ECS World directly
    * Creates new meshes for new nutrients, removes meshes for despawned nutrients
-   * @param nutrients - Map of nutrient ID to nutrient data
    * @param renderMode - Current render mode (soup vs jungle)
    */
-  sync(nutrients: Map<string, NutrientData>, renderMode: RenderMode): void {
+  sync(renderMode: RenderMode): void {
     // Skip entirely in jungle mode - soup entities don't exist in jungle world
     if (renderMode === 'jungle') return;
 
-    // Remove nutrients that no longer exist
+    // Track which nutrients exist in ECS
+    const currentNutrientIds = new Set<string>();
+
+    // Query ECS World for all nutrients
+    this.world.forEachWithTag(Tags.Nutrient, (entity) => {
+      const nutrientId = getStringIdByEntity(entity);
+      if (!nutrientId) return;
+
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const nutrient = this.world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+      if (!pos || !nutrient) return;
+
+      currentNutrientIds.add(nutrientId);
+
+      let group = this.nutrientMeshes.get(nutrientId);
+
+      if (!group) {
+        group = this.createNutrient3D(nutrient.valueMultiplier);
+        this.scene.add(group);
+        this.nutrientMeshes.set(nutrientId, group);
+      }
+
+      // Update base position (bobbing animation added in updateAnimations)
+      // XZ plane: X=game X, Y=height, Z=-game Y
+      group.userData.baseX = pos.x;
+      group.userData.baseZ = -pos.y;
+      group.position.set(pos.x, 0, -pos.y);
+
+      // Cache position for energy transfer effect (used when nutrient is collected)
+      this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y });
+    });
+
+    // Remove nutrients that no longer exist in ECS
     this.nutrientMeshes.forEach((group, id) => {
-      if (!nutrients.has(id)) {
+      if (!currentNutrientIds.has(id)) {
         this.scene.remove(group);
         // Dispose non-cached materials from group children
         group.children.forEach(child => {
@@ -62,26 +95,6 @@ export class NutrientRenderSystem {
         });
         this.nutrientMeshes.delete(id);
       }
-    });
-
-    // Add or update nutrients
-    nutrients.forEach((nutrient, id) => {
-      let group = this.nutrientMeshes.get(id);
-
-      if (!group) {
-        group = this.createNutrient3D(nutrient);
-        this.scene.add(group);
-        this.nutrientMeshes.set(id, group);
-      }
-
-      // Update base position (bobbing animation added in updateAnimations)
-      // XZ plane: X=game X, Y=height, Z=-game Y
-      group.userData.baseX = nutrient.position.x;
-      group.userData.baseZ = -nutrient.position.y;
-      group.position.set(nutrient.position.x, 0, -nutrient.position.y);
-
-      // Cache position for energy transfer effect (used when nutrient is collected)
-      this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
     });
 
     // Note: Position cache is cleaned up when nutrientCollected event handler
@@ -179,17 +192,18 @@ export class NutrientRenderSystem {
 
   /**
    * Create a 3D nutrient with icosahedron crystal + inner glow core
+   * @param valueMultiplier - Nutrient value multiplier (1x, 2x, 3x, 5x)
    */
-  private createNutrient3D(nutrient: NutrientData): THREE.Group {
+  private createNutrient3D(valueMultiplier: number): THREE.Group {
     const group = new THREE.Group();
 
     // Determine color based on value multiplier
     let color: number;
-    if (nutrient.valueMultiplier >= 5) {
+    if (valueMultiplier >= 5) {
       color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
-    } else if (nutrient.valueMultiplier >= 3) {
+    } else if (valueMultiplier >= 3) {
       color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
-    } else if (nutrient.valueMultiplier >= 2) {
+    } else if (valueMultiplier >= 2) {
       color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
     } else {
       color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
@@ -197,7 +211,7 @@ export class NutrientRenderSystem {
 
     // Outer icosahedron crystal (main shape)
     // Size scales slightly with value: 1x=12, 2x=13, 3x=14, 5x=16
-    const sizeMultiplier = 1 + (nutrient.valueMultiplier - 1) * 0.1;
+    const sizeMultiplier = 1 + (valueMultiplier - 1) * 0.1;
     const crystalSize = GAME_CONFIG.NUTRIENT_SIZE * sizeMultiplier;
     const outerGeometry = new THREE.IcosahedronGeometry(crystalSize, 0);
     const outerMaterial = new THREE.MeshStandardMaterial({
