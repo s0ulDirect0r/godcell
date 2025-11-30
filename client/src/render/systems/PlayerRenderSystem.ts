@@ -31,6 +31,11 @@ import {
   setHumanoidRotation,
   type HumanoidAnimationState,
 } from '../meshes/HumanoidMesh';
+import {
+  createGodcell,
+  updateGodcellEnergy,
+  animateGodcell,
+} from '../meshes/GodcellMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
 import {
   calculateEvolutionProgress,
@@ -236,8 +241,11 @@ export class PlayerRenderSystem {
             cellGroup = createCyberOrganism(radius, colorHex);
             cellGroup.userData.isHumanoidPlaceholder = true;
           }
-        } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
-          // Stage 3 and Stage 5: Cyber-organism hexapod
+        } else if (player.stage === 'godcell') {
+          // Stage 5: Godcell - glowing sphere for 3D flight
+          cellGroup = createGodcell(radius, colorHex);
+        } else if (player.stage === 'cyber_organism') {
+          // Stage 3: Cyber-organism hexapod
           cellGroup = createCyberOrganism(radius, colorHex);
         } else if (player.stage === 'multi_cell') {
           // Multi-cell organism
@@ -384,7 +392,9 @@ export class PlayerRenderSystem {
     if (targetStage === 'humanoid') {
       targetMesh = createCyberOrganism(targetRadius, colorHex);
       targetMesh.userData.isHumanoidPlaceholder = true;
-    } else if (targetStage === 'cyber_organism' || targetStage === 'godcell') {
+    } else if (targetStage === 'godcell') {
+      targetMesh = createGodcell(targetRadius, colorHex);
+    } else if (targetStage === 'cyber_organism') {
       targetMesh = createCyberOrganism(targetRadius, colorHex);
     } else if (targetStage === 'multi_cell') {
       targetMesh = createMultiCell({
@@ -492,6 +502,9 @@ export class PlayerRenderSystem {
    * Calculate player visual size based on evolution stage
    */
   getPlayerRadius(stage: string): number {
+    if (stage === 'godcell') {
+      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+    }
     if (stage === 'multi_cell') {
       return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
     }
@@ -656,8 +669,19 @@ export class PlayerRenderSystem {
 
       cellGroup.position.set(player.position.x, 0, -player.position.y);
 
-    } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
-      // Stage 3 and 5: Cyber-organism
+    } else if (player.stage === 'godcell') {
+      // Stage 5: Godcell - 3D flying sphere
+      const energyRatio = player.energy / player.maxEnergy;
+      updateGodcellEnergy(cellGroup, energyRatio);
+      animateGodcell(cellGroup, 1 / 60);
+
+      // Godcell uses 3D position (z from player.position)
+      const posZ = player.position.z ?? 0;
+      // Convert game coordinates to Three.js: game Y → -Z, game Z → Y
+      cellGroup.position.set(player.position.x, posZ, -player.position.y);
+
+    } else if (player.stage === 'cyber_organism') {
+      // Stage 3: Cyber-organism
       const energyRatio = player.energy / player.maxEnergy;
       updateCyberOrganismEnergy(cellGroup, energyRatio);
 
