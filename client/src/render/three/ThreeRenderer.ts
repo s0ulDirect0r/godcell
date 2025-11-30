@@ -912,6 +912,7 @@ export class ThreeRenderer implements Renderer {
   private createGrid(): void {
     const gridSize = 100; // Grid cell size
     const gridColor = GAME_CONFIG.GRID_COLOR;
+    const gridHeight = -1; // Height (below entities)
 
     // Soup grid spans the soup region within the jungle coordinate space
     const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
@@ -919,22 +920,23 @@ export class ThreeRenderer implements Renderer {
     const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
     const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-    // Create vertical lines
+    // Create lines parallel to Z axis (along game Y direction)
+    // XZ plane: X=game X, Y=height, Z=-game Y
     for (let x = soupMinX; x <= soupMaxX; x += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, soupMinY, -1),
-        new THREE.Vector3(x, soupMaxY, -1),
+        new THREE.Vector3(x, gridHeight, -soupMinY),
+        new THREE.Vector3(x, gridHeight, -soupMaxY),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
       this.soupBackgroundGroup.add(line);
     }
 
-    // Create horizontal lines
-    for (let y = soupMinY; y <= soupMaxY; y += gridSize) {
+    // Create lines parallel to X axis (along game X direction)
+    for (let gameY = soupMinY; gameY <= soupMaxY; gameY += gridSize) {
       const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(soupMinX, y, -1),
-        new THREE.Vector3(soupMaxX, y, -1),
+        new THREE.Vector3(soupMinX, gridHeight, -gameY),
+        new THREE.Vector3(soupMaxX, gridHeight, -gameY),
       ]);
       const material = new THREE.LineBasicMaterial({ color: gridColor });
       const line = new THREE.Line(geometry, material);
@@ -958,10 +960,10 @@ export class ThreeRenderer implements Renderer {
       const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
       const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
-      // Position
+      // Position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = -0.8;
+      positions[i * 3 + 1] = -0.8; // Height (below entities)
+      positions[i * 3 + 2] = -y;
 
       // Size
       sizes[i] = size;
@@ -1043,10 +1045,10 @@ export class ThreeRenderer implements Renderer {
       if (particle.x < soupMinX - 10) particle.x = soupMaxX + 10;
       if (particle.y < soupMinY - 10) particle.y = soupMaxY + 10;
 
-      // Update BufferGeometry positions
+      // Update BufferGeometry positions (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = particle.x;
-      positions[i * 3 + 1] = particle.y;
-      // Z position stays at -0.8
+      // positions[i * 3 + 1] stays at height (-0.8)
+      positions[i * 3 + 2] = -particle.y;
     }
 
     // Mark positions as needing update
