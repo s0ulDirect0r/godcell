@@ -81,14 +81,7 @@ import {
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
 } from './SwarmRenderer';
-import {
-  getStageZoom,
-  calculateDamageShake,
-  applyCameraShake,
-  followTarget,
-  updateZoomTransition,
-  applyCameraZoom,
-} from './CameraEffects';
+import { CameraSystem } from '../systems/CameraSystem';
 import {
   createJungleBackground,
   updateJungleParticles,
@@ -105,26 +98,15 @@ import {
 export class ThreeRenderer implements Renderer {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
-  private camera!: THREE.OrthographicCamera;
-  private perspectiveCamera!: THREE.PerspectiveCamera;
   private container!: HTMLElement;
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
 
-  // Camera mode: 'topdown' for Stages 1-3, 'firstperson' for Stage 4+
-  private cameraMode: 'topdown' | 'firstperson' = 'topdown';
+  // Camera system (owns all camera state and behavior)
+  private cameraSystem!: CameraSystem;
 
-  // First-person camera state
-  private fpYaw = 0; // Horizontal rotation (radians)
-  private fpPitch = 0; // Vertical rotation (radians), clamped
-
-  // Camera effects
-  private cameraShake = 0;
+  // Legacy references for compatibility during refactor
   private lastPlayerEnergy: number | null = null;
-
-  // Camera zoom for evolution stages
-  private currentZoom = 1.0; // Current zoom level (1.0 = Stage 1)
-  private targetZoom = 1.0; // Target zoom level (for smooth transitions)
   private myPlayerId: string | null = null; // Local player ID for event filtering
   private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
 
@@ -260,31 +242,8 @@ export class ThreeRenderer implements Renderer {
     this.firstPersonGround.visible = false;
     this.scene.add(this.firstPersonGround);
 
-    // Create orthographic camera (top-down 2D for Stages 1-3)
-    const aspect = width / height;
-    const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
-    this.camera = new THREE.OrthographicCamera(
-      (frustumSize * aspect) / -2,
-      (frustumSize * aspect) / 2,
-      frustumSize / 2,
-      frustumSize / -2,
-      1,     // Near plane
-      2000   // Far plane (camera at Y=1000 needs to see ground at Y=0 and below)
-    );
-    // Camera looks down Y-axis at XZ plane (standard 3D: Y=height)
-    // Position high above soup center, looking down
-    const soupCenterX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
-    const soupCenterY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2;
-    this.camera.position.set(soupCenterX, 1000, -soupCenterY);
-    this.camera.lookAt(soupCenterX, 0, -soupCenterY);
-    // Set up vector so -Z is "up" on screen (maps to game +Y direction)
-    this.camera.up.set(0, 0, -1);
-
-    // Create perspective camera (first-person for Stage 4+)
-    // FOV 75 degrees, standard for FPS games
-    // Near/far planes set for jungle world scale (humanoid ~200 units tall)
-    this.perspectiveCamera = new THREE.PerspectiveCamera(75, aspect, 1, 10000);
-    this.perspectiveCamera.position.set(0, 0, 0);
+    // Create camera system (owns both cameras and all camera logic)
+    this.cameraSystem = new CameraSystem(width, height);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -295,7 +254,7 @@ export class ThreeRenderer implements Renderer {
     this.scene.add(keyLight);
 
     // Create postprocessing composer (store renderPass for camera switching)
-    const composerResult = createComposer(this.renderer, this.scene, this.camera, width, height);
+    const composerResult = createComposer(this.renderer, this.scene, this.cameraSystem.getOrthoCamera(), width, height);
     this.composer = composerResult.composer;
     this.renderPass = composerResult.renderPass;
 
@@ -497,7 +456,7 @@ export class ThreeRenderer implements Renderer {
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.playerId === this.myPlayerId) {
           // Set target zoom for smooth transition
-          this.targetZoom = getStageZoom(event.newStage);
+          this.cameraSystem.setTargetZoom(CameraSystem.getStageZoom(event.newStage));
 
           // Update white outline for new size
           const oldOutline = this.playerOutlines.get(event.playerId);
@@ -534,9 +493,8 @@ export class ThreeRenderer implements Renderer {
       eventBus.on('playerRespawned', (event) => {
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.player.id === this.myPlayerId) {
-          // Set zoom based on respawn stage
-          this.targetZoom = getStageZoom(event.player.stage);
-          this.currentZoom = this.targetZoom; // Instant reset (no transition)
+          // Set zoom based on respawn stage (instant, no transition)
+          this.cameraSystem.setZoomInstant(CameraSystem.getStageZoom(event.player.stage));
           this.initialZoomSet = false; // Allow re-initialization
         }
       });
@@ -677,8 +635,8 @@ export class ThreeRenderer implements Renderer {
 
       // Mouse look event - update first-person camera rotation
       eventBus.on('client:mouseLook', (event) => {
-        if (this.cameraMode === 'firstperson') {
-          this.updateFirstPersonLook(event.deltaX, event.deltaY);
+        if (this.cameraSystem.getMode() === 'firstperson') {
+          this.cameraSystem.updateFirstPersonLook(event.deltaX, event.deltaY);
         }
       });
     });
@@ -776,23 +734,16 @@ export class ThreeRenderer implements Renderer {
     if (myPlayer) {
       // Set initial zoom based on spawn stage (first frame only)
       if (!this.initialZoomSet) {
-        const initialZoom = getStageZoom(myPlayer.stage);
-        this.currentZoom = initialZoom;
-        this.targetZoom = initialZoom;
+        const initialZoom = CameraSystem.getStageZoom(myPlayer.stage);
+        this.cameraSystem.setZoomInstant(initialZoom);
         this.initialZoomSet = true;
-
-        // Apply immediately if not Stage 1
-        if (initialZoom !== 1.0) {
-          const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
-          applyCameraZoom(this.camera, this.currentZoom, aspect);
-        }
       }
 
       // Detect energy decrease (damage taken) - energy is sole life resource
       if (this.lastPlayerEnergy !== null && myPlayer.energy < this.lastPlayerEnergy) {
         const damageAmount = this.lastPlayerEnergy - myPlayer.energy;
-        const shakeIntensity = calculateDamageShake(damageAmount);
-        this.cameraShake = Math.max(this.cameraShake, shakeIntensity); // Use max so multiple hits don't override
+        const shakeIntensity = CameraSystem.calculateDamageShake(damageAmount);
+        this.cameraSystem.addShake(shakeIntensity);
       }
 
       // Update last energy
@@ -804,15 +755,15 @@ export class ThreeRenderer implements Renderer {
 
     // Update camera mode based on player stage (top-down for Stages 1-3, first-person for Stage 4+)
     const isFirstPersonStage = myPlayer?.stage === EvolutionStage.HUMANOID;
-    if (isFirstPersonStage && this.cameraMode !== 'firstperson') {
+    if (isFirstPersonStage && this.cameraSystem.getMode() !== 'firstperson') {
       this.setCameraMode('firstperson');
-    } else if (!isFirstPersonStage && this.cameraMode === 'firstperson') {
+    } else if (!isFirstPersonStage && this.cameraSystem.getMode() === 'firstperson') {
       this.setCameraMode('topdown');
     }
 
     // Update first-person camera position if in first-person mode
-    if (this.cameraMode === 'firstperson' && myPlayer) {
-      this.updateFirstPersonCamera(
+    if (this.cameraSystem.getMode() === 'firstperson' && myPlayer) {
+      this.cameraSystem.updateFirstPersonPosition(
         myPlayer.position.x,
         myPlayer.position.y,
         GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
@@ -891,40 +842,32 @@ export class ThreeRenderer implements Renderer {
       state.players
     );
 
-    // Update camera to follow player's interpolated mesh position
-    // XZ plane: mesh.position.x = game X, mesh.position.z = -game Y
-    // followTarget expects game coordinates, so pass -mesh.position.z to get game Y back
+    // Update camera system (follows player, applies shake, transitions zoom)
+    // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
     if (myPlayer) {
       const mesh = this.playerMeshes.get(myPlayer.id);
       if (mesh) {
-        followTarget(this.camera, mesh.position.x, -mesh.position.z);
+        this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+      } else {
+        this.cameraSystem.update();
       }
+    } else {
+      this.cameraSystem.update();
     }
 
-    // Apply camera shake effect
-    this.cameraShake = applyCameraShake(this.camera, this.cameraShake);
-
-    // Update camera zoom (smooth transition to target zoom)
-    const aspect = this.renderer.domElement.width / this.renderer.domElement.height;
-    this.currentZoom = updateZoomTransition(
-      this.camera,
-      this.currentZoom,
-      this.targetZoom,
-      aspect
-    );
-
     // Update renderPass camera based on current mode before rendering
-    this.renderPass.camera = this.getActiveCamera();
+    this.renderPass.camera = this.cameraSystem.getActiveCamera();
 
     // DEBUG: Log camera and entity state every 60 frames
     if (!this._debugFrameCount) this._debugFrameCount = 0;
     this._debugFrameCount++;
     if (this._debugFrameCount % 60 === 0) {
+      const orthoCamera = this.cameraSystem.getOrthoCamera();
       console.log('[DEBUG] Camera:', {
-        pos: { x: this.camera.position.x.toFixed(0), y: this.camera.position.y.toFixed(0), z: this.camera.position.z.toFixed(0) },
-        frustum: { left: this.camera.left.toFixed(0), right: this.camera.right.toFixed(0), top: this.camera.top.toFixed(0), bottom: this.camera.bottom.toFixed(0) },
-        near: this.camera.near,
-        far: this.camera.far,
+        pos: { x: orthoCamera.position.x.toFixed(0), y: orthoCamera.position.y.toFixed(0), z: orthoCamera.position.z.toFixed(0) },
+        frustum: { left: orthoCamera.left.toFixed(0), right: orthoCamera.right.toFixed(0), top: orthoCamera.top.toFixed(0), bottom: orthoCamera.bottom.toFixed(0) },
+        near: orthoCamera.near,
+        far: orthoCamera.far,
       });
       console.log('[DEBUG] Entities:', {
         players: this.playerMeshes.size,
@@ -2023,7 +1966,7 @@ export class ThreeRenderer implements Renderer {
         // For first-person (local player), rotate humanoid to match camera yaw
         // For other players, rotate to face movement direction
         if (isMyPlayer) {
-          setHumanoidRotation(cellGroup, this.fpYaw);
+          setHumanoidRotation(cellGroup, this.cameraSystem.getYaw());
         } else if (prevPos && isMoving) {
           const dx = currPos.x - prevPos.x;
           const dy = currPos.y - prevPos.y;
@@ -2296,23 +2239,17 @@ export class ThreeRenderer implements Renderer {
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
-    const aspect = width / height;
-    applyCameraZoom(this.camera, this.currentZoom, aspect);
-    // Update perspective camera aspect ratio
-    this.perspectiveCamera.aspect = aspect;
-    this.perspectiveCamera.updateProjectionMatrix();
+    this.cameraSystem.resize(width, height);
   }
 
   getCameraCapabilities(): CameraCapabilities {
-    return {
-      mode: this.cameraMode === 'firstperson' ? 'fps' : 'topdown',
-      supports3D: true,
-    };
+    return this.cameraSystem.getCapabilities();
   }
 
   getCameraProjection() {
     // Screen ↔ world for orthographic camera on XZ plane (Y=height)
     // Camera looks down Y-axis, game Y maps to -Z
+    const camera = this.cameraSystem.getOrthoCamera();
     return {
       screenToWorld: (screenX: number, screenY: number) => {
         const rect = this.renderer.domElement.getBoundingClientRect();
@@ -2322,7 +2259,7 @@ export class ThreeRenderer implements Renderer {
 
         // Unproject from NDC to world coordinates
         const vector = new THREE.Vector3(ndcX, ndcY, 0);
-        vector.unproject(this.camera);
+        vector.unproject(camera);
 
         // XZ plane: game X = Three.js X, game Y = -Three.js Z
         return { x: vector.x, y: -vector.z };
@@ -2330,7 +2267,7 @@ export class ThreeRenderer implements Renderer {
       worldToScreen: (worldX: number, worldY: number) => {
         // XZ plane: Three.js (worldX, 0, -worldY)
         const vector = new THREE.Vector3(worldX, 0, -worldY);
-        vector.project(this.camera);
+        vector.project(camera);
 
         const rect = this.renderer.domElement.getBoundingClientRect();
         return {
@@ -2350,14 +2287,10 @@ export class ThreeRenderer implements Renderer {
    * Called when player evolves to/from Stage 4
    */
   setCameraMode(mode: 'topdown' | 'firstperson'): void {
-    if (this.cameraMode === mode) return;
-    this.cameraMode = mode;
+    const changed = this.cameraSystem.setMode(mode);
+    if (!changed) return;
 
     if (mode === 'firstperson') {
-      // Reset first-person rotation when entering first-person mode
-      this.fpYaw = 0;
-      this.fpPitch = 0;
-
       // Show first-person ground plane
       this.firstPersonGround.visible = true;
 
@@ -2380,7 +2313,7 @@ export class ThreeRenderer implements Renderer {
    * Get current camera mode
    */
   getCameraMode(): 'topdown' | 'firstperson' {
-    return this.cameraMode;
+    return this.cameraSystem.getMode();
   }
 
   /**
@@ -2389,27 +2322,14 @@ export class ThreeRenderer implements Renderer {
    * @param deltaY - Mouse movement in Y (affects pitch/vertical look)
    */
   updateFirstPersonLook(deltaX: number, deltaY: number): void {
-    if (this.cameraMode !== 'firstperson') return;
-
-    // Sensitivity: radians per pixel of mouse movement (0.002 ≈ 0.11°/pixel)
-    // Lower values = slower look, higher = faster. 0.002 is typical for FPS games.
-    const sensitivity = 0.002;
-
-    // Update yaw (horizontal) - no clamping, can spin freely
-    this.fpYaw -= deltaX * sensitivity;
-
-    // Update pitch (vertical) - clamp to prevent flipping
-    // Range: -89 to +89 degrees (just under straight up/down)
-    const maxPitch = Math.PI / 2 - 0.01;
-    this.fpPitch -= deltaY * sensitivity;
-    this.fpPitch = Math.max(-maxPitch, Math.min(maxPitch, this.fpPitch));
+    this.cameraSystem.updateFirstPersonLook(deltaX, deltaY);
   }
 
   /**
    * Get current first-person yaw (for rotating movement input)
    */
   getFirstPersonYaw(): number {
-    return this.fpYaw;
+    return this.cameraSystem.getYaw();
   }
 
   /**
@@ -2420,23 +2340,14 @@ export class ThreeRenderer implements Renderer {
    * @param height - Camera height above ground (humanoid eye level)
    */
   updateFirstPersonCamera(x: number, y: number, height: number): void {
-    if (this.cameraMode !== 'firstperson') return;
-
-    // Position camera at player location
-    // In our coordinate system: game X = 3D X, game Y = 3D Z, height = 3D Y
-    this.perspectiveCamera.position.set(x, height, -y);
-
-    // Apply look rotation
-    // Create rotation from yaw and pitch
-    const euler = new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ');
-    this.perspectiveCamera.quaternion.setFromEuler(euler);
+    this.cameraSystem.updateFirstPersonPosition(x, y, height);
   }
 
   /**
    * Get the active camera (ortho for top-down, perspective for first-person)
    */
   getActiveCamera(): THREE.Camera {
-    return this.cameraMode === 'firstperson' ? this.perspectiveCamera : this.camera;
+    return this.cameraSystem.getActiveCamera();
   }
 
   dispose(): void {
