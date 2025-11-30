@@ -12,10 +12,16 @@ import type { EvolutionStage, DeathCause, DamageSource, Position } from '../inde
 /**
  * Position - where an entity exists in the world.
  * Used by: Players, Nutrients, Obstacles, Swarms, Pseudopods
+ *
+ * z-axis: Height in 3D space (0 = ground level)
+ * - Stage 1-4: z is always 0 (grounded movement)
+ * - Stage 5 (Godcell): z can vary (3D flight, range 0-2000)
+ * z is optional for backwards compatibility - defaults to 0
  */
 export interface PositionComponent {
   x: number;
   y: number;
+  z?: number;  // Optional, defaults to 0
 }
 
 /**
@@ -24,10 +30,14 @@ export interface PositionComponent {
  *
  * Stored separately from Position for physics system to process.
  * Units: pixels per second.
+ *
+ * z-axis: Vertical velocity for Stage 5 (Godcell) 3D flight.
+ * z is optional for backwards compatibility - defaults to 0
  */
 export interface VelocityComponent {
   x: number;
   y: number;
+  z?: number;  // Optional, defaults to 0
 }
 
 /**
@@ -67,10 +77,14 @@ export interface StageComponent {
 /**
  * Input - current movement intent from player.
  * Processed by movement system each tick.
+ *
+ * z-axis: Vertical input for Stage 5 (Godcell) 3D flight.
+ * - Q key = z: 1 (ascend)
+ * - E key = z: -1 (descend)
  */
 export interface InputComponent {
-  direction: { x: number; y: number }; // -1, 0, or 1 for each axis
-  lastInputTimestamp?: number;         // For debugging/anti-cheat
+  direction: { x: number; y: number; z?: number }; // -1, 0, or 1 for each axis (z optional)
+  lastInputTimestamp?: number;                     // For debugging/anti-cheat
 }
 
 /**
@@ -249,6 +263,7 @@ export interface CanDetectComponent {
 export interface InterpolationTargetComponent {
   targetX: number;        // Target X position from server
   targetY: number;        // Target Y position from server
+  targetZ?: number;       // Target Z position from server (height for Stage 5, optional)
   timestamp: number;      // When this target was received
 }
 
