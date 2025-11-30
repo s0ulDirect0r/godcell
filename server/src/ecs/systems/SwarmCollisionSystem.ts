@@ -8,7 +8,17 @@ import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageCom
 import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { logger } from '../../logger';
-import { getSocketIdByEntity, getDamageTrackingBySocketId, forEachSwarm } from '../factories';
+import {
+  getSocketIdByEntity,
+  getDamageTrackingBySocketId,
+  forEachSwarm,
+  getEntityBySocketId,
+  forEachPlayer,
+  recordDamage,
+} from '../factories';
+import { distance, getPlayerRadius, getDamageResistance, isSoupStage } from '../../helpers';
+import { removeSwarm } from '../../swarms';
+import { hasGodMode, getConfig } from '../../dev';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -19,38 +29,83 @@ import { getSocketIdByEntity, getDamageTrackingBySocketId, forEachSwarm } from '
  * 1. Swarm collisions (damage + slow effect)
  * 2. Swarm consumption (multi-cells eating disabled swarms)
  *
- * Stores damaged/slowed player sets in ctx.tickData for MovementSystem.
+ * Uses ECS tags (SlowedThisTick, DamagedThisTick) for cross-system communication.
  */
 export class SwarmCollisionSystem implements System {
   readonly name = 'SwarmCollisionSystem';
 
   update(ctx: GameContext): void {
-    const {
-      world,
-      deltaTime,
-      io,
-      recordDamage,
-      checkSwarmCollisions,
-      getPlayerRadius,
-      distance,
-      removeSwarm,
-      tickData,
-    } = ctx;
+    const { world, deltaTime, io } = ctx;
 
-    // Check for swarm collisions (damage + slow)
-    // Now uses ECS iteration directly and applies damage with resistance inline
-    const { damagedPlayerIds, slowedPlayerIds } = checkSwarmCollisions(
-      world,
-      deltaTime,
-      recordDamage
-    );
+    // ============================================
+    // Part 1: Swarm collision detection (damage + slow)
+    // Inlined from swarms.ts checkSwarmCollisions
+    // ============================================
+    const damagedPlayerIds = new Set<string>();
+    const slowedPlayerIds = new Set<string>();
+    const now = Date.now();
 
-    // Store in tickData for access by MovementSystem
-    tickData.damagedPlayerIds = damagedPlayerIds;
-    tickData.slowedPlayerIds = slowedPlayerIds;
+    forEachSwarm(world, (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp) => {
+      // Skip disabled swarms (hit by EMP)
+      if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
 
-    // Track damage source in ECS
+      const swarmPosition = { x: swarmPos.x, y: swarmPos.y };
+
+      forEachPlayer(world, (entity, playerId) => {
+        const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+        const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+        const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+        if (!energyComp || !posComp || !stageComp) return;
+
+        // Skip dead/evolving players
+        if (energyComp.current <= 0 || stageComp.isEvolving) return;
+
+        // Stage 3+ players don't interact with soup swarms (they've evolved past)
+        if (!isSoupStage(stageComp.stage)) return;
+
+        // God mode players are immune
+        if (hasGodMode(playerId)) return;
+
+        // Check collision (circle-circle)
+        const playerPosition = { x: posComp.x, y: posComp.y };
+        const dist = distance(swarmPosition, playerPosition);
+        const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
+
+        if (dist < collisionDist) {
+          // Apply damage directly with resistance
+          const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
+          const resistance = getDamageResistance(stageComp.stage);
+          const actualDamage = baseDamage * (1 - resistance);
+          energyComp.current -= actualDamage;
+
+          damagedPlayerIds.add(playerId);
+
+          // Record damage for drain aura system
+          recordDamage(world, playerId, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
+
+          // Apply movement slow debuff
+          slowedPlayerIds.add(playerId);
+        }
+      });
+    });
+
+    // ============================================
+    // Part 2: Add ECS tags for cross-system communication
+    // MovementSystem reads SlowedThisTick to apply speed reduction
+    // ============================================
+    for (const playerId of slowedPlayerIds) {
+      const entity = getEntityBySocketId(playerId);
+      if (entity !== undefined) {
+        world.addTag(entity, Tags.SlowedThisTick);
+      }
+    }
+
     for (const playerId of damagedPlayerIds) {
+      const entity = getEntityBySocketId(playerId);
+      if (entity !== undefined) {
+        world.addTag(entity, Tags.DamagedThisTick);
+      }
+      // Track damage source in ECS
       const damageTracking = getDamageTrackingBySocketId(world, playerId);
       if (damageTracking) {
         damageTracking.lastDamageSource = 'swarm';
