@@ -229,6 +229,9 @@ export interface CanEngulfComponent {
  * CanDetect - entity has chemical sensing (radar).
  * Granted at: Stage 2 (Multi-cell) and above
  * Effect: Can see entities within detection radius
+ *
+ * NOTE: Unlike other ability components, this is NOT a pure marker —
+ * it carries data (radius). This is an exception to the marker pattern.
  */
 export interface CanDetectComponent {
   radius: number; // Detection range in pixels
