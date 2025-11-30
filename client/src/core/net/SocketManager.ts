@@ -119,8 +119,9 @@ export class SocketManager {
 
   /**
    * Send player move intent
+   * z is optional for Stage 5 (Godcell) 3D flight
    */
-  sendMove(direction: { x: number; y: number }): void {
+  sendMove(direction: { x: number; y: number; z?: number }): void {
     this.socket.emit('playerMove', {
       type: 'playerMove',
       direction,
@@ -269,7 +270,7 @@ export class SocketManager {
     });
 
     this.socket.on('playerMoved', (data: PlayerMovedMessage) => {
-      updatePlayerTarget(this.world, data.playerId, data.position.x, data.position.y);
+      updatePlayerTarget(this.world, data.playerId, data.position.x, data.position.y, data.position.z);
       eventBus.emit(data);
     });
 

@@ -25,7 +25,7 @@ export class InputManager {
   private pseudopodClientCooldown = 300; // Local anti-spam cooldown
 
   // Track previous movement direction to avoid redundant network updates
-  private lastMoveDirection = { x: 0, y: 0 };
+  private lastMoveDirection = { x: 0, y: 0, z: 0 };
 
   // Track previous mouse state
   private wasMouseDown = false;
@@ -132,6 +132,7 @@ export class InputManager {
   private updateMovement(): void {
     let vx = 0;
     let vy = 0;
+    let vz = 0;
 
     // WASD movement
     // In first-person mode: W = forward (camera direction), S = back, A/D = strafe
@@ -149,7 +150,16 @@ export class InputManager {
       vx = 1;  // Strafe right
     }
 
-    // Normalize diagonal movement
+    // Q/E for vertical movement (Stage 5 / Godcell 3D flight)
+    // Q = ascend (positive Z), E = descend (negative Z)
+    if (this.inputState.isKeyDown('q')) {
+      vz = 1;  // Ascend
+    }
+    if (this.inputState.isKeyDown('e')) {
+      vz = -1;  // Descend
+    }
+
+    // Normalize diagonal movement (XY plane only for now)
     if (vx !== 0 && vy !== 0) {
       const mag = Math.sqrt(vx * vx + vy * vy);
       vx /= mag;
@@ -175,9 +185,19 @@ export class InputManager {
     }
 
     // Only emit if direction changed (reduces network traffic)
-    if (vx !== this.lastMoveDirection.x || vy !== this.lastMoveDirection.y) {
-      eventBus.emit({ type: 'client:inputMove', direction: { x: vx, y: vy } });
-      this.lastMoveDirection = { x: vx, y: vy };
+    const dirChanged =
+      vx !== this.lastMoveDirection.x ||
+      vy !== this.lastMoveDirection.y ||
+      vz !== this.lastMoveDirection.z;
+
+    if (dirChanged) {
+      // Include z in direction (server will ignore for non-Stage-5 players)
+      const direction: { x: number; y: number; z?: number } = { x: vx, y: vy };
+      if (vz !== 0) {
+        direction.z = vz;
+      }
+      eventBus.emit({ type: 'client:inputMove', direction });
+      this.lastMoveDirection = { x: vx, y: vy, z: vz };
     }
   }
 
