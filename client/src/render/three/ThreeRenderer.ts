@@ -10,22 +10,22 @@ import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
-import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
+import { createMultiCell, updateMultiCellEnergy } from '../meshes/MultiCellMesh';
+import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from '../meshes/SingleCellMesh';
 import {
   createCyberOrganism,
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
-} from './CyberOrganismRenderer';
+} from '../meshes/CyberOrganismMesh';
 import {
   createHumanoidModel,
   updateHumanoidAnimation,
   updateHumanoidEnergy,
   setHumanoidRotation,
   type HumanoidAnimationState,
-} from './HumanoidRenderer';
+} from '../meshes/HumanoidMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
-import { updateTrails, disposeAllTrails } from './TrailRenderer';
+import { updateTrails, disposeAllTrails } from '../effects/TrailEffect';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -47,7 +47,7 @@ import {
   type SwarmDeathAnimation,
   type SpawnAnimation,
   type EnergyTransferAnimation,
-} from './ParticleEffects';
+} from '../effects/ParticleEffects';
 import {
   updateDeathAnimations,
   updateEvolutionAnimations,
@@ -61,12 +61,12 @@ import {
   calculateAuraIntensity,
   getAuraColor,
   applyAuraIntensity,
-} from './DrainAuraRenderer';
+} from '../effects/AuraEffect';
 import {
   createGainAura,
   triggerGainFlash,
   updateGainAura,
-} from './GainAuraRenderer';
+} from '../effects/GainAuraEffect';
 import {
   createObstacle,
   updateObstacleAnimation,

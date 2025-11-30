@@ -42,6 +42,7 @@ import {
   setSwarmDamageInfo,
   clearLookups,
   getStringIdByEntity,
+  getLocalPlayerId,
 } from '../../ecs';
 import type {
   PositionComponent,
@@ -65,6 +66,10 @@ export interface InterpolationTarget {
  * This class maintains backward compatibility with existing code that
  * expects Map-based entity storage, while actually storing everything
  * in the ECS World. The Maps are now computed views over ECS data.
+ *
+ * TRANSITIONAL: This class is being phased out. SocketManager now writes
+ * directly to World, and render systems will query World directly.
+ * GameState remains as a temporary compatibility layer for ThreeRenderer.
  */
 export class GameState {
   // The underlying ECS World - single source of truth
@@ -74,11 +79,20 @@ export class GameState {
   readonly drainedPlayerIds: Set<string> = new Set();
   readonly drainedSwarmIds: Set<string> = new Set();
 
-  // Local player reference
-  myPlayerId: string | null = null;
+  /**
+   * Create GameState, optionally wrapping an existing World.
+   * @param world - Existing World to wrap, or undefined to create a new one
+   */
+  constructor(world?: World) {
+    this.world = world ?? createClientWorld();
+  }
 
-  constructor() {
-    this.world = createClientWorld();
+  /**
+   * Get local player ID by querying the LocalPlayer tag.
+   * This is derived from the ECS World, not a stored field.
+   */
+  get myPlayerId(): string | null {
+    return getLocalPlayerId(this.world) ?? null;
   }
 
   // ============================================
@@ -508,6 +522,7 @@ export class GameState {
     this.drainedPlayerIds.clear();
     this.drainedSwarmIds.clear();
 
-    this.myPlayerId = null;
+    // Note: myPlayerId is now a getter that queries LocalPlayer tag,
+    // so it automatically becomes null when players are destroyed
   }
 }

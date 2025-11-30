@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@godcell/shared';
-import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation } from './ParticleEffects';
+import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation } from '../effects/ParticleEffects';
 
 /**
  * Update death particle animations (radial burst that fades)

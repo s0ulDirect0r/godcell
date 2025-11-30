@@ -2,7 +2,8 @@
 // Main Entry Point - Bootstrap & Update Loop
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, World } from '@godcell/shared';
+import { createClientWorld, getLocalPlayer } from './ecs';
 import { GameState } from './core/state/GameState';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
@@ -26,7 +27,8 @@ const debugMode = urlParams.has('debug');
 // Game State (initialized on start)
 // ============================================
 
-let gameState: GameState;
+let world: World;
+let gameState: GameState; // TRANSITIONAL: Wrapper for ThreeRenderer compatibility
 let socketManager: SocketManager;
 let inputManager: InputManager;
 let renderer: ThreeRenderer;
@@ -72,7 +74,11 @@ function initializeGame(settings: PreGameSettings): void {
   }
 
   // Core systems
-  gameState = new GameState();
+  // Create ECS World first - this is the single source of truth
+  world = createClientWorld();
+  // TRANSITIONAL: GameState wraps World for ThreeRenderer/HUD compatibility
+  // Will be removed when render systems query World directly
+  gameState = new GameState(world);
   inputManager = new InputManager();
 
   // Determine server URL
@@ -80,8 +86,8 @@ function initializeGame(settings: PreGameSettings): void {
     ? 'http://localhost:3000'
     : window.location.origin;
 
-  // Connect to server (pass playground mode for port switching)
-  socketManager = new SocketManager(serverUrl, gameState, settings.playgroundMode);
+  // Connect to server - SocketManager writes directly to World
+  socketManager = new SocketManager(serverUrl, world, settings.playgroundMode);
 
   // Setup console log forwarding to server (for debugging)
   setupLogForwarding(socketManager);
@@ -163,7 +169,7 @@ function update(): void {
   perfMonitor.tick();
 
   // Check if player is in first-person stage (Stage 4+) and update input mode
-  const myPlayer = gameState.getMyPlayer();
+  const myPlayer = getLocalPlayer(world);
   const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
   inputManager.setFirstPersonMode(isFirstPerson);
 

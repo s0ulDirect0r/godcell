@@ -15,7 +15,7 @@ import {
   createMultiCell,
   updateMultiCellEnergy,
   type MultiCellStyle,
-} from './render/three/MultiCellRenderer';
+} from './render/meshes/MultiCellMesh';
 import {
   createEntropySwarm,
   createGravityDistortion,
@@ -24,12 +24,12 @@ import {
 import {
   createSingleCell,
   updateSingleCellEnergy,
-} from './render/three/SingleCellRenderer';
+} from './render/meshes/SingleCellMesh';
 import {
   createCyberOrganism,
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
-} from './render/three/CyberOrganismRenderer';
+} from './render/meshes/CyberOrganismMesh';
 import {
   updateEvolutionCorona,
   updateEvolutionRing,

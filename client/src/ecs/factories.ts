@@ -604,6 +604,62 @@ export function setSwarmDamageInfo(
 }
 
 // ============================================
+// Local Player Management
+// ============================================
+
+/**
+ * Set the local player (the player controlled by this client).
+ * Adds LocalPlayer tag to the entity.
+ */
+export function setLocalPlayer(world: World, playerId: string): void {
+  // First, clear any existing LocalPlayer tag
+  clearLocalPlayer(world);
+
+  const entity = stringIdToEntity.get(playerId);
+  if (entity === undefined) return;
+
+  world.addTag(entity, Tags.LocalPlayer);
+}
+
+/**
+ * Clear the LocalPlayer tag from all entities.
+ */
+export function clearLocalPlayer(world: World): void {
+  world.forEachWithTag(Tags.LocalPlayer, (entity) => {
+    world.removeTag(entity, Tags.LocalPlayer);
+  });
+}
+
+/**
+ * Get the local player's entity ID.
+ */
+export function getLocalPlayerEntity(world: World): EntityId | undefined {
+  let result: EntityId | undefined;
+  world.forEachWithTag(Tags.LocalPlayer, (entity) => {
+    result = entity;
+  });
+  return result;
+}
+
+/**
+ * Get the local player's string ID.
+ */
+export function getLocalPlayerId(world: World): string | undefined {
+  const entity = getLocalPlayerEntity(world);
+  if (entity === undefined) return undefined;
+  return getStringIdByEntity(entity);
+}
+
+/**
+ * Get the local Player object.
+ */
+export function getLocalPlayer(world: World): Player | null {
+  const playerId = getLocalPlayerId(world);
+  if (!playerId) return null;
+  return getPlayer(world, playerId);
+}
+
+// ============================================
 // Query Helpers - for compatibility with GameState API
 // ============================================
 

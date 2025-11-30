@@ -33,6 +33,12 @@ export {
   getStringIdByEntity,
   unregisterEntity,
   clearLookups,
+  // Local player management
+  setLocalPlayer,
+  clearLocalPlayer,
+  getLocalPlayerEntity,
+  getLocalPlayerId,
+  getLocalPlayer,
   // Player operations
   upsertPlayer,
   updatePlayerTarget,

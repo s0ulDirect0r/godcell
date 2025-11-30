@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GameState } from './GameState';
+import { setLocalPlayer } from '../../ecs';
 import type { Player, Nutrient, EntropySwarm, Pseudopod, GameStateMessage } from '@godcell/shared';
 import { EvolutionStage } from '@godcell/shared';
 
@@ -157,7 +158,8 @@ describe('GameState', () => {
         stage: EvolutionStage.SINGLE_CELL,
         isEvolving: false,
       });
-      state.myPlayerId = 'me';
+      // Tag 'me' as the local player via ECS
+      setLocalPlayer(state.world, 'me');
 
       const myPlayer = state.getMyPlayer();
       expect(myPlayer?.id).toBe('me');
@@ -172,6 +174,7 @@ describe('GameState', () => {
         value: 25,
         capacityIncrease: 10,
         valueMultiplier: 1,
+        isHighValue: false,
       };
       state.upsertNutrient(nutrient);
 
@@ -311,7 +314,8 @@ describe('GameState', () => {
         capacityIncrease: 10,
         valueMultiplier: 1,
       });
-      state.myPlayerId = 'p1';
+      // Tag 'p1' as the local player via ECS
+      setLocalPlayer(state.world, 'p1');
 
       // Reset
       state.reset();
