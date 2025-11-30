@@ -26,7 +26,7 @@ import {
   type PlayerComponent,
 } from '../index';
 import { distance, getPlayerRadius } from '../../helpers';
-import { hasGodMode, getConfig } from '../../dev';
+import { getConfig } from '../../dev';
 import { isBot } from '../../bots';
 import { logger } from '../../logger';
 
@@ -81,11 +81,7 @@ export class PredationSystem implements System {
         const collisionDist = predatorRadius + preyRadius;
 
         if (dist < collisionDist) {
-          // God mode players can't be drained
-          if (hasGodMode(preyId)) return;
-
           // Contact! Drain energy from prey (energy-only system)
-          // Predation bypasses damage resistance - being engulfed is inescapable
           const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
           preyEnergy.current -= damage;
 

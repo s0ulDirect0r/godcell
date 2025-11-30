@@ -16,9 +16,9 @@ import {
   forEachPlayer,
   recordDamage,
 } from '../factories';
-import { distance, getPlayerRadius, getDamageResistance, isSoupStage } from '../../helpers';
+import { distance, getPlayerRadius, isSoupStage } from '../../helpers';
 import { removeSwarm } from '../../swarms';
-import { hasGodMode, getConfig } from '../../dev';
+import { getConfig } from '../../dev';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -62,20 +62,15 @@ export class SwarmCollisionSystem implements System {
         // Stage 3+ players don't interact with soup swarms (they've evolved past)
         if (!isSoupStage(stageComp.stage)) return;
 
-        // God mode players are immune
-        if (hasGodMode(playerId)) return;
-
         // Check collision (circle-circle)
         const playerPosition = { x: posComp.x, y: posComp.y };
         const dist = distance(swarmPosition, playerPosition);
         const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
 
         if (dist < collisionDist) {
-          // Apply damage directly with resistance
-          const baseDamage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
-          const resistance = getDamageResistance(stageComp.stage);
-          const actualDamage = baseDamage * (1 - resistance);
-          energyComp.current -= actualDamage;
+          // Apply damage directly (energy pools provide stage durability)
+          const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
+          energyComp.current -= damage;
 
           damagedPlayerIds.add(playerId);
 

@@ -182,7 +182,6 @@ test.describe('Model Viewer Structure Tests', () => {
     expect(content).toContain('export function getConfig');
     expect(content).toContain('export function isGamePaused');
     expect(content).toContain('export function getTimeScale');
-    expect(content).toContain('export function hasGodMode');
     expect(content).toContain('export function shouldRunTick');
     expect(content).toContain('export function initDevHandler');
     expect(content).toContain('export function handleDevCommand');

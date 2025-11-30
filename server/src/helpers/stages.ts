@@ -36,26 +36,6 @@ export function getStageMaxEnergy(stage: EvolutionStage): number {
 }
 
 /**
- * Get damage resistance for evolution stage
- * Higher stages have more stable information structures
- * Resistance reduces energy drain from external threats (NOT passive decay)
- */
-export function getDamageResistance(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.SINGLE_CELL_DAMAGE_RESISTANCE;
-    case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.MULTI_CELL_DAMAGE_RESISTANCE;
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.CYBER_ORGANISM_DAMAGE_RESISTANCE;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.HUMANOID_DAMAGE_RESISTANCE;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_DAMAGE_RESISTANCE;
-  }
-}
-
-/**
  * Get energy decay rate based on evolution stage (metabolic efficiency)
  */
 export function getEnergyDecayRate(stage: EvolutionStage): number {

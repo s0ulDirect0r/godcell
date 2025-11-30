@@ -106,7 +106,6 @@ export class DevPanel {
   private devState = {
     isPaused: false,
     timeScale: 1.0,
-    godMode: false,
   };
 
   // Debug visualization toggles
@@ -301,20 +300,6 @@ export class DevPanel {
 
   private buildPlayerFolder(): void {
     const playerFolder = this.gui.addFolder('Player Controls');
-
-    // God mode toggle
-    playerFolder.add(this.devState, 'godMode')
-      .name('God Mode')
-      .onChange((enabled: boolean) => {
-        const playerId = this.gameState.myPlayerId;
-        if (playerId) {
-          this.sendDevCommand({
-            action: 'setGodMode',
-            playerId,
-            enabled,
-          });
-        }
-      });
 
     // Energy slider
     playerFolder.add(this.playerControls, 'targetEnergy', 0, 10000, 10)
@@ -628,7 +613,6 @@ export class DevPanel {
     this.socket.on('devState', (state: DevStateMessage) => {
       this.devState.isPaused = state.isPaused;
       this.devState.timeScale = state.timeScale;
-      this.devState.godMode = state.godModePlayers.includes(this.gameState.myPlayerId || '');
       // Refresh GUI
       this.gui.controllersRecursive().forEach(controller => {
         controller.updateDisplay();
