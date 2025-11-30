@@ -84,12 +84,14 @@ export function spawnDeathParticles(
     const angle = Math.random() * Math.PI * 2;
     const speed = 100 + Math.random() * 200; // pixels per second
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = 0.2; // Above everything else
+    positions[i * 3 + 1] = 0.2; // Height (above ground)
+    positions[i * 3 + 2] = -y;
 
     sizes[i] = 3 + Math.random() * 4;
 
+    // Store game coordinates in particleData (AnimationUpdater converts to XZ)
     particleData.push({
       x,
       y,
@@ -145,12 +147,14 @@ export function spawnHitSparks(
     const angle = Math.random() * Math.PI * 2;
     const speed = 200 + Math.random() * 400; // Higher speed than death particles (more explosive)
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = 0.2; // Above everything else
+    positions[i * 3 + 1] = 0.2; // Height (above ground)
+    positions[i * 3 + 2] = -y;
 
     sizes[i] = 2 + Math.random() * 3; // Slightly smaller than death particles
 
+    // Store game coordinates in particleData (AnimationUpdater converts to XZ)
     particleData.push({
       x,
       y,
@@ -206,13 +210,15 @@ export function spawnEvolutionParticles(
     const angle = (i / particleCount) * Math.PI * 2;
     const startRadius = 10; // Start close to cell
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = x + Math.cos(angle) * startRadius;
-    positions[i * 3 + 1] = y + Math.sin(angle) * startRadius;
-    positions[i * 3 + 2] = 0.2; // Above everything else
+    positions[i * 3 + 1] = 0.2; // Height (above ground)
+    positions[i * 3 + 2] = -(y + Math.sin(angle) * startRadius);
 
     sizes[i] = 2 + Math.random() * 2;
 
     // Particle will orbit outward then inward (controlled by update function)
+    // Store game coordinates (AnimationUpdater converts to XZ)
     particleData.push({
       angle,
       radius: startRadius,
@@ -270,12 +276,14 @@ export function spawnEMPPulse(
     // Evenly distribute particles in a circle
     const angle = (i / particleCount) * Math.PI * 2;
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = x + Math.cos(angle) * initialRadius;
-    positions[i * 3 + 1] = y + Math.sin(angle) * initialRadius;
-    positions[i * 3 + 2] = 0.3; // Above everything else (higher than evolution particles)
+    positions[i * 3 + 1] = 0.3; // Height (above evolution particles)
+    positions[i * 3 + 2] = -(y + Math.sin(angle) * initialRadius);
 
     sizes[i] = 3 + Math.random() * 2;
 
+    // Store game coordinates (AnimationUpdater converts to XZ)
     particleData.push({
       angle,
       radius: initialRadius,
@@ -358,15 +366,16 @@ export function spawnMaterializeParticles(
     const startX = x + Math.cos(angle) * startRadius;
     const startY = y + Math.sin(angle) * startRadius;
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = startX;
-    positions[i * 3 + 1] = startY;
-    // z=0.15: Render below entities (z=0.2) so particles appear to converge "under" the spawning entity
-    positions[i * 3 + 2] = 0.15;
+    positions[i * 3 + 1] = 0.15; // Height (below entities at 0.2)
+    positions[i * 3 + 2] = -startY;
 
     // Particle size: 2-5 pixels, small enough to not obscure entity but visible enough to notice
     sizes[i] = 2 + Math.random() * 3;
 
     // Velocity toward center: speed calculated so particles reach center exactly when animation ends
+    // Store game coordinates (AnimationUpdater converts to XZ)
     const speed = startRadius / (duration / 1000);
     particleData.push({
       x: startX,
@@ -428,22 +437,27 @@ export function spawnSwarmDeathExplosion(
     const theta = Math.random() * Math.PI * 2;
     const phi = Math.random() * Math.PI;
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     // Initial position at center
     positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = 0.2; // Same layer as swarms
+    positions[i * 3 + 1] = 0.2; // Height (same layer as swarms)
+    positions[i * 3 + 2] = -y;
 
     // Random sizes (mix of large and small)
     sizes[i] = 2 + Math.random() * 6;
 
-    // Explosion velocity - fast outward burst
+    // Explosion velocity - fast outward burst in 3D
+    // Note: vx/vy/vz here are in Three.js space (XZ plane with Y=height)
     const speed = 150 + Math.random() * 250; // 150-400 pixels per second
     const vx = speed * Math.sin(phi) * Math.cos(theta);
-    const vy = speed * Math.sin(phi) * Math.sin(theta);
-    const vz = speed * Math.cos(phi);
+    const vy = speed * Math.cos(phi); // Y velocity = up/down
+    const vz = speed * Math.sin(phi) * Math.sin(theta);
 
+    // Store in Three.js coordinates since velocities are in Three.js space
     particleData.push({
-      x, y, z: 0.2,
+      x,          // Three.js X (= game X)
+      y: 0.2,     // Three.js Y (height)
+      z: -y,      // Three.js Z (= -game Y)
       vx, vy, vz,
       life: 1.0, // Full life at start
     });
@@ -529,13 +543,15 @@ export function spawnEnergyTransferParticles(
     const startX = sourceX + Math.cos(startAngle) * startOffset;
     const startY = sourceY + Math.sin(startAngle) * startOffset;
 
+    // XZ plane: X=game X, Y=height, Z=-game Y
     positions[i * 3] = startX;
-    positions[i * 3 + 1] = startY;
-    positions[i * 3 + 2] = 0.25; // Above entities
+    positions[i * 3 + 1] = 0.25; // Height (above entities)
+    positions[i * 3 + 2] = -startY;
 
     sizes[i] = 3 + Math.random() * 2;
 
     // Stagger particle speeds for wave effect (faster particles arrive first)
+    // Store game coordinates (AnimationUpdater converts to XZ)
     const baseSpeed = distance / (duration / 1000);
     const speedVariation = 0.8 + Math.random() * 0.4; // 80%-120% of base speed
 
