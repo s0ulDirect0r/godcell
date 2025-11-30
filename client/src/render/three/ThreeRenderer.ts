@@ -34,17 +34,7 @@ import {
   applyEvolutionEffects,
 } from './EvolutionVisuals';
 import { EffectsSystem } from '../systems/EffectsSystem';
-import {
-  createCellAura,
-  calculateAuraIntensity,
-  getAuraColor,
-  applyAuraIntensity,
-} from '../effects/AuraEffect';
-import {
-  createGainAura,
-  triggerGainFlash,
-  updateGainAura,
-} from '../effects/GainAuraEffect';
+import { AuraSystem } from '../systems/AuraSystem';
 import {
   createObstacle,
   updateObstacleAnimation,
@@ -98,7 +88,6 @@ export class ThreeRenderer implements Renderer {
   private nutrientMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D icosahedron + inner glow
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
-  private drainAuraMeshes: Map<string, THREE.Mesh | THREE.Group> = new Map(); // Red aura for players/swarms being drained (Mesh for players, Group for swarms)
   private obstacleMeshes: Map<string, THREE.Group> = new Map();
   private obstacleParticles: Map<string, AccretionParticle[]> = new Map(); // Accretion disk particles
   private obstaclePulsePhase: Map<string, number> = new Map(); // Phase offset for core pulsing animation
@@ -132,14 +121,11 @@ export class ThreeRenderer implements Renderer {
   private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
   private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
-  // Energy gain visual feedback (cyan glow when collecting nutrients)
-  private gainAuraMeshes: Map<string, THREE.Group> = new Map(); // Player ID → gain aura
+  // Aura system (owns drain and gain auras)
+  private auraSystem!: AuraSystem;
 
   // Track nutrient positions for energy transfer effect (cached when nutrient exists)
   private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
-
-  // Track previous energy values for continuous gain detection
-  private previousEnergy: Map<string, number> = new Map();
 
   init(container: HTMLElement, width: number, height: number): void {
     this.container = container;
@@ -163,6 +149,10 @@ export class ThreeRenderer implements Renderer {
     // Create effects system (owns all particle effects and animations)
     this.effectsSystem = new EffectsSystem();
     this.effectsSystem.init(this.scene);
+
+    // Create aura system (owns drain and gain auras)
+    this.auraSystem = new AuraSystem();
+    this.auraSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -458,7 +448,7 @@ export class ThreeRenderer implements Renderer {
         this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
         // Flash the drain aura on the target (shows they're taking damage)
-        this.flashDrainAura(event.targetId);
+        this.auraSystem.flashDrainAura(event.targetId);
 
         // Note: No energy transfer particles here - pseudopod hits only damage the target,
         // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
@@ -686,10 +676,21 @@ export class ThreeRenderer implements Renderer {
     this.updateSwarmParticles(state, dt);
 
     // Update drain visual feedback (red auras)
-    this.updateDrainAuras(state, dt);
+    this.auraSystem.updateDrainAuras(
+      state.players,
+      state.swarms,
+      this.playerMeshes,
+      this.swarmMeshes,
+      state.playerDamageInfo,
+      state.swarmDamageInfo
+    );
 
     // Update gain auras (cyan glow when receiving energy)
-    this.updateGainAuras(state, receivingEnergy, dt);
+    this.auraSystem.updateGainAuras(
+      state.players,
+      this.playerMeshes,
+      receivingEnergy
+    );
 
     // Animate obstacle particles
     this.updateObstacleParticles(state, dt);
@@ -1031,285 +1032,6 @@ export class ThreeRenderer implements Renderer {
       if (internalParticles && orbitingParticles) {
         updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt);
       }
-    });
-  }
-
-  /**
-   * Update drain visual feedback (variable-intensity aura around damaged players)
-   */
-  private updateDrainAuras(state: GameState, _dt: number): void {
-    const time = Date.now() * 0.001;
-
-    // For each player, check if they should have a drain aura
-    state.players.forEach((player, playerId) => {
-      const playerMesh = this.playerMeshes.get(playerId);
-      if (!playerMesh) return;
-
-      const damageInfo = state.playerDamageInfo.get(playerId);
-
-      if (damageInfo && damageInfo.totalDamageRate > 0) {
-        // Create or update drain aura
-        let auraMesh = this.drainAuraMeshes.get(playerId);
-
-        if (!auraMesh) {
-          const newAuraMesh = new THREE.Group();
-
-          // For multi-cell: create auras around each individual cell sphere
-          // For single-cell: create one aura around the whole organism
-          if (player.stage === EvolutionStage.MULTI_CELL) {
-            // Multi-cell: aura around each cell in the organism
-            // Match the exact proportions from MultiCellRenderer.ts
-            const baseRadius = this.getPlayerRadius(player.stage);
-            const cellRadius = baseRadius * 0.35; // Individual cell size (same as multi-cell rendering)
-
-            // Create aura for center cell (at origin)
-            const centerAura = createCellAura(cellRadius);
-            newAuraMesh.add(centerAura);
-
-            // Create auras for ring cells (6 cells in hexagonal pattern)
-            const ringRadius = cellRadius * 2.2; // Distance from center (same as multi-cell rendering)
-            const cellCount = 6;
-            for (let i = 0; i < cellCount; i++) {
-              const angle = (i / cellCount) * Math.PI * 2;
-              const x = Math.cos(angle) * ringRadius;
-              const y = Math.sin(angle) * ringRadius;
-
-              const ringAura = createCellAura(cellRadius);
-              ringAura.position.set(x, y, 0);
-              newAuraMesh.add(ringAura);
-            }
-          } else {
-            // Single-cell: one aura around the whole organism
-            const playerRadius = this.getPlayerRadius(player.stage);
-            const singleAura = createCellAura(playerRadius);
-            newAuraMesh.add(singleAura);
-          }
-
-          newAuraMesh.position.y = -1; // Below player (Y=height)
-          this.drainAuraMeshes.set(playerId, newAuraMesh);
-          this.scene.add(newAuraMesh);
-          auraMesh = newAuraMesh;
-        }
-
-        // Type guard: ensure auraMesh exists after creation
-        if (!auraMesh) return;
-
-        // Position aura at player position (copy position and rotation to stay aligned)
-        auraMesh.position.copy(playerMesh.position);
-        auraMesh.rotation.copy(playerMesh.rotation);
-
-        // Calculate intensity from damage rate
-        const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
-
-        // Get color based on primary damage source
-        const color = getAuraColor(damageInfo.primarySource);
-
-        // Apply intensity-based visuals
-        applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time, damageInfo.proximityFactor);
-
-      } else {
-        // Remove aura if player is no longer drained
-        const auraMesh = this.drainAuraMeshes.get(playerId);
-        if (auraMesh) {
-          this.scene.remove(auraMesh);
-          // Dispose group meshes (auras are groups with two spheres)
-          if (auraMesh instanceof THREE.Group) {
-            auraMesh.children.forEach(child => {
-              if (child instanceof THREE.Mesh) {
-                child.geometry.dispose();
-                (child.material as THREE.Material).dispose();
-              }
-            });
-          } else if (auraMesh instanceof THREE.Mesh) {
-            auraMesh.geometry.dispose();
-            (auraMesh.material as THREE.Material).dispose();
-          }
-          this.drainAuraMeshes.delete(playerId);
-        }
-      }
-    });
-
-    // For each swarm, check if they should have a drain aura
-    state.swarms.forEach((swarm, swarmId) => {
-      const swarmMesh = this.swarmMeshes.get(swarmId);
-      if (!swarmMesh) return;
-
-      const damageInfo = state.swarmDamageInfo.get(swarmId);
-      const auraId = `swarm-${swarmId}`; // Prefix to distinguish from player auras
-
-      if (damageInfo) {
-        // Create or update drain aura for swarm
-        let auraMesh = this.drainAuraMeshes.get(auraId);
-
-        if (!auraMesh) {
-          // Create aura using helper (consistent with player auras)
-          const newAuraMesh = new THREE.Group();
-          const swarmAura = createCellAura(swarm.size);
-          newAuraMesh.add(swarmAura);
-          newAuraMesh.position.y = -1; // Below swarm (Y=height)
-
-          this.drainAuraMeshes.set(auraId, newAuraMesh);
-          this.scene.add(newAuraMesh);
-          auraMesh = newAuraMesh;
-        }
-
-        // Type guard: ensure auraMesh exists after creation
-        if (!auraMesh) return;
-
-        // Position aura at swarm position (XZ plane)
-        auraMesh.position.x = swarmMesh.position.x;
-        auraMesh.position.z = swarmMesh.position.z;
-
-        // Calculate intensity from damage rate
-        const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
-
-        // Get color based on primary damage source
-        const color = getAuraColor(damageInfo.primarySource);
-
-        // Apply intensity-based visuals
-        applyAuraIntensity(auraMesh as THREE.Group, intensity, color, time);
-
-      } else {
-        // Remove aura if swarm is no longer drained
-        const auraMesh = this.drainAuraMeshes.get(auraId);
-        if (auraMesh) {
-          this.scene.remove(auraMesh);
-          // Dispose group meshes (swarm auras are groups with two spheres)
-          if (auraMesh instanceof THREE.Group) {
-            auraMesh.children.forEach(child => {
-              if (child instanceof THREE.Mesh) {
-                child.geometry.dispose();
-                (child.material as THREE.Material).dispose();
-              }
-            });
-          } else if (auraMesh instanceof THREE.Mesh) {
-            auraMesh.geometry.dispose();
-            (auraMesh.material as THREE.Material).dispose();
-          }
-          this.drainAuraMeshes.delete(auraId);
-        }
-      }
-    });
-
-    // Clean up auras for players/swarms that no longer exist
-    this.drainAuraMeshes.forEach((auraMesh, id) => {
-      let shouldCleanup = false;
-
-      // Check if it's a player aura (no prefix) or swarm aura (has prefix)
-      if (id.startsWith('swarm-')) {
-        const swarmId = id.substring(6); // Remove "swarm-" prefix
-        if (!state.swarms.has(swarmId)) {
-          shouldCleanup = true;
-        }
-      } else {
-        // Player aura
-        if (!state.players.has(id)) {
-          shouldCleanup = true;
-        }
-      }
-
-      if (shouldCleanup) {
-        this.scene.remove(auraMesh);
-        // Dispose group meshes (swarm auras) or single mesh (player auras)
-        if (auraMesh instanceof THREE.Group) {
-          auraMesh.children.forEach(child => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry.dispose();
-              (child.material as THREE.Material).dispose();
-            }
-          });
-        } else if (auraMesh instanceof THREE.Mesh) {
-          auraMesh.geometry.dispose();
-          (auraMesh.material as THREE.Material).dispose();
-        }
-        this.drainAuraMeshes.delete(id);
-      }
-    });
-  }
-
-  /**
-   * Update energy gain visual feedback (cyan aura when collecting nutrients)
-   * Detects continuous energy gain by comparing current vs previous energy
-   * Triggers flash when energy increases, regardless of source
-   */
-  private updateGainAuras(state: GameState, receivingEnergy: Set<string>, _dt: number): void {
-    // Calculate energy gains BEFORE updating previousEnergy (so we can use gains for intensity)
-    const energyGains = new Map<string, number>();
-
-    // Detect continuous energy gain by comparing to previous frame
-    // This catches ALL energy sources: nutrients, draining, contact damage, etc.
-    state.players.forEach((player, playerId) => {
-      const prevEnergy = this.previousEnergy.get(playerId) ?? player.energy;
-      const energyGain = player.energy - prevEnergy;
-
-      // Trigger gain aura if energy increased (threshold prevents noise from float precision)
-      if (energyGain > 0.1) {
-        receivingEnergy.add(playerId);
-        energyGains.set(playerId, energyGain); // Store for intensity calculation
-      }
-
-      // Store current energy for next frame comparison
-      this.previousEnergy.set(playerId, player.energy);
-    });
-
-    // Clean up previous energy for players that no longer exist
-    this.previousEnergy.forEach((_, playerId) => {
-      if (!state.players.has(playerId)) {
-        this.previousEnergy.delete(playerId);
-      }
-    });
-
-    // For each player receiving energy, create or trigger gain aura
-    receivingEnergy.forEach(playerId => {
-      const playerMesh = this.playerMeshes.get(playerId);
-      if (!playerMesh) return;
-
-      const player = state.players.get(playerId);
-      if (!player) return;
-
-      let gainAura = this.gainAuraMeshes.get(playerId);
-
-      if (!gainAura) {
-        // Create new gain aura for this player
-        const radius = this.getPlayerRadius(player.stage);
-        gainAura = createGainAura(radius);
-        gainAura.position.y = 0.05; // Slightly above player (Y=height)
-        this.scene.add(gainAura);
-        this.gainAuraMeshes.set(playerId, gainAura);
-      }
-
-      // Position aura at player position (XZ plane)
-      gainAura.position.x = playerMesh.position.x;
-      gainAura.position.z = playerMesh.position.z;
-
-      // Trigger flash animation - intensity scales with energy gain rate
-      const energyGain = energyGains.get(playerId) ?? 0;
-      const intensity = Math.min(1.0, 0.3 + energyGain / 50); // Base 0.3 + scales with gain
-      triggerGainFlash(gainAura, intensity);
-    });
-
-    // Update all active gain auras (animation)
-    this.gainAuraMeshes.forEach((gainAura, playerId) => {
-      const playerMesh = this.playerMeshes.get(playerId);
-      if (!playerMesh) {
-        // Player no longer exists - clean up
-        this.scene.remove(gainAura);
-        gainAura.children.forEach(child => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          }
-        });
-        this.gainAuraMeshes.delete(playerId);
-        return;
-      }
-
-      // Keep aura positioned at player (XZ plane)
-      gainAura.position.x = playerMesh.position.x;
-      gainAura.position.z = playerMesh.position.z;
-
-      // Update animation (returns false when finished)
-      updateGainAura(gainAura);
     });
   }
 
@@ -1901,24 +1623,6 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
-  /**
-   * Flash the drain aura on a target when hit by pseudopod beam
-   * Temporarily increases brightness/scale for impact feedback
-   */
-  private flashDrainAura(targetId: string): void {
-    const auraMesh = this.drainAuraMeshes.get(targetId);
-    if (!auraMesh) return; // No aura to flash (target may not be currently drained)
-
-    // Boost emissive intensity for a brief flash (handled by existing animation)
-    // We'll store a flash timestamp and check it in updateDrainAuras
-    if (!auraMesh.userData.flashTime) {
-      auraMesh.userData.flashTime = Date.now();
-    } else {
-      // Refresh flash
-      auraMesh.userData.flashTime = Date.now();
-    }
-  }
-
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
@@ -2044,34 +1748,8 @@ export class ThreeRenderer implements Renderer {
     // Clean up player trails
     disposeAllTrails(this.scene, this.playerTrailPoints, this.playerTrailLines);
 
-    // Clean up drain auras (both Mesh for players and Group for swarms)
-    this.drainAuraMeshes.forEach(auraMesh => {
-      this.scene.remove(auraMesh);
-      if (auraMesh instanceof THREE.Group) {
-        auraMesh.children.forEach(child => {
-          if (child instanceof THREE.Mesh) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          }
-        });
-      } else if (auraMesh instanceof THREE.Mesh) {
-        auraMesh.geometry.dispose();
-        (auraMesh.material as THREE.Material).dispose();
-      }
-    });
-    this.drainAuraMeshes.clear();
-
-    // Clean up gain auras (cyan glow for energy gain)
-    this.gainAuraMeshes.forEach(aura => {
-      this.scene.remove(aura);
-      aura.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-    });
-    this.gainAuraMeshes.clear();
+    // Clean up auras (drain and gain)
+    this.auraSystem.dispose();
 
     // Clean up all particle effects (death, evolution, EMP, spawn, energy transfer)
     this.effectsSystem.dispose();
