@@ -27,6 +27,7 @@ import {
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { TrailSystem } from '../systems/TrailSystem';
 import { NutrientRenderSystem, type NutrientData } from '../systems/NutrientRenderSystem';
+import { ObstacleRenderSystem, type ObstacleData } from '../systems/ObstacleRenderSystem';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -36,12 +37,6 @@ import {
 } from './EvolutionVisuals';
 import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
-import {
-  createObstacle,
-  updateObstacleAnimation,
-  disposeObstacle,
-  type AccretionParticle,
-} from './ObstacleRenderer';
 import {
   createSwarm,
   updateSwarmState,
@@ -91,10 +86,10 @@ export class ThreeRenderer implements Renderer {
   // Entity meshes
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
-  private obstacleMeshes: Map<string, THREE.Group> = new Map();
-  private obstacleParticles: Map<string, AccretionParticle[]> = new Map(); // Accretion disk particles
-  private obstaclePulsePhase: Map<string, number> = new Map(); // Phase offset for core pulsing animation
   private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include 3D sphere + particles
+
+  // Obstacle render system (owns obstacle meshes)
+  private obstacleRenderSystem!: ObstacleRenderSystem;
   private swarmParticleData: Map<string, SwarmOrbitingParticle[]> = new Map(); // Animation data for orbiting particles
   private swarmInternalParticles: Map<string, SwarmInternalParticle[]> = new Map(); // Internal storm particles
   private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
@@ -160,6 +155,10 @@ export class ThreeRenderer implements Renderer {
     // Create nutrient render system (owns nutrient meshes)
     this.nutrientRenderSystem = new NutrientRenderSystem();
     this.nutrientRenderSystem.init(this.scene);
+
+    // Create obstacle render system (owns gravity well meshes)
+    this.obstacleRenderSystem = new ObstacleRenderSystem();
+    this.obstacleRenderSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -662,7 +661,10 @@ export class ThreeRenderer implements Renderer {
       state.nutrients as Map<string, NutrientData>,
       this.environmentSystem.getMode()
     );
-    this.syncObstacles(state);
+    this.obstacleRenderSystem.sync(
+      state.obstacles as Map<string, ObstacleData>,
+      this.environmentSystem.getMode()
+    );
     this.syncSwarms(state);
     this.syncPseudopods(state);
 
@@ -696,7 +698,10 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Animate obstacle particles
-    this.updateObstacleParticles(state, dt);
+    this.obstacleRenderSystem.updateAnimations(
+      state.obstacles as Map<string, ObstacleData>,
+      dt
+    );
 
     // Update trails
     this.trailSystem.update(this.playerMeshes, state.players);
@@ -732,7 +737,7 @@ export class ThreeRenderer implements Renderer {
         players: this.playerMeshes.size,
         nutrients: this.nutrientRenderSystem.getMeshCount(),
         swarms: this.swarmMeshes.size,
-        obstacles: this.obstacleMeshes.size,
+        obstacles: this.obstacleRenderSystem.getMeshCount(),
       });
       if (this.playerMeshes.size > 0) {
         const firstPlayer = this.playerMeshes.values().next().value;
@@ -784,14 +789,8 @@ export class ThreeRenderer implements Renderer {
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
 
-    // Clear obstacles
-    this.obstacleMeshes.forEach((group) => {
-      disposeObstacle(group);
-      this.scene.remove(group);
-    });
-    this.obstacleMeshes.clear();
-    this.obstacleParticles.clear();
-    this.obstaclePulsePhase.clear();
+    // Clear obstacles (delegated to ObstacleRenderSystem)
+    this.obstacleRenderSystem.clearAll();
 
     console.log('[RenderMode] Cleared all soup entities');
   }
@@ -804,38 +803,6 @@ export class ThreeRenderer implements Renderer {
   private updateRenderModeForStage(stage: EvolutionStage): void {
     const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
     this.setRenderMode(isSoupStage ? 'soup' : 'jungle');
-  }
-
-  private syncObstacles(state: GameState): void {
-    // Skip entirely in jungle mode - soup entities don't exist in jungle world
-    if (this.environmentSystem.getMode() === 'jungle') return;
-
-    // Remove obstacles that no longer exist
-    this.obstacleMeshes.forEach((group, id) => {
-      if (!state.obstacles.has(id)) {
-        disposeObstacle(group);
-        this.scene.remove(group);
-        this.obstacleMeshes.delete(id);
-        this.obstacleParticles.delete(id);
-        this.obstaclePulsePhase.delete(id);
-      }
-    });
-
-    // Add obstacles (they don't move, so only create once)
-    state.obstacles.forEach((obstacle, id) => {
-      if (!this.obstacleMeshes.has(id)) {
-        const { group, particles, vortexSpeed: _vortexSpeed } = createObstacle(obstacle.position, obstacle.radius);
-
-        // Store particle data for animation
-        this.obstacleParticles.set(id, particles);
-
-        // Random phase offset for pulsing animation
-        this.obstaclePulsePhase.set(id, Math.random() * Math.PI * 2);
-
-        this.scene.add(group);
-        this.obstacleMeshes.set(id, group);
-      }
-    });
   }
 
   private syncSwarms(state: GameState): void {
@@ -1019,20 +986,6 @@ export class ThreeRenderer implements Renderer {
 
       if (internalParticles && orbitingParticles) {
         updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt);
-      }
-    });
-  }
-
-  private updateObstacleParticles(state: GameState, dt: number): void {
-    this.obstacleMeshes.forEach((group, id) => {
-      const obstacle = state.obstacles.get(id);
-      if (!obstacle) return;
-
-      const particleData = this.obstacleParticles.get(id);
-      const pulsePhase = this.obstaclePulsePhase.get(id) || 0;
-
-      if (particleData) {
-        updateObstacleAnimation(group, particleData, obstacle.radius, pulsePhase, dt);
       }
     });
   }
@@ -1608,15 +1561,8 @@ export class ThreeRenderer implements Renderer {
     // Clean up all particle effects (death, evolution, EMP, spawn, energy transfer)
     this.effectsSystem.dispose();
 
-    this.obstacleMeshes.forEach(group => {
-      group.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-    });
-    this.obstacleMeshes.clear();
+    // Clean up obstacles
+    this.obstacleRenderSystem.dispose();
 
     this.swarmMeshes.forEach(group => {
       group.children.forEach(child => {
