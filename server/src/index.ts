@@ -468,8 +468,8 @@ io.on('connection', (socket) => {
 
   socket.on('playerMove', (message: PlayerMoveMessage) => {
     // Store player's input direction via ECS (will be combined with gravity in game loop)
-    // Direction values are -1, 0, or 1
-    setInputBySocketId(world, socket.id, message.direction.x, message.direction.y);
+    // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
+    setInputBySocketId(world, socket.id, message.direction.x, message.direction.y, message.direction.z ?? 0);
   });
 
   // ============================================
