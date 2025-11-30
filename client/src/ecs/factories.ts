@@ -194,8 +194,9 @@ export function upsertPlayer(world: World, player: Player): EntityId {
 
 /**
  * Update player position target (for interpolation).
+ * z is optional - only used for Stage 5 (godcell) 3D movement.
  */
-export function updatePlayerTarget(world: World, playerId: string, x: number, y: number): void {
+export function updatePlayerTarget(world: World, playerId: string, x: number, y: number, z?: number): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
@@ -203,12 +204,18 @@ export function updatePlayerTarget(world: World, playerId: string, x: number, y:
   if (pos) {
     pos.x = x;
     pos.y = y;
+    if (z !== undefined) {
+      pos.z = z;
+    }
   }
 
   const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
+    if (z !== undefined) {
+      interp.targetZ = z;
+    }
     interp.timestamp = Date.now();
   }
 }
@@ -679,7 +686,7 @@ export function getPlayer(world: World, playerId: string): Player | null {
 
   return {
     id: playerId,
-    position: { x: pos.x, y: pos.y },
+    position: { x: pos.x, y: pos.y, z: pos.z },
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,

@@ -243,8 +243,9 @@ export function createPlayer(
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: position.x,
     y: position.y,
+    z: position.z ?? 0,
   });
-  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0 });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0, z: 0 });
   world.addComponent<EnergyComponent>(entity, Components.Energy, {
     current: stageValues.energy,
     max: stageValues.maxEnergy,
@@ -261,7 +262,7 @@ export function createPlayer(
     isEvolving: false,
   });
   world.addComponent<InputComponent>(entity, Components.Input, {
-    direction: { x: 0, y: 0 },
+    direction: { x: 0, y: 0, z: 0 },
   });
   world.addComponent<CooldownsComponent>(entity, Components.Cooldowns, {});
   world.addComponent<StunnedComponent>(entity, Components.Stunned, { until: 0 });
@@ -324,6 +325,7 @@ export function createNutrient(
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: position.x,
     y: position.y,
+    z: position.z ?? 0,
   });
   world.addComponent<NutrientComponent>(entity, Components.Nutrient, {
     value,
@@ -353,6 +355,7 @@ export function createObstacle(
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: position.x,
     y: position.y,
+    z: position.z ?? 0,
   });
   world.addComponent<ObstacleComponent>(entity, Components.Obstacle, {
     radius,
@@ -383,8 +386,9 @@ export function createSwarm(
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: position.x,
     y: position.y,
+    z: position.z ?? 0,
   });
-  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0 });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: 0, y: 0, z: 0 });
   world.addComponent<EnergyComponent>(entity, Components.Energy, {
     current: energy,
     max: energy,
@@ -392,8 +396,8 @@ export function createSwarm(
   world.addComponent<SwarmComponent>(entity, Components.Swarm, {
     size,
     state: 'patrol',
-    homePosition: { x: position.x, y: position.y },
-    patrolTarget,
+    homePosition: { x: position.x, y: position.y, z: position.z ?? 0 },
+    patrolTarget: patrolTarget ? { x: patrolTarget.x, y: patrolTarget.y, z: patrolTarget.z ?? 0 } : undefined,
   });
 
   world.addTag(entity, Tags.Swarm);
@@ -421,8 +425,9 @@ export function createPseudopod(
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: position.x,
     y: position.y,
+    z: position.z ?? 0,
   });
-  world.addComponent<VelocityComponent>(entity, Components.Velocity, velocity);
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: velocity.x, y: velocity.y, z: 0 });
   world.addComponent<PseudopodComponent>(entity, Components.Pseudopod, {
     ownerId: ownerEntity,
     ownerSocketId,
@@ -470,6 +475,28 @@ export function setPlayerStage(world: World, entity: EntityId, newStage: Evoluti
   if (stageValues.canSprint && !world.hasComponent(entity, Components.CanSprint)) {
     world.addComponent<CanSprintComponent>(entity, Components.CanSprint, {});
     world.addComponent<SprintComponent>(entity, Components.Sprint, { isSprinting: false });
+  }
+
+  // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
+  // Stage 3-4: z = radius (bottom touches ground)
+  // Stage 5: z = radius + 100 (starts slightly airborne for 3D flight)
+  if (newStage === EvolutionStage.CYBER_ORGANISM ||
+      newStage === EvolutionStage.HUMANOID ||
+      newStage === EvolutionStage.GODCELL) {
+    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+    const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    if (posComp) {
+      const sizeMultiplier =
+        newStage === EvolutionStage.CYBER_ORGANISM ? GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER :
+        newStage === EvolutionStage.HUMANOID ? GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER :
+        GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+      const radius = GAME_CONFIG.PLAYER_SIZE * sizeMultiplier;
+      // Godcell starts airborne, others sit on ground
+      posComp.z = newStage === EvolutionStage.GODCELL ? radius + 100 : radius;
+    }
+    if (velComp) {
+      velComp.z = 0; // Reset z velocity
+    }
   }
 }
 
@@ -601,7 +628,7 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
 
   return {
     id: socketId,
-    position: { x: pos.x, y: pos.y },
+    position: { x: pos.x, y: pos.y, z: pos.z },
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,
@@ -758,12 +785,14 @@ export function setInputBySocketId(
   world: World,
   socketId: string,
   x: number,
-  y: number
+  y: number,
+  z: number = 0
 ): boolean {
   const input = getInputBySocketId(world, socketId);
   if (!input) return false;
   input.direction.x = x;
   input.direction.y = y;
+  input.direction.z = z;
   return true;
 }
 
@@ -920,6 +949,7 @@ export function subtractEnergyBySocketId(
 /**
  * Set player stage by socket ID.
  * Updates the ECS component directly.
+ * Also initializes z position for Stage 3+ (ground placement / flight).
  */
 export function setStageBySocketId(
   world: World,
@@ -929,6 +959,26 @@ export function setStageBySocketId(
   const stageComp = getStageBySocketId(world, socketId);
   if (stageComp) {
     stageComp.stage = stage;
+  }
+
+  // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
+  if (stage === EvolutionStage.CYBER_ORGANISM ||
+      stage === EvolutionStage.HUMANOID ||
+      stage === EvolutionStage.GODCELL) {
+    const posComp = getPositionBySocketId(world, socketId);
+    const velComp = getVelocityBySocketId(world, socketId);
+    if (posComp) {
+      const sizeMultiplier =
+        stage === EvolutionStage.CYBER_ORGANISM ? GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER :
+        stage === EvolutionStage.HUMANOID ? GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER :
+        GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+      const radius = GAME_CONFIG.PLAYER_SIZE * sizeMultiplier;
+      // Godcell starts airborne, others sit on ground
+      posComp.z = stage === EvolutionStage.GODCELL ? radius + 100 : radius;
+    }
+    if (velComp) {
+      velComp.z = 0; // Reset z velocity
+    }
   }
 }
 

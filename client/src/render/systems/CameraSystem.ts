@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 
-export type CameraMode = 'topdown' | 'firstperson';
+export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson';
 
 export interface CameraCapabilities {
   mode: 'topdown' | 'orbit' | 'tps' | 'fps';
@@ -89,7 +89,9 @@ export class CameraSystem {
   }
 
   getActiveCamera(): THREE.Camera {
-    return this.mode === 'firstperson' ? this.perspCamera : this.orthoCamera;
+    return (this.mode === 'firstperson' || this.mode === 'thirdperson')
+      ? this.perspCamera
+      : this.orthoCamera;
   }
 
   getMode(): CameraMode {
@@ -213,6 +215,47 @@ export class CameraSystem {
     // Apply look rotation
     const euler = new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ');
     this.perspCamera.quaternion.setFromEuler(euler);
+  }
+
+  // ============================================
+  // Third-Person Controls (Stage 5 Godcell)
+  // ============================================
+
+  /**
+   * Update third-person camera to follow player in 3D space
+   * Camera orbits behind and above the player
+   *
+   * @param x - Player X position (game coords)
+   * @param y - Player Y position (game coords, maps to -Z in Three.js)
+   * @param z - Player Z position (height, maps to Y in Three.js)
+   */
+  updateThirdPersonPosition(x: number, y: number, z: number): void {
+    if (this.mode !== 'thirdperson') return;
+
+    // Third-person camera offset (behind and above player)
+    // These values create a comfortable chase-cam feel for a large sphere
+    const distanceBehind = 600;  // How far behind the player
+    const heightAbove = 300;     // How far above the player
+
+    // Convert game coords to Three.js:
+    // Game: X=right, Y=up (on screen), Z=height
+    // Three.js: X=right, Y=up (height), Z=forward (into screen is -Z)
+    const targetPos = new THREE.Vector3(x, z, -y);
+
+    // Camera position: behind and above (for now, fixed angle looking "forward" in +Z direction)
+    // In game terms, this means looking "down" the Y axis
+    const cameraPos = new THREE.Vector3(
+      x,
+      z + heightAbove,
+      -y + distanceBehind  // Behind in Three.js space = more positive Z
+    );
+
+    // Smooth follow with lerp
+    const lerpFactor = 0.1;
+    this.perspCamera.position.lerp(cameraPos, lerpFactor);
+
+    // Look at the player
+    this.perspCamera.lookAt(targetPos);
   }
 
   // ============================================
@@ -345,8 +388,16 @@ export class CameraSystem {
   }
 
   getCapabilities(): CameraCapabilities {
+    let mode: 'topdown' | 'orbit' | 'tps' | 'fps';
+    if (this.mode === 'firstperson') {
+      mode = 'fps';
+    } else if (this.mode === 'thirdperson') {
+      mode = 'tps';
+    } else {
+      mode = 'topdown';
+    }
     return {
-      mode: this.mode === 'firstperson' ? 'fps' : 'topdown',
+      mode,
       supports3D: true,
     };
   }

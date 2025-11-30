@@ -391,21 +391,43 @@ export class ThreeRenderer implements Renderer {
     // Update render mode based on local player stage (soup vs jungle world)
     this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
 
-    // Update camera mode based on player stage (top-down for Stages 1-3, first-person for Stage 4+)
-    const isFirstPersonStage = myPlayer?.stage === EvolutionStage.HUMANOID;
-    if (isFirstPersonStage && this.cameraSystem.getMode() !== 'firstperson') {
-      this.setCameraMode('firstperson');
-    } else if (!isFirstPersonStage && this.cameraSystem.getMode() === 'firstperson') {
-      this.setCameraMode('topdown');
+    // Update camera mode based on player stage
+    // - Stages 1-3: top-down (orthographic)
+    // - Stage 4 (humanoid): first-person (perspective)
+    // - Stage 5 (godcell): third-person (perspective, following sphere)
+    const currentMode = this.cameraSystem.getMode();
+    if (myPlayer?.stage === EvolutionStage.GODCELL) {
+      if (currentMode !== 'thirdperson') {
+        this.setCameraMode('thirdperson');
+      }
+    } else if (myPlayer?.stage === EvolutionStage.HUMANOID) {
+      if (currentMode !== 'firstperson') {
+        this.setCameraMode('firstperson');
+      }
+    } else {
+      if (currentMode !== 'topdown') {
+        this.setCameraMode('topdown');
+      }
     }
 
-    // Update first-person camera position if in first-person mode
-    if (this.cameraSystem.getMode() === 'firstperson' && myPlayer) {
-      this.cameraSystem.updateFirstPersonPosition(
-        myPlayer.position.x,
-        myPlayer.position.y,
-        GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
-      );
+    // Update camera position based on mode (re-read mode after potential switch)
+    const activeMode = this.cameraSystem.getMode();
+    if (myPlayer) {
+      if (activeMode === 'firstperson') {
+        this.cameraSystem.updateFirstPersonPosition(
+          myPlayer.position.x,
+          myPlayer.position.y,
+          GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
+        );
+      } else if (activeMode === 'thirdperson') {
+        // Third-person camera for godcell - uses 3D position
+        const posZ = myPlayer.position.z ?? 0;
+        this.cameraSystem.updateThirdPersonPosition(
+          myPlayer.position.x,
+          myPlayer.position.y,
+          posZ
+        );
+      }
     }
 
     // Update environment particles (soup or jungle based on mode)
@@ -602,21 +624,24 @@ export class ThreeRenderer implements Renderer {
   // ============================================
 
   /**
-   * Switch camera mode between top-down (ortho) and first-person (perspective)
-   * Called when player evolves to/from Stage 4
+   * Switch camera mode between top-down, first-person, and third-person
+   * - topdown: Stages 1-3 (orthographic, looking down)
+   * - firstperson: Stage 4 humanoid (perspective, player's eyes)
+   * - thirdperson: Stage 5 godcell (perspective, following behind)
    */
-  setCameraMode(mode: 'topdown' | 'firstperson'): void {
+  setCameraMode(mode: 'topdown' | 'firstperson' | 'thirdperson'): void {
     const changed = this.cameraSystem.setMode(mode);
     if (!changed) return;
 
     // EnvironmentSystem handles ground plane visibility and background color
-    this.environmentSystem.setFirstPersonGroundVisible(mode === 'firstperson');
+    // Both first-person and third-person need the ground plane visible
+    this.environmentSystem.setFirstPersonGroundVisible(mode === 'firstperson' || mode === 'thirdperson');
   }
 
   /**
    * Get current camera mode
    */
-  getCameraMode(): 'topdown' | 'firstperson' {
+  getCameraMode(): 'topdown' | 'firstperson' | 'thirdperson' {
     return this.cameraSystem.getMode();
   }
 

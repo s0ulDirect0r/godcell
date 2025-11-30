@@ -69,10 +69,17 @@ export class MovementSystem implements System {
 
       const stage = stageComponent.stage;
 
+      // Get z input for Stage 5 (godcell) 3D movement
+      const inputZ = stage === EvolutionStage.GODCELL ? (inputDirection.z ?? 0) : 0;
+
       // Normalize diagonal input for consistent acceleration
-      const inputLength = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
+      // For Stage 5, normalize in 3D; for others, normalize in 2D
+      const inputLengthXY = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
+      const inputLength3D = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y + inputZ * inputZ);
+      const inputLength = stage === EvolutionStage.GODCELL ? inputLength3D : inputLengthXY;
       const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
       const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
+      const inputNormZ = inputLength > 0 ? inputZ / inputLength : 0;
 
       // Base acceleration (8x speed for responsive controls)
       let acceleration = getConfig('PLAYER_SPEED') * 8;
@@ -84,8 +91,9 @@ export class MovementSystem implements System {
         acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT');
       } else if (stage === EvolutionStage.HUMANOID) {
         acceleration *= getConfig('HUMANOID_ACCELERATION_MULT');
+      } else if (stage === EvolutionStage.GODCELL) {
+        acceleration *= getConfig('GODCELL_ACCELERATION_MULT');
       }
-      // TODO: GODCELL acceleration
 
       // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
       const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
@@ -102,8 +110,17 @@ export class MovementSystem implements System {
       velocityComponent.x += inputNormX * acceleration * deltaTime;
       velocityComponent.y += inputNormY * acceleration * deltaTime;
 
-      // Calculate max speed
-      const currentSpeed = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y);
+      // Apply z acceleration for Stage 5 (godcell) 3D flight
+      if (stage === EvolutionStage.GODCELL) {
+        const currentVZ = velocityComponent.z ?? 0;
+        velocityComponent.z = currentVZ + inputNormZ * acceleration * deltaTime;
+      }
+
+      // Calculate max speed (2D for most stages, 3D for godcell)
+      const vz = velocityComponent.z ?? 0;
+      const currentSpeedXY = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y);
+      const currentSpeed3D = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y + vz * vz);
+      const currentSpeed = stage === EvolutionStage.GODCELL ? currentSpeed3D : currentSpeedXY;
       let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
       // Stage-specific max speed modifiers
@@ -135,8 +152,10 @@ export class MovementSystem implements System {
           // Auto-disable sprint when energy too low - write to ECS component directly
           sprintComponent.isSprinting = false;
         }
+      } else if (stage === EvolutionStage.GODCELL) {
+        maxSpeed *= getConfig('GODCELL_MAX_SPEED_MULT');
+        // Note: Godcells don't use sprint - they have 3D flight instead
       }
-      // TODO: GODCELL max speed
 
       // Apply slow effects to max speed cap
       if (isSlowed) {
@@ -146,22 +165,46 @@ export class MovementSystem implements System {
         maxSpeed *= 0.5;
       }
 
-      // Cap velocity
+      // Cap velocity (include z for godcell 3D movement)
       if (currentSpeed > maxSpeed) {
         const scale = maxSpeed / currentSpeed;
         velocityComponent.x *= scale;
         velocityComponent.y *= scale;
+        if (stage === EvolutionStage.GODCELL) {
+          velocityComponent.z = (velocityComponent.z ?? 0) * scale;
+        }
       }
 
-      // Skip if no movement
-      if (velocityComponent.x === 0 && velocityComponent.y === 0) return;
+      // Apply friction for godcell 3D flight (gradual slowdown when not inputting)
+      if (stage === EvolutionStage.GODCELL) {
+        const friction = getConfig('GODCELL_FRICTION');
+        const frictionFactor = Math.pow(1 - friction, deltaTime * 60); // Frame-rate independent friction
+        velocityComponent.x *= frictionFactor;
+        velocityComponent.y *= frictionFactor;
+        velocityComponent.z = (velocityComponent.z ?? 0) * frictionFactor;
+      }
 
-      // Calculate distance for energy cost
-      const distanceMoved = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y) * deltaTime;
+      // Skip if no movement (include z for godcell)
+      const currentVZ = velocityComponent.z ?? 0;
+      const hasMovement = stage === EvolutionStage.GODCELL
+        ? (velocityComponent.x !== 0 || velocityComponent.y !== 0 || currentVZ !== 0)
+        : (velocityComponent.x !== 0 || velocityComponent.y !== 0);
+      if (!hasMovement) return;
+
+      // Calculate distance for energy cost (3D for godcell)
+      const distanceMovedXY = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y) * deltaTime;
+      const distanceMoved3D = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y + currentVZ * currentVZ) * deltaTime;
+      const distanceMoved = stage === EvolutionStage.GODCELL ? distanceMoved3D : distanceMovedXY;
 
       // Update position - write to ECS component directly
       positionComponent.x += velocityComponent.x * deltaTime;
       positionComponent.y += velocityComponent.y * deltaTime;
+
+      // Update z position for Stage 5 (godcell) 3D flight
+      if (stage === EvolutionStage.GODCELL) {
+        const currentZ = positionComponent.z ?? 0;
+        positionComponent.z = currentZ + currentVZ * deltaTime;
+      }
 
       // Deduct movement energy - write to ECS component directly
       if (energyComponent.current > 0) {
@@ -181,11 +224,24 @@ export class MovementSystem implements System {
         Math.min(bounds.maxY - playerRadius, positionComponent.y)
       );
 
-      // Broadcast position update
+      // Clamp z for Stage 5 (godcell) 3D flight
+      if (stage === EvolutionStage.GODCELL && positionComponent.z !== undefined) {
+        const zMin = getConfig('GODCELL_Z_MIN');
+        const zMax = getConfig('GODCELL_Z_MAX');
+        positionComponent.z = Math.max(zMin, Math.min(zMax, positionComponent.z));
+      }
+
+      // Broadcast position update (include z for godcell)
       const moveMessage: PlayerMovedMessage = {
         type: 'playerMoved',
         playerId,
-        position: { x: positionComponent.x, y: positionComponent.y },
+        position: {
+          x: positionComponent.x,
+          y: positionComponent.y,
+          ...(stage === EvolutionStage.GODCELL && positionComponent.z !== undefined
+            ? { z: positionComponent.z }
+            : {}),
+        },
       };
       io.emit('playerMoved', moveMessage);
     });

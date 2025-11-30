@@ -7,9 +7,12 @@
 export * from './ecs';
 
 // Player position in the game world
+// z-axis: Height in 3D space (0 = ground, used for Stage 5 flying)
+// z is optional for backwards compatibility - defaults to 0 when not specified
 export interface Position {
   x: number;
   y: number;
+  z?: number;  // Optional, defaults to 0 (ground level)
 }
 
 // Death causes for players
@@ -107,6 +110,7 @@ export interface PlayerMoveMessage {
   direction: {
     x: number; // -1, 0, or 1
     y: number; // -1, 0, or 1
+    z?: number; // -1, 0, or 1 (vertical: Q=ascend, E=descend, Stage 5 only, optional)
   };
 }
 
@@ -548,10 +552,12 @@ export const GAME_CONFIG = {
   HUMANOID_SPRINT_ENERGY_COST: 0.8,   // Higher energy cost for humanoid sprint
   HUMANOID_CAMERA_HEIGHT: 160,        // First-person eye level (game units above ground)
 
-  // Stage 5 Movement (Godcell): TODO - define when implementing
-  // GODCELL_ACCELERATION_MULT: 1.5,
-  // GODCELL_MAX_SPEED_MULT: 0.8,
-  // GODCELL_FRICTION: 0.4,
+  // Stage 5 Movement (Godcell): 3D flight with Q/E for vertical
+  GODCELL_ACCELERATION_MULT: 1.5,   // Responsive 3D acceleration
+  GODCELL_MAX_SPEED_MULT: 1.0,      // Full speed (transcendent movement)
+  GODCELL_FRICTION: 0.4,            // Smooth glide (floaty, godlike)
+  GODCELL_Z_MIN: 0,                 // Ground level (can't go below)
+  GODCELL_Z_MAX: 2000,              // Sky ceiling
 
   // World dimensions - Soup (Stage 1-2 play area)
   WORLD_WIDTH: 4800,   // Soup width (backward compat alias)

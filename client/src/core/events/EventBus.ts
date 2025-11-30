@@ -6,7 +6,7 @@ import type { ServerMessage } from '@godcell/shared';
 
 // Client-only events (internal state, not from server)
 type ClientEvent =
-  | { type: 'client:inputMove'; direction: { x: number; y: number } }
+  | { type: 'client:inputMove'; direction: { x: number; y: number; z?: number } }
   | { type: 'client:inputRespawn' }
   | { type: 'client:sprint'; sprinting: boolean }
   | { type: 'client:empActivate' }
