@@ -33,29 +33,7 @@ import {
   removeEvolutionEffects,
   applyEvolutionEffects,
 } from './EvolutionVisuals';
-import {
-  spawnDeathParticles,
-  spawnHitSparks,
-  spawnEvolutionParticles,
-  spawnEMPPulse,
-  spawnSwarmDeathExplosion,
-  spawnMaterializeParticles,
-  spawnEnergyTransferParticles,
-  type DeathAnimation,
-  type EvolutionAnimation,
-  type EMPEffect,
-  type SwarmDeathAnimation,
-  type SpawnAnimation,
-  type EnergyTransferAnimation,
-} from '../effects/ParticleEffects';
-import {
-  updateDeathAnimations,
-  updateEvolutionAnimations,
-  updateEMPEffects,
-  updateSwarmDeathAnimations,
-  updateSpawnAnimations,
-  updateEnergyTransferAnimations,
-} from './AnimationUpdater';
+import { EffectsSystem } from '../systems/EffectsSystem';
 import {
   createCellAura,
   calculateAuraIntensity,
@@ -137,11 +115,8 @@ export class ThreeRenderer implements Renderer {
   // Interpolation targets
   private swarmTargets: Map<string, { x: number; y: number }> = new Map();
 
-  // Death animations (particle bursts)
-  private deathAnimations: DeathAnimation[] = [];
-
-  // Evolution animations (orbital particles)
-  private evolutionAnimations: EvolutionAnimation[] = [];
+  // Effects system (particle effects, animations)
+  private effectsSystem!: EffectsSystem;
 
   // Evolution state tracking
   private playerEvolutionState: Map<string, {
@@ -157,21 +132,8 @@ export class ThreeRenderer implements Renderer {
   private detectedEntities: Array<{ id: string; position: { x: number; y: number }; entityType: 'player' | 'nutrient' | 'swarm' }> = [];
   private compassIndicators: THREE.Group | null = null; // Group holding all compass dots
 
-  // EMP pulse effects (expanding electromagnetic ring)
-  private empEffects: EMPEffect[] = [];
-
-  // Swarm death animations (exploding particles)
-  private swarmDeathAnimations: SwarmDeathAnimation[] = [];
-
-  // Spawn materialization animations (converging particles + scale up)
-  private spawnAnimations: SpawnAnimation[] = [];
-
-  // Track entities that are currently spawning (for scale/opacity animation)
-  private spawningEntities: Set<string> = new Set();
-
   // Energy gain visual feedback (cyan glow when collecting nutrients)
   private gainAuraMeshes: Map<string, THREE.Group> = new Map(); // Player ID → gain aura
-  private energyTransferAnimations: EnergyTransferAnimation[] = []; // Particles flying to collector
 
   // Track nutrient positions for energy transfer effect (cached when nutrient exists)
   private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
@@ -197,6 +159,10 @@ export class ThreeRenderer implements Renderer {
     // Create environment system (owns backgrounds, particles, ground plane)
     this.environmentSystem = new EnvironmentSystem();
     this.environmentSystem.init(this.scene);
+
+    // Create effects system (owns all particle effects and animations)
+    this.effectsSystem = new EffectsSystem();
+    this.effectsSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -244,7 +210,7 @@ export class ThreeRenderer implements Renderer {
             }
           }
 
-          this.deathAnimations.push(spawnDeathParticles(this.scene, position.x, position.y, color));
+          this.effectsSystem.spawnDeathBurst(position.x, position.y, color);
 
           // Immediately remove player group, outline, and trail
           this.scene.remove(playerGroup);
@@ -361,13 +327,12 @@ export class ThreeRenderer implements Renderer {
           }
 
           // XZ plane: game Y = -Three.js Z
-          this.evolutionAnimations.push(spawnEvolutionParticles(
-            this.scene,
+          this.effectsSystem.spawnEvolution(
             playerGroup.position.x,
             -playerGroup.position.z,
             color,
             event.duration
-          ));
+          );
         }
       });
 
@@ -459,7 +424,7 @@ export class ThreeRenderer implements Renderer {
 
       // EMP activation - spawn visual pulse effect
       eventBus.on('empActivated', (event) => {
-        this.empEffects.push(spawnEMPPulse(this.scene, event.position.x, event.position.y));
+        this.effectsSystem.spawnEMP(event.position.x, event.position.y);
       });
 
       // Swarm consumed - spawn death explosion + energy transfer to consumer
@@ -470,22 +435,19 @@ export class ThreeRenderer implements Renderer {
         if (swarmGroup) {
           // Capture position before removal (XZ plane: game Y = -Three.js Z)
           const position = { x: swarmGroup.position.x, y: -swarmGroup.position.z };
-          this.swarmDeathAnimations.push(spawnSwarmDeathExplosion(this.scene, position.x, position.y));
+          this.effectsSystem.spawnSwarmDeath(position.x, position.y);
 
           // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
           if (consumerMesh) {
             // XZ plane: target game Y = -Three.js Z
-            this.energyTransferAnimations.push(
-              spawnEnergyTransferParticles(
-                this.scene,
-                position.x,
-                position.y,
-                consumerMesh.position.x,
-                -consumerMesh.position.z,
-                event.consumerId,
-                0xff6600, // Orange for swarm energy
-                30 // More particles for swarm consumption
-              )
+            this.effectsSystem.spawnEnergyTransfer(
+              position.x,
+              position.y,
+              consumerMesh.position.x,
+              -consumerMesh.position.z,
+              event.consumerId,
+              0xff6600, // Orange for swarm energy
+              30 // More particles for swarm consumption
             );
           }
         }
@@ -493,7 +455,7 @@ export class ThreeRenderer implements Renderer {
 
       eventBus.on('pseudopodHit', (event) => {
         // Spawn red spark explosion at hit location
-        this.deathAnimations.push(spawnHitSparks(this.scene, event.hitPosition.x, event.hitPosition.y));
+        this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
         // Flash the drain aura on the target (shows they're taking damage)
         this.flashDrainAura(event.targetId);
@@ -508,13 +470,13 @@ export class ThreeRenderer implements Renderer {
       // Player joined - trigger spawn animation
       eventBus.on('playerJoined', (event) => {
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
-        this.triggerSpawnAnimation(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
+        this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
       });
 
       // Player respawned - trigger spawn animation
       eventBus.on('playerRespawned', (event) => {
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
-        this.triggerSpawnAnimation(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
+        this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
       });
 
       // Nutrient spawned - trigger spawn animation
@@ -528,12 +490,12 @@ export class ThreeRenderer implements Renderer {
         } else if (event.nutrient.valueMultiplier >= 2) {
           colorHex = GAME_CONFIG.NUTRIENT_2X_COLOR;
         }
-        this.triggerSpawnAnimation(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
+        this.effectsSystem.spawnMaterialize(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
       });
 
       // Swarm spawned - trigger spawn animation
       eventBus.on('swarmSpawned', (event) => {
-        this.triggerSpawnAnimation(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
+        this.effectsSystem.spawnMaterialize(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
       });
 
       // === Energy gain visual feedback ===
@@ -547,16 +509,13 @@ export class ThreeRenderer implements Renderer {
         if (nutrientPos && collectorMesh) {
           // Spawn particles flying from nutrient to collector
           // XZ plane: target game Y = -Three.js Z
-          this.energyTransferAnimations.push(
-            spawnEnergyTransferParticles(
-              this.scene,
-              nutrientPos.x,
-              nutrientPos.y,
-              collectorMesh.position.x,
-              -collectorMesh.position.z,
-              event.playerId,
-              0x00ffff // Cyan energy particles
-            )
+          this.effectsSystem.spawnEnergyTransfer(
+            nutrientPos.x,
+            nutrientPos.y,
+            collectorMesh.position.x,
+            -collectorMesh.position.z,
+            event.playerId,
+            0x00ffff // Cyan energy particles
           );
         }
 
@@ -571,17 +530,14 @@ export class ThreeRenderer implements Renderer {
         if (predatorMesh) {
           // Spawn particles from prey position to predator (larger burst for player kill)
           // XZ plane: target game Y = -Three.js Z
-          this.energyTransferAnimations.push(
-            spawnEnergyTransferParticles(
-              this.scene,
-              event.position.x,
-              event.position.y,
-              predatorMesh.position.x,
-              -predatorMesh.position.z,
-              event.predatorId,
-              0x00ff88, // Green-cyan for player energy
-              40 // Lots of particles for player kill
-            )
+          this.effectsSystem.spawnEnergyTransfer(
+            event.position.x,
+            event.position.y,
+            predatorMesh.position.x,
+            -predatorMesh.position.z,
+            event.predatorId,
+            0x00ff88, // Green-cyan for player energy
+            40 // Lots of particles for player kill
           );
         }
       });
@@ -593,25 +549,6 @@ export class ThreeRenderer implements Renderer {
         }
       });
     });
-  }
-
-  /**
-   * Trigger a spawn materialization animation for an entity
-   */
-  private triggerSpawnAnimation(
-    entityId: string,
-    entityType: 'player' | 'nutrient' | 'swarm',
-    x: number,
-    y: number,
-    colorHex: number,
-    radius: number = 40
-  ): void {
-    // Mark entity as spawning (for scale/opacity animation)
-    this.spawningEntities.add(entityId);
-
-    // Create converging particle effect
-    const spawnAnim = spawnMaterializeParticles(this.scene, entityId, entityType, x, y, colorHex, radius);
-    this.spawnAnimations.push(spawnAnim);
   }
 
   /**
@@ -726,27 +663,8 @@ export class ThreeRenderer implements Renderer {
     // Update environment particles (soup or jungle based on mode)
     this.environmentSystem.update(dt);
 
-    // Update death animations
-    updateDeathAnimations(this.scene, this.deathAnimations, dt);
-
-    // Update evolution animations
-    updateEvolutionAnimations(this.scene, this.evolutionAnimations, dt);
-
-    // Update EMP pulse animations
-    updateEMPEffects(this.scene, this.empEffects);
-
-    // Update swarm death explosions
-    updateSwarmDeathAnimations(this.scene, this.swarmDeathAnimations, dt);
-
-    // Update spawn materialization animations and get progress map
-    const spawnProgress = updateSpawnAnimations(this.scene, this.spawnAnimations, dt);
-
-    // Clean up finished spawn animations from tracking set
-    this.spawningEntities.forEach(entityId => {
-      if (!spawnProgress.has(entityId)) {
-        this.spawningEntities.delete(entityId);
-      }
-    });
+    // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
+    const { spawnProgress, receivingEnergy } = this.effectsSystem.update(dt);
 
     // Sync all entities
     this.syncPlayers(state);
@@ -769,10 +687,6 @@ export class ThreeRenderer implements Renderer {
 
     // Update drain visual feedback (red auras)
     this.updateDrainAuras(state, dt);
-
-    // Update energy transfer animations (particles flying to collector)
-    // Returns set of player IDs receiving energy this frame
-    const receivingEnergy = updateEnergyTransferAnimations(this.scene, this.energyTransferAnimations, dt);
 
     // Update gain auras (cyan glow when receiving energy)
     this.updateGainAuras(state, receivingEnergy, dt);
@@ -2159,13 +2073,8 @@ export class ThreeRenderer implements Renderer {
     });
     this.gainAuraMeshes.clear();
 
-    // Clean up energy transfer animations
-    this.energyTransferAnimations.forEach(anim => {
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-    });
-    this.energyTransferAnimations = [];
+    // Clean up all particle effects (death, evolution, EMP, spawn, energy transfer)
+    this.effectsSystem.dispose();
     this.nutrientPositionCache.clear();
 
     this.obstacleMeshes.forEach(group => {
@@ -2190,14 +2099,6 @@ export class ThreeRenderer implements Renderer {
     this.swarmParticleData.clear();
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
-
-    // Clean up death animations
-    this.deathAnimations.forEach(anim => {
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-    });
-    this.deathAnimations = [];
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());
