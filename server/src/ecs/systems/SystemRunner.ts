@@ -3,6 +3,7 @@
 // Manages and executes all game systems in priority order
 // ============================================
 
+import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
 import type { System } from './types';
 
@@ -18,8 +19,6 @@ interface RegisteredSystem {
  * SystemRunner - Manages and executes all game systems
  *
  * Systems are executed in priority order (lower numbers first).
- * The runner receives the World and passes it to all systems.
- * All data (entities, components, resources) lives in the World.
  */
 export class SystemRunner {
   private systems: RegisteredSystem[] = [];
@@ -37,11 +36,10 @@ export class SystemRunner {
 
   /**
    * Run all systems in priority order
-   * @param world The ECS World containing all state
    */
-  update(world: World): void {
+  update(world: World, deltaTime: number, io: Server): void {
     for (const { system } of this.systems) {
-      system.update(world);
+      system.update(world, deltaTime, io);
     }
   }
 

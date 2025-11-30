@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { Resources, type World, type TimeResource } from '@godcell/shared';
+import type { World } from '@godcell/shared';
 import type { System } from './types';
 import { updateSwarms, updateSwarmPositions, processSwarmRespawns } from '../../swarms';
 
@@ -17,15 +17,12 @@ import { updateSwarms, updateSwarmPositions, processSwarmRespawns } from '../../
 export class SwarmAISystem implements System {
   readonly name = 'SwarmAISystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-
+  update(world: World, deltaTime: number, io: Server): void {
     // Update swarm AI decisions (ECS is source of truth)
-    updateSwarms(Date.now(), world, time.delta);
+    updateSwarms(Date.now(), world, deltaTime);
 
     // Update swarm positions based on velocity (ECS components)
-    updateSwarmPositions(world, time.delta, io);
+    updateSwarmPositions(world, deltaTime, io);
 
     // Handle swarm respawning (creates in ECS)
     processSwarmRespawns(world, io);

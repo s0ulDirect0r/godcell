@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, Tags, Components, Resources, type World, type TimeResource } from '@godcell/shared';
+import { EvolutionStage, Tags, Components, type World } from '@godcell/shared';
 import type {
   PlayerMovedMessage,
   EnergyComponent,
@@ -39,10 +39,7 @@ import { getPlayerRadius, getWorldBoundsForStage } from '../../helpers';
 export class MovementSystem implements System {
   readonly name = 'MovementSystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-    const deltaTime = time.delta;
+  update(world: World, deltaTime: number, io: Server): void {
 
     // Iterate over all player entities in ECS
     world.forEachWithTag(Tags.Player, (entity) => {

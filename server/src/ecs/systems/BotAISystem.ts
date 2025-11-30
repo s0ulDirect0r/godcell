@@ -3,6 +3,7 @@
 // Handles bot decision making and target selection
 // ============================================
 
+import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
 import type { System } from './types';
 import { getAllSwarmSnapshots } from '../factories';
@@ -18,7 +19,7 @@ import { abilitySystem } from '../../index';
 export class BotAISystem implements System {
   readonly name = 'BotAISystem';
 
-  update(world: World): void {
+  update(world: World, _deltaTime: number, _io: Server): void {
     // Get swarms from ECS (source of truth)
     const swarms = getAllSwarmSnapshots(world);
 

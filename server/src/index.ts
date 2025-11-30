@@ -103,7 +103,6 @@ import {
   DeathSystem,
   NetworkBroadcastSystem,
 } from './ecs';
-import { Resources, type TimeResource } from '@godcell/shared';
 import {
   // Math utilities
   distance,
@@ -422,26 +421,6 @@ logger.info({
 });
 
 // ============================================
-// World Resources Setup
-// ============================================
-
-// Set up Network resource (Socket.io server)
-world.setResource(Resources.Network, { io });
-
-// Initialize Time resource (updated each tick)
-const timeResource: TimeResource = {
-  delta: 0,
-  elapsed: 0,
-  tick: 0,
-};
-world.setResource(Resources.Time, timeResource);
-
-logger.info({
-  event: 'world_resources_initialized',
-  resources: [Resources.Network, Resources.Time],
-});
-
-// ============================================
 // Connection Handling
 // ============================================
 
@@ -613,14 +592,12 @@ setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
   if (!shouldRunTick()) return;
 
-  // Update Time resource for this tick
-  const time = world.getResource<TimeResource>(Resources.Time)!;
-  time.delta = TICK_INTERVAL / 1000; // Convert to seconds
-  time.elapsed += time.delta;
-  time.tick++;
+  // Calculate deltaTime (seconds per tick)
+  const deltaTime = TICK_INTERVAL / 1000;
 
-  // Run all systems in priority order - World contains everything
-  systemRunner.update(world);
+  // Run all systems in priority order
+  // World = game state, deltaTime = frame context, io = network infrastructure
+  systemRunner.update(world, deltaTime, io);
 
   // Clear transient per-tick tags used for cross-system communication
   world.clearTagFromAll(Tags.SlowedThisTick);

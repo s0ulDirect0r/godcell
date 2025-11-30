@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Tags, Resources, type World, type TimeResource } from '@godcell/shared';
+import { GAME_CONFIG, Tags, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   getEntityBySocketId,
@@ -43,10 +43,7 @@ import { getPlayerRadius, isSoupStage } from '../../helpers';
 export class PseudopodSystem implements System {
   readonly name = 'PseudopodSystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-    const deltaTime = time.delta;
+  update(world: World, deltaTime: number, io: Server): void {
 
     // Skip if using hitscan mode (beams are visual-only and auto-removed)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;

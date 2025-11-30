@@ -2,16 +2,12 @@
 // ECS System Types
 // ============================================
 
+import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
 
 /**
  * Base System interface
  * All game systems implement this interface
- *
- * Systems receive only the World - everything they need is in there:
- * - Entities and components via world.getComponent(), world.query(), etc.
- * - Time via world.getResource('Time')
- * - Network IO via world.getResource('Network')
  */
 export interface System {
   /** System name for debugging/logging */
@@ -19,9 +15,11 @@ export interface System {
 
   /**
    * Called every game tick
-   * @param world The ECS World containing all entities, components, and resources
+   * @param world The ECS World containing all entities and components
+   * @param deltaTime Time since last tick in seconds
+   * @param io Socket.io server for network broadcasts
    */
-  update(world: World): void;
+  update(world: World, deltaTime: number, io: Server): void;
 }
 
 /**

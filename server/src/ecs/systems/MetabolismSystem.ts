@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { Resources, type World, type TimeResource } from '@godcell/shared';
+import type { World } from '@godcell/shared';
 import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 import type { System } from './types';
 import {
@@ -36,10 +36,7 @@ import { isBot } from '../../bots';
 export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-    const deltaTime = time.delta;
+  update(world: World, deltaTime: number, io: Server): void {
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);

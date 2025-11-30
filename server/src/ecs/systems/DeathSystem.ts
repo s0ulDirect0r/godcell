@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG, Resources, type World } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   Components,
@@ -37,8 +37,7 @@ import { logger, recordLifetimeDeath, logPlayerDeath } from '../../logger';
 export class DeathSystem implements System {
   readonly name = 'DeathSystem';
 
-  update(world: World): void {
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+  update(world: World, _deltaTime: number, io: Server): void {
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);

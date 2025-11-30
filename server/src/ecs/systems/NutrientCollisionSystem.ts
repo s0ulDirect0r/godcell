@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { NutrientCollectedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Resources, type World } from '@godcell/shared';
+import { GAME_CONFIG, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   Components,
@@ -33,8 +33,7 @@ import { respawnNutrient } from '../../nutrients';
 export class NutrientCollisionSystem implements System {
   readonly name = 'NutrientCollisionSystem';
 
-  update(world: World): void {
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+  update(world: World, _deltaTime: number, io: Server): void {
 
     // Get nutrient snapshots once per tick (stable during iteration)
     const nutrientSnapshots = getAllNutrientSnapshots(world);

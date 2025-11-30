@@ -78,27 +78,9 @@ export const Tags = {
 /**
  * Standard resource keys for world.getResource/setResource.
  * Resources are singleton data not tied to entities.
+ * Currently empty - available for future game resources
+ * (global cooldowns, world events, etc.)
  */
 export const Resources = {
-  // Time resource - updated each tick
-  Time: 'Time',
-
-  // Network resource - Socket.io server
-  Network: 'Network',
+  // Add game resources here as needed
 } as const;
-
-// ============================================
-// Resource Types
-// ============================================
-
-/**
- * Time resource - timing info for the current tick
- */
-export interface TimeResource {
-  // Delta time for this tick in seconds
-  delta: number;
-  // Total elapsed time since server start (seconds)
-  elapsed: number;
-  // Current tick number
-  tick: number;
-}

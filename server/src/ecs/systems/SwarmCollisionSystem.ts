@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, Resources, type World, type TimeResource } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@godcell/shared';
 import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
 import type { System } from './types';
 import { logger } from '../../logger';
@@ -34,10 +34,7 @@ import { hasGodMode, getConfig } from '../../dev';
 export class SwarmCollisionSystem implements System {
   readonly name = 'SwarmCollisionSystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-    const deltaTime = time.delta;
+  update(world: World, deltaTime: number, io: Server): void {
 
     // ============================================
     // Part 1: Swarm collision detection (damage + slow)

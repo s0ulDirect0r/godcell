@@ -12,7 +12,7 @@ import type {
   DamageSource,
   DamageTrackingComponent,
 } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG, Components, Resources, type World } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, Components, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   forEachPlayer,
@@ -47,8 +47,7 @@ export class NetworkBroadcastSystem implements System {
   private energyUpdateTicks = 0;
   private detectionUpdateTicks = 0;
 
-  update(world: World): void {
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+  update(world: World, _deltaTime: number, io: Server): void {
     this.broadcastEnergyUpdates(world, io);
     this.broadcastDrainState(world, io);
     this.broadcastDetectionUpdates(world, io);

@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG, Resources, type World, type TimeResource } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   forEachPlayer,
@@ -41,10 +41,7 @@ import { logger } from '../../logger';
 export class PredationSystem implements System {
   readonly name = 'PredationSystem';
 
-  update(world: World): void {
-    const time = world.getResource<TimeResource>(Resources.Time)!;
-    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
-    const deltaTime = time.delta;
+  update(world: World, deltaTime: number, io: Server): void {
 
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 

@@ -8,7 +8,7 @@ export { ComponentStore } from './Component';
 
 // Types and constants
 export { Components, Tags, Resources } from './types';
-export type { EntityId, ComponentType, TimeResource } from './types';
+export type { EntityId, ComponentType } from './types';
 
 // Component interfaces
 export type {
