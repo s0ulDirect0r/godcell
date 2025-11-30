@@ -2328,7 +2328,8 @@ export class ThreeRenderer implements Renderer {
   updateFirstPersonLook(deltaX: number, deltaY: number): void {
     if (this.cameraMode !== 'firstperson') return;
 
-    // Sensitivity: radians per pixel of mouse movement
+    // Sensitivity: radians per pixel of mouse movement (0.002 ≈ 0.11°/pixel)
+    // Lower values = slower look, higher = faster. 0.002 is typical for FPS games.
     const sensitivity = 0.002;
 
     // Update yaw (horizontal) - no clamping, can spin freely
@@ -2376,6 +2377,23 @@ export class ThreeRenderer implements Renderer {
   }
 
   dispose(): void {
+    // Clean up humanoid models (Stage 4 GLTF instances)
+    this.humanoidModels.forEach((model) => {
+      this.scene.remove(model);
+      model.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material?.dispose();
+          }
+        }
+      });
+    });
+    this.humanoidModels.clear();
+    this.pendingHumanoidLoads.clear();
+
     // Clean up meshes (geometries are cached, so don't dispose them here)
     this.nutrientMeshes.clear();
     this.playerMeshes.clear();

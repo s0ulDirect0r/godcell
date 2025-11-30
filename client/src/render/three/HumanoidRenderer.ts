@@ -14,6 +14,8 @@ export interface HumanoidAnimationState {
 }
 
 // Cached GLTF to avoid reloading
+// Single GLTF is loaded once and cloned per-instance to save memory/network.
+// Animations are also cloned per-instance since AnimationMixer state is per-model.
 let cachedGLTF: {
   scene: THREE.Group;
   animations: THREE.AnimationClip[];
@@ -60,6 +62,8 @@ export async function createHumanoidModel(
   const idleAction = actions.get('idle');
   if (idleAction) {
     idleAction.play();
+  } else {
+    console.warn('HumanoidRenderer: Xbot.glb missing idle animation');
   }
 
   const animState: HumanoidAnimationState = {
@@ -109,11 +113,11 @@ function applyCyberGlowMaterials(model: THREE.Group, colorHex: number): void {
     if (child instanceof THREE.Mesh) {
       // Create new cyber-glow material
       const cyberMat = new THREE.MeshStandardMaterial({
-        color: 0x222222, // Dark base
-        roughness: 0.3,
-        metalness: 0.7,
+        color: 0x222222, // Dark base color - provides contrast for emissive glow
+        roughness: 0.3, // Low roughness (0-1) for shiny metallic look
+        metalness: 0.7, // High metalness (0-1) for cybernetic appearance
         emissive: colorHex,
-        emissiveIntensity: 0.3, // Subtle glow on body
+        emissiveIntensity: 0.3, // Subtle body glow (0-1 range, scaled by energy in updateHumanoidEnergy)
       });
 
       // Apply to mesh (handle both single and array materials)
@@ -145,12 +149,14 @@ export function updateHumanoidAnimation(
   // Update mixer
   animState.mixer.update(delta);
 
+  // Speed threshold for walk vs run animation (game units per second)
+  // Below this: walk animation, above this: run animation
+  const WALK_RUN_THRESHOLD = 200;
+
   // Determine target animation based on movement
   let targetAction = 'idle';
   if (isMoving) {
-    // Blend between walk and run based on speed
-    // Assuming walk < 200, run >= 200 (adjust thresholds as needed)
-    targetAction = speed > 200 ? 'run' : 'walk';
+    targetAction = speed > WALK_RUN_THRESHOLD ? 'run' : 'walk';
   }
 
   // Crossfade to new animation if changed
@@ -179,13 +185,13 @@ export function updateHumanoidEnergy(model: THREE.Group, energyRatio: number): v
 
   model.traverse((child) => {
     if (child instanceof THREE.Mesh) {
-      const mat = child.material as THREE.MeshStandardMaterial;
-      if (mat.emissiveIntensity !== undefined) {
-        mat.emissiveIntensity = 0.1 + 0.4 * ratio;
+      const mat = child.material;
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        mat.emissiveIntensity = 0.1 + 0.4 * ratio; // Range: 0.1 (low energy) to 0.5 (full energy)
       }
     }
     if (child instanceof THREE.PointLight) {
-      child.intensity = 1 + 3 * ratio;
+      child.intensity = 1 + 3 * ratio; // Range: 1 (low energy) to 4 (full energy)
     }
   });
 }
