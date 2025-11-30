@@ -517,7 +517,7 @@ export class ThreeRenderer implements Renderer {
               depthWrite: false,
             });
             const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-            newOutline.position.z = 0.1;
+            newOutline.position.y = 0.1; // Slightly above player (Y=height)
             this.scene.add(newOutline);
             this.playerOutlines.set(event.playerId, newOutline);
           }
@@ -1255,20 +1255,21 @@ export class ThreeRenderer implements Renderer {
         let endPos: THREE.Vector3;
 
         if (isHitscan) {
-          // Hitscan mode: beam.velocity is the end position
-          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
-          endPos = new THREE.Vector3(beam.velocity.x, beam.velocity.y, 1);
+          // Hitscan mode: beam.velocity is the end position (XZ plane, Y=height)
+          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
+          endPos = new THREE.Vector3(beam.velocity.x, 1, -beam.velocity.y);
         } else {
           // Projectile mode: create short lightning bolt in direction of travel
           const boltLength = 80; // Fixed visual length
           const dirX = beam.velocity.x / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
           const dirY = beam.velocity.y / Math.sqrt(beam.velocity.x ** 2 + beam.velocity.y ** 2);
 
-          startPos = new THREE.Vector3(beam.position.x, beam.position.y, 1);
+          // XZ plane: game Y maps to -Z
+          startPos = new THREE.Vector3(beam.position.x, 1, -beam.position.y);
           endPos = new THREE.Vector3(
             beam.position.x + dirX * boltLength,
-            beam.position.y + dirY * boltLength,
-            1
+            1,
+            -(beam.position.y + dirY * boltLength)
           );
         }
 
@@ -1324,9 +1325,9 @@ export class ThreeRenderer implements Renderer {
         const isProjectile = velocityMag >= 100;
 
         if (isProjectile) {
-          // Update position for moving projectile
+          // Update position for moving projectile (XZ plane)
           mesh.position.x = beam.position.x;
-          mesh.position.y = beam.position.y;
+          mesh.position.z = -beam.position.y;
         }
       }
     });
@@ -1338,8 +1339,10 @@ export class ThreeRenderer implements Renderer {
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
       if (target) {
+        // XZ plane: interpolate X and Z (game Y maps to -Z)
         group.position.x += (target.x - group.position.x) * lerpFactor;
-        group.position.y += (target.y - group.position.y) * lerpFactor;
+        const targetZ = -target.y;
+        group.position.z += (targetZ - group.position.z) * lerpFactor;
       }
     });
   }
@@ -1409,7 +1412,7 @@ export class ThreeRenderer implements Renderer {
             newAuraMesh.add(singleAura);
           }
 
-          newAuraMesh.position.z = -1; // Behind player
+          newAuraMesh.position.y = -1; // Below player (Y=height)
           this.drainAuraMeshes.set(playerId, newAuraMesh);
           this.scene.add(newAuraMesh);
           auraMesh = newAuraMesh;
@@ -1470,7 +1473,7 @@ export class ThreeRenderer implements Renderer {
           const newAuraMesh = new THREE.Group();
           const swarmAura = createCellAura(swarm.size);
           newAuraMesh.add(swarmAura);
-          newAuraMesh.position.z = -1; // Behind swarm
+          newAuraMesh.position.y = -1; // Below swarm (Y=height)
 
           this.drainAuraMeshes.set(auraId, newAuraMesh);
           this.scene.add(newAuraMesh);
@@ -1480,9 +1483,9 @@ export class ThreeRenderer implements Renderer {
         // Type guard: ensure auraMesh exists after creation
         if (!auraMesh) return;
 
-        // Position aura at swarm position
+        // Position aura at swarm position (XZ plane)
         auraMesh.position.x = swarmMesh.position.x;
-        auraMesh.position.y = swarmMesh.position.y;
+        auraMesh.position.z = swarmMesh.position.z;
 
         // Calculate intensity from damage rate
         const intensity = calculateAuraIntensity(damageInfo.totalDamageRate);
@@ -1597,14 +1600,14 @@ export class ThreeRenderer implements Renderer {
         // Create new gain aura for this player
         const radius = this.getPlayerRadius(player.stage);
         gainAura = createGainAura(radius);
-        gainAura.position.z = 0.05; // Slightly in front of player
+        gainAura.position.y = 0.05; // Slightly above player (Y=height)
         this.scene.add(gainAura);
         this.gainAuraMeshes.set(playerId, gainAura);
       }
 
-      // Position aura at player position
+      // Position aura at player position (XZ plane)
       gainAura.position.x = playerMesh.position.x;
-      gainAura.position.y = playerMesh.position.y;
+      gainAura.position.z = playerMesh.position.z;
 
       // Trigger flash animation - intensity scales with energy gain rate
       const energyGain = energyGains.get(playerId) ?? 0;
@@ -1628,9 +1631,9 @@ export class ThreeRenderer implements Renderer {
         return;
       }
 
-      // Keep aura positioned at player
+      // Keep aura positioned at player (XZ plane)
       gainAura.position.x = playerMesh.position.x;
-      gainAura.position.y = playerMesh.position.y;
+      gainAura.position.z = playerMesh.position.z;
 
       // Update animation (returns false when finished)
       updateGainAura(gainAura);
@@ -1680,9 +1683,10 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update base position (bobbing animation added in updateNutrientAnimations)
+      // XZ plane: X=game X, Y=height, Z=-game Y
       group.userData.baseX = nutrient.position.x;
-      group.userData.baseY = nutrient.position.y;
-      group.position.set(nutrient.position.x, nutrient.position.y, 0);
+      group.userData.baseZ = -nutrient.position.y;
+      group.position.set(nutrient.position.x, 0, -nutrient.position.y);
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(id, { x: nutrient.position.x, y: nutrient.position.y });
@@ -1761,17 +1765,17 @@ export class ThreeRenderer implements Renderer {
     const now = Date.now();
 
     this.nutrientMeshes.forEach((group) => {
-      const { rotationSpeed, bobPhase, baseX, baseY } = group.userData;
+      const { rotationSpeed, bobPhase, baseX, baseZ } = group.userData;
 
       // Rotate around Y axis (tumbling effect)
       group.rotation.y += rotationSpeed * dt;
       // Slight wobble on X axis
       group.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
 
-      // Gentle bobbing on Z axis (floating in digital ocean)
+      // Gentle bobbing on Y axis (height - floating in digital ocean)
       const bobAmount = Math.sin(now * 0.002 + bobPhase) * 2;
-      if (baseX !== undefined && baseY !== undefined) {
-        group.position.set(baseX, baseY, bobAmount);
+      if (baseX !== undefined && baseZ !== undefined) {
+        group.position.set(baseX, bobAmount, baseZ);
       }
 
       // Pulse the inner core brightness
@@ -1910,10 +1914,10 @@ export class ThreeRenderer implements Renderer {
           cellGroup = createSingleCell(radius, colorHex);
         }
 
-        // Position group at player location
+        // Position group at player location on XZ plane (Y=height)
         // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, player.position.y, zOffset);
+        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -1936,7 +1940,7 @@ export class ThreeRenderer implements Renderer {
             depthWrite: false, // Prevent z-fighting with transparent materials
           });
           const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-          outline.position.z = 0.1; // Slightly above player
+          outline.position.y = 0.1; // Slightly above player (Y=height)
           this.scene.add(outline);
           this.playerOutlines.set(id, outline);
         }
@@ -2088,16 +2092,17 @@ export class ThreeRenderer implements Renderer {
       // Update position with client-side interpolation
       const target = state.playerTargets.get(id);
       if (target) {
-        // Lerp toward server position
+        // Lerp toward server position (XZ plane: game Y maps to -Z)
         const lerpFactor = 0.3;
         cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-        cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+        const targetZ = -target.y;
+        cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
           outline.position.x = cellGroup.position.x;
-          outline.position.y = cellGroup.position.y;
+          outline.position.z = cellGroup.position.z;
         }
 
         // Update compass indicators for client player (chemical sensing)
@@ -2113,14 +2118,14 @@ export class ThreeRenderer implements Renderer {
         }
       } else {
         // Fallback to direct position if no target
-        // Maintain Z offset for Stage 3+ creatures
-        const zOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
-        cellGroup.position.set(player.position.x, player.position.y, zOffset);
+        // Maintain height offset for Stage 3+ creatures
+        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         // Update outline position if it exists
         const outline = this.playerOutlines.get(id);
         if (outline) {
-          outline.position.set(player.position.x, player.position.y, zOffset + 0.1);
+          outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
         }
 
         // Update compass indicators for client player (chemical sensing)

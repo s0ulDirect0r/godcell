@@ -35,7 +35,8 @@ export function createObstacle(
   radius: number
 ): { group: THREE.Group; particles: AccretionParticle[]; vortexSpeed: number } {
   const group = new THREE.Group();
-  group.position.set(position.x, position.y, -0.4);
+  // XZ plane: X=game X, Y=height, Z=-game Y
+  group.position.set(position.x, -0.4, -position.y);
 
   // === LAYER 1: OUTER INFLUENCE ZONE (safe-ish, shows gravity) ===
   const ringWidth = 3; // Thin ring width in pixels

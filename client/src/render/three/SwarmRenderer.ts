@@ -150,7 +150,8 @@ export function createSwarm(
   const orbitingParticles = new THREE.Points(orbitingGeometry, orbitingMaterial);
   group.add(orbitingParticles);
 
-  group.position.set(position.x, position.y, 0.2); // Same depth as players (avoid z-fighting)
+  // XZ plane: X=game X, Y=height, Z=-game Y
+  group.position.set(position.x, 0.2, -position.y);
 
   return {
     group,
