@@ -9,6 +9,7 @@ import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
 import {
@@ -96,8 +97,17 @@ export class ThreeRenderer implements Renderer {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
+  private perspectiveCamera!: THREE.PerspectiveCamera;
   private container!: HTMLElement;
   private composer!: EffectComposer;
+  private renderPass!: RenderPass; // Stored to update camera on mode switch
+
+  // Camera mode: 'topdown' for Stages 1-3, 'firstperson' for Stage 4+
+  private cameraMode: 'topdown' | 'firstperson' = 'topdown';
+
+  // First-person camera state
+  private fpYaw = 0; // Horizontal rotation (radians)
+  private fpPitch = 0; // Vertical rotation (radians), clamped
 
   // Camera effects
   private cameraShake = 0;
@@ -229,7 +239,7 @@ export class ThreeRenderer implements Renderer {
     this.soupActivityPoints = jungleResult.soupActivityPoints;
     this.soupActivityData = jungleResult.soupActivityData;
 
-    // Create orthographic camera (top-down 2D)
+    // Create orthographic camera (top-down 2D for Stages 1-3)
     const aspect = width / height;
     const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
     this.camera = new THREE.OrthographicCamera(
@@ -243,6 +253,12 @@ export class ThreeRenderer implements Renderer {
     this.camera.position.set(0, 0, 10);
     this.camera.lookAt(0, 0, 0);
 
+    // Create perspective camera (first-person for Stage 4+)
+    // FOV 75 degrees, standard for FPS games
+    // Near/far planes set for jungle world scale (humanoid ~200 units tall)
+    this.perspectiveCamera = new THREE.PerspectiveCamera(75, aspect, 1, 10000);
+    this.perspectiveCamera.position.set(0, 0, 0);
+
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambientLight);
@@ -251,8 +267,10 @@ export class ThreeRenderer implements Renderer {
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
 
-    // Create postprocessing composer
-    this.composer = createComposer(this.renderer, this.scene, this.camera, width, height);
+    // Create postprocessing composer (store renderPass for camera switching)
+    const composerResult = createComposer(this.renderer, this.scene, this.camera, width, height);
+    this.composer = composerResult.composer;
+    this.renderPass = composerResult.renderPass;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -834,6 +852,9 @@ export class ThreeRenderer implements Renderer {
       this.targetZoom,
       aspect
     );
+
+    // Update renderPass camera based on current mode before rendering
+    this.renderPass.camera = this.getActiveCamera();
 
     // Render scene with postprocessing
     this.composer.render();
@@ -2103,12 +2124,15 @@ export class ThreeRenderer implements Renderer {
     this.composer.setSize(width, height);
     const aspect = width / height;
     applyCameraZoom(this.camera, this.currentZoom, aspect);
+    // Update perspective camera aspect ratio
+    this.perspectiveCamera.aspect = aspect;
+    this.perspectiveCamera.updateProjectionMatrix();
   }
 
   getCameraCapabilities(): CameraCapabilities {
     return {
-      mode: 'topdown',
-      supports3D: true, // Will support 3D later
+      mode: this.cameraMode === 'firstperson' ? 'fps' : 'topdown',
+      supports3D: true,
     };
   }
 
@@ -2136,6 +2160,87 @@ export class ThreeRenderer implements Renderer {
         };
       },
     };
+  }
+
+  // ============================================
+  // First-Person Camera Controls (Stage 4+)
+  // ============================================
+
+  /**
+   * Switch camera mode between top-down (ortho) and first-person (perspective)
+   * Called when player evolves to/from Stage 4
+   */
+  setCameraMode(mode: 'topdown' | 'firstperson'): void {
+    if (this.cameraMode === mode) return;
+    this.cameraMode = mode;
+
+    // Reset first-person rotation when switching modes
+    if (mode === 'firstperson') {
+      this.fpYaw = 0;
+      this.fpPitch = 0;
+    }
+  }
+
+  /**
+   * Get current camera mode
+   */
+  getCameraMode(): 'topdown' | 'firstperson' {
+    return this.cameraMode;
+  }
+
+  /**
+   * Update first-person camera rotation from mouse input
+   * @param deltaX - Mouse movement in X (affects yaw/horizontal rotation)
+   * @param deltaY - Mouse movement in Y (affects pitch/vertical look)
+   */
+  updateFirstPersonLook(deltaX: number, deltaY: number): void {
+    if (this.cameraMode !== 'firstperson') return;
+
+    // Sensitivity: radians per pixel of mouse movement
+    const sensitivity = 0.002;
+
+    // Update yaw (horizontal) - no clamping, can spin freely
+    this.fpYaw -= deltaX * sensitivity;
+
+    // Update pitch (vertical) - clamp to prevent flipping
+    // Range: -89 to +89 degrees (just under straight up/down)
+    const maxPitch = Math.PI / 2 - 0.01;
+    this.fpPitch -= deltaY * sensitivity;
+    this.fpPitch = Math.max(-maxPitch, Math.min(maxPitch, this.fpPitch));
+  }
+
+  /**
+   * Get current first-person yaw (for rotating movement input)
+   */
+  getFirstPersonYaw(): number {
+    return this.fpYaw;
+  }
+
+  /**
+   * Position first-person camera at player location with current look rotation
+   * Called each frame in first-person mode
+   * @param x - Player world X position
+   * @param y - Player world Y position (maps to world Z in 3D)
+   * @param height - Camera height above ground (humanoid eye level)
+   */
+  updateFirstPersonCamera(x: number, y: number, height: number): void {
+    if (this.cameraMode !== 'firstperson') return;
+
+    // Position camera at player location
+    // In our coordinate system: game X = 3D X, game Y = 3D Z, height = 3D Y
+    this.perspectiveCamera.position.set(x, height, -y);
+
+    // Apply look rotation
+    // Create rotation from yaw and pitch
+    const euler = new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ');
+    this.perspectiveCamera.quaternion.setFromEuler(euler);
+  }
+
+  /**
+   * Get the active camera (ortho for top-down, perspective for first-person)
+   */
+  getActiveCamera(): THREE.Camera {
+    return this.cameraMode === 'firstperson' ? this.perspectiveCamera : this.camera;
   }
 
   dispose(): void {
