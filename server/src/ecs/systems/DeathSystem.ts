@@ -3,10 +3,10 @@
 // Handles player death checks and processing
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, Resources, type World } from '@godcell/shared';
+import type { System } from './types';
 import {
   Components,
   forEachPlayer,
@@ -37,8 +37,8 @@ import { logger, recordLifetimeDeath, logPlayerDeath } from '../../logger';
 export class DeathSystem implements System {
   readonly name = 'DeathSystem';
 
-  update(ctx: GameContext): void {
-    const { world, io } = ctx;
+  update(world: World): void {
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);

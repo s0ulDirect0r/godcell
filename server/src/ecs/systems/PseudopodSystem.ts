@@ -3,10 +3,10 @@
 // Handles pseudopod (beam) movement and collision
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Tags } from '@godcell/shared';
+import { GAME_CONFIG, Tags, Resources, type World, type TimeResource } from '@godcell/shared';
+import type { System } from './types';
 import {
   getEntityBySocketId,
   getStringIdByEntity,
@@ -43,8 +43,10 @@ import { getPlayerRadius, isSoupStage } from '../../helpers';
 export class PseudopodSystem implements System {
   readonly name = 'PseudopodSystem';
 
-  update(ctx: GameContext): void {
-    const { world, io, deltaTime } = ctx;
+  update(world: World): void {
+    const time = world.getResource<TimeResource>(Resources.Time)!;
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+    const deltaTime = time.delta;
 
     // Skip if using hitscan mode (beams are visual-only and auto-removed)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;
@@ -81,7 +83,7 @@ export class PseudopodSystem implements System {
       }
 
       // Check collision with players (multi-cells only)
-      this.checkBeamCollisionECS(ctx, entity, beamId, posComp, pseudopodComp);
+      this.checkBeamCollisionECS(world, io, entity, beamId, posComp, pseudopodComp);
       // Beam continues traveling even if it hits (can hit multiple targets)
     });
 
@@ -100,16 +102,13 @@ export class PseudopodSystem implements System {
    * Uses PseudopodComponent.hitEntities for hit tracking instead of external Map
    */
   private checkBeamCollisionECS(
-    ctx: GameContext,
+    world: World,
+    io: Server,
     beamEntity: EntityId,
     beamId: string,
     posComp: PositionComponent,
     pseudopodComp: PseudopodComponent
   ): boolean {
-    const {
-      world,
-      io,
-    } = ctx;
 
     // Get shooter stage from ECS
     const shooterEntity = getEntityBySocketId(pseudopodComp.ownerSocketId);
@@ -255,8 +254,7 @@ export class PseudopodSystem implements System {
    * Check beam collision using hitscan (instant raycast)
    * Returns the ID of the player hit, or null if no hit
    */
-  checkBeamHitscan(ctx: GameContext, start: Position, end: Position, shooterId: string): string | null {
-    const { world } = ctx;
+  checkBeamHitscan(world: World, start: Position, end: Position, shooterId: string): string | null {
 
     type HitInfo = { playerId: string; distance: number; entity: number };
     let closestHit: HitInfo | null = null;

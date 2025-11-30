@@ -3,10 +3,10 @@
 // Handles predator-prey interactions (engulfing, draining)
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG, Resources, type World, type TimeResource } from '@godcell/shared';
+import type { System } from './types';
 import {
   forEachPlayer,
   getEnergyBySocketId,
@@ -41,8 +41,10 @@ import { logger } from '../../logger';
 export class PredationSystem implements System {
   readonly name = 'PredationSystem';
 
-  update(ctx: GameContext): void {
-    const { world, io, deltaTime } = ctx;
+  update(world: World): void {
+    const time = world.getResource<TimeResource>(Resources.Time)!;
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+    const deltaTime = time.delta;
 
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 
@@ -109,7 +111,7 @@ export class PredationSystem implements System {
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {
-            this.engulfPrey(ctx, predatorId, preyId, preyPosition, preyEnergy.max);
+            this.engulfPrey(world, io, predatorId, preyId, preyPosition, preyEnergy.max);
           }
         }
       });
@@ -132,13 +134,13 @@ export class PredationSystem implements System {
    * Handle prey being fully engulfed by predator
    */
   private engulfPrey(
-    ctx: GameContext,
+    world: World,
+    io: Server,
     predatorId: string,
     preyId: string,
     position: Position,
     preyMaxEnergy: number
   ): void {
-    const { world, io } = ctx;
 
     // Get prey color from ECS
     const preyEntity = getEntityBySocketId(preyId);

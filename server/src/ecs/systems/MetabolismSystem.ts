@@ -3,8 +3,10 @@
 // Handles energy decay, starvation, and evolution checks
 // ============================================
 
+import type { Server } from 'socket.io';
+import { Resources, type World, type TimeResource } from '@godcell/shared';
+import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import {
   Components,
   forEachPlayer,
@@ -22,7 +24,6 @@ import { hasGodMode, getConfig } from '../../dev';
 import { getNextEvolutionStage, getStageMaxEnergy, getEnergyDecayRate } from '../../helpers';
 import { recordEvolution } from '../../logger';
 import { isBot } from '../../bots';
-import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 
 /**
  * MetabolismSystem - Manages player metabolism
@@ -35,8 +36,10 @@ import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godce
 export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
-  update(ctx: GameContext): void {
-    const { world, deltaTime, io } = ctx;
+  update(world: World): void {
+    const time = world.getResource<TimeResource>(Resources.Time)!;
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+    const deltaTime = time.delta;
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -85,7 +88,7 @@ export class MetabolismSystem implements System {
 
       // Check for evolution (only if still alive)
       if (energyComp.current > 0) {
-        this.checkEvolution(playerId, ctx);
+        this.checkEvolution(playerId, world, io);
       }
     });
   }
@@ -93,8 +96,7 @@ export class MetabolismSystem implements System {
   /**
    * Check if player can evolve and trigger evolution if conditions met
    */
-  private checkEvolution(playerId: string, ctx: GameContext): void {
-    const { world, io } = ctx;
+  private checkEvolution(playerId: string, world: World, io: Server): void {
 
     const stageComp = getStageBySocketId(world, playerId);
     const energyComp = getEnergyBySocketId(world, playerId);

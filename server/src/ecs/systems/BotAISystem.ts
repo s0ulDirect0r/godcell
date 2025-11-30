@@ -3,8 +3,8 @@
 // Handles bot decision making and target selection
 // ============================================
 
+import type { World } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import { getAllSwarmSnapshots } from '../factories';
 import { updateBots } from '../../bots';
 import { abilitySystem } from '../../index';
@@ -18,9 +18,7 @@ import { abilitySystem } from '../../index';
 export class BotAISystem implements System {
   readonly name = 'BotAISystem';
 
-  update(ctx: GameContext): void {
-    const { world } = ctx;
-
+  update(world: World): void {
     // Get swarms from ECS (source of truth)
     const swarms = getAllSwarmSnapshots(world);
 

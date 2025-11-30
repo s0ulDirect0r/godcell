@@ -3,10 +3,10 @@
 // Handles nutrient collection by players
 // ============================================
 
-import type { System } from './types';
-import type { GameContext } from './GameContext';
+import type { Server } from 'socket.io';
 import type { NutrientCollectedMessage } from '@godcell/shared';
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG, Resources, type World } from '@godcell/shared';
+import type { System } from './types';
 import {
   Components,
   forEachPlayer,
@@ -33,8 +33,8 @@ import { respawnNutrient } from '../../nutrients';
 export class NutrientCollisionSystem implements System {
   readonly name = 'NutrientCollisionSystem';
 
-  update(ctx: GameContext): void {
-    const { world, io } = ctx;
+  update(world: World): void {
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
 
     // Get nutrient snapshots once per tick (stable during iteration)
     const nutrientSnapshots = getAllNutrientSnapshots(world);

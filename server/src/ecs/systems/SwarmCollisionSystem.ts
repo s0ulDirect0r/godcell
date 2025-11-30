@@ -3,10 +3,10 @@
 // Handles swarm-player collisions (damage, slow effects)
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, Tags, Components } from '@godcell/shared';
+import type { Server } from 'socket.io';
+import { GAME_CONFIG, EvolutionStage, Tags, Components, Resources, type World, type TimeResource } from '@godcell/shared';
 import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import { logger } from '../../logger';
 import {
   getSocketIdByEntity,
@@ -34,8 +34,10 @@ import { hasGodMode, getConfig } from '../../dev';
 export class SwarmCollisionSystem implements System {
   readonly name = 'SwarmCollisionSystem';
 
-  update(ctx: GameContext): void {
-    const { world, deltaTime, io } = ctx;
+  update(world: World): void {
+    const time = world.getResource<TimeResource>(Resources.Time)!;
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
+    const deltaTime = time.delta;
 
     // ============================================
     // Part 1: Swarm collision detection (damage + slow)

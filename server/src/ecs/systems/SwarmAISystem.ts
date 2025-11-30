@@ -3,8 +3,9 @@
 // Handles entropy swarm decision making and behavior
 // ============================================
 
+import type { Server } from 'socket.io';
+import { Resources, type World, type TimeResource } from '@godcell/shared';
 import type { System } from './types';
-import type { GameContext } from './GameContext';
 import { updateSwarms, updateSwarmPositions, processSwarmRespawns } from '../../swarms';
 
 /**
@@ -16,14 +17,15 @@ import { updateSwarms, updateSwarmPositions, processSwarmRespawns } from '../../
 export class SwarmAISystem implements System {
   readonly name = 'SwarmAISystem';
 
-  update(ctx: GameContext): void {
-    const { world, io, deltaTime } = ctx;
+  update(world: World): void {
+    const time = world.getResource<TimeResource>(Resources.Time)!;
+    const { io } = world.getResource<{ io: Server }>(Resources.Network)!;
 
     // Update swarm AI decisions (ECS is source of truth)
-    updateSwarms(Date.now(), world, deltaTime);
+    updateSwarms(Date.now(), world, time.delta);
 
     // Update swarm positions based on velocity (ECS components)
-    updateSwarmPositions(world, deltaTime, io);
+    updateSwarmPositions(world, time.delta, io);
 
     // Handle swarm respawning (creates in ECS)
     processSwarmRespawns(world, io);
