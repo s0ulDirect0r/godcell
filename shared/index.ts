@@ -450,7 +450,6 @@ export interface DevStateMessage {
   type: 'devState';
   isPaused: boolean;
   timeScale: number;
-  godModePlayers: string[];  // Player IDs with god mode
 }
 
 // Runtime config that can be modified (subset of GAME_CONFIG keys)
@@ -631,14 +630,6 @@ export const GAME_CONFIG = {
   CYBER_ORGANISM_ENERGY_DECAY_RATE: 2.8,  // ~357 seconds (1000 / 2.8 ≈ 6 minutes)
   HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~606 seconds (2000 / 3.3 ≈ 10 minutes)
   GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics
-
-  // Damage resistance (structural stability at higher evolution stages)
-  // Reduces energy drain from external threats (NOT passive decay)
-  SINGLE_CELL_DAMAGE_RESISTANCE: 0,       // 0% - takes full damage
-  MULTI_CELL_DAMAGE_RESISTANCE: 0.25,     // 25% - takes 75% damage
-  CYBER_ORGANISM_DAMAGE_RESISTANCE: 0.40, // 40% - takes 60% damage
-  HUMANOID_DAMAGE_RESISTANCE: 0.50,       // 50% - takes 50% damage
-  GODCELL_DAMAGE_RESISTANCE: 0.60,        // 60% - takes 40% damage
 
   MOVEMENT_ENERGY_COST: 0.005,  // Energy cost per pixel moved
 
