@@ -18,6 +18,7 @@ import type { System } from './types';
 import type { GameContext } from './GameContext';
 import { getConfig } from '../../dev';
 import { getSocketIdByEntity, hasDrainTarget } from '../factories';
+import { getPlayerRadius, getWorldBoundsForStage } from '../../helpers';
 
 /**
  * MovementSystem - Handles all player movement
@@ -39,16 +40,7 @@ export class MovementSystem implements System {
   readonly name = 'MovementSystem';
 
   update(ctx: GameContext): void {
-    const {
-      world,
-      tickData,
-      deltaTime,
-      io,
-      getPlayerRadius,
-      getWorldBoundsForStage,
-    } = ctx;
-
-    const slowedPlayerIds = tickData.slowedPlayerIds;
+    const { world, deltaTime, io } = ctx;
 
     // Iterate over all player entities in ECS
     world.forEachWithTag(Tags.Player, (entity) => {
@@ -94,8 +86,9 @@ export class MovementSystem implements System {
       }
       // TODO: HUMANOID and GODCELL acceleration
 
-      // Swarm slow debuff
-      if (slowedPlayerIds.has(playerId)) {
+      // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
+      const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
+      if (isSlowed) {
         acceleration *= getConfig('SWARM_SLOW_EFFECT');
       }
 
@@ -132,7 +125,7 @@ export class MovementSystem implements System {
       // TODO: HUMANOID and GODCELL max speed
 
       // Apply slow effects to max speed cap
-      if (slowedPlayerIds.has(playerId)) {
+      if (isSlowed) {
         maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
       }
       if (hasDrainTarget(world, playerId)) {

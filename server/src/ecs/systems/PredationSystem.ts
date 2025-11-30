@@ -17,6 +17,7 @@ import {
   clearDrainTarget,
   forEachDrainTarget,
   getDamageTrackingBySocketId,
+  recordDamage,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -41,12 +42,7 @@ export class PredationSystem implements System {
   readonly name = 'PredationSystem';
 
   update(ctx: GameContext): void {
-    const {
-      world,
-      io,
-      deltaTime,
-      recordDamage,
-    } = ctx;
+    const { world, io, deltaTime } = ctx;
 
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 
@@ -109,7 +105,7 @@ export class PredationSystem implements System {
           }
 
           // Record damage for drain aura system
-          recordDamage(preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
+          recordDamage(world, preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {

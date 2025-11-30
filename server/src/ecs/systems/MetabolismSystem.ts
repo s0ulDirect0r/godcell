@@ -14,12 +14,14 @@ import {
   setPlayerStage,
   hasPlayer,
   getDamageTrackingBySocketId,
+  recordDamage,
   type EnergyComponent,
   type StageComponent,
 } from '../index';
 import { hasGodMode, getConfig } from '../../dev';
-import { getNextEvolutionStage, getStageMaxEnergy } from '../../helpers';
+import { getNextEvolutionStage, getStageMaxEnergy, getEnergyDecayRate } from '../../helpers';
 import { recordEvolution } from '../../logger';
+import { isBot } from '../../bots';
 import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
 
 /**
@@ -34,7 +36,7 @@ export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
   update(ctx: GameContext): void {
-    const { world, deltaTime, io, recordDamage, getEnergyDecayRate, isBot } = ctx;
+    const { world, deltaTime, io } = ctx;
 
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -78,7 +80,7 @@ export class MetabolismSystem implements System {
           damageTrackingForDeath.lastDamageSource = 'starvation';
         }
         // Record for drain aura (shows starvation state)
-        recordDamage(playerId, decayRate, 'starvation');
+        recordDamage(world, playerId, decayRate, 'starvation');
       }
 
       // Check for evolution (only if still alive)
@@ -92,7 +94,7 @@ export class MetabolismSystem implements System {
    * Check if player can evolve and trigger evolution if conditions met
    */
   private checkEvolution(playerId: string, ctx: GameContext): void {
-    const { world, io, isBot } = ctx;
+    const { world, io } = ctx;
 
     const stageComp = getStageBySocketId(world, playerId);
     const energyComp = getEnergyBySocketId(world, playerId);

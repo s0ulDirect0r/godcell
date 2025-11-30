@@ -9,6 +9,7 @@ import type { NutrientMovedMessage, NutrientCollectedMessage } from '@godcell/sh
 import { GAME_CONFIG, Tags, Components, type PositionComponent } from '@godcell/shared';
 import { forEachObstacle, getStringIdByEntity, destroyEntity as ecsDestroyEntity } from '../index';
 import { distance } from '../../helpers';
+import { respawnNutrient } from '../../nutrients';
 
 /**
  * NutrientAttractionSystem - Attracts nutrients to obstacles
@@ -24,7 +25,7 @@ export class NutrientAttractionSystem implements System {
   readonly name = 'NutrientAttractionSystem';
 
   update(ctx: GameContext): void {
-    const { world, io, deltaTime, respawnNutrient } = ctx;
+    const { world, io, deltaTime } = ctx;
 
     // Collect nutrients to destroy after iteration (can't modify during iteration)
     // Use Map to dedupe - nutrient may be near multiple obstacles

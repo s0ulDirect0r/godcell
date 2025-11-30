@@ -18,6 +18,7 @@ import {
 } from '../index';
 import { distance, getPlayerRadius, isJungleStage } from '../../helpers';
 import { recordNutrientCollection } from '../../logger';
+import { respawnNutrient } from '../../nutrients';
 
 /**
  * NutrientCollisionSystem - Handles nutrient pickup
@@ -33,7 +34,7 @@ export class NutrientCollisionSystem implements System {
   readonly name = 'NutrientCollisionSystem';
 
   update(ctx: GameContext): void {
-    const { world, io, respawnNutrient } = ctx;
+    const { world, io } = ctx;
 
     // Get nutrient snapshots once per tick (stable during iteration)
     const nutrientSnapshots = getAllNutrientSnapshots(world);
