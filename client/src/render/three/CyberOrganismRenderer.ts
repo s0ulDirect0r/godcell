@@ -1,6 +1,7 @@
 // ============================================
 // Cyber-Organism Renderer (Stage 3)
 // Segmented creature with head, body pods, spiked tail, and 6 legs
+// Built for XZ plane top-down view (dorsal faces +Z, which becomes +Y after rotation)
 // ============================================
 
 import * as THREE from 'three';
@@ -25,7 +26,10 @@ const CONFIG = {
 
 /**
  * Create the cyber-organism
- * Uses original absolute values from cyberorganism.html, scaled to fit radius
+ * Built for top-down XZ plane view:
+ * - Body extends along local X axis (head at -X, tail at +X)
+ * - Dorsal (top) faces local +Z (becomes world +Y after rotation, toward camera)
+ * - Legs extend in local ±Y (becomes world ±Z after rotation, on ground plane)
  */
 export function createCyberOrganism(radius: number, colorHex: number): THREE.Group {
   const group = new THREE.Group();
@@ -54,7 +58,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     side: THREE.DoubleSide,
   });
 
-  // === HEAD (original: radius 1.8, position X=-3) ===
+  // === HEAD (position X=-3) ===
   const headGeo = new THREE.SphereGeometry(1.8 * s, 32, 32);
   const head = new THREE.Mesh(headGeo, bodyMat);
   head.position.x = -3 * s;
@@ -69,58 +73,59 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   head.add(eye);
   eye.add(new THREE.PointLight(colorHex, 3, 7 * s));
 
-  // === BODY SEGMENTS (original: 3 segments at X = -0.5, 1.5, 3.5) ===
+  // === BODY SEGMENTS (3 segments along X axis) ===
   for (let i = 0; i < 3; i++) {
     const scaleFactor = 1 - i * 0.15;
 
-    // Original: radius 1.4 * scaleFactor, squashed to 0.7 on Y
+    // Squash on Z axis (dorsal-ventral direction) instead of Y
     const segGeo = new THREE.SphereGeometry(1.4 * s * scaleFactor, 24, 24);
-    segGeo.scale(1, 0.7, 1);
+    segGeo.scale(1, 1, 0.7);
 
     const seg = new THREE.Mesh(segGeo, bodyMat);
     seg.position.x = (-0.5 + i * 2) * s;
     seg.name = `bodySegment-${i}`;
     group.add(seg);
 
-    // Dorsal orb (original: radius 0.4 * scaleFactor, Y offset 0.8 * scaleFactor)
+    // Dorsal orb - now at +Z (becomes +Y after rotation, facing camera)
     const orbGeo = new THREE.SphereGeometry(0.4 * s * scaleFactor, 16, 16);
     const orb = new THREE.Mesh(orbGeo, glowMat.clone());
-    orb.position.y = 0.8 * s * scaleFactor;
+    orb.position.z = 0.8 * s * scaleFactor;  // Dorsal side at +Z
     orb.name = `bodyOrb-${i}`;
     seg.add(orb);
     orb.add(new THREE.PointLight(colorHex, 1.5, 4 * s));
   }
 
-  // === TAIL (original: starts at X=4.5, Y=0.2, size=0.8) ===
+  // === TAIL (extends along +X, curves upward in +Z direction) ===
   let tailPosX = 4.5 * s;
-  let tailPosY = 0.2 * s;
+  let tailPosZ = 0.2 * s;  // Z instead of Y (dorsal direction)
   let tailSize = 0.8 * s;
   const tailSegments: THREE.Mesh[] = [];
 
   for (let i = 0; i < 5; i++) {
     const tailGeo = new THREE.SphereGeometry(tailSize, 16, 16);
     const tailSeg = new THREE.Mesh(tailGeo, bodyMat);
-    tailSeg.position.set(tailPosX, tailPosY, 0);
+    tailSeg.position.set(tailPosX, 0, tailPosZ);  // Y=0, Z=dorsal offset
     tailSeg.name = `tailSegment-${i}`;
     group.add(tailSeg);
     tailSegments.push(tailSeg);
 
-    // Spike (original: radius = tailSize * 0.3, height = tailSize * 1.2)
+    // Spike pointing dorsally (+Z direction)
     const spikeGeo = new THREE.ConeGeometry(tailSize * 0.3, tailSize * 1.2, 8);
     const spike = new THREE.Mesh(spikeGeo, bodyMat);
-    spike.position.y = tailSize * 0.8;
+    spike.position.z = tailSize * 0.8;  // Dorsal direction
+    spike.rotation.x = Math.PI / 2;  // Point cone toward +Z
     tailSeg.add(spike);
 
     // Original progression
     tailPosX += tailSize * 1.3;
-    tailPosY += tailSize * 0.4;
+    tailPosZ += tailSize * 0.4;
     tailSize *= 0.85;
   }
 
-  // Tail tip orb (original: radius 1.0, offset +0.5 from last position)
+  // Tail tip orb
   const tipGeo = new THREE.SphereGeometry(1.0 * s, 24, 24);
   const tip = new THREE.Mesh(tipGeo, glowMat.clone());
-  tip.position.set(tailPosX + 0.5 * s, tailPosY + 0.5 * s, 0);
+  tip.position.set(tailPosX + 0.5 * s, 0, tailPosZ + 0.5 * s);  // Y=0, Z=dorsal
   tip.name = 'tailTip';
   group.add(tip);
   tip.add(new THREE.PointLight(colorHex, 4, 10 * s));
@@ -128,41 +133,43 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   group.userData.tailTip = tip;
   group.userData.tailSegments = tailSegments;
 
-  // === LEGS (like tails but extending sideways) ===
+  // === LEGS (extend in ±Y direction, becomes ±Z on ground plane after rotation) ===
   const legPositionsX = [-1, 1, 3];
 
   legPositionsX.forEach((posX, i) => {
-    // Left leg - attached at body side, extends outward via Z
+    // Left leg - extends in +Y direction (becomes +Z after rotation)
     const left = createLeg(s, 1, bodyMat);
-    left.position.set(posX * s, 0, 0.8 * s);
-    left.rotation.y = (i - 1) * 0.25;  // Slight angle: front forward, back backward
+    left.position.set(posX * s, 0.8 * s, 0);  // Y offset for leg attachment
+    left.rotation.z = (i - 1) * 0.25;  // Slight angle: front forward, back backward
     left.name = `leg-L-${i}`;
     left.userData.side = 'left';
     left.userData.index = i;
     group.add(left);
 
-    // Right leg - mirror (side=-1 makes Z go negative)
+    // Right leg - extends in -Y direction (becomes -Z after rotation)
     const right = createLeg(s, -1, bodyMat);
-    right.position.set(posX * s, 0, -0.8 * s);
-    right.rotation.y = (i - 1) * -0.25;
+    right.position.set(posX * s, -0.8 * s, 0);  // -Y offset for right side
+    right.rotation.z = (i - 1) * -0.25;
     right.name = `leg-R-${i}`;
     right.userData.side = 'right';
     right.userData.index = i;
     group.add(right);
   });
 
-  // Rotate for top-down view (showing dorsal/top side)
-  // Use ZXY order so heading (Z) is applied before tilt (X)
-  group.rotation.order = 'ZXY';
+  // Rotate for top-down view:
+  // - X rotation: -90° tilts organism so +Z faces +Y (dorsal toward camera)
+  // - Z rotation: heading (spins around vertical axis)
+  // Use XZY order so tilt (X) is applied first, then heading (Z)
+  group.rotation.order = 'XZY';
   group.rotation.x = -Math.PI / 2;
 
   return group;
 }
 
 /**
- * Create leg: sphere joint with 3 curved tubes extending outward and down
+ * Create leg: sphere joint with curved tube extending outward
  * @param s - scale factor
- * @param side - 1 for left, -1 for right
+ * @param side - 1 for left (+Y), -1 for right (-Y)
  */
 function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   const leg = new THREE.Group();
@@ -174,15 +181,16 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   joint.name = 'legJoint';
   leg.add(joint);
 
-  // Single curved tube extending from joint outward and down
-  const tubeRadius = 0.39 * s;   // 20% thicker
-  const tubeLength = 2.8 * s;    // 20% shorter
+  // Curved tube extending from joint outward (Y direction) and down (-Z direction)
+  const tubeRadius = 0.39 * s;
+  const tubeLength = 2.8 * s;
 
+  // Curve extends in Y (side direction) and -Z (down, toward ground)
   const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0, 0),                                          // Start at joint
-    new THREE.Vector3(0, -0.15 * tubeLength, side * 0.6 * tubeLength),   // Splay out more
-    new THREE.Vector3(0, -0.4 * tubeLength, side * 1.1 * tubeLength),    // Continue outward
-    new THREE.Vector3(0, -0.7 * tubeLength, side * 1.3 * tubeLength),    // End more to side
+    new THREE.Vector3(0, 0, 0),                                           // Start at joint
+    new THREE.Vector3(0, side * 0.6 * tubeLength, -0.15 * tubeLength),    // Splay out
+    new THREE.Vector3(0, side * 1.1 * tubeLength, -0.4 * tubeLength),     // Continue outward
+    new THREE.Vector3(0, side * 1.3 * tubeLength, -0.7 * tubeLength),     // End at ground
   ]);
 
   const tubeGeo = new THREE.TubeGeometry(curve, 16, tubeRadius, 8, false);
@@ -193,7 +201,7 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   // Foot sphere at end of tube
   const footGeo = new THREE.SphereGeometry(tubeRadius * 1.5, 12, 12);
   const foot = new THREE.Mesh(footGeo, mat);
-  foot.position.set(0, -0.7 * tubeLength, side * 1.3 * tubeLength);
+  foot.position.set(0, side * 1.3 * tubeLength, -0.7 * tubeLength);
   foot.name = 'legFoot';
   leg.add(foot);
 
@@ -211,25 +219,26 @@ export function updateCyberOrganismAnimation(
   const time = Date.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
-  // Float
-  group.position.z = Math.sin(time) * radius * CONFIG.FLOAT_AMPLITUDE;
+  // Float animation (now in Y since that's height after rotation)
+  // Actually this is applied to group.position which is in world space, so use Y
+  group.position.y += Math.sin(time) * radius * CONFIG.FLOAT_AMPLITUDE * 0.1;
 
-  // Tail sway
+  // Tail sway (Z direction in local space = Y direction in world after rotation)
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
   if (tip) {
-    if (tip.userData.baseY === undefined) tip.userData.baseY = tip.position.y;
-    tip.position.y = tip.userData.baseY + Math.sin(time * 2) * radius * CONFIG.TAIL_SWAY_AMPLITUDE;
+    if (tip.userData.baseZ === undefined) tip.userData.baseZ = tip.position.z;
+    tip.position.z = tip.userData.baseZ + Math.sin(time * 2) * radius * CONFIG.TAIL_SWAY_AMPLITUDE;
   }
 
-  // Legs
+  // Legs walking animation
   if (isMoving) {
     const phase = time * 4;
     group.children.forEach(child => {
       if (child.name.startsWith('leg-')) {
         const { side, index } = child.userData;
         const offset = (index === 1 ? Math.PI : 0) + (side === 'right' ? Math.PI : 0);
-        if (child.userData.baseRotY === undefined) child.userData.baseRotY = child.rotation.y;
-        child.rotation.y = child.userData.baseRotY + Math.sin(phase + offset) * 0.2;
+        if (child.userData.baseRotZ === undefined) child.userData.baseRotZ = child.rotation.z;
+        child.rotation.z = child.userData.baseRotZ + Math.sin(phase + offset) * 0.2;
       }
     });
   }
