@@ -271,8 +271,12 @@ export class ThreeRenderer implements Renderer {
       0.1,  // Near plane (must be non-negative for Three.js)
       200   // Far plane
     );
-    this.camera.position.set(0, 0, 10);
+    // Camera looks down Y-axis at XZ plane (standard 3D: Y=height)
+    // Position high above world, looking down
+    this.camera.position.set(0, 1000, 0);
     this.camera.lookAt(0, 0, 0);
+    // Set up vector so -Z is "up" on screen (maps to game +Y direction)
+    this.camera.up.set(0, 0, -1);
 
     // Create perspective camera (first-person for Stage 4+)
     // FOV 75 degrees, standard for FPS games
