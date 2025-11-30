@@ -19,7 +19,7 @@ import {
   type StageComponent,
 } from '../index';
 import { distance, isJungleStage } from '../../helpers';
-import { getConfig, hasGodMode } from '../../dev';
+import { getConfig } from '../../dev';
 import { logSingularityCrush, logGravityDebug } from '../../logger';
 import { isBot } from '../../bots';
 
@@ -71,8 +71,7 @@ export class GravitySystem implements System {
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Instant death at singularity core (energy-only: energy = 0)
-        // God mode players survive singularities
-        if (dist < getConfig('OBSTACLE_CORE_RADIUS') && !hasGodMode(playerId)) {
+        if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
           logSingularityCrush(playerId, dist);
           // Use ECS setter to persist the change
           setEnergyBySocketId(world, playerId, 0); // Instant energy depletion

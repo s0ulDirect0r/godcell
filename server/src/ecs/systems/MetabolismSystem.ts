@@ -20,7 +20,7 @@ import {
   type EnergyComponent,
   type StageComponent,
 } from '../index';
-import { hasGodMode, getConfig } from '../../dev';
+import { getConfig } from '../../dev';
 import { getNextEvolutionStage, getStageMaxEnergy, getEnergyDecayRate } from '../../helpers';
 import { recordEvolution } from '../../logger';
 import { isBot } from '../../bots';
@@ -62,9 +62,6 @@ export class MetabolismSystem implements System {
 
       // Skip metabolism during evolution molting (invulnerable)
       if (stageComp.isEvolving) return;
-
-      // God mode players don't decay
-      if (hasGodMode(playerId)) return;
 
       // Energy decay (passive drain) - stage-specific metabolic efficiency
       // No damage resistance applies to passive decay
