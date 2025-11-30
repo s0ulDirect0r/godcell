@@ -405,22 +405,14 @@ export class SocketManager {
    * Reset all world entities (for cleanup/reconnection).
    */
   private resetWorld(): void {
-    // Destroy all entities by tag
-    this.world.forEachWithTag(Tags.Player, (entity) => {
-      this.world.destroyEntity(entity);
-    });
-    this.world.forEachWithTag(Tags.Nutrient, (entity) => {
-      this.world.destroyEntity(entity);
-    });
-    this.world.forEachWithTag(Tags.Obstacle, (entity) => {
-      this.world.destroyEntity(entity);
-    });
-    this.world.forEachWithTag(Tags.Swarm, (entity) => {
-      this.world.destroyEntity(entity);
-    });
-    this.world.forEachWithTag(Tags.Pseudopod, (entity) => {
-      this.world.destroyEntity(entity);
-    });
+    // Collect entities first to avoid modifying during iteration
+    const toDestroy: number[] = [];
+    this.world.forEachWithTag(Tags.Player, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Nutrient, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Obstacle, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Swarm, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Pseudopod, (entity) => toDestroy.push(entity));
+    toDestroy.forEach(entity => this.world.destroyEntity(entity));
 
     // Clear string ID lookups
     clearLookups();

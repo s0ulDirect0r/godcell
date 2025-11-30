@@ -265,6 +265,10 @@ export class AuraSystem {
    * Update energy gain visual feedback (cyan aura when collecting nutrients)
    * Detects continuous energy gain by comparing current vs previous energy
    * Triggers flash when energy increases, regardless of source
+   *
+   * @param players - Map of player IDs to their stage and energy
+   * @param playerMeshes - Map of player IDs to their mesh objects
+   * @param receivingEnergy - Mutated: players with detected energy gains are added to this set
    */
   updateGainAuras(
     players: Map<string, { stage: string; energy: number }>,
@@ -358,12 +362,22 @@ export class AuraSystem {
       auraMesh.children.forEach(child => {
         if (child instanceof THREE.Mesh) {
           child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
+          const mat = child.material;
+          if (Array.isArray(mat)) {
+            mat.forEach(m => m.dispose());
+          } else {
+            mat.dispose();
+          }
         }
       });
     } else if (auraMesh instanceof THREE.Mesh) {
       auraMesh.geometry.dispose();
-      (auraMesh.material as THREE.Material).dispose();
+      const mat = auraMesh.material;
+      if (Array.isArray(mat)) {
+        mat.forEach(m => m.dispose());
+      } else {
+        mat.dispose();
+      }
     }
   }
 

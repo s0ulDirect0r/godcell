@@ -227,6 +227,7 @@ export class SwarmRenderSystem {
     this.swarmParticleData.clear();
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
+    this.swarmStates.clear();
   }
 
   /**
@@ -254,13 +255,6 @@ export class SwarmRenderSystem {
    * Dispose all swarm resources
    */
   dispose(): void {
-    this.swarmMeshes.forEach(group => {
-      disposeSwarm(group);
-    });
-    this.swarmMeshes.clear();
-    this.swarmParticleData.clear();
-    this.swarmInternalParticles.clear();
-    this.swarmPulsePhase.clear();
-    this.swarmTargets.clear();
+    this.clearAll();
   }
 }

@@ -741,11 +741,11 @@ export class PlayerRenderSystem {
       const sourceOpacity = 1.0 - progress;
       const targetOpacity = progress;
 
-      this.setGroupOpacity(evolState.sourceMesh!, sourceOpacity);
+      if (evolState.sourceMesh) {
+        this.setGroupOpacity(evolState.sourceMesh, sourceOpacity);
+        evolState.sourceMesh.scale.setScalar(1.0 - progress * 0.15);
+      }
       this.setGroupOpacity(evolState.targetMesh, targetOpacity);
-
-      // Scale effects
-      evolState.sourceMesh!.scale.setScalar(1.0 - progress * 0.15);
       evolState.targetMesh.scale.setScalar(0.7 + progress * 0.3);
 
       // Keep both at same position
@@ -796,12 +796,13 @@ export class PlayerRenderSystem {
     }
 
     // Update compass indicators for client player
+    // XZ plane: game Y maps to -Z
     if (isMyPlayer) {
       this.compassIndicators = updateCompassIndicators(
         this.scene,
         this.compassIndicators,
         this.detectedEntities,
-        { x: cellGroup.position.x, y: cellGroup.position.y },
+        { x: cellGroup.position.x, y: -cellGroup.position.z },
         radius,
         stage as EvolutionStage
       );

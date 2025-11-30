@@ -136,6 +136,7 @@ export class ObstacleRenderSystem {
     this.obstacleMeshes.clear();
     this.obstacleParticles.clear();
     this.obstaclePulsePhase.clear();
+    this.obstacleRadii.clear();
   }
 
   /**
@@ -149,16 +150,6 @@ export class ObstacleRenderSystem {
    * Dispose all obstacle resources
    */
   dispose(): void {
-    this.obstacleMeshes.forEach(group => {
-      group.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-    });
-    this.obstacleMeshes.clear();
-    this.obstacleParticles.clear();
-    this.obstaclePulsePhase.clear();
+    this.clearAll();
   }
 }

@@ -87,10 +87,15 @@ export class NutrientRenderSystem {
     this.nutrientMeshes.forEach((group, id) => {
       if (!currentNutrientIds.has(id)) {
         this.scene.remove(group);
-        // Dispose non-cached materials from group children
+        // Dispose geometry and materials from group children
         group.children.forEach(child => {
-          if (child instanceof THREE.Mesh && child.material) {
-            (child.material as THREE.Material).dispose();
+          if (child instanceof THREE.Mesh) {
+            if (child.geometry) {
+              child.geometry.dispose();
+            }
+            if (child.material) {
+              (child.material as THREE.Material).dispose();
+            }
           }
         });
         this.nutrientMeshes.delete(id);
@@ -174,8 +179,13 @@ export class NutrientRenderSystem {
     this.nutrientMeshes.forEach((group) => {
       this.scene.remove(group);
       group.children.forEach(child => {
-        if (child instanceof THREE.Mesh && child.material) {
-          (child.material as THREE.Material).dispose();
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) {
+            child.geometry.dispose();
+          }
+          if (child.material) {
+            (child.material as THREE.Material).dispose();
+          }
         }
       });
     });

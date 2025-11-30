@@ -81,8 +81,10 @@ export class PseudopodRenderSystem {
         } else {
           // Projectile mode: create short lightning bolt in direction of travel
           const boltLength = 80; // Fixed visual length
-          const dirX = velocity.x / Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
-          const dirY = velocity.y / Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
+          const mag = Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
+          // Guard against zero velocity (fallback to +X direction)
+          const dirX = mag > 0.001 ? velocity.x / mag : 1;
+          const dirY = mag > 0.001 ? velocity.y / mag : 0;
 
           // XZ plane: game Y maps to -Z
           startPos = new THREE.Vector3(pos.x, 1, -pos.y);
