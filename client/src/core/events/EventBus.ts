@@ -11,6 +11,7 @@ type ClientEvent =
   | { type: 'client:sprint'; sprinting: boolean }
   | { type: 'client:empActivate' }
   | { type: 'client:pseudopodFire'; targetX: number; targetY: number }
+  | { type: 'client:mouseLook'; deltaX: number; deltaY: number } // First-person mouse look
   | { type: 'client:cameraZoom'; level: number }
   | { type: 'client:debugToggle'; enabled: boolean }
   | { type: 'client:socketConnected'; socketId: string }

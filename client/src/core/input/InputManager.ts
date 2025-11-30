@@ -33,8 +33,13 @@ export class InputManager {
   // Track sprint state (Shift key)
   private wasSprinting = false;
 
+  // First-person mode (Stage 4+) - enables pointer lock and mouse look
+  private firstPersonMode = false;
+  private _firstPersonYaw = 0; // Camera yaw for rotating movement input (used in Step 4)
+
   constructor() {
     this.inputState = new InputState();
+    this.setupPointerLockClickHandler();
   }
 
   /**
@@ -42,6 +47,51 @@ export class InputManager {
    */
   setCameraProjection(projection: CameraProjection): void {
     this.cameraProjection = projection;
+  }
+
+  /**
+   * Enable/disable first-person mode (affects pointer lock and movement rotation)
+   */
+  setFirstPersonMode(enabled: boolean): void {
+    this.firstPersonMode = enabled;
+
+    // Exit pointer lock when leaving first-person mode
+    if (!enabled && this.inputState.pointerLock.isLocked) {
+      document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Update first-person yaw (for rotating movement input)
+   * Called from renderer when camera rotates
+   */
+  setFirstPersonYaw(yaw: number): void {
+    this._firstPersonYaw = yaw;
+  }
+
+  /**
+   * Get current first-person yaw (for movement rotation in Step 4)
+   */
+  getFirstPersonYaw(): number {
+    return this._firstPersonYaw;
+  }
+
+  /**
+   * Check if pointer is locked
+   */
+  isPointerLocked(): boolean {
+    return this.inputState.pointerLock.isLocked;
+  }
+
+  /**
+   * Setup click handler to request pointer lock in first-person mode
+   */
+  private setupPointerLockClickHandler(): void {
+    document.addEventListener('click', () => {
+      if (this.firstPersonMode && !this.inputState.pointerLock.isLocked) {
+        document.body.requestPointerLock();
+      }
+    });
   }
 
   /**
@@ -54,6 +104,29 @@ export class InputManager {
     this.updateRespawn();
     this.updateEMP();
     this.updatePseudopod();
+    this.updateMouseLook();
+  }
+
+  /**
+   * Update mouse look (first-person mode only)
+   * Emits look deltas for camera rotation
+   */
+  private updateMouseLook(): void {
+    if (!this.firstPersonMode || !this.inputState.pointerLock.isLocked) {
+      return;
+    }
+
+    // Consume accumulated mouse deltas
+    const { deltaX, deltaY } = this.inputState.consumeMouseDelta();
+
+    // Only emit if there was movement
+    if (deltaX !== 0 || deltaY !== 0) {
+      eventBus.emit({
+        type: 'client:mouseLook',
+        deltaX,
+        deltaY,
+      });
+    }
   }
 
   private updateMovement(): void {

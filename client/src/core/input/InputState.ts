@@ -16,6 +16,13 @@ export class InputState {
     button: -1,
   };
 
+  // Pointer lock state (for first-person mouse look)
+  pointerLock = {
+    isLocked: false,
+    deltaX: 0, // Mouse movement since last frame
+    deltaY: 0,
+  };
+
   constructor() {
     this.setupListeners();
   }
@@ -30,10 +37,16 @@ export class InputState {
       this.keys.delete(e.key.toLowerCase());
     });
 
-    // Mouse
+    // Mouse movement - accumulate deltas when pointer locked
     window.addEventListener('mousemove', (e) => {
       this.pointer.screenX = e.clientX;
       this.pointer.screenY = e.clientY;
+
+      // Accumulate deltas when pointer is locked (for FPS look)
+      if (this.pointerLock.isLocked) {
+        this.pointerLock.deltaX += e.movementX;
+        this.pointerLock.deltaY += e.movementY;
+      }
     });
 
     window.addEventListener('mousedown', (e) => {
@@ -46,12 +59,34 @@ export class InputState {
       this.pointer.button = -1;
     });
 
+    // Pointer lock change event
+    document.addEventListener('pointerlockchange', () => {
+      this.pointerLock.isLocked = document.pointerLockElement !== null;
+      // Reset deltas when lock state changes
+      this.pointerLock.deltaX = 0;
+      this.pointerLock.deltaY = 0;
+    });
+
     // Prevent default on space (prevents page scroll)
     window.addEventListener('keydown', (e) => {
       if (e.key === ' ' && e.target === document.body) {
         e.preventDefault();
       }
     });
+  }
+
+  /**
+   * Consume accumulated mouse deltas (call once per frame after reading)
+   * Returns the deltas and resets them to 0
+   */
+  consumeMouseDelta(): { deltaX: number; deltaY: number } {
+    const result = {
+      deltaX: this.pointerLock.deltaX,
+      deltaY: this.pointerLock.deltaY,
+    };
+    this.pointerLock.deltaX = 0;
+    this.pointerLock.deltaY = 0;
+    return result;
   }
 
   /**
