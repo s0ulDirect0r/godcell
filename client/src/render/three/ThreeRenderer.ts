@@ -268,13 +268,15 @@ export class ThreeRenderer implements Renderer {
       (frustumSize * aspect) / 2,
       frustumSize / 2,
       frustumSize / -2,
-      0.1,  // Near plane (must be non-negative for Three.js)
-      200   // Far plane
+      1,     // Near plane
+      2000   // Far plane (camera at Y=1000 needs to see ground at Y=0 and below)
     );
     // Camera looks down Y-axis at XZ plane (standard 3D: Y=height)
-    // Position high above world, looking down
-    this.camera.position.set(0, 1000, 0);
-    this.camera.lookAt(0, 0, 0);
+    // Position high above soup center, looking down
+    const soupCenterX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
+    const soupCenterY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2;
+    this.camera.position.set(soupCenterX, 1000, -soupCenterY);
+    this.camera.lookAt(soupCenterX, 0, -soupCenterY);
     // Set up vector so -Z is "up" on screen (maps to game +Y direction)
     this.camera.up.set(0, 0, -1);
 
@@ -518,6 +520,8 @@ export class ThreeRenderer implements Renderer {
             });
             const newOutline = new THREE.Mesh(outlineGeometry, outlineMaterial);
             newOutline.position.y = 0.1; // Slightly above player (Y=height)
+            // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
+            newOutline.rotation.x = -Math.PI / 2;
             this.scene.add(newOutline);
             this.playerOutlines.set(event.playerId, newOutline);
           }
@@ -883,10 +887,12 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Update camera to follow player's interpolated mesh position
+    // XZ plane: mesh.position.x = game X, mesh.position.z = -game Y
+    // followTarget expects game coordinates, so pass -mesh.position.z to get game Y back
     if (myPlayer) {
       const mesh = this.playerMeshes.get(myPlayer.id);
       if (mesh) {
-        followTarget(this.camera, mesh.position.x, mesh.position.y);
+        followTarget(this.camera, mesh.position.x, -mesh.position.z);
       }
     }
 
@@ -905,9 +911,40 @@ export class ThreeRenderer implements Renderer {
     // Update renderPass camera based on current mode before rendering
     this.renderPass.camera = this.getActiveCamera();
 
+    // DEBUG: Log camera and entity state every 60 frames
+    if (!this._debugFrameCount) this._debugFrameCount = 0;
+    this._debugFrameCount++;
+    if (this._debugFrameCount % 60 === 0) {
+      console.log('[DEBUG] Camera:', {
+        pos: { x: this.camera.position.x.toFixed(0), y: this.camera.position.y.toFixed(0), z: this.camera.position.z.toFixed(0) },
+        frustum: { left: this.camera.left.toFixed(0), right: this.camera.right.toFixed(0), top: this.camera.top.toFixed(0), bottom: this.camera.bottom.toFixed(0) },
+        near: this.camera.near,
+        far: this.camera.far,
+      });
+      console.log('[DEBUG] Entities:', {
+        players: this.playerMeshes.size,
+        nutrients: this.nutrientMeshes.size,
+        swarms: this.swarmMeshes.size,
+        obstacles: this.obstacleMeshes.size,
+      });
+      if (this.playerMeshes.size > 0) {
+        const firstPlayer = this.playerMeshes.values().next().value;
+        if (firstPlayer) {
+          console.log('[DEBUG] First player mesh pos:', {
+            x: firstPlayer.position.x.toFixed(0),
+            y: firstPlayer.position.y.toFixed(0),
+            z: firstPlayer.position.z.toFixed(0),
+          });
+        }
+      }
+      console.log('[DEBUG] soupBackgroundGroup visible:', this.soupBackgroundGroup?.visible, 'children:', this.soupBackgroundGroup?.children.length);
+    }
+
     // Render scene with postprocessing
     this.composer.render();
   }
+
+  private _debugFrameCount?: number;
 
   private createGrid(): void {
     const gridSize = 100; // Grid cell size
@@ -1943,6 +1980,8 @@ export class ThreeRenderer implements Renderer {
           });
           const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
           outline.position.y = 0.1; // Slightly above player (Y=height)
+          // Rotate so ring lies flat on XZ plane (camera looks down Y axis)
+          outline.rotation.x = -Math.PI / 2;
           this.scene.add(outline);
           this.playerOutlines.set(id, outline);
         }

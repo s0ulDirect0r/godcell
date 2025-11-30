@@ -64,6 +64,8 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
   if (!corona) {
     corona = new THREE.Group();
     corona.name = 'evolutionCorona';
+    // Rotate so particles orbit in XZ plane (camera looks down Y axis)
+    corona.rotation.x = -Math.PI / 2;
     cellGroup.add(corona);
     cellGroup.userData.evolutionCorona = corona;
   }
@@ -142,6 +144,8 @@ export function updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: n
     });
     ring = new THREE.Mesh(ringGeometry, ringMaterial);
     ring.name = 'evolutionRing';
+    // Rotate so torus lies flat on XZ plane (camera looks down Y axis)
+    ring.rotation.x = -Math.PI / 2;
     cellGroup.add(ring);
     cellGroup.userData.evolutionRing = ring;
   }
