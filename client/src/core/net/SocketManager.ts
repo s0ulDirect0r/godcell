@@ -283,9 +283,10 @@ export class SocketManager {
     });
 
     this.socket.on('playerDied', (data: PlayerDiedMessage) => {
+      // Emit event BEFORE removing player so listeners can still query local player ID
+      eventBus.emit(data);
       // Remove dead player from game state so they don't get rendered
       removePlayer(this.world, data.playerId);
-      eventBus.emit(data);
     });
 
     this.socket.on('playerEvolutionStarted', (data: PlayerEvolutionStartedMessage) => {
