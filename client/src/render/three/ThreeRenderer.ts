@@ -17,6 +17,13 @@ import {
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
 } from './CyberOrganismRenderer';
+import {
+  createHumanoidModel,
+  updateHumanoidAnimation,
+  updateHumanoidEnergy,
+  setHumanoidRotation,
+  type HumanoidAnimationState,
+} from './HumanoidRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {
@@ -118,6 +125,10 @@ export class ThreeRenderer implements Renderer {
   private targetZoom = 1.0; // Target zoom level (for smooth transitions)
   private myPlayerId: string | null = null; // Local player ID for event filtering
   private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
+
+  // Humanoid model loading (async)
+  private pendingHumanoidLoads: Set<string> = new Set(); // Player IDs with pending humanoid loads
+  private humanoidModels: Map<string, THREE.Group> = new Map(); // Loaded humanoid models
 
   // Multi-cell style
   private multiCellStyle: 'colonial' | 'radial' = 'colonial';
@@ -640,6 +651,13 @@ export class ThreeRenderer implements Renderer {
           );
         }
       });
+
+      // Mouse look event - update first-person camera rotation
+      eventBus.on('client:mouseLook', (event) => {
+        if (this.cameraMode === 'firstperson') {
+          this.updateFirstPersonLook(event.deltaX, event.deltaY);
+        }
+      });
     });
   }
 
@@ -760,6 +778,21 @@ export class ThreeRenderer implements Renderer {
 
     // Update render mode based on local player stage (soup vs jungle world)
     this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
+
+    // Update camera mode based on player stage (top-down for Stages 1-3, first-person for Stage 4+)
+    const isFirstPersonStage = myPlayer?.stage === EvolutionStage.HUMANOID;
+    if (isFirstPersonStage && this.cameraMode !== 'firstperson') {
+      this.setCameraMode('firstperson');
+    } else if (!isFirstPersonStage && this.cameraMode === 'firstperson') {
+      this.setCameraMode('topdown');
+    }
+
+    // Update first-person camera position if in first-person mode
+    if (this.cameraMode === 'firstperson' && myPlayer) {
+      // Camera height: humanoid eye level (~160 game units above ground)
+      const eyeHeight = 160;
+      this.updateFirstPersonCamera(myPlayer.position.x, myPlayer.position.y, eyeHeight);
+    }
 
     // Update background particles based on current mode
     if (this.renderMode === 'soup') {
@@ -1814,8 +1847,40 @@ export class ThreeRenderer implements Renderer {
         const colorHex = parseInt(player.color.replace('#', ''), 16);
 
         // Create cell based on stage
-        if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
-          // Stage 3+: Cyber-organism hexapod (placeholder for humanoid/godcell for now)
+        if (player.stage === 'humanoid') {
+          // Stage 4: Humanoid (loaded async)
+          // Check if we already have a loaded humanoid model for this player
+          const existingHumanoid = this.humanoidModels.get(id);
+          if (existingHumanoid) {
+            cellGroup = existingHumanoid;
+          } else {
+            // Start async load if not already loading
+            if (!this.pendingHumanoidLoads.has(id)) {
+              this.pendingHumanoidLoads.add(id);
+              createHumanoidModel(colorHex).then(({ model }) => {
+                this.pendingHumanoidLoads.delete(id);
+                this.humanoidModels.set(id, model);
+
+                // Replace placeholder with loaded model
+                const placeholder = this.playerMeshes.get(id);
+                if (placeholder) {
+                  this.scene.remove(placeholder);
+                }
+                model.userData.stage = 'humanoid';
+                model.userData.isHumanoid = true;
+                this.scene.add(model);
+                this.playerMeshes.set(id, model);
+              }).catch(err => {
+                console.error('Failed to load humanoid model:', err);
+                this.pendingHumanoidLoads.delete(id);
+              });
+            }
+            // Use cyber-organism as placeholder while humanoid loads
+            cellGroup = createCyberOrganism(radius, colorHex);
+            cellGroup.userData.isHumanoidPlaceholder = true;
+          }
+        } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
+          // Stage 3 and Stage 5: Cyber-organism hexapod (placeholder for godcell for now)
           cellGroup = createCyberOrganism(radius, colorHex);
         } else if (player.stage === 'multi_cell') {
           // Multi-cell organism
@@ -1862,8 +1927,47 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
-      if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
-        // Stage 3+: Cyber-organism (hexapod)
+      if (player.stage === 'humanoid' && cellGroup.userData.isHumanoid) {
+        // Stage 4: Humanoid - update animation and energy visualization
+        const energyRatio = player.energy / player.maxEnergy;
+        updateHumanoidEnergy(cellGroup, energyRatio);
+
+        // Check if player is moving
+        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
+        const currPos = player.position;
+        const isMoving = prevPos
+          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
+          : false;
+        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        // Calculate speed for animation blending
+        const speed = prevPos
+          ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) * 60 // per second
+          : 0;
+
+        // Update humanoid animation (idle/walk/run blending)
+        const animState = cellGroup.userData.animState as HumanoidAnimationState | undefined;
+        if (animState) {
+          updateHumanoidAnimation(animState, 1 / 60, isMoving, speed);
+        }
+
+        // For first-person (local player), rotate humanoid to match camera yaw
+        // For other players, rotate to face movement direction
+        if (isMyPlayer) {
+          setHumanoidRotation(cellGroup, this.fpYaw);
+        } else if (prevPos && isMoving) {
+          const dx = currPos.x - prevPos.x;
+          const dy = currPos.y - prevPos.y;
+          const targetHeading = Math.atan2(dy, dx);
+          setHumanoidRotation(cellGroup, targetHeading);
+        }
+
+        // Position humanoid in world (different coordinate system - Y is up in 3D)
+        // Game coords: X = X, Y = Z (forward into world), height = Y
+        cellGroup.position.set(player.position.x, 0, -player.position.y);
+
+      } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
+        // Stage 3 and 5: Cyber-organism (hexapod)
         const energyRatio = player.energy / player.maxEnergy;
         updateCyberOrganismEnergy(cellGroup, energyRatio);
 
