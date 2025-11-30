@@ -9,6 +9,7 @@ import type { Renderer, CameraCapabilities } from '../Renderer';
 import type { GameState } from '../../core/state/GameState';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { createMultiCell, updateMultiCellEnergy } from './MultiCellRenderer';
 import { createSingleCell, disposeSingleCellCache, updateSingleCellEnergy } from './SingleCellRenderer';
 import {
@@ -16,6 +17,13 @@ import {
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
 } from './CyberOrganismRenderer';
+import {
+  createHumanoidModel,
+  updateHumanoidAnimation,
+  updateHumanoidEnergy,
+  setHumanoidRotation,
+  type HumanoidAnimationState,
+} from './HumanoidRenderer';
 import { updateCompassIndicators, disposeCompassIndicators } from './CompassRenderer';
 import { updateTrails, disposeAllTrails } from './TrailRenderer';
 import {
@@ -87,6 +95,8 @@ import {
   updateSoupActivity,
   getJungleBackgroundColor,
   getSoupBackgroundColor,
+  getFirstPersonSkyColor,
+  createFirstPersonGround,
 } from './JungleBackground';
 
 /**
@@ -96,8 +106,17 @@ export class ThreeRenderer implements Renderer {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.OrthographicCamera;
+  private perspectiveCamera!: THREE.PerspectiveCamera;
   private container!: HTMLElement;
   private composer!: EffectComposer;
+  private renderPass!: RenderPass; // Stored to update camera on mode switch
+
+  // Camera mode: 'topdown' for Stages 1-3, 'firstperson' for Stage 4+
+  private cameraMode: 'topdown' | 'firstperson' = 'topdown';
+
+  // First-person camera state
+  private fpYaw = 0; // Horizontal rotation (radians)
+  private fpPitch = 0; // Vertical rotation (radians), clamped
 
   // Camera effects
   private cameraShake = 0;
@@ -108,6 +127,10 @@ export class ThreeRenderer implements Renderer {
   private targetZoom = 1.0; // Target zoom level (for smooth transitions)
   private myPlayerId: string | null = null; // Local player ID for event filtering
   private initialZoomSet = false; // Track if we've set initial zoom based on spawn stage
+
+  // Humanoid model loading (async)
+  private pendingHumanoidLoads: Set<string> = new Set(); // Player IDs with pending humanoid loads
+  private humanoidModels: Map<string, THREE.Group> = new Map(); // Loaded humanoid models
 
   // Multi-cell style
   private multiCellStyle: 'colonial' | 'radial' = 'colonial';
@@ -152,6 +175,9 @@ export class ThreeRenderer implements Renderer {
   // Soup activity visualization (activity dots inside soup pool in jungle view)
   private soupActivityPoints!: THREE.Points;
   private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
+
+  // First-person ground plane (visible floor for Stage 4+ humanoid)
+  private firstPersonGround!: THREE.Group;
 
   // Render mode: determines which world to render (soup = Stage 1-2, jungle = Stage 3+)
   // This is the single point of control for world switching - no scattered visibility toggles
@@ -229,7 +255,12 @@ export class ThreeRenderer implements Renderer {
     this.soupActivityPoints = jungleResult.soupActivityPoints;
     this.soupActivityData = jungleResult.soupActivityData;
 
-    // Create orthographic camera (top-down 2D)
+    // Create first-person ground plane (for Stage 4+ humanoid) - starts hidden
+    this.firstPersonGround = createFirstPersonGround();
+    this.firstPersonGround.visible = false;
+    this.scene.add(this.firstPersonGround);
+
+    // Create orthographic camera (top-down 2D for Stages 1-3)
     const aspect = width / height;
     const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
     this.camera = new THREE.OrthographicCamera(
@@ -243,6 +274,12 @@ export class ThreeRenderer implements Renderer {
     this.camera.position.set(0, 0, 10);
     this.camera.lookAt(0, 0, 0);
 
+    // Create perspective camera (first-person for Stage 4+)
+    // FOV 75 degrees, standard for FPS games
+    // Near/far planes set for jungle world scale (humanoid ~200 units tall)
+    this.perspectiveCamera = new THREE.PerspectiveCamera(75, aspect, 1, 10000);
+    this.perspectiveCamera.position.set(0, 0, 0);
+
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambientLight);
@@ -251,8 +288,10 @@ export class ThreeRenderer implements Renderer {
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
 
-    // Create postprocessing composer
-    this.composer = createComposer(this.renderer, this.scene, this.camera, width, height);
+    // Create postprocessing composer (store renderPass for camera switching)
+    const composerResult = createComposer(this.renderer, this.scene, this.camera, width, height);
+    this.composer = composerResult.composer;
+    this.renderPass = composerResult.renderPass;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -622,6 +661,13 @@ export class ThreeRenderer implements Renderer {
           );
         }
       });
+
+      // Mouse look event - update first-person camera rotation
+      eventBus.on('client:mouseLook', (event) => {
+        if (this.cameraMode === 'firstperson') {
+          this.updateFirstPersonLook(event.deltaX, event.deltaY);
+        }
+      });
     });
   }
 
@@ -743,6 +789,23 @@ export class ThreeRenderer implements Renderer {
     // Update render mode based on local player stage (soup vs jungle world)
     this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
 
+    // Update camera mode based on player stage (top-down for Stages 1-3, first-person for Stage 4+)
+    const isFirstPersonStage = myPlayer?.stage === EvolutionStage.HUMANOID;
+    if (isFirstPersonStage && this.cameraMode !== 'firstperson') {
+      this.setCameraMode('firstperson');
+    } else if (!isFirstPersonStage && this.cameraMode === 'firstperson') {
+      this.setCameraMode('topdown');
+    }
+
+    // Update first-person camera position if in first-person mode
+    if (this.cameraMode === 'firstperson' && myPlayer) {
+      this.updateFirstPersonCamera(
+        myPlayer.position.x,
+        myPlayer.position.y,
+        GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
+      );
+    }
+
     // Update background particles based on current mode
     if (this.renderMode === 'soup') {
       this.updateDataParticles(dt);
@@ -834,6 +897,9 @@ export class ThreeRenderer implements Renderer {
       this.targetZoom,
       aspect
     );
+
+    // Update renderPass camera based on current mode before rendering
+    this.renderPass.camera = this.getActiveCamera();
 
     // Render scene with postprocessing
     this.composer.render();
@@ -1793,8 +1859,40 @@ export class ThreeRenderer implements Renderer {
         const colorHex = parseInt(player.color.replace('#', ''), 16);
 
         // Create cell based on stage
-        if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
-          // Stage 3+: Cyber-organism hexapod (placeholder for humanoid/godcell for now)
+        if (player.stage === 'humanoid') {
+          // Stage 4: Humanoid (loaded async)
+          // Check if we already have a loaded humanoid model for this player
+          const existingHumanoid = this.humanoidModels.get(id);
+          if (existingHumanoid) {
+            cellGroup = existingHumanoid;
+          } else {
+            // Start async load if not already loading
+            if (!this.pendingHumanoidLoads.has(id)) {
+              this.pendingHumanoidLoads.add(id);
+              createHumanoidModel(colorHex).then(({ model }) => {
+                this.pendingHumanoidLoads.delete(id);
+                this.humanoidModels.set(id, model);
+
+                // Replace placeholder with loaded model
+                const placeholder = this.playerMeshes.get(id);
+                if (placeholder) {
+                  this.scene.remove(placeholder);
+                }
+                model.userData.stage = 'humanoid';
+                model.userData.isHumanoid = true;
+                this.scene.add(model);
+                this.playerMeshes.set(id, model);
+              }).catch(err => {
+                console.error('Failed to load humanoid model:', err);
+                this.pendingHumanoidLoads.delete(id);
+              });
+            }
+            // Use cyber-organism as placeholder while humanoid loads
+            cellGroup = createCyberOrganism(radius, colorHex);
+            cellGroup.userData.isHumanoidPlaceholder = true;
+          }
+        } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
+          // Stage 3 and Stage 5: Cyber-organism hexapod (placeholder for godcell for now)
           cellGroup = createCyberOrganism(radius, colorHex);
         } else if (player.stage === 'multi_cell') {
           // Multi-cell organism
@@ -1841,8 +1939,47 @@ export class ThreeRenderer implements Renderer {
       }
 
       // Update cell visuals based on stage and energy (diegetic UI - energy is sole life resource)
-      if (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') {
-        // Stage 3+: Cyber-organism (hexapod)
+      if (player.stage === 'humanoid' && cellGroup.userData.isHumanoid) {
+        // Stage 4: Humanoid - update animation and energy visualization
+        const energyRatio = player.energy / player.maxEnergy;
+        updateHumanoidEnergy(cellGroup, energyRatio);
+
+        // Check if player is moving
+        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
+        const currPos = player.position;
+        const isMoving = prevPos
+          ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
+          : false;
+        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        // Calculate speed for animation blending
+        const speed = prevPos
+          ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) * 60 // per second
+          : 0;
+
+        // Update humanoid animation (idle/walk/run blending)
+        const animState = cellGroup.userData.animState as HumanoidAnimationState | undefined;
+        if (animState) {
+          updateHumanoidAnimation(animState, 1 / 60, isMoving, speed);
+        }
+
+        // For first-person (local player), rotate humanoid to match camera yaw
+        // For other players, rotate to face movement direction
+        if (isMyPlayer) {
+          setHumanoidRotation(cellGroup, this.fpYaw);
+        } else if (prevPos && isMoving) {
+          const dx = currPos.x - prevPos.x;
+          const dy = currPos.y - prevPos.y;
+          const targetHeading = Math.atan2(dy, dx);
+          setHumanoidRotation(cellGroup, targetHeading);
+        }
+
+        // Position humanoid in world (different coordinate system - Y is up in 3D)
+        // Game coords: X = X, Y = Z (forward into world), height = Y
+        cellGroup.position.set(player.position.x, 0, -player.position.y);
+
+      } else if (player.stage === 'cyber_organism' || player.stage === 'godcell') {
+        // Stage 3 and 5: Cyber-organism (hexapod)
         const energyRatio = player.energy / player.maxEnergy;
         updateCyberOrganismEnergy(cellGroup, energyRatio);
 
@@ -2103,12 +2240,15 @@ export class ThreeRenderer implements Renderer {
     this.composer.setSize(width, height);
     const aspect = width / height;
     applyCameraZoom(this.camera, this.currentZoom, aspect);
+    // Update perspective camera aspect ratio
+    this.perspectiveCamera.aspect = aspect;
+    this.perspectiveCamera.updateProjectionMatrix();
   }
 
   getCameraCapabilities(): CameraCapabilities {
     return {
-      mode: 'topdown',
-      supports3D: true, // Will support 3D later
+      mode: this.cameraMode === 'firstperson' ? 'fps' : 'topdown',
+      supports3D: true,
     };
   }
 
@@ -2138,7 +2278,122 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  // ============================================
+  // First-Person Camera Controls (Stage 4+)
+  // ============================================
+
+  /**
+   * Switch camera mode between top-down (ortho) and first-person (perspective)
+   * Called when player evolves to/from Stage 4
+   */
+  setCameraMode(mode: 'topdown' | 'firstperson'): void {
+    if (this.cameraMode === mode) return;
+    this.cameraMode = mode;
+
+    if (mode === 'firstperson') {
+      // Reset first-person rotation when entering first-person mode
+      this.fpYaw = 0;
+      this.fpPitch = 0;
+
+      // Show first-person ground plane
+      this.firstPersonGround.visible = true;
+
+      // Set sky color for first-person view
+      this.scene.background = new THREE.Color(getFirstPersonSkyColor());
+    } else {
+      // Hide first-person ground plane when returning to top-down
+      this.firstPersonGround.visible = false;
+
+      // Restore jungle or soup background color based on render mode
+      if (this.renderMode === 'jungle') {
+        this.scene.background = new THREE.Color(getJungleBackgroundColor());
+      } else {
+        this.scene.background = new THREE.Color(getSoupBackgroundColor());
+      }
+    }
+  }
+
+  /**
+   * Get current camera mode
+   */
+  getCameraMode(): 'topdown' | 'firstperson' {
+    return this.cameraMode;
+  }
+
+  /**
+   * Update first-person camera rotation from mouse input
+   * @param deltaX - Mouse movement in X (affects yaw/horizontal rotation)
+   * @param deltaY - Mouse movement in Y (affects pitch/vertical look)
+   */
+  updateFirstPersonLook(deltaX: number, deltaY: number): void {
+    if (this.cameraMode !== 'firstperson') return;
+
+    // Sensitivity: radians per pixel of mouse movement (0.002 ≈ 0.11°/pixel)
+    // Lower values = slower look, higher = faster. 0.002 is typical for FPS games.
+    const sensitivity = 0.002;
+
+    // Update yaw (horizontal) - no clamping, can spin freely
+    this.fpYaw -= deltaX * sensitivity;
+
+    // Update pitch (vertical) - clamp to prevent flipping
+    // Range: -89 to +89 degrees (just under straight up/down)
+    const maxPitch = Math.PI / 2 - 0.01;
+    this.fpPitch -= deltaY * sensitivity;
+    this.fpPitch = Math.max(-maxPitch, Math.min(maxPitch, this.fpPitch));
+  }
+
+  /**
+   * Get current first-person yaw (for rotating movement input)
+   */
+  getFirstPersonYaw(): number {
+    return this.fpYaw;
+  }
+
+  /**
+   * Position first-person camera at player location with current look rotation
+   * Called each frame in first-person mode
+   * @param x - Player world X position
+   * @param y - Player world Y position (maps to world Z in 3D)
+   * @param height - Camera height above ground (humanoid eye level)
+   */
+  updateFirstPersonCamera(x: number, y: number, height: number): void {
+    if (this.cameraMode !== 'firstperson') return;
+
+    // Position camera at player location
+    // In our coordinate system: game X = 3D X, game Y = 3D Z, height = 3D Y
+    this.perspectiveCamera.position.set(x, height, -y);
+
+    // Apply look rotation
+    // Create rotation from yaw and pitch
+    const euler = new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ');
+    this.perspectiveCamera.quaternion.setFromEuler(euler);
+  }
+
+  /**
+   * Get the active camera (ortho for top-down, perspective for first-person)
+   */
+  getActiveCamera(): THREE.Camera {
+    return this.cameraMode === 'firstperson' ? this.perspectiveCamera : this.camera;
+  }
+
   dispose(): void {
+    // Clean up humanoid models (Stage 4 GLTF instances)
+    this.humanoidModels.forEach((model) => {
+      this.scene.remove(model);
+      model.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material?.dispose();
+          }
+        }
+      });
+    });
+    this.humanoidModels.clear();
+    this.pendingHumanoidLoads.clear();
+
     // Clean up meshes (geometries are cached, so don't dispose them here)
     this.nutrientMeshes.clear();
     this.playerMeshes.clear();

@@ -82,8 +82,10 @@ export class MovementSystem implements System {
         acceleration *= 0.8; // 20% slower than single-cells
       } else if (stage === EvolutionStage.CYBER_ORGANISM) {
         acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT');
+      } else if (stage === EvolutionStage.HUMANOID) {
+        acceleration *= getConfig('HUMANOID_ACCELERATION_MULT');
       }
-      // TODO: HUMANOID and GODCELL acceleration
+      // TODO: GODCELL acceleration
 
       // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
       const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
@@ -120,8 +122,21 @@ export class MovementSystem implements System {
           // Auto-disable sprint when energy too low - write to ECS component directly
           sprintComponent.isSprinting = false;
         }
+      } else if (stage === EvolutionStage.HUMANOID) {
+        maxSpeed *= getConfig('HUMANOID_MAX_SPEED_MULT');
+
+        // Sprint boost for humanoid (Stage 4)
+        const sprintComponent = world.getComponent<SprintComponent>(entity, Components.Sprint);
+        if (sprintComponent?.isSprinting && energyComponent.current > energyComponent.max * 0.2) {
+          maxSpeed *= getConfig('HUMANOID_SPRINT_SPEED_MULT');
+          // Deduct sprint energy cost - write to ECS component directly
+          energyComponent.current -= getConfig('HUMANOID_SPRINT_ENERGY_COST') * deltaTime;
+        } else if (sprintComponent?.isSprinting) {
+          // Auto-disable sprint when energy too low - write to ECS component directly
+          sprintComponent.isSprinting = false;
+        }
       }
-      // TODO: HUMANOID and GODCELL max speed
+      // TODO: GODCELL max speed
 
       // Apply slow effects to max speed cap
       if (isSlowed) {

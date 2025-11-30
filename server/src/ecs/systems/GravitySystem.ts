@@ -53,8 +53,10 @@ export class GravitySystem implements System {
 
       if (stageComponent.stage === EvolutionStage.CYBER_ORGANISM) {
         friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
+      } else if (stageComponent.stage === EvolutionStage.HUMANOID) {
+        friction = getConfig('HUMANOID_FRICTION'); // FPS-style tight control (0.35)
       }
-      // TODO: HUMANOID and GODCELL friction when implemented
+      // TODO: GODCELL friction when implemented
 
       const frictionFactor = Math.pow(friction, deltaTime);
       velocityComponent.x *= frictionFactor;

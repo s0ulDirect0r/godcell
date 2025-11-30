@@ -33,8 +33,13 @@ export class InputManager {
   // Track sprint state (Shift key)
   private wasSprinting = false;
 
+  // First-person mode (Stage 4+) - enables pointer lock and mouse look
+  private firstPersonMode = false;
+  private _firstPersonYaw = 0; // Camera yaw for rotating movement input (used in Step 4)
+
   constructor() {
     this.inputState = new InputState();
+    this.setupPointerLockClickHandler();
   }
 
   /**
@@ -42,6 +47,51 @@ export class InputManager {
    */
   setCameraProjection(projection: CameraProjection): void {
     this.cameraProjection = projection;
+  }
+
+  /**
+   * Enable/disable first-person mode (affects pointer lock and movement rotation)
+   */
+  setFirstPersonMode(enabled: boolean): void {
+    this.firstPersonMode = enabled;
+
+    // Exit pointer lock when leaving first-person mode
+    if (!enabled && this.inputState.pointerLock.isLocked) {
+      document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Update first-person yaw (for rotating movement input)
+   * Called from renderer when camera rotates
+   */
+  setFirstPersonYaw(yaw: number): void {
+    this._firstPersonYaw = yaw;
+  }
+
+  /**
+   * Get current first-person yaw (for movement rotation in Step 4)
+   */
+  getFirstPersonYaw(): number {
+    return this._firstPersonYaw;
+  }
+
+  /**
+   * Check if pointer is locked
+   */
+  isPointerLocked(): boolean {
+    return this.inputState.pointerLock.isLocked;
+  }
+
+  /**
+   * Setup click handler to request pointer lock in first-person mode
+   */
+  private setupPointerLockClickHandler(): void {
+    document.addEventListener('click', () => {
+      if (this.firstPersonMode && !this.inputState.pointerLock.isLocked) {
+        document.body.requestPointerLock();
+      }
+    });
   }
 
   /**
@@ -54,24 +104,49 @@ export class InputManager {
     this.updateRespawn();
     this.updateEMP();
     this.updatePseudopod();
+    this.updateMouseLook();
+  }
+
+  /**
+   * Update mouse look (first-person mode only)
+   * Emits look deltas for camera rotation
+   */
+  private updateMouseLook(): void {
+    if (!this.firstPersonMode || !this.inputState.pointerLock.isLocked) {
+      return;
+    }
+
+    // Consume accumulated mouse deltas
+    const { deltaX, deltaY } = this.inputState.consumeMouseDelta();
+
+    // Only emit if there was movement
+    if (deltaX !== 0 || deltaY !== 0) {
+      eventBus.emit({
+        type: 'client:mouseLook',
+        deltaX,
+        deltaY,
+      });
+    }
   }
 
   private updateMovement(): void {
     let vx = 0;
     let vy = 0;
 
-    // WASD movement (Y+ is up in world coordinates)
+    // WASD movement
+    // In first-person mode: W = forward (camera direction), S = back, A/D = strafe
+    // In top-down mode: W = up (+Y), S = down (-Y), A = left (-X), D = right (+X)
     if (this.inputState.isKeyDown('w') || this.inputState.isKeyDown('arrowup')) {
-      vy = 1;  // Up is positive Y
+      vy = 1;  // Forward
     }
     if (this.inputState.isKeyDown('s') || this.inputState.isKeyDown('arrowdown')) {
-      vy = -1;  // Down is negative Y
+      vy = -1;  // Back
     }
     if (this.inputState.isKeyDown('a') || this.inputState.isKeyDown('arrowleft')) {
-      vx = -1;
+      vx = -1;  // Strafe left
     }
     if (this.inputState.isKeyDown('d') || this.inputState.isKeyDown('arrowright')) {
-      vx = 1;
+      vx = 1;  // Strafe right
     }
 
     // Normalize diagonal movement
@@ -79,6 +154,24 @@ export class InputManager {
       const mag = Math.sqrt(vx * vx + vy * vy);
       vx /= mag;
       vy /= mag;
+    }
+
+    // In first-person mode, rotate movement by camera yaw
+    // This makes W move in the direction the camera is facing
+    if (this.firstPersonMode && (vx !== 0 || vy !== 0)) {
+      const yaw = this._firstPersonYaw;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+
+      // Rotate (vx, vy) by yaw
+      // Input: vx = strafe (A=-1, D=+1), vy = forward/back (W=+1, S=-1)
+      // Output: world X and Y based on camera facing direction
+      // Standard 2D rotation matrix, but adjusted for our coordinate system
+      const worldX = vx * cos - vy * sin;
+      const worldY = vx * sin + vy * cos;
+
+      vx = worldX;
+      vy = worldY;
     }
 
     // Only emit if direction changed (reduces network traffic)

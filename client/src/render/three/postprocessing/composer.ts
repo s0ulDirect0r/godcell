@@ -7,13 +7,18 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import * as THREE from 'three';
 
+export interface ComposerResult {
+  composer: EffectComposer;
+  renderPass: RenderPass;
+}
+
 export function createComposer(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
   width: number,
   height: number
-): EffectComposer {
+): ComposerResult {
   const composer = new EffectComposer(renderer);
 
   // Render pass (base scene)
@@ -29,5 +34,5 @@ export function createComposer(
   );
   composer.addPass(bloomPass);
 
-  return composer;
+  return { composer, renderPass };
 }
