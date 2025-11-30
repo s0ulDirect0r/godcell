@@ -54,7 +54,6 @@ const configOverrides: Map<string, number> = new Map();
 // Dev mode state
 let isPaused = false;
 let timeScale = 1.0;
-const godModePlayers: Set<string> = new Set();
 
 // Step flag for single-tick advancement when paused
 let shouldStepTick = false;
@@ -86,13 +85,6 @@ export function isGamePaused(): boolean {
  */
 export function getTimeScale(): number {
   return timeScale;
-}
-
-/**
- * Check if player has god mode
- */
-export function hasGodMode(playerId: string): boolean {
-  return godModePlayers.has(playerId);
 }
 
 /**
@@ -158,10 +150,6 @@ export function handleDevCommand(socket: Socket, io: Server, command: DevCommand
 
     case 'deleteEntity':
       handleDeleteEntity(io, command.entityType, command.entityId);
-      break;
-
-    case 'setGodMode':
-      handleSetGodMode(io, command.playerId, command.enabled);
       break;
 
     case 'setTimeScale':
@@ -310,17 +298,6 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
       break;
     }
   }
-}
-
-function handleSetGodMode(io: Server, playerId: string, enabled: boolean): void {
-  if (enabled) {
-    godModePlayers.add(playerId);
-  } else {
-    godModePlayers.delete(playerId);
-  }
-
-  broadcastDevState(io);
-  logger.info({ event: 'dev_god_mode', playerId, enabled });
 }
 
 function handleSetTimeScale(io: Server, scale: number): void {
@@ -551,7 +528,6 @@ function broadcastDevState(io: Server): void {
     type: 'devState',
     isPaused,
     timeScale,
-    godModePlayers: Array.from(godModePlayers),
   };
   io.emit('devState', state);
 }
@@ -570,6 +546,5 @@ export function resetDevState(): void {
   configOverrides.clear();
   isPaused = false;
   timeScale = 1.0;
-  godModePlayers.clear();
   shouldStepTick = false;
 }
