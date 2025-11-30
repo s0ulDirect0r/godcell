@@ -28,6 +28,7 @@ import { updateCompassIndicators, disposeCompassIndicators } from './CompassRend
 import { TrailSystem } from '../systems/TrailSystem';
 import { NutrientRenderSystem, type NutrientData } from '../systems/NutrientRenderSystem';
 import { ObstacleRenderSystem, type ObstacleData } from '../systems/ObstacleRenderSystem';
+import { SwarmRenderSystem, type SwarmData } from '../systems/SwarmRenderSystem';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -37,14 +38,6 @@ import {
 } from './EvolutionVisuals';
 import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
-import {
-  createSwarm,
-  updateSwarmState,
-  updateSwarmAnimation,
-  disposeSwarm,
-  type SwarmInternalParticle,
-  type SwarmOrbitingParticle,
-} from './SwarmRenderer';
 import { CameraSystem } from '../systems/CameraSystem';
 import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
 
@@ -86,20 +79,16 @@ export class ThreeRenderer implements Renderer {
   // Entity meshes
   private playerMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group for 3D cells (membrane + nucleus)
   private playerOutlines: Map<string, THREE.Mesh> = new Map(); // White stroke for client player
-  private swarmMeshes: Map<string, THREE.Group> = new Map(); // Changed to Group to include 3D sphere + particles
+  private pseudopodMeshes: Map<string, THREE.Mesh> = new Map(); // Lightning beam projectiles
 
   // Obstacle render system (owns obstacle meshes)
   private obstacleRenderSystem!: ObstacleRenderSystem;
-  private swarmParticleData: Map<string, SwarmOrbitingParticle[]> = new Map(); // Animation data for orbiting particles
-  private swarmInternalParticles: Map<string, SwarmInternalParticle[]> = new Map(); // Internal storm particles
-  private swarmPulsePhase: Map<string, number> = new Map(); // Phase offset for pulsing animation
-  private pseudopodMeshes: Map<string, THREE.Mesh> = new Map(); // Lightning beam projectiles
+
+  // Swarm render system (owns swarm meshes, particles, interpolation)
+  private swarmRenderSystem!: SwarmRenderSystem;
 
   // Trail system (owns trail points and meshes)
   private trailSystem!: TrailSystem;
-
-  // Interpolation targets
-  private swarmTargets: Map<string, { x: number; y: number }> = new Map();
 
   // Effects system (particle effects, animations)
   private effectsSystem!: EffectsSystem;
@@ -159,6 +148,10 @@ export class ThreeRenderer implements Renderer {
     // Create obstacle render system (owns gravity well meshes)
     this.obstacleRenderSystem = new ObstacleRenderSystem();
     this.obstacleRenderSystem.init(this.scene);
+
+    // Create swarm render system (owns entropy swarm meshes)
+    this.swarmRenderSystem = new SwarmRenderSystem();
+    this.swarmRenderSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -422,12 +415,11 @@ export class ThreeRenderer implements Renderer {
 
       // Swarm consumed - spawn death explosion + energy transfer to consumer
       eventBus.on('swarmConsumed', (event) => {
-        const swarmGroup = this.swarmMeshes.get(event.swarmId);
+        // Get swarm position before removal (system returns game coordinates)
+        const position = this.swarmRenderSystem.getSwarmPosition(event.swarmId);
         const consumerMesh = this.playerMeshes.get(event.consumerId);
 
-        if (swarmGroup) {
-          // Capture position before removal (XZ plane: game Y = -Three.js Z)
-          const position = { x: swarmGroup.position.x, y: -swarmGroup.position.z };
+        if (position) {
           this.effectsSystem.spawnSwarmDeath(position.x, position.y);
 
           // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
@@ -553,7 +545,10 @@ export class ThreeRenderer implements Renderer {
     // Apply to nutrients (delegated to NutrientRenderSystem)
     this.nutrientRenderSystem.applySpawnAnimations(spawnProgress);
 
-    // Apply to players and swarms (still managed here)
+    // Apply to swarms (delegated to SwarmRenderSystem)
+    this.swarmRenderSystem.applySpawnAnimations(spawnProgress);
+
+    // Apply to players (still managed here)
     spawnProgress.forEach((progress, entityId) => {
       // Ease-out curve for smoother scale-up (fast at start, slow at end)
       const easeOut = 1 - Math.pow(1 - progress, 3);
@@ -566,14 +561,6 @@ export class ThreeRenderer implements Renderer {
       if (playerGroup) {
         playerGroup.scale.setScalar(scale);
         this.setGroupOpacity(playerGroup, opacity);
-        return;
-      }
-
-      // Check swarms
-      const swarmGroup = this.swarmMeshes.get(entityId);
-      if (swarmGroup) {
-        swarmGroup.scale.setScalar(scale);
-        this.setGroupOpacity(swarmGroup, opacity);
         return;
       }
     });
@@ -665,7 +652,10 @@ export class ThreeRenderer implements Renderer {
       state.obstacles as Map<string, ObstacleData>,
       this.environmentSystem.getMode()
     );
-    this.syncSwarms(state);
+    this.swarmRenderSystem.sync(
+      state.swarms as Map<string, SwarmData>,
+      this.environmentSystem.getMode()
+    );
     this.syncPseudopods(state);
 
     // Apply spawn animations (scale/opacity) to entities
@@ -675,17 +665,17 @@ export class ThreeRenderer implements Renderer {
     this.nutrientRenderSystem.updateAnimations(dt);
 
     // Interpolate swarm positions
-    this.interpolateSwarms();
+    this.swarmRenderSystem.interpolate();
 
     // Animate swarm particles
-    this.updateSwarmParticles(state, dt);
+    this.swarmRenderSystem.updateAnimations(state.swarms as Map<string, SwarmData>, dt);
 
     // Update drain visual feedback (red auras)
     this.auraSystem.updateDrainAuras(
       state.players,
       state.swarms,
       this.playerMeshes,
-      this.swarmMeshes,
+      this.swarmRenderSystem.getSwarmMeshes(),
       state.playerDamageInfo,
       state.swarmDamageInfo
     );
@@ -736,7 +726,7 @@ export class ThreeRenderer implements Renderer {
       console.log('[DEBUG] Entities:', {
         players: this.playerMeshes.size,
         nutrients: this.nutrientRenderSystem.getMeshCount(),
-        swarms: this.swarmMeshes.size,
+        swarms: this.swarmRenderSystem.getMeshCount(),
         obstacles: this.obstacleRenderSystem.getMeshCount(),
       });
       if (this.playerMeshes.size > 0) {
@@ -778,16 +768,8 @@ export class ThreeRenderer implements Renderer {
     // Clear nutrients (delegated to NutrientRenderSystem)
     this.nutrientRenderSystem.clearAll();
 
-    // Clear swarms
-    this.swarmMeshes.forEach((group) => {
-      this.scene.remove(group);
-      disposeSwarm(group);
-    });
-    this.swarmMeshes.clear();
-    this.swarmTargets.clear();
-    this.swarmParticleData.clear();
-    this.swarmInternalParticles.clear();
-    this.swarmPulsePhase.clear();
+    // Clear swarms (delegated to SwarmRenderSystem)
+    this.swarmRenderSystem.clearAll();
 
     // Clear obstacles (delegated to ObstacleRenderSystem)
     this.obstacleRenderSystem.clearAll();
@@ -803,54 +785,6 @@ export class ThreeRenderer implements Renderer {
   private updateRenderModeForStage(stage: EvolutionStage): void {
     const isSoupStage = stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
     this.setRenderMode(isSoupStage ? 'soup' : 'jungle');
-  }
-
-  private syncSwarms(state: GameState): void {
-    // Skip entirely in jungle mode - soup entities don't exist in jungle world
-    if (this.environmentSystem.getMode() === 'jungle') return;
-
-    // Remove swarms that no longer exist
-    this.swarmMeshes.forEach((group, id) => {
-      if (!state.swarms.has(id)) {
-        this.scene.remove(group);
-        disposeSwarm(group);
-        this.swarmMeshes.delete(id);
-        this.swarmTargets.delete(id);
-        this.swarmParticleData.delete(id);
-        this.swarmInternalParticles.delete(id);
-        this.swarmPulsePhase.delete(id);
-      }
-    });
-
-    // Add or update swarms
-    state.swarms.forEach((swarm, id) => {
-      let group = this.swarmMeshes.get(id);
-
-      if (!group) {
-        // Create swarm visual using extracted renderer
-        const result = createSwarm(swarm.position, swarm.size);
-        group = result.group;
-
-        // Store particle animation data
-        this.swarmInternalParticles.set(id, result.internalParticles);
-        this.swarmParticleData.set(id, result.orbitingParticles);
-
-        // Random phase offset for pulsing (so swarms don't pulse in sync)
-        this.swarmPulsePhase.set(id, Math.random() * Math.PI * 2);
-
-        this.scene.add(group);
-        this.swarmMeshes.set(id, group);
-        this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
-      }
-
-      // Update target position for interpolation
-      this.swarmTargets.set(id, { x: swarm.position.x, y: swarm.position.y });
-
-      // Update colors and intensity based on state
-      const now = Date.now();
-      const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
-      updateSwarmState(group, swarm.state, isDisabled);
-    });
   }
 
   private syncPseudopods(state: GameState): void {
@@ -958,34 +892,6 @@ export class ThreeRenderer implements Renderer {
           mesh.position.x = beam.position.x;
           mesh.position.z = -beam.position.y;
         }
-      }
-    });
-  }
-
-  private interpolateSwarms(): void {
-    const lerpFactor = 0.3;
-
-    this.swarmMeshes.forEach((group, id) => {
-      const target = this.swarmTargets.get(id);
-      if (target) {
-        // XZ plane: interpolate X and Z (game Y maps to -Z)
-        group.position.x += (target.x - group.position.x) * lerpFactor;
-        const targetZ = -target.y;
-        group.position.z += (targetZ - group.position.z) * lerpFactor;
-      }
-    });
-  }
-
-  private updateSwarmParticles(state: GameState, dt: number): void {
-    this.swarmMeshes.forEach((group, id) => {
-      const swarm = state.swarms.get(id);
-      const swarmState = swarm?.state || 'patrol';
-      const pulsePhase = this.swarmPulsePhase.get(id) || 0;
-      const internalParticles = this.swarmInternalParticles.get(id);
-      const orbitingParticles = this.swarmParticleData.get(id);
-
-      if (internalParticles && orbitingParticles) {
-        updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt);
       }
     });
   }
@@ -1564,18 +1470,8 @@ export class ThreeRenderer implements Renderer {
     // Clean up obstacles
     this.obstacleRenderSystem.dispose();
 
-    this.swarmMeshes.forEach(group => {
-      group.children.forEach(child => {
-        if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-    });
-    this.swarmMeshes.clear();
-    this.swarmParticleData.clear();
-    this.swarmInternalParticles.clear();
-    this.swarmPulsePhase.clear();
+    // Clean up swarms
+    this.swarmRenderSystem.dispose();
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());
