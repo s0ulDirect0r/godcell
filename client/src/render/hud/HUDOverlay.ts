@@ -2,9 +2,9 @@
 // HUD Overlay - DOM-based UI (renderer-agnostic)
 // ============================================
 
-import type { GameState } from '../../core/state/GameState';
 import { eventBus } from '../../core/events/EventBus';
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { type World, getLocalPlayerId, getLocalPlayer } from '../../ecs';
 import type { DeathCause } from '@godcell/shared';
 
 export class HUDOverlay {
@@ -12,7 +12,7 @@ export class HUDOverlay {
   private countdown!: HTMLDivElement;
   private empCooldown!: HTMLDivElement;
   private deathOverlay?: HTMLElement;
-  private gameState?: GameState;
+  private world?: World;
 
   // Session stats
   private sessionStats = {
@@ -145,13 +145,15 @@ export class HUDOverlay {
   private setupEventHandlers(): void {
     // Death/respawn events (only for MY player)
     eventBus.on('playerDied', (event) => {
-      if (this.gameState && event.playerId === this.gameState.myPlayerId) {
+      const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
+      if (myPlayerId && event.playerId === myPlayerId) {
         this.showDeathOverlay(event.cause);
       }
     });
 
     eventBus.on('playerRespawned', (event) => {
-      if (this.gameState && event.player.id === this.gameState.myPlayerId) {
+      const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
+      if (myPlayerId && event.player.id === myPlayerId) {
         this.hideDeathOverlay();
         this.resetSessionStats();
       }
@@ -159,14 +161,16 @@ export class HUDOverlay {
 
     // Track nutrients collected
     eventBus.on('nutrientCollected', (event) => {
-      if (this.gameState && event.playerId === this.gameState.myPlayerId) {
+      const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
+      if (myPlayerId && event.playerId === myPlayerId) {
         this.sessionStats.nutrientsCollected++;
       }
     });
 
     // Track highest evolution stage
     eventBus.on('playerEvolved', (event) => {
-      if (this.gameState && event.playerId === this.gameState.myPlayerId) {
+      const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
+      if (myPlayerId && event.playerId === myPlayerId) {
         this.sessionStats.highestStage = event.newStage;
       }
     });
@@ -178,7 +182,8 @@ export class HUDOverlay {
 
     // Track EMP usage for cooldown display
     eventBus.on('empActivated', (event) => {
-      if (this.gameState && event.playerId === this.gameState.myPlayerId) {
+      const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
+      if (myPlayerId && event.playerId === myPlayerId) {
         this.localEMPTime = Date.now();
       }
     });
@@ -192,14 +197,14 @@ export class HUDOverlay {
   }
 
   /**
-   * Update HUD from current game state
+   * Update HUD from current world state
    * Call this every frame
    */
-  update(state: GameState): void {
-    // Store state reference for event handlers
-    this.gameState = state;
+  update(world: World): void {
+    // Store world reference for event handlers
+    this.world = world;
 
-    const myPlayer = state.getMyPlayer();
+    const myPlayer = getLocalPlayer(world);
     if (!myPlayer) return;
 
     // Update countdown (time until starvation)

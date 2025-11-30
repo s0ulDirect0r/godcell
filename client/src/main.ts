@@ -4,7 +4,6 @@
 
 import { GAME_CONFIG, EvolutionStage, World } from '@godcell/shared';
 import { createClientWorld, getLocalPlayer } from './ecs';
-import { GameState } from './core/state/GameState';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
 import { eventBus } from './core/events/EventBus';
@@ -28,7 +27,6 @@ const debugMode = urlParams.has('debug');
 // ============================================
 
 let world: World;
-let gameState: GameState; // TRANSITIONAL: Wrapper for ThreeRenderer compatibility
 let socketManager: SocketManager;
 let inputManager: InputManager;
 let renderer: ThreeRenderer;
@@ -74,11 +72,8 @@ function initializeGame(settings: PreGameSettings): void {
   }
 
   // Core systems
-  // Create ECS World first - this is the single source of truth
+  // Create ECS World - this is the single source of truth
   world = createClientWorld();
-  // TRANSITIONAL: GameState wraps World for ThreeRenderer/HUD compatibility
-  // Will be removed when render systems query World directly
-  gameState = new GameState(world);
   inputManager = new InputManager();
 
   // Determine server URL
@@ -115,7 +110,7 @@ function initializeGame(settings: PreGameSettings): void {
   if (devMode) {
     devPanel = new DevPanel({
       socket: socketManager.getSocket(),
-      gameState,
+      world,
       renderer,
     });
     console.log('[Dev] Dev panel enabled - press H to toggle');
@@ -180,7 +175,7 @@ function update(): void {
   renderer.render(dt);
 
   // Update HUD
-  hudOverlay.update(gameState);
+  hudOverlay.update(world);
 
   // Debug overlay
   if (debugOverlay) {
