@@ -26,6 +26,14 @@ const JUNGLE_CONFIG = {
   // Background: darker than soup
   BACKGROUND_COLOR: 0x000808, // Very dark teal-black
 
+  // First-person sky color (visible when looking up/around)
+  FP_SKY_COLOR: 0x102030, // Dark blue-gray cyber sky (brighter for visibility)
+
+  // First-person ground plane (visible floor to walk on)
+  FP_GROUND_COLOR: 0x0a1a1a, // Dark teal ground
+  FP_GROUND_GRID_COLOR: 0x00ff88, // Bright green grid lines (cyber aesthetic)
+  FP_GROUND_GRID_SPACING: 100, // Grid line spacing in game units
+
   // Soup pool visualization (visible from jungle view)
   // User wants this SMALL - about 2x player size, not full soup dimensions
   SOUP_POOL_RADIUS: 300, // ~2x cyber-organism radius (144)
@@ -420,4 +428,70 @@ export function getJungleBackgroundColor(): number {
  */
 export function getSoupBackgroundColor(): number {
   return GAME_CONFIG.BACKGROUND_COLOR;
+}
+
+/**
+ * Get first-person sky color (for scene background in first-person mode)
+ */
+export function getFirstPersonSkyColor(): number {
+  return JUNGLE_CONFIG.FP_SKY_COLOR;
+}
+
+/**
+ * Create first-person ground plane with cyber grid
+ * Returns a Group containing the ground mesh and grid lines
+ * Coordinate mapping: game X = 3D X, game Y = 3D Z (negative), height = 3D Y
+ */
+export function createFirstPersonGround(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'firstPersonGround';
+
+  // Ground plane dimensions (covers jungle area)
+  const width = GAME_CONFIG.JUNGLE_WIDTH;
+  const depth = GAME_CONFIG.JUNGLE_HEIGHT;
+
+  // Ground plane at Y=0 (floor level)
+  const groundGeometry = new THREE.PlaneGeometry(width, depth);
+  const groundMaterial = new THREE.MeshBasicMaterial({
+    color: JUNGLE_CONFIG.FP_GROUND_COLOR,
+    side: THREE.DoubleSide,
+  });
+  const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+
+  // Position: center of jungle, rotated to be horizontal (XZ plane)
+  // Game coordinates: center at (width/2, height/2)
+  // 3D coordinates: X = game X, Y = height (0 for ground), Z = -game Y
+  groundMesh.rotation.x = -Math.PI / 2; // Rotate to lie flat
+  groundMesh.position.set(width / 2, 0, -depth / 2);
+  group.add(groundMesh);
+
+  // Grid lines on ground
+  const gridSpacing = JUNGLE_CONFIG.FP_GROUND_GRID_SPACING;
+  const gridMaterial = new THREE.LineBasicMaterial({
+    color: JUNGLE_CONFIG.FP_GROUND_GRID_COLOR,
+    transparent: true,
+    opacity: 0.3,
+  });
+
+  // Lines parallel to X axis (running along game X)
+  for (let gameY = 0; gameY <= depth; gameY += gridSpacing) {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.1, -gameY), // Slightly above ground to prevent z-fighting
+      new THREE.Vector3(width, 0.1, -gameY),
+    ]);
+    const line = new THREE.Line(geometry, gridMaterial);
+    group.add(line);
+  }
+
+  // Lines parallel to Z axis (running along game Y)
+  for (let gameX = 0; gameX <= width; gameX += gridSpacing) {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(gameX, 0.1, 0),
+      new THREE.Vector3(gameX, 0.1, -depth),
+    ]);
+    const line = new THREE.Line(geometry, gridMaterial);
+    group.add(line);
+  }
+
+  return group;
 }

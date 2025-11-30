@@ -95,6 +95,8 @@ import {
   updateSoupActivity,
   getJungleBackgroundColor,
   getSoupBackgroundColor,
+  getFirstPersonSkyColor,
+  createFirstPersonGround,
 } from './JungleBackground';
 
 /**
@@ -174,6 +176,9 @@ export class ThreeRenderer implements Renderer {
   private soupActivityPoints!: THREE.Points;
   private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
 
+  // First-person ground plane (visible floor for Stage 4+ humanoid)
+  private firstPersonGround!: THREE.Group;
+
   // Render mode: determines which world to render (soup = Stage 1-2, jungle = Stage 3+)
   // This is the single point of control for world switching - no scattered visibility toggles
   private renderMode: 'soup' | 'jungle' = 'soup';
@@ -249,6 +254,11 @@ export class ThreeRenderer implements Renderer {
     this.jungleParticleData = jungleResult.particleData;
     this.soupActivityPoints = jungleResult.soupActivityPoints;
     this.soupActivityData = jungleResult.soupActivityData;
+
+    // Create first-person ground plane (for Stage 4+ humanoid) - starts hidden
+    this.firstPersonGround = createFirstPersonGround();
+    this.firstPersonGround.visible = false;
+    this.scene.add(this.firstPersonGround);
 
     // Create orthographic camera (top-down 2D for Stages 1-3)
     const aspect = width / height;
@@ -2280,10 +2290,26 @@ export class ThreeRenderer implements Renderer {
     if (this.cameraMode === mode) return;
     this.cameraMode = mode;
 
-    // Reset first-person rotation when switching modes
     if (mode === 'firstperson') {
+      // Reset first-person rotation when entering first-person mode
       this.fpYaw = 0;
       this.fpPitch = 0;
+
+      // Show first-person ground plane
+      this.firstPersonGround.visible = true;
+
+      // Set sky color for first-person view
+      this.scene.background = new THREE.Color(getFirstPersonSkyColor());
+    } else {
+      // Hide first-person ground plane when returning to top-down
+      this.firstPersonGround.visible = false;
+
+      // Restore jungle or soup background color based on render mode
+      if (this.renderMode === 'jungle') {
+        this.scene.background = new THREE.Color(getJungleBackgroundColor());
+      } else {
+        this.scene.background = new THREE.Color(getSoupBackgroundColor());
+      }
     }
   }
 

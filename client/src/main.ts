@@ -2,7 +2,7 @@
 // Main Entry Point - Bootstrap & Update Loop
 // ============================================
 
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import { GameState } from './core/state/GameState';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
@@ -140,6 +140,12 @@ function initializeGame(settings: PreGameSettings): void {
     socketManager.sendSprint(event.sprinting);
   });
 
+  // Wire mouse look event to update InputManager's yaw (for movement rotation)
+  eventBus.on('client:mouseLook', () => {
+    // After renderer processes mouse look, sync yaw back to input manager
+    inputManager.setFirstPersonYaw(renderer.getFirstPersonYaw());
+  });
+
   // Start game loop
   update();
 }
@@ -152,6 +158,11 @@ function update(): void {
   const dt = 16; // Approx 60fps
 
   perfMonitor.tick();
+
+  // Check if player is in first-person stage (Stage 4+) and update input mode
+  const myPlayer = gameState.getMyPlayer();
+  const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
+  inputManager.setFirstPersonMode(isFirstPerson);
 
   // Update systems
   inputManager.update(dt);

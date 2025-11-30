@@ -70,6 +70,15 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 - **Shared:** Monorepo workspace with common types and constants.
 - **Issues:** `bd` (beads), with MCP integration.
 
+**Running the Project**
+
+```bash
+npm run dev          # Start both server and client
+npm run dev:server   # Server only (port 3000)
+npm run dev:client   # Client only (Vite dev server)
+npm run build        # Build all workspaces
+```
+
 **Architecture**
 
 - Workspaces: `client/`, `server/`, `shared/`.

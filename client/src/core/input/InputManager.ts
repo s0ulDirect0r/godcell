@@ -164,10 +164,11 @@ export class InputManager {
       const sin = Math.sin(yaw);
 
       // Rotate (vx, vy) by yaw
-      // vx = strafe (left/right), vy = forward/back
-      // In world space: X = forward, Y = right (for our coordinate system)
-      const worldX = vy * cos - vx * sin;  // Forward/back component
-      const worldY = vy * sin + vx * cos;  // Left/right component
+      // Input: vx = strafe (A=-1, D=+1), vy = forward/back (W=+1, S=-1)
+      // Output: world X and Y based on camera facing direction
+      // Standard 2D rotation matrix, but adjusted for our coordinate system
+      const worldX = vx * cos - vy * sin;
+      const worldY = vx * sin + vy * cos;
 
       vx = worldX;
       vy = worldY;
