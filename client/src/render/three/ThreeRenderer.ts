@@ -2264,20 +2264,25 @@ export class ThreeRenderer implements Renderer {
   }
 
   getCameraProjection() {
-    // Simple screen ↔ world for orthographic camera
+    // Screen ↔ world for orthographic camera on XZ plane (Y=height)
+    // Camera looks down Y-axis, game Y maps to -Z
     return {
       screenToWorld: (screenX: number, screenY: number) => {
         const rect = this.renderer.domElement.getBoundingClientRect();
-        const x = ((screenX - rect.left) / rect.width) * 2 - 1;
-        const y = -((screenY - rect.top) / rect.height) * 2 + 1;
+        // Convert screen coords to NDC (-1 to +1)
+        const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((screenY - rect.top) / rect.height) * 2 + 1;
 
-        const vector = new THREE.Vector3(x, y, 0);
+        // Unproject from NDC to world coordinates
+        const vector = new THREE.Vector3(ndcX, ndcY, 0);
         vector.unproject(this.camera);
 
-        return { x: vector.x, y: vector.y };
+        // XZ plane: game X = Three.js X, game Y = -Three.js Z
+        return { x: vector.x, y: -vector.z };
       },
       worldToScreen: (worldX: number, worldY: number) => {
-        const vector = new THREE.Vector3(worldX, worldY, 0);
+        // XZ plane: Three.js (worldX, 0, -worldY)
+        const vector = new THREE.Vector3(worldX, 0, -worldY);
         vector.project(this.camera);
 
         const rect = this.renderer.domElement.getBoundingClientRect();
