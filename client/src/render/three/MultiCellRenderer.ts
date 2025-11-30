@@ -16,11 +16,18 @@ interface MultiCellParams {
  * Create a multi-cell organism group based on the specified style
  */
 export function createMultiCell(params: MultiCellParams): THREE.Group {
+  let group: THREE.Group;
   if (params.style === 'colonial') {
-    return createColonialCluster(params.radius, params.colorHex);
+    group = createColonialCluster(params.radius, params.colorHex);
   } else {
-    return createRadialOrganism(params.radius, params.colorHex);
+    group = createRadialOrganism(params.radius, params.colorHex);
   }
+
+  // Rotate group so multi-cell cluster lies flat on XZ plane when viewed from above
+  // Camera looks down Y axis, so rotate -90° around X to flip local XY to world XZ
+  group.rotation.x = -Math.PI / 2;
+
+  return group;
 }
 
 // ============================================

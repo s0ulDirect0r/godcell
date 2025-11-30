@@ -153,6 +153,10 @@ export function createSwarm(
   // XZ plane: X=game X, Y=height, Z=-game Y
   group.position.set(position.x, 0.2, -position.y);
 
+  // Rotate group so orbiting particles orbit in XZ plane when viewed from above
+  // Camera looks down Y axis, so rotate -90° around X to flip local XY to world XZ
+  group.rotation.x = -Math.PI / 2;
+
   return {
     group,
     internalParticles: internalParticleData,
