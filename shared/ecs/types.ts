@@ -64,4 +64,9 @@ export const Tags = {
   Obstacle: 'obstacle',
   Swarm: 'swarm',
   Pseudopod: 'pseudopod',
+
+  // Transient per-tick tags (cleared at end of each tick)
+  // Used for cross-system communication within a single game loop iteration
+  SlowedThisTick: 'slowed_this_tick',
+  DamagedThisTick: 'damaged_this_tick',
 } as const;

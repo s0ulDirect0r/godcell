@@ -225,6 +225,16 @@ export class World {
     }
   }
 
+  /**
+   * Remove a tag from all entities that have it.
+   * Used for clearing transient per-tick tags.
+   */
+  clearTagFromAll(tag: string): void {
+    for (const tags of this.entityTags.values()) {
+      tags.delete(tag);
+    }
+  }
+
   // ============================================
   // Utilities
   // ============================================
