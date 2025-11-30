@@ -59,9 +59,9 @@ export function updateCompassIndicators(
   // No detected entities to show
   if (detectedEntities.length === 0) return null;
 
-  // Create new compass group
+  // Create new compass group on XZ plane (Y=height)
   const compassGroup = new THREE.Group();
-  compassGroup.position.set(playerPosition.x, playerPosition.y, 0.2); // Above outline
+  compassGroup.position.set(playerPosition.x, 0.2, -playerPosition.y); // Above outline
 
   const arrowSize = 12; // Base size of arrow (bigger)
   const ringRadius = radius + 35; // Position on invisible ring outside the white circle
@@ -102,14 +102,15 @@ export function updateCompassIndicators(
 
     const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
 
-    // Position arrow on ring edge
+    // Position arrow on ring edge (XZ plane: game Y maps to -Z)
     arrow.position.x = Math.cos(angle) * ringRadius;
-    arrow.position.y = Math.sin(angle) * ringRadius;
-    arrow.position.z = 0;
+    arrow.position.y = 0;
+    arrow.position.z = -Math.sin(angle) * ringRadius;
 
-    // Rotate arrow to point outward from circle center toward entity
-    // Add π/2 to account for arrow's default +Y orientation vs angle's +X reference
-    arrow.rotation.z = angle - Math.PI / 2;
+    // Rotate arrow to lie flat on XZ plane and point outward
+    // First rotate -90° around X to lay flat, then rotate around Y to point outward
+    arrow.rotation.x = -Math.PI / 2;
+    arrow.rotation.y = -angle; // Rotate around Y to point toward entity
 
     compassGroup.add(arrow);
   }

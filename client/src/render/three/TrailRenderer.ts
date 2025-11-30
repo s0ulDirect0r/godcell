@@ -72,9 +72,10 @@ export function updateTrails(
     }
 
     // Add current GROUP position to trail (not server position!)
+    // cellGroup is on XZ plane: .x = game X, .z = -game Y
     const cellGroup = playerMeshes.get(id);
     if (cellGroup) {
-      points.push({ x: cellGroup.position.x, y: cellGroup.position.y });
+      points.push({ x: cellGroup.position.x, y: -cellGroup.position.z });
     }
 
     // Keep only last N points
@@ -95,7 +96,7 @@ export function updateTrails(
         vertexColors: true,
       });
       trailMesh = new THREE.Mesh(geometry, material);
-      trailMesh.position.z = -0.5; // Below the cell
+      trailMesh.position.y = -0.5; // Below the cell (Y=height)
       scene.add(trailMesh);
       trailMeshes.set(id, trailMesh);
     }
@@ -156,12 +157,14 @@ export function updateTrails(
         }
 
         // Create two vertices (top and bottom of ribbon)
+        // XZ plane: X=game X, Y=height(0), Z=-game Y
+        // Perpendicular direction (perpX, perpY) in game space maps to (perpX, 0, -perpY) in 3D
         const idx = i * 2;
 
         // Top vertex
         positions[idx * 3] = point.x + perpX * width;
-        positions[idx * 3 + 1] = point.y + perpY * width;
-        positions[idx * 3 + 2] = 0;
+        positions[idx * 3 + 1] = 0; // Y = height (flat on ground)
+        positions[idx * 3 + 2] = -point.y - perpY * width;
 
         colors[idx * 3] = r;
         colors[idx * 3 + 1] = g;
@@ -169,8 +172,8 @@ export function updateTrails(
 
         // Bottom vertex
         positions[(idx + 1) * 3] = point.x - perpX * width;
-        positions[(idx + 1) * 3 + 1] = point.y - perpY * width;
-        positions[(idx + 1) * 3 + 2] = 0;
+        positions[(idx + 1) * 3 + 1] = 0; // Y = height (flat on ground)
+        positions[(idx + 1) * 3 + 2] = -point.y + perpY * width;
 
         // Fade colors based on age
         colors[(idx + 1) * 3] = r * opacity;
