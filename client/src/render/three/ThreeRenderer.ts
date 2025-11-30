@@ -5,8 +5,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { Renderer, CameraCapabilities } from '../Renderer';
-import type { GameState } from '../../core/state/GameState';
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, type DamageSource } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
@@ -20,7 +19,17 @@ import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
 import { CameraSystem } from '../systems/CameraSystem';
 import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
-import { World } from '../../ecs';
+import {
+  World,
+  Tags,
+  Components,
+  getStringIdByEntity,
+  getLocalPlayerId,
+  getLocalPlayer,
+  getPlayer,
+  type ClientDamageInfoComponent,
+  type SwarmComponent,
+} from '../../ecs';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -353,12 +362,13 @@ export class ThreeRenderer implements Renderer {
     // Players don't need spawn animations (handled by materialize effect)
   }
 
-  render(state: GameState, dt: number): void {
-    // Update local player ID reference (for event filtering)
-    this.myPlayerId = state.myPlayerId;
+  render(dt: number): void {
+    // Get local player info from World
+    const myPlayerId = getLocalPlayerId(this.world);
+    this.myPlayerId = myPlayerId ?? null;
 
     // Detect damage for camera shake
-    const myPlayer = state.getMyPlayer();
+    const myPlayer = getLocalPlayer(this.world);
     if (myPlayer) {
       // Set initial zoom based on spawn stage (first frame only)
       if (!this.initialZoomSet) {
@@ -423,19 +433,26 @@ export class ThreeRenderer implements Renderer {
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
 
+    // Build data maps for AuraSystem and TrailSystem by querying World
+    const playersForAura = this.buildPlayersForAura();
+    const swarmsForAura = this.buildSwarmsForAura();
+    const playerDamageInfo = this.buildPlayerDamageInfo();
+    const swarmDamageInfo = this.buildSwarmDamageInfo();
+    const playersForTrail = this.buildPlayersForTrail();
+
     // Update drain visual feedback (red auras)
     this.auraSystem.updateDrainAuras(
-      state.players,
-      state.swarms,
+      playersForAura,
+      swarmsForAura,
       this.playerRenderSystem.getPlayerMeshes(),
       this.swarmRenderSystem.getSwarmMeshes(),
-      state.playerDamageInfo,
-      state.swarmDamageInfo
+      playerDamageInfo,
+      swarmDamageInfo
     );
 
     // Update gain auras (cyan glow when receiving energy)
     this.auraSystem.updateGainAuras(
-      state.players,
+      playersForAura,
       this.playerRenderSystem.getPlayerMeshes(),
       receivingEnergy
     );
@@ -444,7 +461,7 @@ export class ThreeRenderer implements Renderer {
     this.obstacleRenderSystem.updateAnimations(dt);
 
     // Update trails
-    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), state.players);
+    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), playersForTrail);
 
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
@@ -635,6 +652,126 @@ export class ThreeRenderer implements Renderer {
    */
   getActiveCamera(): THREE.Camera {
     return this.cameraSystem.getActiveCamera();
+  }
+
+  // ============================================
+  // Private helpers for building data maps from World
+  // ============================================
+
+  /**
+   * Build player data map for AuraSystem (needs stage and energy)
+   */
+  private buildPlayersForAura(): Map<string, { stage: string; energy: number }> {
+    const result = new Map<string, { stage: string; energy: number }>();
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getStringIdByEntity(entity);
+      if (!playerId) return;
+      const player = getPlayer(this.world, playerId);
+      if (player) {
+        result.set(playerId, { stage: player.stage, energy: player.energy });
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Build swarm size map for AuraSystem (only needs size)
+   */
+  private buildSwarmsForAura(): Map<string, { size: number }> {
+    const result = new Map<string, { size: number }>();
+    this.world.forEachWithTag(Tags.Swarm, (entity) => {
+      const swarmId = getStringIdByEntity(entity);
+      if (!swarmId) return;
+      const swarm = this.world.getComponent<SwarmComponent>(entity, Components.Swarm);
+      if (swarm) {
+        result.set(swarmId, { size: swarm.size });
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Build player damage info map for AuraSystem
+   */
+  private buildPlayerDamageInfo(): Map<string, {
+    totalDamageRate: number;
+    primarySource: DamageSource;
+    proximityFactor?: number;
+  }> {
+    const result = new Map<string, {
+      totalDamageRate: number;
+      primarySource: DamageSource;
+      proximityFactor?: number;
+    }>();
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getStringIdByEntity(entity);
+      if (!playerId) return;
+      const damage = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+      if (damage) {
+        result.set(playerId, {
+          totalDamageRate: damage.totalDamageRate,
+          primarySource: damage.primarySource,
+          proximityFactor: damage.proximityFactor,
+        });
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Build swarm damage info map for AuraSystem
+   */
+  private buildSwarmDamageInfo(): Map<string, {
+    totalDamageRate: number;
+    primarySource: DamageSource;
+  }> {
+    const result = new Map<string, {
+      totalDamageRate: number;
+      primarySource: DamageSource;
+    }>();
+    this.world.forEachWithTag(Tags.Swarm, (entity) => {
+      const swarmId = getStringIdByEntity(entity);
+      if (!swarmId) return;
+      const damage = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+      if (damage) {
+        result.set(swarmId, {
+          totalDamageRate: damage.totalDamageRate,
+          primarySource: damage.primarySource,
+        });
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Build player data map for TrailSystem (needs stage, color, energy, maxEnergy)
+   */
+  private buildPlayersForTrail(): Map<string, {
+    stage: string;
+    color: string;
+    energy: number;
+    maxEnergy: number;
+  }> {
+    const result = new Map<string, {
+      stage: string;
+      color: string;
+      energy: number;
+      maxEnergy: number;
+    }>();
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getStringIdByEntity(entity);
+      if (!playerId) return;
+      const player = getPlayer(this.world, playerId);
+      if (player) {
+        result.set(playerId, {
+          stage: player.stage,
+          color: player.color,
+          energy: player.energy,
+          maxEnergy: player.maxEnergy,
+        });
+      }
+    });
+    return result;
   }
 
   dispose(): void {

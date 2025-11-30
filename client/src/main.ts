@@ -176,8 +176,8 @@ function update(): void {
   // Update systems
   inputManager.update(dt);
 
-  // Render
-  renderer.render(gameState, dt);
+  // Render (renderer queries World directly)
+  renderer.render(dt);
 
   // Update HUD
   hudOverlay.update(gameState);
