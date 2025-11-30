@@ -2,8 +2,8 @@
 // Main Entry Point - Bootstrap & Update Loop
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import { GameState } from './core/state/GameState';
+import { GAME_CONFIG, EvolutionStage, World } from '@godcell/shared';
+import { createClientWorld, getLocalPlayer } from './ecs';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';
 import { eventBus } from './core/events/EventBus';
@@ -26,7 +26,7 @@ const debugMode = urlParams.has('debug');
 // Game State (initialized on start)
 // ============================================
 
-let gameState: GameState;
+let world: World;
 let socketManager: SocketManager;
 let inputManager: InputManager;
 let renderer: ThreeRenderer;
@@ -72,7 +72,8 @@ function initializeGame(settings: PreGameSettings): void {
   }
 
   // Core systems
-  gameState = new GameState();
+  // Create ECS World - this is the single source of truth
+  world = createClientWorld();
   inputManager = new InputManager();
 
   // Determine server URL
@@ -80,8 +81,8 @@ function initializeGame(settings: PreGameSettings): void {
     ? 'http://localhost:3000'
     : window.location.origin;
 
-  // Connect to server (pass playground mode for port switching)
-  socketManager = new SocketManager(serverUrl, gameState, settings.playgroundMode);
+  // Connect to server - SocketManager writes directly to World
+  socketManager = new SocketManager(serverUrl, world, settings.playgroundMode);
 
   // Setup console log forwarding to server (for debugging)
   setupLogForwarding(socketManager);
@@ -94,10 +95,10 @@ function initializeGame(settings: PreGameSettings): void {
     });
   }
 
-  // Initialize renderer
+  // Initialize renderer (pass world for render systems to query directly)
   renderer = new ThreeRenderer();
   const container = document.getElementById('game-container')!;
-  renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+  renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT, world);
 
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());
@@ -109,7 +110,7 @@ function initializeGame(settings: PreGameSettings): void {
   if (devMode) {
     devPanel = new DevPanel({
       socket: socketManager.getSocket(),
-      gameState,
+      world,
       renderer,
     });
     console.log('[Dev] Dev panel enabled - press H to toggle');
@@ -163,18 +164,18 @@ function update(): void {
   perfMonitor.tick();
 
   // Check if player is in first-person stage (Stage 4+) and update input mode
-  const myPlayer = gameState.getMyPlayer();
+  const myPlayer = getLocalPlayer(world);
   const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
   inputManager.setFirstPersonMode(isFirstPerson);
 
   // Update systems
   inputManager.update(dt);
 
-  // Render
-  renderer.render(gameState, dt);
+  // Render (renderer queries World directly)
+  renderer.render(dt);
 
   // Update HUD
-  hudOverlay.update(gameState);
+  hudOverlay.update(world);
 
   // Debug overlay
   if (debugOverlay) {

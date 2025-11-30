@@ -65,6 +65,9 @@ export const Tags = {
   Swarm: 'swarm',
   Pseudopod: 'pseudopod',
 
+  // Client-only tags
+  LocalPlayer: 'local_player', // The player controlled by this client
+
   // Transient per-tick tags (cleared at end of each tick)
   // Used for cross-system communication within a single game loop iteration
   SlowedThisTick: 'slowed_this_tick',

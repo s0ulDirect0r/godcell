@@ -27,18 +27,48 @@ import type {
   EMPActivatedMessage,
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
+  DamageSource,
 } from '@godcell/shared';
-import { GameState } from '../state/GameState';
+import {
+  World,
+  Tags,
+  Components,
+  upsertPlayer,
+  updatePlayerTarget,
+  removePlayer,
+  updatePlayerEnergy,
+  setPlayerEvolving,
+  updatePlayerEvolved,
+  upsertNutrient,
+  updateNutrientPosition,
+  removeNutrient,
+  upsertObstacle,
+  upsertSwarm,
+  updateSwarmTarget,
+  removeSwarm,
+  upsertPseudopod,
+  updatePseudopodPosition,
+  removePseudopod,
+  setPlayerDamageInfo,
+  clearPlayerDamageInfo,
+  setSwarmDamageInfo,
+  setLocalPlayer,
+  clearLookups,
+  getStringIdByEntity,
+} from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
 export class SocketManager {
   private socket: Socket;
-  private gameState: GameState;
+  private world: World;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
 
-  constructor(serverUrl: string, gameState: GameState, isPlaygroundParam = false) {
-    this.gameState = gameState;
+  // Local player ID - tracked here instead of GameState
+  private _myPlayerId: string | null = null;
+
+  constructor(serverUrl: string, world: World, isPlaygroundParam = false) {
+    this.world = world;
 
     // Check for playground mode - connects to separate server on port 3001
     // Can be enabled via URL param (?playground) OR passed directly from start screen
@@ -71,6 +101,13 @@ export class SocketManager {
    */
   getSocketId(): string | undefined {
     return this.socket.id;
+  }
+
+  /**
+   * Get local player ID
+   */
+  get myPlayerId(): string | null {
+    return this._myPlayerId;
   }
 
   /**
@@ -191,7 +228,7 @@ export class SocketManager {
     this.socket.on('connect', () => {
       console.log('[Socket] Connected:', this.socket.id);
       this.reconnectAttempts = 0;
-      this.gameState.myPlayerId = this.socket.id || null;
+      this._myPlayerId = this.socket.id || null;
       eventBus.emit({ type: 'client:socketConnected', socketId: this.socket.id || '' });
     });
 
@@ -211,45 +248,54 @@ export class SocketManager {
 
     // Game state snapshot
     this.socket.on('gameState', (data: GameStateMessage) => {
-      this.gameState.applySnapshot(data);
-      this.gameState.myPlayerId = this.socket.id || null;
+      this.applySnapshot(data);
+      this._myPlayerId = this.socket.id || null;
+      // Tag local player entity
+      if (this._myPlayerId) {
+        setLocalPlayer(this.world, this._myPlayerId);
+      }
       eventBus.emit(data);
     });
 
     // Player events
     this.socket.on('playerJoined', (data: PlayerJoinedMessage) => {
-      this.gameState.upsertPlayer(data.player);
+      upsertPlayer(this.world, data.player);
       eventBus.emit(data);
     });
 
     this.socket.on('playerLeft', (data: PlayerLeftMessage) => {
-      this.gameState.removePlayer(data.playerId);
+      removePlayer(this.world, data.playerId);
       eventBus.emit(data);
     });
 
     this.socket.on('playerMoved', (data: PlayerMovedMessage) => {
-      this.gameState.updatePlayerTarget(data.playerId, data.position.x, data.position.y);
+      updatePlayerTarget(this.world, data.playerId, data.position.x, data.position.y);
       eventBus.emit(data);
     });
 
     this.socket.on('playerRespawned', (data: PlayerRespawnedMessage) => {
-      this.gameState.upsertPlayer(data.player);
+      upsertPlayer(this.world, data.player);
+      // Re-tag local player if this is us respawning
+      if (data.player.id === this._myPlayerId) {
+        setLocalPlayer(this.world, this._myPlayerId);
+      }
       eventBus.emit(data);
     });
 
     this.socket.on('playerDied', (data: PlayerDiedMessage) => {
-      // Remove dead player from game state so they don't get rendered
-      this.gameState.removePlayer(data.playerId);
+      // Emit event BEFORE removing player so listeners can still query local player ID
       eventBus.emit(data);
+      // Remove dead player from game state so they don't get rendered
+      removePlayer(this.world, data.playerId);
     });
 
     this.socket.on('playerEvolutionStarted', (data: PlayerEvolutionStartedMessage) => {
-      this.gameState.setPlayerEvolving(data.playerId, true);
+      setPlayerEvolving(this.world, data.playerId, true);
       eventBus.emit(data);
     });
 
     this.socket.on('playerEvolved', (data: PlayerEvolvedMessage) => {
-      this.gameState.updatePlayerEvolved(data.playerId, data.newStage, data.newMaxEnergy);
+      updatePlayerEvolved(this.world, data.playerId, data.newStage, data.newMaxEnergy);
       eventBus.emit(data);
     });
 
@@ -259,52 +305,52 @@ export class SocketManager {
 
     // Nutrient events
     this.socket.on('nutrientSpawned', (data: NutrientSpawnedMessage) => {
-      this.gameState.upsertNutrient(data.nutrient);
+      upsertNutrient(this.world, data.nutrient);
       eventBus.emit(data);
     });
 
     this.socket.on('nutrientCollected', (data: NutrientCollectedMessage) => {
-      this.gameState.removeNutrient(data.nutrientId);
+      removeNutrient(this.world, data.nutrientId);
       // Update collector's energy and maxEnergy
-      this.gameState.updatePlayerEnergy(data.playerId, data.collectorEnergy, data.collectorMaxEnergy);
+      updatePlayerEnergy(this.world, data.playerId, data.collectorEnergy, data.collectorMaxEnergy);
       eventBus.emit(data);
     });
 
     this.socket.on('nutrientMoved', (data: NutrientMovedMessage) => {
-      this.gameState.updateNutrientPosition(data.nutrientId, data.position.x, data.position.y);
+      updateNutrientPosition(this.world, data.nutrientId, data.position.x, data.position.y);
       eventBus.emit(data);
     });
 
     // Energy updates (energy is the sole life resource)
     this.socket.on('energyUpdate', (data: EnergyUpdateMessage) => {
-      this.gameState.updatePlayerEnergy(data.playerId, data.energy);
+      updatePlayerEnergy(this.world, data.playerId, data.energy);
       eventBus.emit(data);
     });
 
     // Swarm events
     this.socket.on('swarmSpawned', (data: SwarmSpawnedMessage) => {
-      this.gameState.upsertSwarm(data.swarm);
+      upsertSwarm(this.world, data.swarm);
       eventBus.emit(data);
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
-      this.gameState.updateSwarmTarget(data.swarmId, data.position.x, data.position.y, data.disabledUntil);
+      updateSwarmTarget(this.world, data.swarmId, data.position.x, data.position.y, data.disabledUntil);
       eventBus.emit(data);
     });
 
     // Pseudopod events
     this.socket.on('pseudopodSpawned', (data: PseudopodSpawnedMessage) => {
-      this.gameState.upsertPseudopod(data.pseudopod);
+      upsertPseudopod(this.world, data.pseudopod);
       eventBus.emit(data);
     });
 
     this.socket.on('pseudopodMoved', (data: PseudopodMovedMessage) => {
-      this.gameState.updatePseudopodPosition(data.pseudopodId, data.position.x, data.position.y);
+      updatePseudopodPosition(this.world, data.pseudopodId, data.position.x, data.position.y);
       eventBus.emit(data);
     });
 
     this.socket.on('pseudopodRetracted', (data: PseudopodRetractedMessage) => {
-      this.gameState.removePseudopod(data.pseudopodId);
+      removePseudopod(this.world, data.pseudopodId);
       eventBus.emit(data);
     });
 
@@ -326,18 +372,94 @@ export class SocketManager {
     // Swarm consumption (multi-cell eating disabled swarm)
     this.socket.on('swarmConsumed', (data: SwarmConsumedMessage) => {
       // Remove consumed swarm from game state
-      this.gameState.removeSwarm(data.swarmId);
+      removeSwarm(this.world, data.swarmId);
       eventBus.emit(data);
     });
 
     this.socket.on('playerDrainState', (data: PlayerDrainStateMessage) => {
-      // Update game state with damage info for variable-intensity drain auras
-      this.gameState.updateDamageInfo(data.damageInfo, data.swarmDamageInfo);
-
-      // DEPRECATED: Also update old drain sets for backwards compatibility
-      this.gameState.updateDrainedPlayers(data.drainedPlayerIds, data.drainedSwarmIds);
-
+      // Update damage info for variable-intensity drain auras
+      this.updateDamageInfo(data.damageInfo, data.swarmDamageInfo);
       eventBus.emit(data);
     });
+  }
+
+  // ============================================
+  // Private Helpers
+  // ============================================
+
+  /**
+   * Apply full game state snapshot from server.
+   * Clears existing state and populates from snapshot.
+   */
+  private applySnapshot(snapshot: GameStateMessage): void {
+    // Clear existing state
+    this.resetWorld();
+
+    // Populate from snapshot
+    Object.values(snapshot.players).forEach(p => upsertPlayer(this.world, p));
+    Object.values(snapshot.nutrients).forEach(n => upsertNutrient(this.world, n));
+    Object.values(snapshot.obstacles).forEach(o => upsertObstacle(this.world, o));
+    Object.values(snapshot.swarms).forEach(s => upsertSwarm(this.world, s));
+  }
+
+  /**
+   * Reset all world entities (for cleanup/reconnection).
+   */
+  private resetWorld(): void {
+    // Collect entities first to avoid modifying during iteration
+    const toDestroy: number[] = [];
+    this.world.forEachWithTag(Tags.Player, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Nutrient, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Obstacle, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Swarm, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Pseudopod, (entity) => toDestroy.push(entity));
+    toDestroy.forEach(entity => this.world.destroyEntity(entity));
+
+    // Clear string ID lookups
+    clearLookups();
+  }
+
+  /**
+   * Update damage info for players and swarms.
+   */
+  private updateDamageInfo(
+    damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }>,
+    swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }>
+  ): void {
+    // Clear existing damage info from all players
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const playerId = getStringIdByEntity(entity);
+      if (playerId) {
+        clearPlayerDamageInfo(this.world, playerId);
+      }
+    });
+
+    // Set new damage info
+    for (const [id, info] of Object.entries(damageInfo)) {
+      setPlayerDamageInfo(
+        this.world,
+        id,
+        info.totalDamageRate,
+        info.primarySource,
+        info.proximityFactor
+      );
+    }
+
+    // Clear existing damage info from all swarms
+    this.world.forEachWithTag(Tags.Swarm, (entity) => {
+      if (this.world.hasComponent(entity, Components.ClientDamageInfo)) {
+        this.world.removeComponent(entity, Components.ClientDamageInfo);
+      }
+    });
+
+    // Set new swarm damage info
+    for (const [id, info] of Object.entries(swarmDamageInfo)) {
+      setSwarmDamageInfo(
+        this.world,
+        id,
+        info.totalDamageRate,
+        info.primarySource
+      );
+    }
   }
 }

@@ -15,8 +15,8 @@ import {
   type Position,
   type TunableConfigKey,
 } from '@godcell/shared';
-import type { GameState } from '../core/state/GameState';
 import type { ThreeRenderer } from '../render/three/ThreeRenderer';
+import { type World, getLocalPlayerId, getPlayer } from '../ecs';
 
 // ============================================
 // Types
@@ -24,7 +24,7 @@ import type { ThreeRenderer } from '../render/three/ThreeRenderer';
 
 interface DevPanelOptions {
   socket: Socket;
-  gameState: GameState;
+  world: World;
   renderer?: ThreeRenderer;
 }
 
@@ -96,7 +96,7 @@ const CONFIG_RANGES: Partial<Record<TunableConfigKey, ConfigValue>> = {
 export class DevPanel {
   private gui: GUI;
   private socket: Socket;
-  private gameState: GameState;
+  private world: World;
   private renderer?: ThreeRenderer;
 
   // Current config values (synced with server)
@@ -137,7 +137,7 @@ export class DevPanel {
 
   constructor(options: DevPanelOptions) {
     this.socket = options.socket;
-    this.gameState = options.gameState;
+    this.world = options.world;
     this.renderer = options.renderer;
 
     // Initialize config values from GAME_CONFIG
@@ -305,7 +305,7 @@ export class DevPanel {
     playerFolder.add(this.playerControls, 'targetEnergy', 0, 10000, 10)
       .name('Set Energy')
       .onFinishChange((value: number) => {
-        const playerId = this.gameState.myPlayerId;
+        const playerId = getLocalPlayerId(this.world);
         if (playerId) {
           this.sendDevCommand({
             action: 'setPlayerEnergy',
@@ -325,7 +325,7 @@ export class DevPanel {
     })
       .name('Set Stage')
       .onChange((stage: EvolutionStage) => {
-        const playerId = this.gameState.myPlayerId;
+        const playerId = getLocalPlayerId(this.world);
         if (playerId) {
           this.sendDevCommand({
             action: 'setPlayerStage',
@@ -423,9 +423,8 @@ export class DevPanel {
   }
 
   private spawnAtPlayer(): void {
-    const player = this.gameState.myPlayerId
-      ? this.gameState.players.get(this.gameState.myPlayerId)
-      : null;
+    const playerId = getLocalPlayerId(this.world);
+    const player = playerId ? getPlayer(this.world, playerId) : null;
 
     if (player) {
       // Offset slightly from player
@@ -461,21 +460,20 @@ export class DevPanel {
   }
 
   private refillEnergy(): void {
-    const player = this.gameState.myPlayerId
-      ? this.gameState.players.get(this.gameState.myPlayerId)
-      : null;
+    const playerId = getLocalPlayerId(this.world);
+    const player = playerId ? getPlayer(this.world, playerId) : null;
 
-    if (player) {
+    if (player && playerId) {
       this.sendDevCommand({
         action: 'setPlayerEnergy',
-        playerId: player.id,
+        playerId: playerId,
         energy: player.maxEnergy,
       });
     }
   }
 
   private maxEverything(): void {
-    const playerId = this.gameState.myPlayerId;
+    const playerId = getLocalPlayerId(this.world);
     if (playerId) {
       // Set to godcell stage
       this.sendDevCommand({
