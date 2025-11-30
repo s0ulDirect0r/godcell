@@ -108,9 +108,10 @@ export function updateCompassIndicators(
     arrow.position.z = -Math.sin(angle) * ringRadius;
 
     // Rotate arrow to lie flat on XZ plane and point outward
-    // First rotate -90° around X to lay flat, then rotate around Y to point outward
+    // First rotate -90° around X to lay flat (arrow now points +Z)
+    // Then rotate around Y to point toward entity (offset by π/2 for initial +Z orientation)
     arrow.rotation.x = -Math.PI / 2;
-    arrow.rotation.y = -angle; // Rotate around Y to point toward entity
+    arrow.rotation.y = -angle - Math.PI / 2;
 
     compassGroup.add(arrow);
   }
