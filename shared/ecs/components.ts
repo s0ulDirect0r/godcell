@@ -163,6 +163,17 @@ export interface ObstacleComponent {
 }
 
 /**
+ * Tree - digital jungle tree (Stage 3+ environment).
+ * Static obstacle that blocks movement for jungle-scale players.
+ * Invisible and intangible to soup-scale (Stage 1-2) players.
+ */
+export interface TreeComponent {
+  radius: number;    // Collision radius (trunk size)
+  height: number;    // Visual height for rendering
+  variant: number;   // Seed for procedural generation (0-1)
+}
+
+/**
  * Swarm - entropy swarm (virus enemy).
  * Hunts players and drains their energy.
  */

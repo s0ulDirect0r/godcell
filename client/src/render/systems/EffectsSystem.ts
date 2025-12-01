@@ -1,6 +1,7 @@
 // ============================================
 // EffectsSystem - Manages all particle effects and animations
 // Owns death bursts, evolution particles, EMP pulses, spawn animations, etc.
+// Stage-filtered: clears soup-specific effects when entering jungle mode
 // ============================================
 
 import * as THREE from 'three';
@@ -202,6 +203,59 @@ export class EffectsSystem {
     const receivingEnergy = updateEnergyTransferAnimations(this.scene, this.energyTransferAnimations, dt);
 
     return { spawnProgress, receivingEnergy };
+  }
+
+  // ============================================
+  // Render Mode Filtering
+  // ============================================
+
+  /**
+   * Clear soup-specific effects when transitioning to jungle mode
+   * Soup effects (death bursts, spawn particles, energy transfers) shouldn't
+   * persist when viewing the jungle world
+   */
+  clearSoupEffects(): void {
+    // Clear death animations (soup entity deaths)
+    this.deathAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.deathAnimations = [];
+
+    // Clear spawn animations (soup entity spawns)
+    this.spawnAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.spawnAnimations = [];
+
+    // Clear energy transfer animations (soup energy flows)
+    this.energyTransferAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.energyTransferAnimations = [];
+
+    // Clear swarm death animations (soup enemies)
+    this.swarmDeathAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.swarmDeathAnimations = [];
+
+    // Clear EMP effects (multi-cell ability visual)
+    this.empEffects.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.empEffects = [];
+
+    this.spawningEntities.clear();
   }
 
   // ============================================

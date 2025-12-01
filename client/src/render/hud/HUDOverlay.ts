@@ -234,8 +234,8 @@ export class HUDOverlay {
     this.countdown.style.color = timerColor;
     this.countdown.style.textShadow = `0 0 10px ${timerColor}`;
 
-    // Update EMP cooldown (Stage 2+ only)
-    if (myPlayer.stage !== EvolutionStage.SINGLE_CELL) {
+    // Update EMP cooldown (Stage 2 / multi-cell only)
+    if (myPlayer.stage === EvolutionStage.MULTI_CELL) {
       this.empCooldown.style.display = 'block';
 
       const now = Date.now();

@@ -35,8 +35,7 @@ const JUNGLE_CONFIG = {
   FP_GROUND_GRID_SPACING: 100, // Grid line spacing in game units
 
   // Soup pool visualization (visible from jungle view)
-  // User wants this SMALL - about 2x player size, not full soup dimensions
-  SOUP_POOL_RADIUS: 300, // ~2x cyber-organism radius (144)
+  // Uses shared GAME_CONFIG.SOUP_POOL_RADIUS for consistency with tree spawning
   SOUP_POOL_FILL_COLOR: 0x001830, // Dark blue-cyan fill
   SOUP_POOL_FILL_OPACITY: 0.6, // More visible
   SOUP_POOL_GLOW_COLOR: 0x00ffff, // Cyan glow
@@ -156,7 +155,7 @@ function createSoupPool(group: THREE.Group): {
   // Center of the soup region
   const centerX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
   const centerY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2;
-  const poolRadius = JUNGLE_CONFIG.SOUP_POOL_RADIUS;
+  const poolRadius = GAME_CONFIG.SOUP_POOL_RADIUS;
   const glowSize = JUNGLE_CONFIG.SOUP_POOL_GLOW_SIZE;
 
   // Height positions: glow below fill, fill below activity dots
@@ -387,7 +386,7 @@ export function updateSoupActivity(
   // Center of the soup region
   const centerX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
   const centerY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2;
-  const poolRadius = JUNGLE_CONFIG.SOUP_POOL_RADIUS;
+  const poolRadius = GAME_CONFIG.SOUP_POOL_RADIUS;
 
   for (let i = 0; i < activityData.length; i++) {
     const dot = activityData[i];

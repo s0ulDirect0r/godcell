@@ -36,6 +36,10 @@ import {
   removeEvolutionEffects,
   applyEvolutionEffects,
 } from './render/three/EvolutionVisuals';
+import {
+  createDataTree,
+  updateDataTreeAnimation,
+} from './render/meshes/DataTreeMesh';
 
 // Game's neon color palette (matches shared/index.ts CELL_COLORS)
 const CELL_COLORS = [
@@ -63,7 +67,7 @@ let gui: GUI;
 let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
-let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
+let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'tree' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let lastTime = 0;
 let energyDirection = -1; // -1 = draining, 1 = filling
@@ -177,7 +181,7 @@ function initGUI() {
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
   entityFolder.add({ type: currentEntityType }, 'type', [
-    'single-cell', 'multi-cell', 'cyber-organism', 'swarm', 'obstacle', 'nutrient', 'all'
+    'single-cell', 'multi-cell', 'cyber-organism', 'tree', 'swarm', 'obstacle', 'nutrient', 'all'
   ])
     .name('Entity Type')
     .onChange((value: typeof currentEntityType) => {
@@ -384,6 +388,34 @@ function updateModels() {
       break;
     }
 
+    case 'tree': {
+      // Show trees at different sizes (min, mid, max from GAME_CONFIG)
+      // TREE_MIN_RADIUS: 40, TREE_MAX_RADIUS: 120
+      // TREE_MIN_HEIGHT: 100, TREE_MAX_HEIGHT: 400
+      const spacing = 300;
+
+      // Small tree
+      const smallTree = createDataTree(40, 100, 0.2);
+      smallTree.position.set(-spacing, 0, 0);
+      scene.add(smallTree);
+      models.push(smallTree);
+
+      // Medium tree
+      const medTree = createDataTree(80, 250, 0.5);
+      medTree.position.set(0, 0, 0);
+      scene.add(medTree);
+      models.push(medTree);
+
+      // Large tree
+      const largeTree = createDataTree(120, 400, 0.8);
+      largeTree.position.set(spacing, 0, 0);
+      scene.add(largeTree);
+      models.push(largeTree);
+
+      camera.position.set(0, 200, 800);
+      break;
+    }
+
     case 'swarm': {
       const swarm = createEntropySwarm(40);
       swarm.position.set(0, 0, 0);
@@ -564,6 +596,9 @@ function animate(currentTime: number = 0) {
       // Cyber-organism - animate legs and energy glow
       updateCyberOrganismEnergy(model, energy / 100);
       updateCyberOrganismAnimation(model, animState.autoAnimate, deltaTime);
+    } else if (model instanceof THREE.Group && model.name === 'dataTree') {
+      // Data tree - animate glow pulse and sway
+      updateDataTreeAnimation(model, deltaTime * 1000); // Convert to ms
     } else if (model instanceof THREE.Group && model.userData.crystalSize) {
       // It's a 3D nutrient crystal - animate rotation and inner core pulsing
       const { rotationSpeed, bobPhase } = model.userData;

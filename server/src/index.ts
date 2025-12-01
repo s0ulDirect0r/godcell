@@ -44,6 +44,7 @@ import {
   createWorld,
   createPlayer as ecsCreatePlayer,
   createObstacle,
+  createTree,
   createSwarm as ecsCreateSwarm,
   createPseudopod as ecsCreatePseudopod,
   destroyEntity as ecsDestroyEntity,
@@ -59,6 +60,8 @@ import {
   buildObstaclesRecord,
   getAllObstacleSnapshots,
   getObstacleCount,
+  buildTreesRecord,
+  getTreeCount,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -96,6 +99,7 @@ import {
   PseudopodSystem,
   PredationSystem,
   SwarmCollisionSystem,
+  TreeCollisionSystem,
   MovementSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
@@ -108,6 +112,7 @@ import {
   distance,
   rayCircleIntersection,
   poissonDiscSampling,
+  gridJitterDistribution,
   // Stage helpers
   getStageMaxEnergy,
   getEnergyDecayRate,
@@ -267,6 +272,87 @@ function initializeObstacles() {
 }
 
 /**
+ * Initialize digital jungle trees using Bridson's Poisson Disc Sampling
+ * Trees are Stage 3+ obstacles that block movement (hard collision).
+ * Trees spawn in the jungle area, avoiding the soup region.
+ *
+ * Multi-scale architecture:
+ * - Stage 1-2 (soup): Cannot see or collide with trees (invisible/intangible)
+ * - Stage 3+ (jungle): Trees are visible obstacles requiring navigation
+ */
+function initializeTrees() {
+  let treeIdCounter = 0;
+
+  // Trees spawn in the full jungle, avoiding the soup region where Stage 1-2 players live
+  // Soup region is centered in the jungle
+  // Trees avoid only the small visual soup pool (not the entire soup region)
+  // This creates a forest around the pool where Stage 3 players spawn
+  const soupAvoidanceZone = {
+    position: {
+      x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
+      y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
+    },
+    // Only avoid the visual pool (300px) + small buffer, NOT the soup gameplay region
+    radius: GAME_CONFIG.SOUP_POOL_RADIUS + GAME_CONFIG.TREE_POOL_BUFFER,
+  };
+
+  logger.info({
+    event: 'tree_avoidance_zone',
+    center: soupAvoidanceZone.position,
+    radius: soupAvoidanceZone.radius,
+    jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
+  });
+
+  // Generate tree positions using Poisson disc sampling for organic distribution
+  // Let Poisson disc fill naturally - no maxPoints cap
+  const treePositions = poissonDiscSampling(
+    GAME_CONFIG.JUNGLE_WIDTH,
+    GAME_CONFIG.JUNGLE_HEIGHT,
+    GAME_CONFIG.TREE_MIN_SPACING,
+    Infinity, // No cap - let it fill naturally
+    [], // No existing points
+    [soupAvoidanceZone] // Avoid the pool itself
+  );
+
+  // Log sample of tree positions for debugging distribution
+  if (treePositions.length > 0) {
+    const sample = treePositions.slice(0, 5);
+    logger.info({
+      event: 'tree_positions_sample',
+      samplePositions: sample.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+      bounds: {
+        minX: Math.round(Math.min(...treePositions.map(p => p.x))),
+        maxX: Math.round(Math.max(...treePositions.map(p => p.x))),
+        minY: Math.round(Math.min(...treePositions.map(p => p.y))),
+        maxY: Math.round(Math.max(...treePositions.map(p => p.y))),
+      },
+    });
+  }
+
+  // Create trees from generated positions
+  for (const position of treePositions) {
+    const treeId = `tree-${treeIdCounter++}`;
+
+    // Randomize tree size within configured bounds
+    const radius = GAME_CONFIG.TREE_MIN_RADIUS +
+      Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
+    const height = GAME_CONFIG.TREE_MIN_HEIGHT +
+      Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
+    const variant = Math.random(); // Seed for procedural generation (0-1)
+
+    createTree(world, treeId, position, radius, height, variant);
+  }
+
+  const treeCount = getTreeCount(world);
+  logger.info({
+    event: 'trees_spawned',
+    count: treeCount,
+    spacing: GAME_CONFIG.TREE_MIN_SPACING,
+    jungleSize: `${GAME_CONFIG.JUNGLE_WIDTH}x${GAME_CONFIG.JUNGLE_HEIGHT}`,
+  });
+}
+
+/**
  * Respawn a dead player - reset to single-cell at random location
  * Uses ECS as source of truth.
  */
@@ -354,6 +440,7 @@ if (isPlayground) {
   // Initialize game world (normal mode)
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
+  initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
   initializeNutrients();
   // Set ECS world for bots before initializing
   setBotEcsWorld(world);
@@ -403,6 +490,7 @@ systemRunner.register(new SwarmAISystem(), SystemPriority.SWARM_AI);
 systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
 systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
+systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
 systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
@@ -452,6 +540,7 @@ io.on('connection', (socket) => {
     nutrients: buildNutrientsRecord(world),
     obstacles: buildObstaclesRecord(world),
     swarms: buildSwarmsRecord(world),
+    trees: buildTreesRecord(world),
   };
   socket.emit('gameState', gameState);
 

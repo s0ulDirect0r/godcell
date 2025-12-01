@@ -272,8 +272,10 @@ export class PlayerRenderSystem {
 
         // Add white stroke outline for client player
         if (isMyPlayer) {
-          const outlineGeometry = this.getGeometry(`ring-outline-${radius}`, () =>
-            new THREE.RingGeometry(radius, radius + 3, 32)
+          // Outline radius accounts for visual extent (legs extend beyond body for cyber-organism)
+          const outlineRadius = this.getOutlineRadius(player.stage, radius);
+          const outlineGeometry = this.getGeometry(`ring-outline-${outlineRadius}`, () =>
+            new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
           );
           // Don't cache outline material - needs to change color and opacity dynamically
           const outlineMaterial = new THREE.MeshStandardMaterial({
@@ -330,16 +332,24 @@ export class PlayerRenderSystem {
           outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
         }
 
-        // Update compass indicators
+        // Update compass indicators (multi-cell only - chemical sensing ability)
         if (isMyPlayer) {
-          this.compassIndicators = updateCompassIndicators(
-            this.scene,
-            this.compassIndicators,
-            this.detectedEntities,
-            { x: player.position.x, y: player.position.y },
-            radius,
-            player.stage
-          );
+          const isMultiCell = player.stage === EvolutionStageEnum.MULTI_CELL;
+          if (isMultiCell) {
+            this.compassIndicators = updateCompassIndicators(
+              this.scene,
+              this.compassIndicators,
+              this.detectedEntities,
+              { x: player.position.x, y: player.position.y },
+              radius,
+              player.stage
+            );
+          } else if (this.compassIndicators) {
+            // Clear compass for jungle stages
+            disposeCompassIndicators(this.compassIndicators);
+            this.scene.remove(this.compassIndicators);
+            this.compassIndicators = null;
+          }
         }
       }
 
@@ -505,10 +515,27 @@ export class PlayerRenderSystem {
     if (stage === 'godcell') {
       return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
     }
+    if (stage === 'humanoid') {
+      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
+    }
+    if (stage === 'cyber_organism') {
+      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
+    }
     if (stage === 'multi_cell') {
       return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
     }
     return GAME_CONFIG.PLAYER_SIZE;
+  }
+
+  /**
+   * Get outline radius - accounts for visual extent of creature
+   * Cyber-organism has legs + long tail extending beyond body
+   */
+  getOutlineRadius(stage: string, bodyRadius: number): number {
+    if (stage === 'cyber_organism') {
+      return bodyRadius * 2.8; // Legs + tail extend well beyond body
+    }
+    return bodyRadius;
   }
 
   /**
@@ -522,10 +549,11 @@ export class PlayerRenderSystem {
     this.scene.remove(oldOutline);
     (oldOutline.material as THREE.Material).dispose();
 
-    // Create new outline with correct size
-    const newRadius = this.getPlayerRadius(stage);
-    const outlineGeometry = this.getGeometry(`ring-outline-${newRadius}`, () =>
-      new THREE.RingGeometry(newRadius, newRadius + 3, 32)
+    // Create new outline with correct size (accounting for visual extent)
+    const bodyRadius = this.getPlayerRadius(stage);
+    const outlineRadius = this.getOutlineRadius(stage, bodyRadius);
+    const outlineGeometry = this.getGeometry(`ring-outline-${outlineRadius}`, () =>
+      new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
     );
     const outlineMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -819,17 +847,25 @@ export class PlayerRenderSystem {
       outline.position.z = cellGroup.position.z;
     }
 
-    // Update compass indicators for client player
+    // Update compass indicators for client player (multi-cell only)
     // XZ plane: game Y maps to -Z
     if (isMyPlayer) {
-      this.compassIndicators = updateCompassIndicators(
-        this.scene,
-        this.compassIndicators,
-        this.detectedEntities,
-        { x: cellGroup.position.x, y: -cellGroup.position.z },
-        radius,
-        stage as EvolutionStage
-      );
+      const isMultiCell = stage === 'multi_cell';
+      if (isMultiCell) {
+        this.compassIndicators = updateCompassIndicators(
+          this.scene,
+          this.compassIndicators,
+          this.detectedEntities,
+          { x: cellGroup.position.x, y: -cellGroup.position.z },
+          radius,
+          stage as EvolutionStage
+        );
+      } else if (this.compassIndicators) {
+        // Clear compass for jungle stages
+        disposeCompassIndicators(this.compassIndicators);
+        this.scene.remove(this.compassIndicators);
+        this.compassIndicators = null;
+      }
     }
   }
 

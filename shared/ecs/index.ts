@@ -30,6 +30,7 @@ export type {
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
+  TreeComponent,
   // Ability components
   CanFireEMPComponent,
   CanFirePseudopodComponent,

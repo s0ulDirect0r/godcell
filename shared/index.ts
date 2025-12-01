@@ -101,6 +101,15 @@ export interface Pseudopod {
   color: string;            // Owner's color (for rendering)
 }
 
+// A digital jungle tree (Stage 3+ environment obstacle)
+export interface Tree {
+  id: string;
+  position: Position;
+  radius: number;   // Collision radius (trunk size)
+  height: number;   // Visual height for rendering
+  variant: number;  // Seed for procedural generation (0-1)
+}
+
 // ============================================
 // Network Messages (Client → Server)
 // ============================================
@@ -143,6 +152,7 @@ export interface GameStateMessage {
   nutrients: Record<string, Nutrient>; // Map of nutrientId → Nutrient
   obstacles: Record<string, Obstacle>; // Map of obstacleId → Obstacle
   swarms: Record<string, EntropySwarm>; // Map of swarmId → EntropySwarm
+  trees?: Record<string, Tree>; // Map of treeId → Tree (Stage 3+ jungle environment)
 }
 
 export interface PlayerJoinedMessage {
@@ -665,8 +675,8 @@ export const GAME_CONFIG = {
   // Size multipliers (visual presence and intimidation)
   SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (10px radius)
   MULTI_CELL_SIZE_MULTIPLIER: 10,       // 10x larger (100px radius) - order of magnitude jump!
-  CYBER_ORGANISM_SIZE_MULTIPLIER: 14.4, // 14.4x larger (144px radius)
-  HUMANOID_SIZE_MULTIPLIER: 19.2,       // 19.2x larger (192px radius)
+  CYBER_ORGANISM_SIZE_MULTIPLIER: 14.4, // 14.4x larger (144px radius) - jungle scale
+  HUMANOID_SIZE_MULTIPLIER: 19.2,       // 19.2x larger (192px radius) - humanoid scale
   GODCELL_SIZE_MULTIPLIER: 28.8,        // 28.8x larger (288px radius) - transcendent scale
 
   // Multi-cell detection (chemical sensing)
@@ -686,6 +696,16 @@ export const GAME_CONFIG = {
   PSEUDOPOD_DRAIN_RATE: 100,             // Energy drained per hit
   PSEUDOPOD_COOLDOWN: 1000,              // Milliseconds between beam fires
   MULTICELL_KILL_ABSORPTION: 0.8,        // Gain 80% of victim's maxEnergy when killing another multi-cell
+
+  // Digital Jungle Trees (Stage 3+ environment obstacles)
+  TREE_COUNT: 80,                     // Number of trees to spawn (~75-100 for medium density)
+  TREE_MIN_RADIUS: 40,                // Small bush collision radius
+  TREE_MAX_RADIUS: 120,               // Large ancient tree collision radius
+  TREE_MIN_HEIGHT: 100,               // Small bush visual height
+  TREE_MAX_HEIGHT: 400,               // Large ancient tree visual height
+  TREE_MIN_SPACING: 800,              // Minimum distance between trees (Poisson disc fills naturally)
+  SOUP_POOL_RADIUS: 300,              // Visual pool radius in jungle (represents soup world)
+  TREE_POOL_BUFFER: 100,              // Buffer around soup pool for tree spawning
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

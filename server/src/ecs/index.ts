@@ -112,8 +112,14 @@ export {
   forEachDrainTarget,
   // Damage tracking helpers
   recordDamage,
+  // Tree query helpers
+  createTree,
+  forEachTree,
+  getAllTreeSnapshots,
+  getTreeCount,
+  buildTreesRecord,
 } from './factories';
-export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot } from './factories';
+export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot, TreeSnapshot } from './factories';
 
 // Systems
 export * from './systems';

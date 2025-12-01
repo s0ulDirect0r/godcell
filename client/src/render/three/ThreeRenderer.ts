@@ -13,6 +13,7 @@ import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { TrailSystem } from '../systems/TrailSystem';
 import { NutrientRenderSystem } from '../systems/NutrientRenderSystem';
 import { ObstacleRenderSystem } from '../systems/ObstacleRenderSystem';
+import { TreeRenderSystem } from '../systems/TreeRenderSystem';
 import { SwarmRenderSystem } from '../systems/SwarmRenderSystem';
 import { PseudopodRenderSystem } from '../systems/PseudopodRenderSystem';
 import { EffectsSystem } from '../systems/EffectsSystem';
@@ -41,6 +42,9 @@ export class ThreeRenderer implements Renderer {
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
 
+  // Debug counter for throttled logging
+  private _debugTreeLogCounter = 0;
+
   // ECS World reference (for render systems to query directly)
   private world!: World;
 
@@ -67,6 +71,9 @@ export class ThreeRenderer implements Renderer {
 
   // Obstacle render system (owns obstacle meshes)
   private obstacleRenderSystem!: ObstacleRenderSystem;
+
+  // Tree render system (owns jungle tree meshes, Stage 3+ only)
+  private treeRenderSystem!: TreeRenderSystem;
 
   // Swarm render system (owns swarm meshes, particles, interpolation)
   private swarmRenderSystem!: SwarmRenderSystem;
@@ -127,6 +134,10 @@ export class ThreeRenderer implements Renderer {
     this.obstacleRenderSystem = new ObstacleRenderSystem();
     this.obstacleRenderSystem.init(this.scene, this.world);
 
+    // Create tree render system (owns jungle tree meshes, Stage 3+ only)
+    this.treeRenderSystem = new TreeRenderSystem();
+    this.treeRenderSystem.init(this.scene, this.world);
+
     // Create swarm render system (owns entropy swarm meshes)
     this.swarmRenderSystem = new SwarmRenderSystem();
     this.swarmRenderSystem.init(this.scene, this.world);
@@ -160,7 +171,8 @@ export class ThreeRenderer implements Renderer {
         const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
         const color = this.playerRenderSystem.getPlayerColor(event.playerId);
 
-        if (position) {
+        // Only spawn death effects in soup mode (soup-scale visual)
+        if (position && this.environmentSystem.getMode() === 'soup') {
           this.effectsSystem.spawnDeathBurst(position.x, position.y, color);
         }
 
@@ -222,13 +234,18 @@ export class ThreeRenderer implements Renderer {
         this.playerRenderSystem.setDetectedEntities(event.detected);
       });
 
-      // EMP activation - spawn visual pulse effect
+      // EMP activation - spawn visual pulse effect (soup-scale ability)
       eventBus.on('empActivated', (event) => {
-        this.effectsSystem.spawnEMP(event.position.x, event.position.y);
+        if (this.environmentSystem.getMode() === 'soup') {
+          this.effectsSystem.spawnEMP(event.position.x, event.position.y);
+        }
       });
 
-      // Swarm consumed - spawn death explosion + energy transfer to consumer
+      // Swarm consumed - spawn death explosion + energy transfer to consumer (soup-scale)
       eventBus.on('swarmConsumed', (event) => {
+        // Only spawn effects in soup mode
+        if (this.environmentSystem.getMode() !== 'soup') return;
+
         // Get swarm position before removal (system returns game coordinates)
         const position = this.swarmRenderSystem.getSwarmPosition(event.swarmId);
         const consumerPos = this.playerRenderSystem.getPlayerPosition(event.consumerId);
@@ -252,6 +269,9 @@ export class ThreeRenderer implements Renderer {
       });
 
       eventBus.on('pseudopodHit', (event) => {
+        // Only spawn hit effects in soup mode (soup-scale combat)
+        if (this.environmentSystem.getMode() !== 'soup') return;
+
         // Spawn red spark explosion at hit location
         this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
@@ -263,22 +283,25 @@ export class ThreeRenderer implements Renderer {
         // continuous energy detection in updateGainAuras).
       });
 
-      // === Spawn animations for entity materialization ===
+      // === Spawn animations for entity materialization (soup-scale only) ===
 
-      // Player joined - trigger spawn animation
+      // Player joined - trigger spawn animation (soup mode only)
       eventBus.on('playerJoined', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
         this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
       });
 
-      // Player respawned - trigger spawn animation
+      // Player respawned - trigger spawn animation (soup mode only)
       eventBus.on('playerRespawned', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
         this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
       });
 
-      // Nutrient spawned - trigger spawn animation
+      // Nutrient spawned - trigger spawn animation (soup mode only)
       eventBus.on('nutrientSpawned', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         // Get color based on value multiplier
         let colorHex = GAME_CONFIG.NUTRIENT_COLOR;
         if (event.nutrient.valueMultiplier >= 5) {
@@ -291,15 +314,17 @@ export class ThreeRenderer implements Renderer {
         this.effectsSystem.spawnMaterialize(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
       });
 
-      // Swarm spawned - trigger spawn animation
+      // Swarm spawned - trigger spawn animation (soup mode only)
       eventBus.on('swarmSpawned', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         this.effectsSystem.spawnMaterialize(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
       });
 
-      // === Energy gain visual feedback ===
+      // === Energy gain visual feedback (soup-scale only) ===
 
-      // Nutrient collected - trigger energy transfer particles and gain aura
+      // Nutrient collected - trigger energy transfer particles (soup mode only)
       eventBus.on('nutrientCollected', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         // Get nutrient position from cache (before it's removed)
         const nutrientPos = this.nutrientRenderSystem.getNutrientPosition(event.nutrientId);
         const collectorPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
@@ -320,8 +345,9 @@ export class ThreeRenderer implements Renderer {
         this.nutrientRenderSystem.clearNutrientPosition(event.nutrientId);
       });
 
-      // Player engulfed another player - energy transfer from prey to predator
+      // Player engulfed another player - energy transfer (soup mode only)
       eventBus.on('playerEngulfed', (event) => {
+        if (this.environmentSystem.getMode() !== 'soup') return;
         const predatorPos = this.playerRenderSystem.getPlayerPosition(event.predatorId);
 
         if (predatorPos) {
@@ -440,6 +466,15 @@ export class ThreeRenderer implements Renderer {
     this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw());
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
     this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
+    this.treeRenderSystem.sync(this.environmentSystem.getMode());
+
+    // Debug: log camera vs tree positions when in jungle mode
+    if (this.environmentSystem.getMode() === 'jungle' && this._debugTreeLogCounter++ % 300 === 0) {
+      const cam = this.cameraSystem.getActiveCamera();
+      console.log(`[ThreeRenderer] Jungle mode - Camera at: X=${cam.position.x.toFixed(0)}, Y=${cam.position.y.toFixed(0)}, Z=${cam.position.z.toFixed(0)}`);
+      this.treeRenderSystem.debugLogBounds();
+    }
+
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -462,28 +497,37 @@ export class ThreeRenderer implements Renderer {
     const swarmDamageInfo = this.buildSwarmDamageInfo();
     const playersForTrail = this.buildPlayersForTrail();
 
-    // Update drain visual feedback (red auras)
-    this.auraSystem.updateDrainAuras(
-      playersForAura,
-      swarmsForAura,
-      this.playerRenderSystem.getPlayerMeshes(),
-      this.swarmRenderSystem.getSwarmMeshes(),
-      playerDamageInfo,
-      swarmDamageInfo
-    );
+    // Update auras only in soup mode (soup-scale visual feedback)
+    if (this.environmentSystem.getMode() === 'soup') {
+      // Update drain visual feedback (red auras)
+      this.auraSystem.updateDrainAuras(
+        playersForAura,
+        swarmsForAura,
+        this.playerRenderSystem.getPlayerMeshes(),
+        this.swarmRenderSystem.getSwarmMeshes(),
+        playerDamageInfo,
+        swarmDamageInfo
+      );
 
-    // Update gain auras (cyan glow when receiving energy)
-    this.auraSystem.updateGainAuras(
-      playersForAura,
-      this.playerRenderSystem.getPlayerMeshes(),
-      receivingEnergy
-    );
+      // Update gain auras (cyan glow when receiving energy)
+      this.auraSystem.updateGainAuras(
+        playersForAura,
+        this.playerRenderSystem.getPlayerMeshes(),
+        receivingEnergy
+      );
+    } else {
+      // Clear auras when not in soup mode
+      this.auraSystem.clearAll();
+    }
 
     // Animate obstacle particles
     this.obstacleRenderSystem.updateAnimations(dt);
 
-    // Update trails
-    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), playersForTrail);
+    // Animate tree glow pulse and sway
+    this.treeRenderSystem.updateAnimations(dt);
+
+    // Update trails (soup mode only - trails are single-cell effects)
+    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), playersForTrail, this.environmentSystem.getMode());
 
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
@@ -533,8 +577,32 @@ export class ThreeRenderer implements Renderer {
 
     // Render scene with postprocessing
     this.composer.render();
+
+    // Performance stats logging (every 60 frames)
+    this._perfFrameCount = (this._perfFrameCount || 0) + 1;
+    const now = performance.now();
+    if (this._perfFrameCount >= 60) {
+      const info = this.renderer.info;
+      const renderMode = this.environmentSystem.getMode();
+      // Calculate FPS from time elapsed over 60 frames
+      const elapsed = now - (this._perfLastTime || now);
+      const fps = elapsed > 0 ? Math.round(60000 / elapsed) : 0;
+      // Count all lights in scene graph (including nested in groups)
+      let lightCount = 0;
+      let meshCount = 0;
+      this.scene.traverse((obj) => {
+        if (obj.type.includes('Light')) lightCount++;
+        if (obj.type === 'Mesh') meshCount++;
+      });
+      console.log(`[PERF] mode=${renderMode} fps=${fps} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures}`);
+      this._perfFrameCount = 0;
+      this._perfLastTime = now;
+    }
+    if (!this._perfLastTime) this._perfLastTime = now;
   }
 
+  private _perfFrameCount?: number;
+  private _perfLastTime?: number;
   private _debugFrameCount?: number;
 
   /**
@@ -552,6 +620,7 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * Clear all soup-world entity meshes (nutrients, swarms, obstacles)
+   * and soup-specific effects (trails, particles)
    * Called when transitioning to jungle mode
    */
   private clearSoupEntities(): void {
@@ -564,7 +633,12 @@ export class ThreeRenderer implements Renderer {
     // Clear obstacles (delegated to ObstacleRenderSystem)
     this.obstacleRenderSystem.clearAll();
 
-    console.log('[RenderMode] Cleared all soup entities');
+    // Clear soup-specific particle effects (death bursts, spawns, energy transfers)
+    this.effectsSystem.clearSoupEffects();
+
+    // Trails are handled by TrailSystem.update() checking render mode
+
+    console.log('[RenderMode] Cleared all soup entities and effects');
   }
 
   /**
@@ -817,6 +891,9 @@ export class ThreeRenderer implements Renderer {
 
     // Clean up obstacles
     this.obstacleRenderSystem.dispose();
+
+    // Clean up trees
+    this.treeRenderSystem.dispose();
 
     // Clean up swarms
     this.swarmRenderSystem.dispose();

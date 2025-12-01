@@ -54,6 +54,7 @@ export const SystemPriority = {
   // Collisions and interactions (before movement)
   PREDATION: 400,
   SWARM_COLLISION: 410,
+  TREE_COLLISION: 480, // After swarm, before movement - pushes jungle players out of trees
 
   // Movement (after collisions set slow debuffs)
   MOVEMENT: 500,
