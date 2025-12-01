@@ -250,7 +250,7 @@ export function poissonDiscSampling(
 
 /**
  * Grid-based distribution with random jitter
- * Guarantees even coverage across the entire area (unlike Poisson disc which clusters)
+ * Guarantees even coverage across the entire area
  * Each cell gets one point with random offset within the cell
  *
  * @param width - Area width
@@ -267,10 +267,15 @@ export function gridJitterDistribution(
   avoidanceZones: Array<{ position: Position; radius: number }> = [],
   jitterAmount: number = 0.7
 ): Position[] {
+  // Guard against degenerate inputs
+  if (targetCount <= 0 || width <= 0 || height <= 0) {
+    return [];
+  }
+
   // Calculate grid dimensions maintaining aspect ratio
   const aspectRatio = width / height;
-  const rows = Math.round(Math.sqrt(targetCount / aspectRatio));
-  const cols = Math.round(rows * aspectRatio);
+  const rows = Math.max(1, Math.round(Math.sqrt(targetCount / aspectRatio)));
+  const cols = Math.max(1, Math.round(rows * aspectRatio));
 
   const cellWidth = width / cols;
   const cellHeight = height / rows;
