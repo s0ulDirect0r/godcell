@@ -61,8 +61,6 @@ const JUNGLE_CONFIG = {
 
   // === UNDERGROWTH (ground-level glowing sprites) ===
   UNDERGROWTH_COUNT: 1500,        // Number of undergrowth particles (denser)
-  UNDERGROWTH_MIN_SIZE: 8,        // Minimum particle size (bigger)
-  UNDERGROWTH_MAX_SIZE: 20,       // Maximum particle size (bigger)
   UNDERGROWTH_HEIGHT: -0.2,       // Height above ground
   UNDERGROWTH_COLORS: [
     0x00ff88, // Green-cyan (most common)
@@ -282,7 +280,8 @@ export function createJungleGrid(group: THREE.Group): void {
  * Create circuit traces floor pattern - PCB-style lines across jungle
  * Creates a tech/digital aesthetic ground layer
  */
-function createCircuitTraces(group: THREE.Group): void {
+// Alternative floor pattern - exported for potential future use
+export function createCircuitTraces(group: THREE.Group): void {
   const height = JUNGLE_CONFIG.CIRCUIT_HEIGHT;
 
   // Material for traces
@@ -364,7 +363,8 @@ function createCircuitTraces(group: THREE.Group): void {
  * - Voronoi: Cell-like patches with glowing edges (was too bright/busy)
  * - Flowing veins: Noise-distorted lines for bioluminescent roots
  */
-function createGroundTexture(group: THREE.Group): void {
+// Alternative floor pattern - exported for potential future use
+export function createGroundTexture(group: THREE.Group): void {
   console.log('[JungleBackground] Creating ground texture with noise shader');
 
   const geometry = new THREE.PlaneGeometry(
@@ -923,7 +923,8 @@ export function createRootNetworkFromTrees(
       const dx = other.x - treePos.x;
       const dy = other.y - treePos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < maxConnectionDist) {
+      // Guard against near-zero distance to prevent NaN in perpendicular calculations
+      if (dist > 1e-3 && dist < maxConnectionDist) {
         neighbors.push({ pos: other, dist, idx: j });
       }
     }
@@ -1023,7 +1024,7 @@ export function createRootNetworkFromTrees(
  * @param rootNetwork - The root network group from createRootNetworkFromTrees
  * @param dt - Delta time in seconds
  */
-export function updateRootNetworkAnimation(rootNetwork: THREE.Group, dt: number): void {
+export function updateRootNetworkAnimation(rootNetwork: THREE.Group, _dt: number): void {
   const time = performance.now() / 1000;
 
   // Pulse parameters
@@ -1058,7 +1059,6 @@ function createUndergrowth(): {
   const count = JUNGLE_CONFIG.UNDERGROWTH_COUNT;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
-  const sizes = new Float32Array(count);
   const undergrowthData: UndergrowthParticle[] = [];
 
   for (let i = 0; i < count; i++) {
@@ -1070,10 +1070,6 @@ function createUndergrowth(): {
     positions[i * 3] = x;
     positions[i * 3 + 1] = JUNGLE_CONFIG.UNDERGROWTH_HEIGHT;
     positions[i * 3 + 2] = -y;
-
-    // Random size
-    sizes[i] = JUNGLE_CONFIG.UNDERGROWTH_MIN_SIZE +
-      Math.random() * (JUNGLE_CONFIG.UNDERGROWTH_MAX_SIZE - JUNGLE_CONFIG.UNDERGROWTH_MIN_SIZE);
 
     // Random color from palette
     const colorHex = JUNGLE_CONFIG.UNDERGROWTH_COLORS[
@@ -1098,10 +1094,9 @@ function createUndergrowth(): {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
   const material = new THREE.PointsMaterial({
-    size: 4,
+    size: 4, // Uniform size (PointsMaterial doesn't support per-vertex sizes)
     vertexColors: true,
     transparent: true,
     opacity: 0.6,
@@ -1663,7 +1658,7 @@ export function updateFireflies(
  * Update ground texture animation (pulse + flow)
  * Call this from the render loop with the jungle background group
  */
-export function updateGroundTexture(jungleGroup: THREE.Group): void {
+export function updateGroundTexture(jungleGroup: THREE.Group, _dtSeconds?: number): void {
   const time = performance.now() / 1000;
 
   // Update ground shader time

@@ -188,7 +188,7 @@ export class EnvironmentSystem {
       updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dtSeconds);
       updateUndergrowth(this.undergrowthPoints, this.undergrowthData, dtSeconds);
       updateFireflies(this.fireflyPoints, this.fireflyData, dtSeconds);
-      updateGroundTexture(this.jungleBackgroundGroup);
+      updateGroundTexture(this.jungleBackgroundGroup, dtSeconds);
     }
   }
 
