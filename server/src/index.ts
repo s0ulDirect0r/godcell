@@ -303,12 +303,14 @@ function initializeTrees() {
     jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
   });
 
-  // Generate tree positions using grid-jitter distribution across entire jungle
-  // Grid ensures even coverage; jitter prevents rigid patterns; avoidance zone keeps them out of the pool
-  const treePositions = gridJitterDistribution(
+  // Generate tree positions using Poisson disc sampling for organic distribution
+  // Let Poisson disc fill naturally - no maxPoints cap
+  const treePositions = poissonDiscSampling(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
-    GAME_CONFIG.TREE_COUNT,
+    GAME_CONFIG.TREE_MIN_SPACING,
+    Infinity, // No cap - let it fill naturally
+    [], // No existing points
     [soupAvoidanceZone] // Avoid the pool itself
   );
 
@@ -345,13 +347,9 @@ function initializeTrees() {
   logger.info({
     event: 'trees_spawned',
     count: treeCount,
-    targetCount: GAME_CONFIG.TREE_COUNT,
+    spacing: GAME_CONFIG.TREE_MIN_SPACING,
     jungleSize: `${GAME_CONFIG.JUNGLE_WIDTH}x${GAME_CONFIG.JUNGLE_HEIGHT}`,
   });
-
-  if (treeCount < GAME_CONFIG.TREE_COUNT) {
-    logger.warn(`Only placed ${treeCount}/${GAME_CONFIG.TREE_COUNT} trees (space constraints)`);
-  }
 }
 
 /**

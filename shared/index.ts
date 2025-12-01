@@ -703,7 +703,7 @@ export const GAME_CONFIG = {
   TREE_MAX_RADIUS: 120,               // Large ancient tree collision radius
   TREE_MIN_HEIGHT: 100,               // Small bush visual height
   TREE_MAX_HEIGHT: 400,               // Large ancient tree visual height
-  TREE_MIN_SPACING: 200,              // Minimum distance between trees (Bridson's)
+  TREE_MIN_SPACING: 800,              // Minimum distance between trees (Poisson disc fills naturally)
   SOUP_POOL_RADIUS: 300,              // Visual pool radius in jungle (represents soup world)
   TREE_POOL_BUFFER: 100,              // Buffer around soup pool for tree spawning
 
