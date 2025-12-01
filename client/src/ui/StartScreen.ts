@@ -32,7 +32,7 @@ export class StartScreen {
     container.innerHTML = `
       <div class="start-content">
         <h1 class="start-title">GODCELL</h1>
-        <p class="start-subtitle">Evolve or dissolve into the digital ocean</p>
+        <p class="start-subtitle">"To become a god is to realize you're still just a cell in a vaster ocean."</p>
 
         ${this.options.devMode ? `
           <div class="dev-settings">
