@@ -20,6 +20,7 @@ import type {
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
+  TreeComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '@godcell/shared';
@@ -29,6 +30,7 @@ import type {
   Obstacle,
   EntropySwarm,
   Pseudopod,
+  Tree,
   DamageSource,
   EvolutionStage,
 } from '@godcell/shared';
@@ -58,6 +60,7 @@ export function createClientWorld(): World {
   world.registerStore<ObstacleComponent>(Components.Obstacle, new ComponentStore());
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
   world.registerStore<PseudopodComponent>(Components.Pseudopod, new ComponentStore());
+  world.registerStore<TreeComponent>(Components.Tree, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
@@ -366,6 +369,37 @@ export function upsertObstacle(world: World, obstacle: Obstacle): EntityId {
 
   world.addTag(entity, Tags.Obstacle);
   registerMapping(entity, obstacle.id);
+
+  return entity;
+}
+
+/**
+ * Create or update a tree entity from a network Tree object.
+ * Trees are static - they don't change once created.
+ */
+export function upsertTree(world: World, tree: Tree): EntityId {
+  let entity = stringIdToEntity.get(tree.id);
+
+  if (entity !== undefined) {
+    return entity; // Trees don't change
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: tree.position.x,
+    y: tree.position.y,
+  });
+
+  world.addComponent<TreeComponent>(entity, Components.Tree, {
+    radius: tree.radius,
+    height: tree.height,
+    variant: tree.variant,
+  });
+
+  world.addTag(entity, Tags.Tree);
+  registerMapping(entity, tree.id);
 
   return entity;
 }

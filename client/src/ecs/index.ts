@@ -20,6 +20,7 @@ export type {
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
+  TreeComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '@godcell/shared';
@@ -57,6 +58,8 @@ export {
   removeNutrient,
   // Obstacle operations
   upsertObstacle,
+  // Tree operations
+  upsertTree,
   // Swarm operations
   upsertSwarm,
   updateSwarmTarget,

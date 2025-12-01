@@ -1,10 +1,12 @@
 // ============================================
 // TrailSystem - Manages player trail rendering
 // Owns trail point history and trail meshes
+// Stage-filtered: only renders in soup mode (Stage 1-2)
 // ============================================
 
 import * as THREE from 'three';
 import { updateTrails, disposeAllTrails } from '../effects/TrailEffect';
+import type { RenderMode } from './EnvironmentSystem';
 
 /**
  * Player data needed for trail rendering
@@ -43,11 +45,22 @@ export class TrailSystem {
    * Update all player trails
    * @param playerMeshes - Map of player ID to player mesh/group
    * @param players - Map of player ID to player data (stage, color, energy)
+   * @param renderMode - Current render mode (soup vs jungle)
    */
   update(
     playerMeshes: Map<string, THREE.Object3D>,
-    players: Map<string, TrailPlayerData>
+    players: Map<string, TrailPlayerData>,
+    renderMode: RenderMode
   ): void {
+    // Trails are soup-world effects - hide/clear in jungle mode
+    if (renderMode === 'jungle') {
+      // Clear all trails when entering jungle mode
+      if (this.trailMeshes.size > 0) {
+        this.clearAll();
+      }
+      return;
+    }
+
     updateTrails(
       this.scene,
       this.trailPoints,
@@ -55,6 +68,20 @@ export class TrailSystem {
       playerMeshes as Map<string, THREE.Group>,
       players as Map<string, { stage: any; color: string; energy: number; maxEnergy: number }>
     );
+  }
+
+  /**
+   * Clear all trail meshes and point history
+   * Called when transitioning to jungle mode
+   */
+  clearAll(): void {
+    this.trailMeshes.forEach((trail) => {
+      this.scene.remove(trail);
+      trail.geometry.dispose();
+      (trail.material as THREE.Material).dispose();
+    });
+    this.trailMeshes.clear();
+    this.trailPoints.clear();
   }
 
   /**

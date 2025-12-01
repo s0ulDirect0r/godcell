@@ -43,6 +43,7 @@ import {
   updateNutrientPosition,
   removeNutrient,
   upsertObstacle,
+  upsertTree,
   upsertSwarm,
   updateSwarmTarget,
   removeSwarm,
@@ -401,6 +402,10 @@ export class SocketManager {
     Object.values(snapshot.nutrients).forEach(n => upsertNutrient(this.world, n));
     Object.values(snapshot.obstacles).forEach(o => upsertObstacle(this.world, o));
     Object.values(snapshot.swarms).forEach(s => upsertSwarm(this.world, s));
+    // Trees are optional in the message (Stage 3+ environment)
+    if (snapshot.trees) {
+      Object.values(snapshot.trees).forEach(t => upsertTree(this.world, t));
+    }
   }
 
   /**
@@ -414,6 +419,7 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.Obstacle, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Swarm, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Pseudopod, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Tree, (entity) => toDestroy.push(entity));
     toDestroy.forEach(entity => this.world.destroyEntity(entity));
 
     // Clear string ID lookups

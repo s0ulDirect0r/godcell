@@ -30,6 +30,7 @@ import type {
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
+  TreeComponent,
   CanFireEMPComponent,
   CanFirePseudopodComponent,
   CanSprintComponent,
@@ -64,6 +65,7 @@ export function createWorld(): World {
   world.registerStore<ObstacleComponent>(Components.Obstacle, new ComponentStore());
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
   world.registerStore<PseudopodComponent>(Components.Pseudopod, new ComponentStore());
+  world.registerStore<TreeComponent>(Components.Tree, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -441,6 +443,37 @@ export function createPseudopod(
 
   world.addTag(entity, Tags.Pseudopod);
   registerStringIdMapping(entity, beamId);
+
+  return entity;
+}
+
+/**
+ * Create a tree (jungle environment obstacle) entity.
+ * Trees are static obstacles that only Stage 3+ players can see and collide with.
+ */
+export function createTree(
+  world: World,
+  treeId: string,
+  position: Position,
+  radius: number,
+  height: number,
+  variant: number
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: position.z ?? 0,
+  });
+  world.addComponent<TreeComponent>(entity, Components.Tree, {
+    radius,
+    height,
+    variant,
+  });
+
+  world.addTag(entity, Tags.Tree);
+  registerStringIdMapping(entity, treeId);
 
   return entity;
 }
@@ -1551,5 +1584,103 @@ export function recordDamage(
   if (damageTracking) {
     damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
   }
+}
+
+// ============================================
+// Tree Query Helpers
+// ============================================
+
+/**
+ * Tree data snapshot for iteration.
+ * Contains all data needed for collision without holding component refs.
+ */
+export interface TreeSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  radius: number;
+  height: number;
+  variant: number;
+}
+
+/**
+ * Iterate over all tree entities.
+ * Callback receives entity, string ID, position, and tree component.
+ */
+export function forEachTree(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    tree: TreeComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Tree, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const tree = world.getComponent<TreeComponent>(entity, Components.Tree);
+    const id = getStringIdByEntity(entity);
+    if (pos && tree && id) {
+      callback(entity, id, pos, tree);
+    }
+  });
+}
+
+/**
+ * Get all trees as snapshots.
+ * Useful when you need to iterate multiple times or need stable references.
+ */
+export function getAllTreeSnapshots(world: World): TreeSnapshot[] {
+  const snapshots: TreeSnapshot[] = [];
+  forEachTree(world, (entity, id, pos, tree) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      radius: tree.radius,
+      height: tree.height,
+      variant: tree.variant,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Get tree count.
+ */
+export function getTreeCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.Tree).length;
+}
+
+/**
+ * Convert ECS trees to Tree record for network broadcasts.
+ * Matches the Tree interface expected by clients.
+ */
+export function buildTreesRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  radius: number;
+  height: number;
+  variant: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    radius: number;
+    height: number;
+    variant: number;
+  }> = {};
+
+  forEachTree(world, (_entity, id, pos, tree) => {
+    result[id] = {
+      id,
+      position: { x: pos.x, y: pos.y },
+      radius: tree.radius,
+      height: tree.height,
+      variant: tree.variant,
+    };
+  });
+
+  return result;
 }
 

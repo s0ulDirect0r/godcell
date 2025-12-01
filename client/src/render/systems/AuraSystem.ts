@@ -394,9 +394,10 @@ export class AuraSystem {
   }
 
   /**
-   * Dispose all aura resources
+   * Clear all auras (for mode transitions)
+   * Called when switching from soup to jungle mode
    */
-  dispose(): void {
+  clearAll(): void {
     // Clean up drain auras
     this.drainAuraMeshes.forEach(auraMesh => {
       this.scene.remove(auraMesh);
@@ -413,5 +414,12 @@ export class AuraSystem {
 
     // Clear energy tracking
     this.previousEnergy.clear();
+  }
+
+  /**
+   * Dispose all aura resources
+   */
+  dispose(): void {
+    this.clearAll();
   }
 }

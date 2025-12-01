@@ -40,6 +40,7 @@ export const Components = {
   Obstacle: 'Obstacle',
   Swarm: 'Swarm',
   Pseudopod: 'Pseudopod',
+  Tree: 'Tree',
 
   // Ability components (added/removed on evolution)
   CanFireEMP: 'CanFireEMP',
@@ -64,6 +65,7 @@ export const Tags = {
   Obstacle: 'obstacle',
   Swarm: 'swarm',
   Pseudopod: 'pseudopod',
+  Tree: 'tree',
 
   // Client-only tags
   LocalPlayer: 'local_player', // The player controlled by this client

@@ -23,6 +23,7 @@ export { PseudopodSystem } from './PseudopodSystem';
 // Collision Systems
 export { PredationSystem } from './PredationSystem';
 export { SwarmCollisionSystem } from './SwarmCollisionSystem';
+export { TreeCollisionSystem } from './TreeCollisionSystem';
 export { NutrientCollisionSystem } from './NutrientCollisionSystem';
 export { NutrientAttractionSystem } from './NutrientAttractionSystem';
 
