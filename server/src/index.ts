@@ -25,6 +25,8 @@ import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, shouldRun
 import type { DevCommandMessage } from '@godcell/shared';
 import {
   logger,
+  perfLogger,
+  clientLogger,
   logServerStarted,
   logPlayerConnected,
   logPlayerDisconnected,
@@ -631,14 +633,27 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
-    const prefix = `[Client:${socket.id?.slice(0, 8)}]`;
+    const socketId = socket.id || 'unknown';
+    const clientId = socketId.slice(0, 8);
     const logLine = message.args.join(' ');
+
+    // Route PERF logs to performance.log, others to client.log
+    const targetLogger = logLine.includes('[PERF]') ? perfLogger : clientLogger;
+
+    // Richer metadata: full socketId, clientLevel, descriptive event name
+    const meta = {
+      socketId,
+      clientId,
+      clientLevel: message.level,
+      event: 'player_client_log',
+    };
+
     if (message.level === 'error') {
-      console.error(`${prefix} ${logLine}`);
+      targetLogger.error(meta, logLine);
     } else if (message.level === 'warn') {
-      console.warn(`${prefix} ${logLine}`);
+      targetLogger.warn(meta, logLine);
     } else {
-      console.log(`${prefix} ${logLine}`);
+      targetLogger.info(meta, logLine);
     }
   });
 

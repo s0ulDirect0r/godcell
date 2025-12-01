@@ -1,47 +1,69 @@
 import pino from 'pino';
-import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
-import { dirname } from 'path';
 import type { DeathCause } from '@godcell/shared';
 
 // ============================================
 // Logger Configuration
 // ============================================
 
-// Ensure logs directory exists
 const LOG_DIR = process.env.LOG_DIR || 'logs';
-const LOG_FILE = `${LOG_DIR}/server.log`;
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
-await mkdir(LOG_DIR, { recursive: true });
+/**
+ * Create a logger with console + rotating file output
+ * pino-roll is used as a Pino transport for file rotation
+ * @param filename - Log file name (e.g., 'server.log')
+ * @param component - Component name for filtering (e.g., 'server', 'perf', 'client')
+ */
+function createLogger(filename: string, component: string) {
+  const targets: pino.TransportTargetOptions[] = [];
 
-// Create a multistream that writes to both console and file
-const streams = [
-  // Console stream with pretty printing for development
-  {
-    level: process.env.LOG_LEVEL || 'info',
-    stream: pino.transport({
+  // Console stream with pretty printing (development only)
+  if (IS_DEV) {
+    targets.push({
+      level: LOG_LEVEL,
       target: 'pino-pretty',
       options: {
         colorize: true,
         translateTime: 'HH:MM:ss.l',
         ignore: 'pid,hostname',
       },
-    }),
-  },
-  // File stream with JSON for production/debugging
-  {
-    level: 'info',
-    stream: createWriteStream(LOG_FILE, { flags: 'a' }),
-  },
-];
+    });
+  }
 
-// Create logger with multiple outputs
-export const logger = pino(
-  {
-    level: process.env.LOG_LEVEL || 'info',
-  },
-  pino.multistream(streams)
-);
+  // Rotating file stream with JSON (always enabled)
+  targets.push({
+    level: 'info',
+    target: 'pino-roll',
+    options: {
+      file: `${LOG_DIR}/${filename}`,
+      size: '10m',         // Rotate at 10MB
+      limit: { count: 5 }, // Keep last 5 rotated files
+      mkdir: true,         // Create logs dir if needed
+    },
+  });
+
+  return pino(
+    {
+      level: LOG_LEVEL,
+      base: { component }, // Add component field to all log entries
+    },
+    pino.transport({ targets })
+  );
+}
+
+// ============================================
+// Logger Instances
+// ============================================
+
+// Game events (deaths, evolutions, spawns, game state)
+export const logger = createLogger('server.log', 'server');
+
+// Performance metrics (FPS, draw calls, entity counts)
+export const perfLogger = createLogger('performance.log', 'perf');
+
+// Client debug info (camera, debug commands, errors)
+export const clientLogger = createLogger('client.log', 'client');
 
 // ============================================
 // Convenience Methods for Game Events

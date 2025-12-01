@@ -84,6 +84,15 @@ npm run dev:client   # Client only (Vite dev server)
 npm run build        # Build all workspaces
 ```
 
+**Testing server startup (use `sleep` not `timeout`):**
+```bash
+# Start server in background, capture PID, wait for startup, then kill
+npm run dev:server 2>&1 &
+PID=$!
+sleep 5
+kill $PID 2>/dev/null
+```
+
 ---
 
 ## 3. Architecture: ECS-First Design
@@ -258,7 +267,30 @@ eventBus.on('playerDied', (e) => {
 
 ### Logging & Telemetry
 
-- Server uses Pino, logs to `server/logs/server.log` as JSON lines.
+Server uses Pino with 3 separate log files, each with rotation (10MB max, 5 old files):
+
+| Logger | File | Purpose |
+|--------|------|---------|
+| `logger` | `server/logs/server.log` | Game events (deaths, evolutions, spawns, game state) |
+| `perfLogger` | `server/logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
+| `clientLogger` | `server/logs/client.log` | Forwarded client debug info (camera, errors) |
+
+All loggers output to rotating JSON file. In development, also outputs to console via pino-pretty.
+
+**Usage:**
+```typescript
+import { logger, perfLogger, clientLogger } from './logger';
+
+// Game events → server.log
+logger.info({ event: 'player_evolved', playerId, stage }, 'Player evolved');
+
+// Performance → performance.log
+perfLogger.info({ event: 'tick_stats', fps, entityCount }, 'Tick complete');
+
+// Client debug → client.log (usually via socket handler, not direct)
+clientLogger.info({ clientId, event: 'client_log' }, 'Camera position...');
+```
+
 - Use structured logs for important events (e.g., evolution, death causes, anomalies).
 - When adding logs, prefer:
   - Event-like names (`player_evolved`, `gravity_anomaly`) and structured fields.
@@ -409,7 +441,7 @@ Use these as templates for how to apply changes.
 
 ### Debug Physics / Movement Issues
 
-1. Check `server/logs/server.log` for anomalies and patterns.
+1. Check `server/logs/server.log` for game events, `performance.log` for perf, `client.log` for client issues.
 2. Add targeted logs in the relevant system (MovementSystem, GravitySystem, etc.).
 3. Verify that components have expected values after each system runs.
 4. Use client debug overlays / query params if available (e.g., `?debug`).
