@@ -633,18 +633,27 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
-    const clientId = socket.id?.slice(0, 8) || 'unknown';
+    const socketId = socket.id || 'unknown';
+    const clientId = socketId.slice(0, 8);
     const logLine = message.args.join(' ');
 
     // Route PERF logs to performance.log, others to client.log
     const targetLogger = logLine.includes('[PERF]') ? perfLogger : clientLogger;
 
+    // Richer metadata: full socketId, clientLevel, descriptive event name
+    const meta = {
+      socketId,
+      clientId,
+      clientLevel: message.level,
+      event: 'player_client_log',
+    };
+
     if (message.level === 'error') {
-      targetLogger.error({ clientId, event: 'client_log' }, logLine);
+      targetLogger.error(meta, logLine);
     } else if (message.level === 'warn') {
-      targetLogger.warn({ clientId, event: 'client_log' }, logLine);
+      targetLogger.warn(meta, logLine);
     } else {
-      targetLogger.info({ clientId, event: 'client_log' }, logLine);
+      targetLogger.info(meta, logLine);
     }
   });
 

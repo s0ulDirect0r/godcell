@@ -1,48 +1,54 @@
 import pino from 'pino';
-import { mkdir } from 'fs/promises';
 import type { DeathCause } from '@godcell/shared';
 
 // ============================================
 // Logger Configuration
 // ============================================
 
-// Ensure logs directory exists
 const LOG_DIR = process.env.LOG_DIR || 'logs';
-await mkdir(LOG_DIR, { recursive: true });
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
 /**
  * Create a logger with console + rotating file output
  * pino-roll is used as a Pino transport for file rotation
  * @param filename - Log file name (e.g., 'server.log')
+ * @param component - Component name for filtering (e.g., 'server', 'perf', 'client')
  */
-function createLogger(filename: string) {
+function createLogger(filename: string, component: string) {
+  const targets: pino.TransportTargetOptions[] = [];
+
+  // Console stream with pretty printing (development only)
+  if (IS_DEV) {
+    targets.push({
+      level: LOG_LEVEL,
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss.l',
+        ignore: 'pid,hostname',
+      },
+    });
+  }
+
+  // Rotating file stream with JSON (always enabled)
+  targets.push({
+    level: 'info',
+    target: 'pino-roll',
+    options: {
+      file: `${LOG_DIR}/${filename}`,
+      size: '10m',         // Rotate at 10MB
+      limit: { count: 5 }, // Keep last 5 rotated files
+      mkdir: true,         // Create logs dir if needed
+    },
+  });
+
   return pino(
-    { level: process.env.LOG_LEVEL || 'info' },
-    pino.transport({
-      targets: [
-        // Console stream with pretty printing for development
-        {
-          level: process.env.LOG_LEVEL || 'info',
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-            translateTime: 'HH:MM:ss.l',
-            ignore: 'pid,hostname',
-          },
-        },
-        // Rotating file stream with JSON for production/debugging
-        {
-          level: 'info',
-          target: 'pino-roll',
-          options: {
-            file: `${LOG_DIR}/${filename}`,
-            size: '10m',         // Rotate at 10MB
-            limit: { count: 5 }, // Keep last 5 rotated files
-            mkdir: true,         // Create logs dir if needed
-          },
-        },
-      ],
-    })
+    {
+      level: LOG_LEVEL,
+      base: { component }, // Add component field to all log entries
+    },
+    pino.transport({ targets })
   );
 }
 
@@ -51,13 +57,13 @@ function createLogger(filename: string) {
 // ============================================
 
 // Game events (deaths, evolutions, spawns, game state)
-export const logger = createLogger('server.log');
+export const logger = createLogger('server.log', 'server');
 
 // Performance metrics (FPS, draw calls, entity counts)
-export const perfLogger = createLogger('performance.log');
+export const perfLogger = createLogger('performance.log', 'perf');
 
 // Client debug info (camera, debug commands, errors)
-export const clientLogger = createLogger('client.log');
+export const clientLogger = createLogger('client.log', 'client');
 
 // ============================================
 // Convenience Methods for Game Events

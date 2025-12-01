@@ -86,10 +86,11 @@ npm run build        # Build all workspaces
 
 **Testing server startup (use `sleep` not `timeout`):**
 ```bash
-# Start server in background, wait for startup, then kill
+# Start server in background, capture PID, wait for startup, then kill
 npm run dev:server 2>&1 &
+PID=$!
 sleep 5
-pkill -f "node.*server"
+kill $PID 2>/dev/null
 ```
 
 ---
@@ -274,7 +275,7 @@ Server uses Pino with 3 separate log files, each with rotation (10MB max, 5 old 
 | `perfLogger` | `server/logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
 | `clientLogger` | `server/logs/client.log` | Forwarded client debug info (camera, errors) |
 
-All loggers output to console (pino-pretty) + rotating JSON file.
+All loggers output to rotating JSON file. In development, also outputs to console via pino-pretty.
 
 **Usage:**
 ```typescript
