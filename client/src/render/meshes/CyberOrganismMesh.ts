@@ -41,6 +41,14 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   group.userData.baseRadius = radius * CONFIG.SCALE;
   group.userData.colorHex = colorHex;
 
+  // Inner body group - offset to center visual mass at origin
+  // Creature extends from head (X=-3*s) to tail tip (X≈8*s), visual center ≈ X=2.5*s
+  const bodyGroup = new THREE.Group();
+  bodyGroup.name = 'bodyGroup';
+  bodyGroup.position.x = -2.5 * s; // Shift body so visual center is at origin
+  group.add(bodyGroup);
+  group.userData.bodyGroup = bodyGroup;
+
   // Materials (same as original)
   const bodyMat = new THREE.MeshStandardMaterial({
     color: 0xdddddd,
@@ -63,7 +71,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   const head = new THREE.Mesh(headGeo, bodyMat);
   head.position.x = -3 * s;
   head.name = 'head';
-  group.add(head);
+  bodyGroup.add(head);
 
   // Eye - centered on front of head, looking forward (negative X)
   const eyeGeo = new THREE.SphereGeometry(0.8 * s, 24, 24);
@@ -84,7 +92,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     const seg = new THREE.Mesh(segGeo, bodyMat);
     seg.position.x = (-0.5 + i * 2) * s;
     seg.name = `bodySegment-${i}`;
-    group.add(seg);
+    bodyGroup.add(seg);
 
     // Dorsal orb - now at +Z (becomes +Y after rotation, facing camera)
     const orbGeo = new THREE.SphereGeometry(0.4 * s * scaleFactor, 16, 16);
@@ -106,7 +114,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     const tailSeg = new THREE.Mesh(tailGeo, bodyMat);
     tailSeg.position.set(tailPosX, 0, tailPosZ);  // Y=0, Z=dorsal offset
     tailSeg.name = `tailSegment-${i}`;
-    group.add(tailSeg);
+    bodyGroup.add(tailSeg);
     tailSegments.push(tailSeg);
 
     // Spike pointing dorsally (+Z direction)
@@ -127,7 +135,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   const tip = new THREE.Mesh(tipGeo, glowMat.clone());
   tip.position.set(tailPosX + 0.5 * s, 0, tailPosZ + 0.5 * s);  // Y=0, Z=dorsal
   tip.name = 'tailTip';
-  group.add(tip);
+  bodyGroup.add(tip);
   tip.add(new THREE.PointLight(colorHex, 4, 10 * s));
 
   group.userData.tailTip = tip;
@@ -144,7 +152,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     left.name = `leg-L-${i}`;
     left.userData.side = 'left';
     left.userData.index = i;
-    group.add(left);
+    bodyGroup.add(left);
 
     // Right leg - extends in -Y direction (becomes -Z after rotation)
     const right = createLeg(s, -1, bodyMat);
@@ -153,7 +161,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     right.name = `leg-R-${i}`;
     right.userData.side = 'right';
     right.userData.index = i;
-    group.add(right);
+    bodyGroup.add(right);
   });
 
   // Rotate for top-down view:
@@ -233,7 +241,8 @@ export function updateCyberOrganismAnimation(
   // Legs walking animation
   if (isMoving) {
     const phase = time * 4;
-    group.children.forEach(child => {
+    const bodyGroup = group.userData.bodyGroup as THREE.Group | undefined;
+    (bodyGroup ?? group).children.forEach(child => {
       if (child.name.startsWith('leg-')) {
         const { side, index } = child.userData;
         const offset = (index === 1 ? Math.PI : 0) + (side === 'right' ? Math.PI : 0);
