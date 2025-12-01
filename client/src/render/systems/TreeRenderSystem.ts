@@ -10,6 +10,7 @@ import {
   updateDataTreeAnimation,
   disposeDataTree,
 } from '../meshes/DataTreeMesh';
+import { createRootNetworkFromTrees, updateRootNetworkAnimation } from '../three/JungleBackground';
 import {
   World,
   Tags,
@@ -29,6 +30,7 @@ import type { RenderMode } from './EnvironmentSystem';
  *
  * Owns:
  * - Tree meshes (trunk + canopy geometry)
+ * - Root network (energy lines connecting trees to ground)
  * - Animation state (glow pulse, sway)
  */
 export class TreeRenderSystem {
@@ -37,6 +39,10 @@ export class TreeRenderSystem {
 
   // Tree meshes
   private treeMeshes: Map<string, THREE.Group> = new Map();
+
+  // Root network (glowing lines emanating from tree bases)
+  private rootNetwork: THREE.Group | null = null;
+  private rootNetworkTreeCount = 0; // Track when to rebuild
 
   /**
    * Initialize tree system with scene and world references
@@ -101,6 +107,11 @@ export class TreeRenderSystem {
       }
     });
 
+    // Create/update root network when tree count changes
+    if (this.treeMeshes.size > 0 && this.treeMeshes.size !== this.rootNetworkTreeCount) {
+      this.rebuildRootNetwork();
+    }
+
     // Debug: log tree sync status and positions
     if (treeCount > 0 && this.treeMeshes.size === 0) {
       console.log('[TreeRenderSystem] ECS has', treeCount, 'trees but no meshes created');
@@ -143,25 +154,85 @@ export class TreeRenderSystem {
   }
 
   /**
-   * Update tree animations (glow pulse, subtle sway)
+   * Update tree animations (glow pulse, subtle sway) and root network pulse
    * @param dt - Delta time in milliseconds
    */
   updateAnimations(dt: number): void {
+    // Update tree animations
     this.treeMeshes.forEach((group) => {
       updateDataTreeAnimation(group, dt);
     });
+
+    // Update root network pulse animation
+    if (this.rootNetwork) {
+      updateRootNetworkAnimation(this.rootNetwork, dt / 1000);
+    }
   }
 
   /**
-   * Clear all tree meshes
+   * Rebuild root network from current tree positions
+   * Called when tree count changes
+   */
+  private rebuildRootNetwork(): void {
+    // Remove existing root network
+    if (this.rootNetwork) {
+      this.rootNetwork.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          if (obj.material instanceof THREE.Material) {
+            obj.material.dispose();
+          }
+        }
+      });
+      this.scene.remove(this.rootNetwork);
+      this.rootNetwork = null;
+    }
+
+    // Collect tree positions from meshes (using game coordinates)
+    const treePositions: Array<{ x: number; y: number }> = [];
+    this.treeMeshes.forEach((group) => {
+      // Convert back from Three.js coords to game coords
+      // Three.js: X = game X, Z = -game Y
+      treePositions.push({
+        x: group.position.x,
+        y: -group.position.z, // Convert back to game Y
+      });
+    });
+
+    // Create new root network
+    this.rootNetwork = createRootNetworkFromTrees(treePositions);
+    this.scene.add(this.rootNetwork);
+    this.rootNetworkTreeCount = this.treeMeshes.size;
+
+    console.log('[TreeRenderSystem] Rebuilt root network for', treePositions.length, 'trees');
+  }
+
+  /**
+   * Clear all tree meshes and root network
    * Called when transitioning from jungle to soup mode
    */
   clearAll(): void {
+    // Clear tree meshes
     this.treeMeshes.forEach((group) => {
       disposeDataTree(group);
       this.scene.remove(group);
     });
     this.treeMeshes.clear();
+
+    // Clear root network
+    if (this.rootNetwork) {
+      this.rootNetwork.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          if (obj.material instanceof THREE.Material) {
+            obj.material.dispose();
+          }
+        }
+      });
+      this.scene.remove(this.rootNetwork);
+      this.rootNetwork = null;
+      this.rootNetworkTreeCount = 0;
+    }
   }
 
   /**
