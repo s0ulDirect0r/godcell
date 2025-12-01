@@ -6,6 +6,9 @@
 // ECS Module - Entity Component System shared between client and server
 export * from './ecs';
 
+// Math utilities - geometry and spatial algorithms
+export * from './math';
+
 // Player position in the game world
 // z-axis: Height in 3D space (0 = ground, used for Stage 5 flying)
 // z is optional for backwards compatibility - defaults to 0 when not specified

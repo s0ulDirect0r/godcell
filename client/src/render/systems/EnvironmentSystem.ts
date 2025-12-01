@@ -9,6 +9,9 @@ import {
   createJungleBackground,
   updateJungleParticles,
   updateSoupActivity,
+  updateUndergrowth,
+  updateFireflies,
+  updateGroundTexture,
   getJungleBackgroundColor,
   getSoupBackgroundColor,
   getFirstPersonSkyColor,
@@ -46,6 +49,14 @@ export class EnvironmentSystem {
   private soupActivityPoints!: THREE.Points;
   private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
 
+  // Undergrowth particles (ground-level glow)
+  private undergrowthPoints!: THREE.Points;
+  private undergrowthData: Array<{ x: number; y: number; phase: number; baseOpacity: number }> = [];
+
+  // Firefly particles (floating ambient life)
+  private fireflyPoints!: THREE.Points;
+  private fireflyData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; phase: number; color: number }> = [];
+
   // First-person ground plane (Stage 4+)
   private firstPersonGround!: THREE.Group;
 
@@ -71,6 +82,10 @@ export class EnvironmentSystem {
     this.jungleParticleData = jungleResult.particleData;
     this.soupActivityPoints = jungleResult.soupActivityPoints;
     this.soupActivityData = jungleResult.soupActivityData;
+    this.undergrowthPoints = jungleResult.undergrowthPoints;
+    this.undergrowthData = jungleResult.undergrowthData;
+    this.fireflyPoints = jungleResult.fireflyPoints;
+    this.fireflyData = jungleResult.fireflyData;
 
     // Create first-person ground plane (Stage 4+)
     this.firstPersonGround = createFirstPersonGround();
@@ -167,9 +182,13 @@ export class EnvironmentSystem {
     if (this.mode === 'soup') {
       this.updateSoupParticles(dt);
     } else {
-      // Jungle mode: update jungle particles and soup activity dots
-      updateJungleParticles(this.jungleParticles, this.jungleParticleData, dt / 1000);
-      updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dt / 1000);
+      // Jungle mode: update all jungle particles and ambient effects
+      const dtSeconds = dt / 1000;
+      updateJungleParticles(this.jungleParticles, this.jungleParticleData, dtSeconds);
+      updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dtSeconds);
+      updateUndergrowth(this.undergrowthPoints, this.undergrowthData, dtSeconds);
+      updateFireflies(this.fireflyPoints, this.fireflyData, dtSeconds);
+      updateGroundTexture(this.jungleBackgroundGroup, dtSeconds);
     }
   }
 
