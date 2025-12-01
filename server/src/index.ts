@@ -112,6 +112,7 @@ import {
   distance,
   rayCircleIntersection,
   poissonDiscSampling,
+  gridJitterDistribution,
   // Stage helpers
   getStageMaxEnergy,
   getEnergyDecayRate,
@@ -284,28 +285,47 @@ function initializeTrees() {
 
   // Trees spawn in the full jungle, avoiding the soup region where Stage 1-2 players live
   // Soup region is centered in the jungle
+  // Trees avoid only the small visual soup pool (not the entire soup region)
+  // This creates a forest around the pool where Stage 3 players spawn
   const soupAvoidanceZone = {
     position: {
       x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
       y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
     },
-    // Radius that encompasses the entire soup area plus buffer
-    // Use diagonal distance from center to corner + buffer
-    radius: Math.sqrt(
-      Math.pow(GAME_CONFIG.SOUP_WIDTH / 2, 2) + Math.pow(GAME_CONFIG.SOUP_HEIGHT / 2, 2)
-    ) + GAME_CONFIG.TREE_SOUP_BUFFER,
+    // Only avoid the visual pool (300px) + small buffer, NOT the soup gameplay region
+    radius: GAME_CONFIG.SOUP_POOL_RADIUS + GAME_CONFIG.TREE_POOL_BUFFER,
   };
 
-  // Generate tree positions using Bridson's algorithm
-  // Trees can spawn across the full jungle area, but avoid the soup
-  const treePositions = poissonDiscSampling(
+  logger.info({
+    event: 'tree_avoidance_zone',
+    center: soupAvoidanceZone.position,
+    radius: soupAvoidanceZone.radius,
+    jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
+  });
+
+  // Generate tree positions using grid-jitter distribution across entire jungle
+  // Grid ensures even coverage; jitter prevents rigid patterns; avoidance zone keeps them out of the pool
+  const treePositions = gridJitterDistribution(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
-    GAME_CONFIG.TREE_MIN_SPACING,
     GAME_CONFIG.TREE_COUNT,
-    [], // No existing points to avoid
-    [soupAvoidanceZone] // Avoid the soup region
+    [soupAvoidanceZone] // Avoid the pool itself
   );
+
+  // Log sample of tree positions for debugging distribution
+  if (treePositions.length > 0) {
+    const sample = treePositions.slice(0, 5);
+    logger.info({
+      event: 'tree_positions_sample',
+      samplePositions: sample.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+      bounds: {
+        minX: Math.round(Math.min(...treePositions.map(p => p.x))),
+        maxX: Math.round(Math.max(...treePositions.map(p => p.x))),
+        minY: Math.round(Math.min(...treePositions.map(p => p.y))),
+        maxY: Math.round(Math.max(...treePositions.map(p => p.y))),
+      },
+    });
+  }
 
   // Create trees from generated positions
   for (const position of treePositions) {

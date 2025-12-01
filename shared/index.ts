@@ -704,7 +704,8 @@ export const GAME_CONFIG = {
   TREE_MIN_HEIGHT: 100,               // Small bush visual height
   TREE_MAX_HEIGHT: 400,               // Large ancient tree visual height
   TREE_MIN_SPACING: 200,              // Minimum distance between trees (Bridson's)
-  TREE_SOUP_BUFFER: 500,              // Minimum distance from soup region
+  SOUP_POOL_RADIUS: 300,              // Visual pool radius in jungle (represents soup world)
+  TREE_POOL_BUFFER: 100,              // Buffer around soup pool for tree spawning
 
   // Entropy Swarms (virus enemies)
   SWARM_COUNT: 18,                   // Number of swarms to spawn (doubled for stage 1 threat)

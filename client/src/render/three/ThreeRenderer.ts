@@ -42,6 +42,9 @@ export class ThreeRenderer implements Renderer {
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
 
+  // Debug counter for throttled logging
+  private _debugTreeLogCounter = 0;
+
   // ECS World reference (for render systems to query directly)
   private world!: World;
 
@@ -464,6 +467,14 @@ export class ThreeRenderer implements Renderer {
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
     this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
     this.treeRenderSystem.sync(this.environmentSystem.getMode());
+
+    // Debug: log camera vs tree positions when in jungle mode
+    if (this.environmentSystem.getMode() === 'jungle' && this._debugTreeLogCounter++ % 300 === 0) {
+      const cam = this.cameraSystem.getActiveCamera();
+      console.log(`[ThreeRenderer] Jungle mode - Camera at: X=${cam.position.x.toFixed(0)}, Y=${cam.position.y.toFixed(0)}, Z=${cam.position.z.toFixed(0)}`);
+      this.treeRenderSystem.debugLogBounds();
+    }
+
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -566,8 +577,32 @@ export class ThreeRenderer implements Renderer {
 
     // Render scene with postprocessing
     this.composer.render();
+
+    // Performance stats logging (every 60 frames)
+    this._perfFrameCount = (this._perfFrameCount || 0) + 1;
+    const now = performance.now();
+    if (this._perfFrameCount >= 60) {
+      const info = this.renderer.info;
+      const renderMode = this.environmentSystem.getMode();
+      // Calculate FPS from time elapsed over 60 frames
+      const elapsed = now - (this._perfLastTime || now);
+      const fps = elapsed > 0 ? Math.round(60000 / elapsed) : 0;
+      // Count all lights in scene graph (including nested in groups)
+      let lightCount = 0;
+      let meshCount = 0;
+      this.scene.traverse((obj) => {
+        if (obj.type.includes('Light')) lightCount++;
+        if (obj.type === 'Mesh') meshCount++;
+      });
+      console.log(`[PERF] mode=${renderMode} fps=${fps} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures}`);
+      this._perfFrameCount = 0;
+      this._perfLastTime = now;
+    }
+    if (!this._perfLastTime) this._perfLastTime = now;
   }
 
+  private _perfFrameCount?: number;
+  private _perfLastTime?: number;
   private _debugFrameCount?: number;
 
   /**

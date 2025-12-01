@@ -101,16 +101,46 @@ export class TreeRenderSystem {
       }
     });
 
-    // Debug: log tree sync status (every 60 frames via caller)
+    // Debug: log tree sync status and positions
     if (treeCount > 0 && this.treeMeshes.size === 0) {
       console.log('[TreeRenderSystem] ECS has', treeCount, 'trees but no meshes created');
     } else if (this.treeMeshes.size > 0 && this._lastLoggedCount !== this.treeMeshes.size) {
       console.log('[TreeRenderSystem] Synced', this.treeMeshes.size, 'tree meshes');
       this._lastLoggedCount = this.treeMeshes.size;
+
+      // Log sample tree positions for debugging
+      let sampleCount = 0;
+      this.treeMeshes.forEach((group, id) => {
+        if (sampleCount < 3) {
+          console.log(`[TreeRenderSystem] Tree ${id} at Three.js pos:`,
+            group.position.x.toFixed(0), group.position.y.toFixed(0), group.position.z.toFixed(0));
+          sampleCount++;
+        }
+      });
     }
   }
 
   private _lastLoggedCount = 0;
+
+  /**
+   * Debug: log tree bounds for camera comparison
+   */
+  debugLogBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
+    if (this.treeMeshes.size === 0) return null;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+
+    this.treeMeshes.forEach((group) => {
+      minX = Math.min(minX, group.position.x);
+      maxX = Math.max(maxX, group.position.x);
+      minZ = Math.min(minZ, group.position.z);
+      maxZ = Math.max(maxZ, group.position.z);
+    });
+
+    console.log(`[TreeRenderSystem] Bounds: X[${minX.toFixed(0)}, ${maxX.toFixed(0)}] Z[${minZ.toFixed(0)}, ${maxZ.toFixed(0)}]`);
+    return { minX, maxX, minZ, maxZ };
+  }
 
   /**
    * Update tree animations (glow pulse, subtle sway)

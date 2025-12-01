@@ -26,8 +26,8 @@ const CONFIG = {
   CANOPY_GLOW_COLOR: 0x00ff88, // Green-cyan glow
 
   // Glow intensity (emissive strength)
-  TRUNK_GLOW_INTENSITY: 1.5,   // Subtle trunk glow
-  CANOPY_GLOW_INTENSITY: 3.0,  // Brighter canopy glow
+  TRUNK_GLOW_INTENSITY: 0.15,  // Subtle trunk glow (was 1.5)
+  CANOPY_GLOW_INTENSITY: 0.3,  // Brighter canopy glow (was 3.0)
 
   // Animation parameters
   GLOW_PULSE_SPEED: 0.5,       // Pulse frequency (Hz)
@@ -112,11 +112,8 @@ export function createDataTree(radius: number, height: number, variant: number):
   canopy.name = 'canopy';
   group.add(canopy);
 
-  // Add point light inside canopy for glow effect
-  const canopyLight = new THREE.PointLight(canopyGlowColor, 2, radius * 4);
-  canopyLight.position.y = trunkHeight + canopyRadius * 0.5;
-  canopyLight.name = 'canopyLight';
-  group.add(canopyLight);
+  // NOTE: PointLights removed for performance - 77 trees × 1 PointLight = crushing GPU
+  // Emissive materials already provide the glow effect
 
   // Rotate entire group so Y-up becomes Z-up (for top-down view)
   // In our game: +Z is up (toward camera), +X is right, +Y is forward
@@ -153,11 +150,7 @@ export function updateDataTreeAnimation(group: THREE.Group, _dt: number): void {
     canopyMat.emissiveIntensity = CONFIG.CANOPY_GLOW_INTENSITY * pulseFactor;
   }
 
-  // Update point light intensity
-  const light = group.getObjectByName('canopyLight') as THREE.PointLight;
-  if (light) {
-    light.intensity = 2 * pulseFactor;
-  }
+  // NOTE: Light animation removed - PointLights removed for performance
 
   // Subtle sway animation (only for canopy)
   if (canopy) {

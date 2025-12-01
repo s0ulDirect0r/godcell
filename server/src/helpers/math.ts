@@ -116,7 +116,8 @@ export function poissonDiscSampling(
   minDist: number,
   maxPoints: number,
   existingPoints: Position[] = [],
-  avoidanceZones: Array<{ position: Position; radius: number }> = []
+  avoidanceZones: Array<{ position: Position; radius: number }> = [],
+  seedPoint?: Position // Optional seed point to start from (instead of random)
 ): Position[] {
   const k = 30; // Candidates to try per active point
   const cellSize = minDist / Math.sqrt(2);
@@ -171,27 +172,39 @@ export function poissonDiscSampling(
     return true;
   };
 
-  // Start with random initial point (retry if invalid)
+  // Start with seed point if provided, otherwise random initial point
   let initial: Position | null = null;
-  let initialAttempts = 0;
-  const maxInitialAttempts = 100;
 
-  while (initialAttempts < maxInitialAttempts && !initial) {
-    const candidate = {
-      x: Math.random() * width,
-      y: Math.random() * height,
-    };
+  if (seedPoint && isValid(seedPoint)) {
+    // Use provided seed point
+    initial = seedPoint;
+    points.push(initial);
+    active.push(initial);
+    const gridX = Math.floor(initial.x / cellSize);
+    const gridY = Math.floor(initial.y / cellSize);
+    grid[gridX][gridY] = initial;
+  } else {
+    // Fall back to random initial point (retry if invalid)
+    let initialAttempts = 0;
+    const maxInitialAttempts = 100;
 
-    if (isValid(candidate)) {
-      initial = candidate;
-      points.push(initial);
-      active.push(initial);
-      const gridX = Math.floor(initial.x / cellSize);
-      const gridY = Math.floor(initial.y / cellSize);
-      grid[gridX][gridY] = initial;
+    while (initialAttempts < maxInitialAttempts && !initial) {
+      const candidate = {
+        x: Math.random() * width,
+        y: Math.random() * height,
+      };
+
+      if (isValid(candidate)) {
+        initial = candidate;
+        points.push(initial);
+        active.push(initial);
+        const gridX = Math.floor(initial.x / cellSize);
+        const gridY = Math.floor(initial.y / cellSize);
+        grid[gridX][gridY] = initial;
+      }
+
+      initialAttempts++;
     }
-
-    initialAttempts++;
   }
 
   // If we can't find a valid initial point, the constraints are too tight
@@ -229,6 +242,68 @@ export function poissonDiscSampling(
     // Remove from active list if no valid candidates found
     if (!found) {
       active.splice(randomIndex, 1);
+    }
+  }
+
+  return points;
+}
+
+/**
+ * Grid-based distribution with random jitter
+ * Guarantees even coverage across the entire area (unlike Poisson disc which clusters)
+ * Each cell gets one point with random offset within the cell
+ *
+ * @param width - Area width
+ * @param height - Area height
+ * @param targetCount - Approximate number of points to generate
+ * @param avoidanceZones - Circular zones where points cannot be placed
+ * @param jitterAmount - How much to randomize within cell (0-1, default 0.7)
+ * @returns Array of evenly distributed positions
+ */
+export function gridJitterDistribution(
+  width: number,
+  height: number,
+  targetCount: number,
+  avoidanceZones: Array<{ position: Position; radius: number }> = [],
+  jitterAmount: number = 0.7
+): Position[] {
+  // Calculate grid dimensions maintaining aspect ratio
+  const aspectRatio = width / height;
+  const rows = Math.round(Math.sqrt(targetCount / aspectRatio));
+  const cols = Math.round(rows * aspectRatio);
+
+  const cellWidth = width / cols;
+  const cellHeight = height / rows;
+
+  const points: Position[] = [];
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // Base position at cell center
+      const baseX = (col + 0.5) * cellWidth;
+      const baseY = (row + 0.5) * cellHeight;
+
+      // Add random jitter within cell (controlled by jitterAmount)
+      const jitterX = (Math.random() - 0.5) * cellWidth * jitterAmount;
+      const jitterY = (Math.random() - 0.5) * cellHeight * jitterAmount;
+
+      const point = {
+        x: baseX + jitterX,
+        y: baseY + jitterY,
+      };
+
+      // Check avoidance zones
+      let isValid = true;
+      for (const zone of avoidanceZones) {
+        if (distance(point, zone.position) < zone.radius) {
+          isValid = false;
+          break;
+        }
+      }
+
+      if (isValid) {
+        points.push(point);
+      }
     }
   }
 
