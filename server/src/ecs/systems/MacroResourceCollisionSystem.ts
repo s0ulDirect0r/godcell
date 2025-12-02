@@ -73,16 +73,15 @@ export class MacroResourceCollisionSystem implements System {
           io.emit('dataFruitCollected', {
             type: 'dataFruitCollected',
             fruitId,
-            collectorId: playerId,
-            position: fruitPosition,
+            playerId,
             energyGained: energyGain,
             capacityGained: fruitComp.capacityIncrease,
           });
 
           logger.info({
-            event: 'data_fruit_collected',
+            event: 'player_fruit_collected',
             fruitId,
-            collector: playerId,
+            playerId,
             energyGained: energyGain,
             capacityGained: fruitComp.capacityIncrease,
           });

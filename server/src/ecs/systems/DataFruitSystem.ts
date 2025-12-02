@@ -39,7 +39,7 @@ export class DataFruitSystem implements System {
           });
 
           logger.info({
-            event: 'data_fruit_despawn',
+            event: 'system_fruit_despawn',
             fruitId,
             reason: 'timeout',
           });

@@ -77,36 +77,8 @@ export function initializeDataFruits(world: World, io: Server): void {
   });
 
   logger.info({
-    event: 'data_fruits_spawned',
+    event: 'system_fruits_spawned',
     count: fruitCount,
-  });
-}
-
-/**
- * Spawn a single fruit near a position (for respawning after collection)
- */
-export function spawnFruitNear(
-  world: World,
-  io: Server,
-  position: { x: number; y: number },
-  radius: number = 100
-): void {
-  const fruitId = `fruit-${dataFruitIdCounter++}`;
-
-  // Random offset from position
-  const offsetAngle = Math.random() * Math.PI * 2;
-  const offsetDist = Math.random() * radius;
-  const fruitPos = {
-    x: position.x + Math.cos(offsetAngle) * offsetDist,
-    y: position.y + Math.sin(offsetAngle) * offsetDist,
-  };
-
-  createDataFruitOnGround(world, fruitId, fruitPos);
-
-  io.emit('dataFruitSpawned', {
-    type: 'dataFruitSpawned',
-    fruitId,
-    position: fruitPos,
   });
 }
 

@@ -640,7 +640,6 @@ export class ThreeRenderer implements Renderer {
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
   private _perfRenderTimeSum?: number;
-  private _debugFrameCount?: number;
 
   /**
    * Set the render mode (soup vs jungle world)
