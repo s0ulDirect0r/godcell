@@ -123,6 +123,14 @@ function initializeGame(settings: PreGameSettings): void {
     });
   }
 
+  // Perf debug toggles (always available)
+  window.addEventListener('keydown', (e) => {
+    // B = toggle bloom
+    if (e.key === 'b' || e.key === 'B') {
+      renderer?.toggleBloom();
+    }
+  });
+
   // Wire input handlers to network
   eventBus.on('client:inputMove', (event) => {
     socketManager.sendMove(event.direction);

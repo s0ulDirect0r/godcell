@@ -10,6 +10,7 @@ import * as THREE from 'three';
 export interface ComposerResult {
   composer: EffectComposer;
   renderPass: RenderPass;
+  bloomPass: UnrealBloomPass;
 }
 
 export function createComposer(
@@ -34,5 +35,5 @@ export function createComposer(
   );
   composer.addPass(bloomPass);
 
-  return { composer, renderPass };
+  return { composer, renderPass, bloomPass };
 }

@@ -46,9 +46,13 @@ export class ThreeRenderer implements Renderer {
   private container!: HTMLElement;
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
+  private bloomPass!: import('three/addons/postprocessing/UnrealBloomPass.js').UnrealBloomPass;
 
   // Debug counter for throttled logging
   private _debugTreeLogCounter = 0;
+
+  // Perf debug toggles
+  private _bloomEnabled = true;
 
   // ECS World reference (for render systems to query directly)
   private world!: World;
@@ -109,6 +113,9 @@ export class ThreeRenderer implements Renderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
+    // Disable autoReset so renderer.info accumulates stats across all EffectComposer passes
+    // We manually reset at the start of each frame in render()
+    this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
 
     // Create scene
@@ -178,10 +185,11 @@ export class ThreeRenderer implements Renderer {
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
 
-    // Create postprocessing composer (store renderPass for camera switching)
+    // Create postprocessing composer (store passes for camera switching and debug toggles)
     const composerResult = createComposer(this.renderer, this.scene, this.cameraSystem.getOrthoCamera(), width, height);
     this.composer = composerResult.composer;
     this.renderPass = composerResult.renderPass;
+    this.bloomPass = composerResult.bloomPass;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -615,11 +623,20 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
+    // Reset renderer info before render to get accurate per-frame stats
+    this.renderer.info.reset();
+
+    // Track render time
+    const renderStart = performance.now();
+
     // Render scene with postprocessing
     this.composer.render();
 
+    const renderTime = performance.now() - renderStart;
+
     // Performance stats logging (every 60 frames)
     this._perfFrameCount = (this._perfFrameCount || 0) + 1;
+    this._perfRenderTimeSum = (this._perfRenderTimeSum || 0) + renderTime;
     const now = performance.now();
     if (this._perfFrameCount >= 60) {
       const info = this.renderer.info;
@@ -627,15 +644,35 @@ export class ThreeRenderer implements Renderer {
       // Calculate FPS from time elapsed over 60 frames
       const elapsed = now - (this._perfLastTime || now);
       const fps = elapsed > 0 ? Math.round(60000 / elapsed) : 0;
-      // Count all lights in scene graph (including nested in groups)
+      const avgRenderMs = (this._perfRenderTimeSum / 60).toFixed(1);
+
+      // Count scene objects
       let lightCount = 0;
       let meshCount = 0;
+      let visibleMeshes = 0;
+      let totalVerts = 0;
       this.scene.traverse((obj) => {
         if (obj.type.includes('Light')) lightCount++;
-        if (obj.type === 'Mesh') meshCount++;
+        if (obj.type === 'Mesh') {
+          meshCount++;
+          if (obj.visible) {
+            visibleMeshes++;
+            const mesh = obj as THREE.Mesh;
+            if (mesh.geometry) {
+              const pos = mesh.geometry.getAttribute('position');
+              if (pos) totalVerts += pos.count;
+            }
+          }
+        }
       });
-      console.log(`[PERF] mode=${renderMode} fps=${fps} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures}`);
+
+      // Viewport size for fill rate context
+      const vp = this.renderer.getSize(new THREE.Vector2());
+      const pixels = vp.x * vp.y;
+
+      console.log(`[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`);
       this._perfFrameCount = 0;
+      this._perfRenderTimeSum = 0;
       this._perfLastTime = now;
     }
     if (!this._perfLastTime) this._perfLastTime = now;
@@ -643,6 +680,7 @@ export class ThreeRenderer implements Renderer {
 
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
+  private _perfRenderTimeSum?: number;
   private _debugFrameCount?: number;
 
   /**
@@ -699,6 +737,19 @@ export class ThreeRenderer implements Renderer {
 
   getCameraCapabilities(): CameraCapabilities {
     return this.cameraSystem.getCapabilities();
+  }
+
+  // === PERF DEBUG TOGGLES ===
+
+  toggleBloom(): boolean {
+    this._bloomEnabled = !this._bloomEnabled;
+    this.bloomPass.enabled = this._bloomEnabled;
+    console.log(`[PERF TOGGLE] Bloom: ${this._bloomEnabled ? 'ON' : 'OFF'}`);
+    return this._bloomEnabled;
+  }
+
+  isBloomEnabled(): boolean {
+    return this._bloomEnabled;
   }
 
   getCameraProjection() {
