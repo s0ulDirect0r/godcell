@@ -137,7 +137,23 @@ function initializeGame(settings: PreGameSettings): void {
   });
 
   eventBus.on('client:pseudopodFire', (event) => {
-    socketManager.sendPseudopodFire(event.targetX, event.targetY);
+    // Route to appropriate projectile based on player stage
+    const myPlayer = getLocalPlayer(world);
+    const stage = myPlayer?.stage;
+
+    console.log('[DEBUG] pseudopodFire event', { stage, myPlayer: !!myPlayer, targetX: event.targetX, targetY: event.targetY });
+
+    // Stage 3+ uses organism projectile (for hunting jungle fauna)
+    // Stage 2 uses pseudopod beam (for PvP)
+    if (stage === EvolutionStage.CYBER_ORGANISM ||
+        stage === EvolutionStage.HUMANOID ||
+        stage === EvolutionStage.GODCELL) {
+      console.log('[DEBUG] Sending organismProjectileFire');
+      socketManager.sendOrganismProjectileFire(event.targetX, event.targetY);
+    } else {
+      console.log('[DEBUG] Sending pseudopodFire');
+      socketManager.sendPseudopodFire(event.targetX, event.targetY);
+    }
   });
 
   eventBus.on('client:sprint', (event) => {
