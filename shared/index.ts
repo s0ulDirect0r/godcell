@@ -38,6 +38,31 @@ export enum EvolutionStage {
   GODCELL = 'godcell',
 }
 
+// Entity scale - determines which render layer an entity belongs to
+// Used for filtering visuals (auras, effects) by viewer's scale
+//   soup   - Stage 1-2 (single-cell, multi-cell) - microscopic primordial ocean
+//   jungle - Stage 3-4 (cyber-organism, humanoid) - digital jungle ecosystem
+//   world  - Stage 5 (godcell) - transcendent global scale
+export type EntityScale = 'soup' | 'jungle' | 'world';
+
+/**
+ * Get the scale of an entity based on its evolution stage.
+ * Used for filtering visual effects - entities only see effects
+ * from other entities at the same scale.
+ */
+export function getEntityScale(stage: EvolutionStage): EntityScale {
+  switch (stage) {
+    case EvolutionStage.SINGLE_CELL:
+    case EvolutionStage.MULTI_CELL:
+      return 'soup';
+    case EvolutionStage.CYBER_ORGANISM:
+    case EvolutionStage.HUMANOID:
+      return 'jungle';
+    case EvolutionStage.GODCELL:
+      return 'world';
+  }
+}
+
 // A player in the game
 export interface Player {
   id: string;
@@ -392,6 +417,11 @@ export interface DataFruitCollectedMessage {
   capacityGained: number;
 }
 
+export interface DataFruitDespawnedMessage {
+  type: 'dataFruitDespawned';
+  fruitId: string;
+}
+
 // CyberBug spawn/kill messages
 export interface CyberBugSpawnedMessage {
   type: 'cyberBugSpawned';
@@ -486,6 +516,7 @@ export type ServerMessage =
   // Stage 3+ macro-resource messages
   | DataFruitSpawnedMessage
   | DataFruitCollectedMessage
+  | DataFruitDespawnedMessage
   | CyberBugSpawnedMessage
   | CyberBugKilledMessage
   | CyberBugMovedMessage
@@ -900,6 +931,7 @@ export const GAME_CONFIG = {
   DATAFRUIT_GROUND_LIFETIME: 60000,  // 60s before fallen fruit despawns (ms)
   DATAFRUIT_COLLISION_RADIUS: 40,    // Collection/visual radius (2x for visibility)
   DATAFRUIT_SPAWN_OFFSET: 60,        // Random offset from tree center (legacy, not used)
+  DATAFRUIT_TREE_SPAWN_INTERVAL: 45000, // 45s between tree fruit spawns (ms)
 
   // CyberBug - skittish prey in swarms (5% of 30,000 = 1,500)
   CYBERBUG_VALUE: 1500,              // Energy on kill
