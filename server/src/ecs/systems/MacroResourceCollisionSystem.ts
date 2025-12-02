@@ -1,75 +1,40 @@
 // ============================================
 // Macro Resource Collision System
-// Handles Stage 3 resource collection: DataFruit pickup
-// Similar to NutrientCollisionSystem but for jungle-scale resources
+// Handles Stage 3+ resource collection: DataFruit pickup
+// Mirrors NutrientCollisionSystem pattern for jungle-scale resources
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@godcell/shared';
+import { GAME_CONFIG, Components, type World } from '@godcell/shared';
 import type {
   PositionComponent,
-  DataFruitComponent,
   StageComponent,
   EnergyComponent,
-  PlayerComponent,
-  EntityId,
 } from '@godcell/shared';
 import type { System } from './types';
 import {
   forEachPlayer,
   forEachDataFruit,
   destroyEntity,
-  addEnergyBySocketId,
-  getEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  getStringIdByEntity,
 } from '../factories';
 import { logger } from '../../logger';
-import { distance } from '../../helpers';
-import { isJungleStage } from '../../helpers/stages';
-
-
-/**
- * Get collection radius based on player stage
- * Later stages have larger collection radii
- */
-function getCollectionRadius(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.DATAFRUIT_COLLISION_RADIUS;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.DATAFRUIT_COLLISION_RADIUS * 1.5;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.DATAFRUIT_COLLISION_RADIUS * 2;
-    default:
-      return 0; // Soup-stage players can't collect
-  }
-}
+import { distance, getPlayerRadius, isJungleStage } from '../../helpers';
 
 /**
  * MacroResourceCollisionSystem - Handles DataFruit collection
  *
- * Detects when jungle-stage players overlap with DataFruits and:
- * 1. Awards energy and capacity increase
- * 2. Emits collection event for client effects
- * 3. Destroys the collected fruit
+ * Simple first-touch-wins pattern (matches NutrientCollisionSystem):
+ * 1. Detect player-fruit collision using player radius + fruit size
+ * 2. Award energy and capacity increase
+ * 3. Destroy collected fruit
  */
 export class MacroResourceCollisionSystem implements System {
   readonly name = 'MacroResourceCollisionSystem';
 
-  update(world: World, deltaTime: number, io: Server): void {
-    // Use Map to ensure each fruit is only collected by one player (nearest)
-    const fruitsToCollect = new Map<string, {
-      entity: EntityId;
-      fruitId: string;
-      collectorSocketId: string;
-      value: number;
-      capacityIncrease: number;
-      position: { x: number; y: number };
-      distance: number;
-    }>();
+  update(world: World, _deltaTime: number, io: Server): void {
+    // Track collected fruits this tick (first touch wins)
+    const collectedThisTick = new Set<string>();
 
-    // Check each player against each fruit
     forEachPlayer(world, (playerEntity, playerId) => {
       const playerPos = world.getComponent<PositionComponent>(playerEntity, Components.Position);
       const stageComp = world.getComponent<StageComponent>(playerEntity, Components.Stage);
@@ -81,68 +46,51 @@ export class MacroResourceCollisionSystem implements System {
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
       if (!isJungleStage(stageComp.stage)) return;
 
-      const collectionRadius = getCollectionRadius(stageComp.stage);
       const playerPosition = { x: playerPos.x, y: playerPos.y };
+      const playerRadius = getPlayerRadius(stageComp.stage);
+      const collisionRadius = playerRadius + GAME_CONFIG.DATAFRUIT_COLLISION_RADIUS;
 
       forEachDataFruit(world, (fruitEntity, fruitId, fruitPos, fruitComp) => {
-        // Only collect fallen/ripe fruits (fallenAt must be set OR ripeness >= 0.8)
-        const canCollect = fruitComp.fallenAt !== undefined || fruitComp.ripeness >= 0.8;
-        if (!canCollect) return;
+        // Skip if already collected this tick
+        if (collectedThisTick.has(fruitId)) return;
 
         const fruitPosition = { x: fruitPos.x, y: fruitPos.y };
         const dist = distance(playerPosition, fruitPosition);
 
-        if (dist < collectionRadius) {
-          // Only update if this player is closer than any previous candidate
-          const existing = fruitsToCollect.get(fruitId);
-          if (!existing || dist < existing.distance) {
-            fruitsToCollect.set(fruitId, {
-              entity: fruitEntity,
-              fruitId,
-              collectorSocketId: playerId,
-              value: fruitComp.value,
-              capacityIncrease: fruitComp.capacityIncrease,
-              position: fruitPosition,
-              distance: dist,
-            });
-          }
+        if (dist < collisionRadius) {
+          // Award energy (capped at max) and capacity increase
+          const energyGain = Math.min(
+            fruitComp.value,
+            Math.max(0, energyComp.max - energyComp.current)
+          );
+          energyComp.current = Math.min(energyComp.current + energyGain, energyComp.max);
+          energyComp.max += fruitComp.capacityIncrease;
+
+          // Mark as collected
+          collectedThisTick.add(fruitId);
+
+          // Emit collection event
+          io.emit('dataFruitCollected', {
+            type: 'dataFruitCollected',
+            fruitId,
+            collectorId: playerId,
+            position: fruitPosition,
+            energyGained: energyGain,
+            capacityGained: fruitComp.capacityIncrease,
+          });
+
+          logger.info({
+            event: 'data_fruit_collected',
+            fruitId,
+            collector: playerId,
+            energyGained: energyGain,
+            capacityGained: fruitComp.capacityIncrease,
+          });
+
+          // Destroy the fruit
+          destroyEntity(world, fruitEntity);
         }
       });
     });
-
-    // Process collections (one collector per fruit)
-    for (const fruit of fruitsToCollect.values()) {
-      // Award energy and capacity
-      addEnergyBySocketId(world, fruit.collectorSocketId, fruit.value);
-      const collectorEnergy = getEnergyBySocketId(world, fruit.collectorSocketId);
-      if (collectorEnergy) {
-        setMaxEnergyBySocketId(
-          world,
-          fruit.collectorSocketId,
-          collectorEnergy.max + fruit.capacityIncrease
-        );
-      }
-
-      // Emit collection event
-      io.emit('dataFruitCollected', {
-        type: 'dataFruitCollected',
-        fruitId: fruit.fruitId,
-        collectorId: fruit.collectorSocketId,
-        position: fruit.position,
-        energyGained: fruit.value,
-        capacityGained: fruit.capacityIncrease,
-      });
-
-      logger.info({
-        event: 'data_fruit_collected',
-        fruitId: fruit.fruitId,
-        collector: fruit.collectorSocketId,
-        energyGained: fruit.value,
-        capacityGained: fruit.capacityIncrease,
-      });
-
-      // Destroy the fruit
-      destroyEntity(world, fruit.entity);
-    }
   }
 }

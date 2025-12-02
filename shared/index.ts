@@ -897,9 +897,9 @@ export const GAME_CONFIG = {
   DATAFRUIT_VALUE: 600,              // Energy on collection
   DATAFRUIT_CAPACITY: 600,           // maxEnergy increase (evolution progress)
   DATAFRUIT_RIPENESS_TIME: 30000,    // 30s to ripen on tree (ms)
-  DATAFRUIT_GROUND_LIFETIME: 15000,  // 15s before fallen fruit despawns (ms)
-  DATAFRUIT_COLLISION_RADIUS: 20,    // Collection radius
-  DATAFRUIT_SPAWN_OFFSET: 60,        // Random offset from tree center
+  DATAFRUIT_GROUND_LIFETIME: 60000,  // 60s before fallen fruit despawns (ms)
+  DATAFRUIT_COLLISION_RADIUS: 40,    // Collection/visual radius (2x for visibility)
+  DATAFRUIT_SPAWN_OFFSET: 60,        // Random offset from tree center (legacy, not used)
 
   // CyberBug - skittish prey in swarms (5% of 30,000 = 1,500)
   CYBERBUG_VALUE: 1500,              // Energy on kill
