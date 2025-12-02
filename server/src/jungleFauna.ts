@@ -45,6 +45,9 @@ const creatureRespawnQueue: Array<{
   homePosition: { x: number; y: number };
 }> = [];
 
+// Track last fruit spawn time per tree (keyed by tree entity ID)
+const treeLastFruitSpawn = new Map<number, number>();
+
 // ============================================
 // DataFruit Spawning
 // ============================================
@@ -55,8 +58,13 @@ const creatureRespawnQueue: Array<{
  */
 export function initializeDataFruits(world: World, io: Server): void {
   let fruitCount = 0;
+  const now = Date.now();
 
-  forEachTree(world, (_treeEntity, _treeId, treePos, treeComp) => {
+  forEachTree(world, (treeEntity, _treeId, treePos, treeComp) => {
+    // Track spawn time for this tree (stagger initial cooldowns)
+    const staggerOffset = Math.random() * GAME_CONFIG.DATAFRUIT_TREE_SPAWN_INTERVAL;
+    treeLastFruitSpawn.set(treeEntity, now - staggerOffset);
+
     // Each tree gets 1-2 fruits nearby
     const numFruits = 1 + Math.floor(Math.random() * 2);
 
@@ -79,6 +87,69 @@ export function initializeDataFruits(world: World, io: Server): void {
   logger.info({
     event: 'system_fruits_spawned',
     count: fruitCount,
+  });
+}
+
+/**
+ * Spawn a single fruit near a tree and broadcast to clients
+ */
+function spawnFruitNearTree(
+  world: World,
+  io: Server,
+  treeEntity: number,
+  treePos: { x: number; y: number },
+  treeRadius: number
+): void {
+  const fruitId = `fruit-${dataFruitIdCounter++}`;
+
+  // Random offset from tree
+  const offsetAngle = Math.random() * Math.PI * 2;
+  const offsetDist = treeRadius + Math.random() * treeRadius * 1.25;
+  const fruitPos = {
+    x: treePos.x + Math.cos(offsetAngle) * offsetDist,
+    y: treePos.y + Math.sin(offsetAngle) * offsetDist,
+  };
+
+  createDataFruitOnGround(world, fruitId, fruitPos);
+
+  // Broadcast spawn to clients
+  io.emit('dataFruitSpawned', {
+    type: 'dataFruitSpawned',
+    dataFruit: {
+      id: fruitId,
+      position: fruitPos,
+      treeEntityId: 0,  // Already on ground
+      value: GAME_CONFIG.DATAFRUIT_VALUE,
+      capacityIncrease: GAME_CONFIG.DATAFRUIT_CAPACITY,
+      ripeness: 1.0,
+      fallenAt: Date.now(),
+    },
+  });
+
+  // Update last spawn time for this tree
+  treeLastFruitSpawn.set(treeEntity, Date.now());
+
+  logger.debug({
+    event: 'fruit_respawn',
+    fruitId,
+    treeEntity,
+    position: fruitPos,
+  });
+}
+
+/**
+ * Process fruit respawns - each tree spawns a fruit after cooldown
+ */
+export function processDataFruitRespawns(world: World, io: Server): void {
+  const now = Date.now();
+  const interval = GAME_CONFIG.DATAFRUIT_TREE_SPAWN_INTERVAL;
+
+  forEachTree(world, (treeEntity, _treeId, treePos, treeComp) => {
+    const lastSpawn = treeLastFruitSpawn.get(treeEntity) ?? 0;
+
+    if (now - lastSpawn >= interval) {
+      spawnFruitNearTree(world, io, treeEntity, treePos, treeComp.radius);
+    }
   });
 }
 
@@ -336,6 +407,7 @@ export function processCreatureRespawns(world: World, io: Server): void {
  * Process all jungle fauna respawns (call every tick)
  */
 export function processJungleFaunaRespawns(world: World, io: Server): void {
+  processDataFruitRespawns(world, io);
   processCyberBugRespawns(world, io);
   processCreatureRespawns(world, io);
 }

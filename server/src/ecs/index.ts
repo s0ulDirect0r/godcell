@@ -128,6 +128,7 @@ export {
   createDataFruitOnGround,
   createDataFruit,
   forEachDataFruit,
+  getDataFruitCount,
   getAllDataFruitSnapshots,
   buildDataFruitsRecord,
   // CyberBug query helpers (Stage 3+)

@@ -68,6 +68,7 @@ import {
   getTreeCount,
   // Stage 3+ entity builders
   buildDataFruitsRecord,
+  getDataFruitCount,
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
   buildOrganismProjectilesRecord,
@@ -816,6 +817,7 @@ function calculateAggregateStats() {
     aliveBots: stats.aliveBots,
     avgPlayerEnergy: stats.alivePlayers > 0 ? stats.totalEnergy / stats.alivePlayers : 0,
     totalNutrients: getNutrientCount(world),
+    totalDataFruits: getDataFruitCount(world),
     stageDistribution: stats.stageDistribution,
   };
 }
