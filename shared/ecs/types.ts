@@ -42,6 +42,12 @@ export const Components = {
   Pseudopod: 'Pseudopod',
   Tree: 'Tree',
 
+  // Stage 3+ macro-resource components (jungle ecosystem)
+  DataFruit: 'DataFruit',
+  CyberBug: 'CyberBug',
+  JungleCreature: 'JungleCreature',
+  OrganismProjectile: 'OrganismProjectile',
+
   // Ability components (added/removed on evolution)
   CanFireEMP: 'CanFireEMP',
   CanFirePseudopod: 'CanFirePseudopod',
@@ -66,6 +72,12 @@ export const Tags = {
   Swarm: 'swarm',
   Pseudopod: 'pseudopod',
   Tree: 'tree',
+
+  // Stage 3+ macro-resource tags (jungle ecosystem)
+  DataFruit: 'datafruit',
+  CyberBug: 'cyberbug',
+  JungleCreature: 'junglecreature',
+  OrganismProjectile: 'organismprojectile',
 
   // Client-only tags
   LocalPlayer: 'local_player', // The player controlled by this client

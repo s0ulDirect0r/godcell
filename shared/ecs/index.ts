@@ -31,6 +31,11 @@ export type {
   SwarmComponent,
   PseudopodComponent,
   TreeComponent,
+  // Stage 3+ macro-resource components
+  DataFruitComponent,
+  CyberBugComponent,
+  JungleCreatureComponent,
+  OrganismProjectileComponent,
   // Ability components
   CanFireEMPComponent,
   CanFirePseudopodComponent,
