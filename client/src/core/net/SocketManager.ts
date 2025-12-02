@@ -31,6 +31,7 @@ import type {
   // Stage 3+ macro-resource messages
   DataFruitSpawnedMessage,
   DataFruitCollectedMessage,
+  DataFruitDespawnedMessage,
   CyberBugSpawnedMessage,
   CyberBugKilledMessage,
   CyberBugMovedMessage,
@@ -434,6 +435,11 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
+    this.socket.on('dataFruitDespawned', (data: DataFruitDespawnedMessage) => {
+      removeDataFruit(this.world, data.fruitId);
+      eventBus.emit(data);
+    });
+
     // CyberBug events
     this.socket.on('cyberBugSpawned', (data: CyberBugSpawnedMessage) => {
       upsertCyberBug(this.world, data.cyberBug);
@@ -503,7 +509,11 @@ export class SocketManager {
     }
     // Stage 3+ macro-resources (optional in message)
     if (snapshot.dataFruits) {
+      const fruitCount = Object.keys(snapshot.dataFruits).length;
+      console.log('[DEBUG] applySnapshot: received dataFruits count:', fruitCount);
       Object.values(snapshot.dataFruits).forEach(f => upsertDataFruit(this.world, f));
+    } else {
+      console.log('[DEBUG] applySnapshot: NO dataFruits in snapshot');
     }
     if (snapshot.cyberBugs) {
       Object.values(snapshot.cyberBugs).forEach(b => upsertCyberBug(this.world, b));
