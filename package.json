@@ -9,7 +9,7 @@
     "shared"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=server & npm run dev --workspace=client",
+    "dev": "npm run dev --workspace=shared & npm run dev --workspace=server & npm run dev --workspace=client",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
     "playground": "npm run playground --workspace=server & npm run dev --workspace=client",
