@@ -10,6 +10,7 @@ import type {
   PlayerRespawnRequestMessage,
   PlayerSprintMessage,
   PseudopodFireMessage,
+  OrganismProjectileFireMessage,
   GameStateMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
@@ -19,6 +20,7 @@ import type {
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
 import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, shouldRunTick, getConfig } from './dev';
@@ -64,6 +66,11 @@ import {
   getObstacleCount,
   buildTreesRecord,
   getTreeCount,
+  // Stage 3+ entity builders
+  buildDataFruitsRecord,
+  buildCyberBugsRecord,
+  buildJungleCreaturesRecord,
+  buildOrganismProjectilesRecord,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -98,7 +105,10 @@ import {
   BotAISystem,
   GravitySystem,
   SwarmAISystem,
+  CyberBugAISystem,
+  JungleCreatureAISystem,
   PseudopodSystem,
+  OrganismProjectileSystem,
   PredationSystem,
   SwarmCollisionSystem,
   TreeCollisionSystem,
@@ -106,6 +116,8 @@ import {
   MetabolismSystem,
   NutrientCollisionSystem,
   NutrientAttractionSystem,
+  MacroResourceCollisionSystem,
+  DataFruitSystem,
   DeathSystem,
   NetworkBroadcastSystem,
 } from './ecs';
@@ -443,6 +455,7 @@ if (isPlayground) {
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
   initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
+  initializeJungleFauna(world, io); // Stage 3+ fauna: DataFruits, CyberBugs, JungleCreatures
   initializeNutrients();
   // Set ECS world for bots before initializing
   setBotEcsWorld(world);
@@ -486,18 +499,34 @@ export { abilitySystem };
 const systemRunner = new SystemRunner();
 
 // Register systems in priority order
+// AI Systems
 systemRunner.register(new BotAISystem(), SystemPriority.BOT_AI);
-systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
+systemRunner.register(new CyberBugAISystem(), SystemPriority.CYBER_BUG_AI);
+systemRunner.register(new JungleCreatureAISystem(), SystemPriority.JUNGLE_CREATURE_AI);
 systemRunner.register(new SwarmAISystem(), SystemPriority.SWARM_AI);
+
+// Lifecycle (fruit ripening)
+systemRunner.register(new DataFruitSystem(), SystemPriority.DATA_FRUIT);
+
+// Physics
+systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
+
+// Abilities
 systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
+systemRunner.register(new OrganismProjectileSystem(), SystemPriority.ORGANISM_PROJECTILE);
+
+// Collisions
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
 systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
 systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
 systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
+systemRunner.register(new MacroResourceCollisionSystem(), SystemPriority.MACRO_RESOURCE_COLLISION);
 systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
 systemRunner.register(new DeathSystem(), SystemPriority.DEATH);
+
+// Network
 systemRunner.register(new NetworkBroadcastSystem(), SystemPriority.NETWORK);
 
 logger.info({
@@ -543,6 +572,11 @@ io.on('connection', (socket) => {
     obstacles: buildObstaclesRecord(world),
     swarms: buildSwarmsRecord(world),
     trees: buildTreesRecord(world),
+    // Stage 3+ jungle ecosystem entities
+    dataFruits: buildDataFruitsRecord(world),
+    cyberBugs: buildCyberBugsRecord(world),
+    jungleCreatures: buildJungleCreaturesRecord(world),
+    organismProjectiles: buildOrganismProjectilesRecord(world),
   };
   socket.emit('gameState', gameState);
 
@@ -585,6 +619,15 @@ io.on('connection', (socket) => {
   socket.on('pseudopodFire', (message: PseudopodFireMessage) => {
     // Delegate to AbilitySystem (used by both players and bots)
     abilitySystem.firePseudopod(socket.id, message.targetX, message.targetY);
+  });
+
+  // ============================================
+  // Organism Projectile Fire (Stage 3+ hunting projectile)
+  // ============================================
+
+  socket.on('organismProjectileFire', (message: OrganismProjectileFireMessage) => {
+    // Delegate to AbilitySystem (used by both players and bots)
+    abilitySystem.fireOrganismProjectile(socket.id, message.targetX, message.targetY);
   });
 
   // ============================================
@@ -709,6 +752,9 @@ setInterval(() => {
 
   // Calculate deltaTime (seconds per tick)
   const deltaTime = TICK_INTERVAL / 1000;
+
+  // Process fauna respawns before system updates (Stage 3+ ecosystem)
+  processJungleFaunaRespawns(world, io);
 
   // Run all systems in priority order
   // World = game state, deltaTime = frame context, io = network infrastructure

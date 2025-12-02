@@ -37,6 +37,11 @@ import type {
   CanEngulfComponent,
   CanDetectComponent,
   DamageSource,
+  // Stage 3+ macro-resources
+  DataFruitComponent,
+  CyberBugComponent,
+  JungleCreatureComponent,
+  OrganismProjectileComponent,
 } from '@godcell/shared';
 
 // ============================================
@@ -66,6 +71,12 @@ export function createWorld(): World {
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
   world.registerStore<PseudopodComponent>(Components.Pseudopod, new ComponentStore());
   world.registerStore<TreeComponent>(Components.Tree, new ComponentStore());
+
+  // Stage 3+ macro-resources (jungle ecosystem)
+  world.registerStore<DataFruitComponent>(Components.DataFruit, new ComponentStore());
+  world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
+  world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
+  world.registerStore<OrganismProjectileComponent>(Components.OrganismProjectile, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -1684,3 +1695,555 @@ export function buildTreesRecord(world: World): Record<string, {
   return result;
 }
 
+// ============================================
+// Stage 3+ Macro-Resource Factories
+// ============================================
+
+/**
+ * Create a DataFruit entity (harvestable resource near trees).
+ */
+export function createDataFruit(
+  world: World,
+  fruitId: string,
+  treeEntityId: number,
+  position: Position,
+  value: number,
+  capacityIncrease: number,
+  ripeness: number = 1.0
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: 0,
+  });
+  world.addComponent<DataFruitComponent>(entity, Components.DataFruit, {
+    treeEntityId,
+    value,
+    capacityIncrease,
+    ripeness,
+    fallenAt: undefined,
+  });
+
+  world.addTag(entity, Tags.DataFruit);
+  registerStringIdMapping(entity, fruitId);
+
+  return entity;
+}
+
+/**
+ * Create a CyberBug entity (small skittish prey).
+ */
+export function createCyberBug(
+  world: World,
+  bugId: string,
+  swarmId: string,
+  position: Position,
+  homePosition: Position,
+  value: number,
+  capacityIncrease: number
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: 0,
+  });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  world.addComponent<CyberBugComponent>(entity, Components.CyberBug, {
+    swarmId,
+    size: GAME_CONFIG.CYBERBUG_COLLISION_RADIUS,
+    state: 'patrol',
+    fleeingFrom: undefined,
+    homePosition: { x: homePosition.x, y: homePosition.y },
+    patrolTarget: undefined,
+    value,
+    capacityIncrease,
+  });
+
+  world.addTag(entity, Tags.CyberBug);
+  registerStringIdMapping(entity, bugId);
+
+  return entity;
+}
+
+/**
+ * Create a JungleCreature entity (larger NPC fauna).
+ */
+export function createJungleCreature(
+  world: World,
+  creatureId: string,
+  variant: 'grazer' | 'stalker' | 'ambusher',
+  position: Position,
+  homePosition: Position,
+  value: number,
+  capacityIncrease: number
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: 0,
+  });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  world.addComponent<JungleCreatureComponent>(entity, Components.JungleCreature, {
+    variant,
+    size: GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS,
+    state: variant === 'ambusher' ? 'idle' : 'patrol',
+    targetEntityId: undefined,
+    homePosition: { x: homePosition.x, y: homePosition.y },
+    territoryRadius: GAME_CONFIG.JUNGLE_CREATURE_PATROL_RADIUS,
+    value,
+    capacityIncrease,
+    aggressionRange: variant !== 'grazer' ? GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS : undefined,
+  });
+
+  world.addTag(entity, Tags.JungleCreature);
+  registerStringIdMapping(entity, creatureId);
+
+  return entity;
+}
+
+/**
+ * Create an OrganismProjectile entity (Stage 3 attack projectile).
+ * Cloned from createPseudopod pattern.
+ */
+export function createOrganismProjectile(
+  world: World,
+  projectileId: string,
+  ownerId: EntityId,
+  ownerSocketId: string,
+  startPos: Position,
+  targetPos: Position,
+  color: string
+): EntityId {
+  const entity = world.createEntity();
+
+  // Calculate direction vector
+  const dx = targetPos.x - startPos.x;
+  const dy = targetPos.y - startPos.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const dirX = dist > 0 ? dx / dist : 1;
+  const dirY = dist > 0 ? dy / dist : 0;
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: startPos.x,
+    y: startPos.y,
+    z: 0,
+  });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: dirX * GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
+    y: dirY * GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
+    z: 0,
+  });
+  world.addComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile, {
+    ownerId,
+    ownerSocketId,
+    damage: GAME_CONFIG.ORGANISM_PROJECTILE_DAMAGE,
+    capacitySteal: GAME_CONFIG.ORGANISM_PROJECTILE_CAPACITY_STEAL,
+    startX: startPos.x,
+    startY: startPos.y,
+    targetX: targetPos.x,
+    targetY: targetPos.y,
+    speed: GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
+    maxDistance: GAME_CONFIG.ORGANISM_PROJECTILE_MAX_DISTANCE,
+    distanceTraveled: 0,
+    state: 'traveling',
+    hitEntityId: undefined,
+    color,
+    createdAt: Date.now(),
+  });
+
+  world.addTag(entity, Tags.OrganismProjectile);
+  registerStringIdMapping(entity, projectileId);
+
+  return entity;
+}
+
+// ============================================
+// DataFruit Query Helpers
+// ============================================
+
+/**
+ * DataFruit snapshot for collision detection.
+ */
+export interface DataFruitSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  treeEntityId: number;
+  value: number;
+  capacityIncrease: number;
+  ripeness: number;
+  fallenAt?: number;
+}
+
+/**
+ * Iterate over all DataFruit entities.
+ */
+export function forEachDataFruit(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    fruit: DataFruitComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.DataFruit, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const fruit = world.getComponent<DataFruitComponent>(entity, Components.DataFruit);
+    const id = getStringIdByEntity(entity);
+    if (pos && fruit && id) {
+      callback(entity, id, pos, fruit);
+    }
+  });
+}
+
+/**
+ * Get all DataFruits as snapshots.
+ */
+export function getAllDataFruitSnapshots(world: World): DataFruitSnapshot[] {
+  const snapshots: DataFruitSnapshot[] = [];
+  forEachDataFruit(world, (entity, id, pos, fruit) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      treeEntityId: fruit.treeEntityId,
+      value: fruit.value,
+      capacityIncrease: fruit.capacityIncrease,
+      ripeness: fruit.ripeness,
+      fallenAt: fruit.fallenAt,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Convert ECS DataFruits to network format.
+ */
+export function buildDataFruitsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  treeEntityId: number;
+  value: number;
+  capacityIncrease: number;
+  ripeness: number;
+  fallenAt?: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    treeEntityId: number;
+    value: number;
+    capacityIncrease: number;
+    ripeness: number;
+    fallenAt?: number;
+  }> = {};
+
+  forEachDataFruit(world, (_entity, id, pos, fruit) => {
+    result[id] = {
+      id,
+      position: { x: pos.x, y: pos.y },
+      treeEntityId: fruit.treeEntityId,
+      value: fruit.value,
+      capacityIncrease: fruit.capacityIncrease,
+      ripeness: fruit.ripeness,
+      fallenAt: fruit.fallenAt,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// CyberBug Query Helpers
+// ============================================
+
+/**
+ * CyberBug snapshot for collision detection.
+ */
+export interface CyberBugSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  swarmId: string;
+  state: 'idle' | 'patrol' | 'flee';
+  value: number;
+  capacityIncrease: number;
+}
+
+/**
+ * Iterate over all CyberBug entities.
+ */
+export function forEachCyberBug(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    bug: CyberBugComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.CyberBug, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const bug = world.getComponent<CyberBugComponent>(entity, Components.CyberBug);
+    const id = getStringIdByEntity(entity);
+    if (pos && bug && id) {
+      callback(entity, id, pos, bug);
+    }
+  });
+}
+
+/**
+ * Get all CyberBugs as snapshots.
+ */
+export function getAllCyberBugSnapshots(world: World): CyberBugSnapshot[] {
+  const snapshots: CyberBugSnapshot[] = [];
+  forEachCyberBug(world, (entity, id, pos, bug) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      swarmId: bug.swarmId,
+      state: bug.state,
+      value: bug.value,
+      capacityIncrease: bug.capacityIncrease,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Convert ECS CyberBugs to network format.
+ */
+export function buildCyberBugsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  swarmId: string;
+  state: 'idle' | 'patrol' | 'flee';
+  value: number;
+  capacityIncrease: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    swarmId: string;
+    state: 'idle' | 'patrol' | 'flee';
+    value: number;
+    capacityIncrease: number;
+  }> = {};
+
+  forEachCyberBug(world, (_entity, id, pos, bug) => {
+    result[id] = {
+      id,
+      position: { x: pos.x, y: pos.y },
+      swarmId: bug.swarmId,
+      state: bug.state,
+      value: bug.value,
+      capacityIncrease: bug.capacityIncrease,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// JungleCreature Query Helpers
+// ============================================
+
+/**
+ * JungleCreature snapshot for collision detection.
+ */
+export interface JungleCreatureSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  variant: 'grazer' | 'stalker' | 'ambusher';
+  state: 'idle' | 'patrol' | 'hunt' | 'flee';
+  size: number;  // Collision radius
+  value: number;
+  capacityIncrease: number;
+}
+
+/**
+ * Iterate over all JungleCreature entities.
+ */
+export function forEachJungleCreature(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    creature: JungleCreatureComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.JungleCreature, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const creature = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
+    const id = getStringIdByEntity(entity);
+    if (pos && creature && id) {
+      callback(entity, id, pos, creature);
+    }
+  });
+}
+
+/**
+ * Get all JungleCreatures as snapshots.
+ */
+export function getAllJungleCreatureSnapshots(world: World): JungleCreatureSnapshot[] {
+  const snapshots: JungleCreatureSnapshot[] = [];
+  forEachJungleCreature(world, (entity, id, pos, creature) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      variant: creature.variant,
+      state: creature.state,
+      size: creature.size,
+      value: creature.value,
+      capacityIncrease: creature.capacityIncrease,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Convert ECS JungleCreatures to network format.
+ */
+export function buildJungleCreaturesRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  variant: 'grazer' | 'stalker' | 'ambusher';
+  state: 'idle' | 'patrol' | 'hunt' | 'flee';
+  value: number;
+  capacityIncrease: number;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    variant: 'grazer' | 'stalker' | 'ambusher';
+    state: 'idle' | 'patrol' | 'hunt' | 'flee';
+    value: number;
+    capacityIncrease: number;
+  }> = {};
+
+  forEachJungleCreature(world, (_entity, id, pos, creature) => {
+    result[id] = {
+      id,
+      position: { x: pos.x, y: pos.y },
+      variant: creature.variant,
+      state: creature.state,
+      value: creature.value,
+      capacityIncrease: creature.capacityIncrease,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// OrganismProjectile Query Helpers
+// ============================================
+
+/**
+ * OrganismProjectile snapshot for collision detection.
+ */
+export interface OrganismProjectileSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  ownerId: number;
+  ownerSocketId: string;
+  state: 'traveling' | 'hit' | 'missed';
+  damage: number;
+  color: string;
+}
+
+/**
+ * Iterate over all OrganismProjectile entities.
+ */
+export function forEachOrganismProjectile(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    projectile: OrganismProjectileComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const projectile = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+    const id = getStringIdByEntity(entity);
+    if (pos && projectile && id) {
+      callback(entity, id, pos, projectile);
+    }
+  });
+}
+
+/**
+ * Get all OrganismProjectiles as snapshots.
+ */
+export function getAllOrganismProjectileSnapshots(world: World): OrganismProjectileSnapshot[] {
+  const snapshots: OrganismProjectileSnapshot[] = [];
+  forEachOrganismProjectile(world, (entity, id, pos, projectile) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      ownerId: projectile.ownerId,
+      ownerSocketId: projectile.ownerSocketId,
+      state: projectile.state,
+      damage: projectile.damage,
+      color: projectile.color,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Convert ECS OrganismProjectiles to network format.
+ */
+export function buildOrganismProjectilesRecord(world: World): Record<string, {
+  id: string;
+  ownerId: string;
+  position: Position;
+  targetPosition: Position;
+  state: 'traveling' | 'hit' | 'missed';
+  color: string;
+}> {
+  const result: Record<string, {
+    id: string;
+    ownerId: string;
+    position: Position;
+    targetPosition: Position;
+    state: 'traveling' | 'hit' | 'missed';
+    color: string;
+  }> = {};
+
+  forEachOrganismProjectile(world, (_entity, id, pos, projectile) => {
+    result[id] = {
+      id,
+      ownerId: projectile.ownerSocketId,
+      position: { x: pos.x, y: pos.y },
+      targetPosition: { x: projectile.targetX, y: projectile.targetY },
+      state: projectile.state,
+      color: projectile.color,
+    };
+  });
+
+  return result;
+}

@@ -28,6 +28,18 @@ import type {
   SwarmConsumedMessage,
   PlayerDrainStateMessage,
   DamageSource,
+  // Stage 3+ macro-resource messages
+  DataFruitSpawnedMessage,
+  DataFruitCollectedMessage,
+  CyberBugSpawnedMessage,
+  CyberBugKilledMessage,
+  CyberBugMovedMessage,
+  JungleCreatureSpawnedMessage,
+  JungleCreatureKilledMessage,
+  JungleCreatureMovedMessage,
+  OrganismProjectileSpawnedMessage,
+  OrganismProjectileHitMessage,
+  OrganismProjectileRetractedMessage,
 } from '@godcell/shared';
 import {
   World,
@@ -56,6 +68,17 @@ import {
   setLocalPlayer,
   clearLookups,
   getStringIdByEntity,
+  // Stage 3+ macro-resource factories
+  upsertDataFruit,
+  removeDataFruit,
+  upsertCyberBug,
+  removeCyberBug,
+  updateCyberBugPosition,
+  upsertJungleCreature,
+  removeJungleCreature,
+  updateJungleCreaturePosition,
+  upsertOrganismProjectile,
+  removeOrganismProjectile,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -176,6 +199,17 @@ export class SocketManager {
     this.socket.emit('playerSprint', {
       type: 'playerSprint',
       sprinting,
+    });
+  }
+
+  /**
+   * Send organism projectile fire (Stage 3+ attack for hunting fauna)
+   */
+  sendOrganismProjectileFire(targetX: number, targetY: number): void {
+    this.socket.emit('organismProjectileFire', {
+      type: 'organismProjectileFire',
+      targetX,
+      targetY,
     });
   }
 
@@ -383,6 +417,71 @@ export class SocketManager {
       this.updateDamageInfo(data.damageInfo, data.swarmDamageInfo);
       eventBus.emit(data);
     });
+
+    // ============================================
+    // Stage 3+ Macro-Resource Events
+    // ============================================
+
+    // DataFruit events
+    this.socket.on('dataFruitSpawned', (data: DataFruitSpawnedMessage) => {
+      upsertDataFruit(this.world, data.dataFruit);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('dataFruitCollected', (data: DataFruitCollectedMessage) => {
+      removeDataFruit(this.world, data.fruitId);
+      // Energy update comes via energyUpdate message, just emit event for effects
+      eventBus.emit(data);
+    });
+
+    // CyberBug events
+    this.socket.on('cyberBugSpawned', (data: CyberBugSpawnedMessage) => {
+      upsertCyberBug(this.world, data.cyberBug);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('cyberBugKilled', (data: CyberBugKilledMessage) => {
+      removeCyberBug(this.world, data.bugId);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('cyberBugMoved', (data: CyberBugMovedMessage) => {
+      updateCyberBugPosition(this.world, data.bugId, data.position.x, data.position.y, data.state);
+    });
+
+    // JungleCreature events
+    this.socket.on('jungleCreatureSpawned', (data: JungleCreatureSpawnedMessage) => {
+      upsertJungleCreature(this.world, data.jungleCreature);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('jungleCreatureKilled', (data: JungleCreatureKilledMessage) => {
+      removeJungleCreature(this.world, data.creatureId);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('jungleCreatureMoved', (data: JungleCreatureMovedMessage) => {
+      updateJungleCreaturePosition(this.world, data.creatureId, data.position.x, data.position.y, data.state);
+    });
+
+    // OrganismProjectile events
+    this.socket.on('organismProjectileSpawned', (data: OrganismProjectileSpawnedMessage) => {
+      console.log('[DEBUG] organismProjectileSpawned received', data.projectile);
+      upsertOrganismProjectile(this.world, data.projectile);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('organismProjectileHit', (data: OrganismProjectileHitMessage) => {
+      console.log('[DEBUG] organismProjectileHit received', data);
+      // Emit to EventBus for visual effects (particle burst)
+      eventBus.emit(data);
+    });
+
+    this.socket.on('organismProjectileRetracted', (data: OrganismProjectileRetractedMessage) => {
+      console.log('[DEBUG] organismProjectileRetracted received', data);
+      removeOrganismProjectile(this.world, data.projectileId);
+      eventBus.emit(data);
+    });
   }
 
   // ============================================
@@ -406,6 +505,19 @@ export class SocketManager {
     if (snapshot.trees) {
       Object.values(snapshot.trees).forEach(t => upsertTree(this.world, t));
     }
+    // Stage 3+ macro-resources (optional in message)
+    if (snapshot.dataFruits) {
+      Object.values(snapshot.dataFruits).forEach(f => upsertDataFruit(this.world, f));
+    }
+    if (snapshot.cyberBugs) {
+      Object.values(snapshot.cyberBugs).forEach(b => upsertCyberBug(this.world, b));
+    }
+    if (snapshot.jungleCreatures) {
+      Object.values(snapshot.jungleCreatures).forEach(c => upsertJungleCreature(this.world, c));
+    }
+    if (snapshot.organismProjectiles) {
+      Object.values(snapshot.organismProjectiles).forEach(p => upsertOrganismProjectile(this.world, p));
+    }
   }
 
   /**
@@ -420,6 +532,11 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.Swarm, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Pseudopod, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Tree, (entity) => toDestroy.push(entity));
+    // Stage 3+ macro-resources
+    this.world.forEachWithTag(Tags.DataFruit, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.CyberBug, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.JungleCreature, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.OrganismProjectile, (entity) => toDestroy.push(entity));
     toDestroy.forEach(entity => this.world.destroyEntity(entity));
 
     // Clear string ID lookups

@@ -114,6 +114,51 @@ export interface Tree {
 }
 
 // ============================================
+// Stage 3+ Macro-Resources (Digital Jungle Ecosystem)
+// ============================================
+
+// DataFruit - harvestable resource that grows near digital trees
+export interface DataFruit {
+  id: string;
+  position: Position;
+  treeEntityId: number;       // EntityId of parent tree (0 if fallen/detached)
+  value: number;              // Energy gain on collection
+  capacityIncrease: number;   // maxEnergy increase (evolution progress)
+  ripeness: number;           // 0-1, affects visual glow intensity
+  fallenAt?: number;          // Timestamp when fruit fell (undefined = still on tree)
+}
+
+// CyberBug - small skittish prey in swarms
+export interface CyberBug {
+  id: string;
+  position: Position;
+  swarmId: string;            // Groups bugs into swarms
+  state: 'idle' | 'patrol' | 'flee';
+  value: number;              // Energy gain on kill
+  capacityIncrease: number;   // maxEnergy increase on kill
+}
+
+// JungleCreature - larger NPC fauna with variant behaviors
+export interface JungleCreature {
+  id: string;
+  position: Position;
+  variant: 'grazer' | 'stalker' | 'ambusher';
+  state: 'idle' | 'patrol' | 'hunt' | 'flee';
+  value: number;              // Energy gain on kill
+  capacityIncrease: number;   // maxEnergy increase on kill
+}
+
+// OrganismProjectile - Stage 3 attack projectile (cloned from pseudopod)
+export interface OrganismProjectile {
+  id: string;
+  ownerId: string;            // Socket ID of player who fired
+  position: Position;         // Current position
+  targetPosition: Position;   // Where it's heading
+  state: 'traveling' | 'hit' | 'missed';
+  color: string;              // Owner's color (for rendering)
+}
+
+// ============================================
 // Network Messages (Client → Server)
 // ============================================
 
@@ -145,6 +190,13 @@ export interface EMPActivateMessage {
   type: 'empActivate';
 }
 
+// Stage 3 organism projectile fire (for hunting jungle fauna)
+export interface OrganismProjectileFireMessage {
+  type: 'organismProjectileFire';
+  targetX: number;  // World position to fire towards
+  targetY: number;
+}
+
 // ============================================
 // Network Messages (Server → Client)
 // ============================================
@@ -156,6 +208,11 @@ export interface GameStateMessage {
   obstacles: Record<string, Obstacle>; // Map of obstacleId → Obstacle
   swarms: Record<string, EntropySwarm>; // Map of swarmId → EntropySwarm
   trees?: Record<string, Tree>; // Map of treeId → Tree (Stage 3+ jungle environment)
+  // Stage 3+ macro-resources (jungle ecosystem)
+  dataFruits?: Record<string, DataFruit>;
+  cyberBugs?: Record<string, CyberBug>;
+  jungleCreatures?: Record<string, JungleCreature>;
+  organismProjectiles?: Record<string, OrganismProjectile>;
 }
 
 export interface PlayerJoinedMessage {
@@ -317,6 +374,90 @@ export interface PseudopodHitMessage {
   hitPosition: Position; // Where the hit occurred
 }
 
+// ============================================
+// Stage 3+ Macro-Resource Messages
+// ============================================
+
+// DataFruit spawn/collect messages
+export interface DataFruitSpawnedMessage {
+  type: 'dataFruitSpawned';
+  dataFruit: DataFruit;
+}
+
+export interface DataFruitCollectedMessage {
+  type: 'dataFruitCollected';
+  fruitId: string;
+  playerId: string;
+  energyGained: number;
+  capacityGained: number;
+}
+
+// CyberBug spawn/kill messages
+export interface CyberBugSpawnedMessage {
+  type: 'cyberBugSpawned';
+  cyberBug: CyberBug;
+}
+
+export interface CyberBugKilledMessage {
+  type: 'cyberBugKilled';
+  bugId: string;
+  killerId: string;
+  position: Position;     // For death effect
+  energyGained: number;
+  capacityGained: number;
+}
+
+export interface CyberBugMovedMessage {
+  type: 'cyberBugMoved';
+  bugId: string;
+  position: Position;
+  state: string;  // 'idle' | 'patrol' | 'flee'
+}
+
+// JungleCreature spawn/kill messages
+export interface JungleCreatureSpawnedMessage {
+  type: 'jungleCreatureSpawned';
+  jungleCreature: JungleCreature;
+}
+
+export interface JungleCreatureKilledMessage {
+  type: 'jungleCreatureKilled';
+  creatureId: string;
+  killerId: string;
+  position: Position;     // For death effect
+  energyGained: number;
+  capacityGained: number;
+}
+
+export interface JungleCreatureMovedMessage {
+  type: 'jungleCreatureMoved';
+  creatureId: string;
+  position: Position;
+  state: string;  // 'idle' | 'patrol' | 'hunt' | 'flee'
+  variant: string;  // 'grazer' | 'stalker' | 'ambusher'
+}
+
+// OrganismProjectile messages (cloned from pseudopod pattern)
+export interface OrganismProjectileSpawnedMessage {
+  type: 'organismProjectileSpawned';
+  projectile: OrganismProjectile;
+}
+
+export interface OrganismProjectileHitMessage {
+  type: 'organismProjectileHit';
+  projectileId: string;
+  targetId: string;
+  targetType: 'cyberbug' | 'junglecreature';
+  hitPosition: Position;
+  damage: number;
+  killed: boolean;
+}
+
+export interface OrganismProjectileRetractedMessage {
+  type: 'organismProjectileRetracted';
+  projectileId: string;
+}
+
 // Union type of all possible server messages
 export type ServerMessage =
   | GameStateMessage
@@ -342,6 +483,18 @@ export type ServerMessage =
   | SwarmConsumedMessage
   | PlayerDrainStateMessage
   | PseudopodHitMessage
+  // Stage 3+ macro-resource messages
+  | DataFruitSpawnedMessage
+  | DataFruitCollectedMessage
+  | CyberBugSpawnedMessage
+  | CyberBugKilledMessage
+  | CyberBugMovedMessage
+  | JungleCreatureSpawnedMessage
+  | JungleCreatureKilledMessage
+  | JungleCreatureMovedMessage
+  | OrganismProjectileSpawnedMessage
+  | OrganismProjectileHitMessage
+  | OrganismProjectileRetractedMessage
   | DevConfigUpdatedMessage;
 
 // ============================================
@@ -644,14 +797,14 @@ export const GAME_CONFIG = {
   // Stage-specific energy pools (combined old health + energy)
   SINGLE_CELL_ENERGY: 100,       // Stage 1: 100 energy (harsh, must feed quickly)
   SINGLE_CELL_MAX_ENERGY: 100,   // No buffer - evolution is the only way to grow capacity
-  MULTI_CELL_ENERGY: 400,        // Stage 2: 400 energy (tankier, can hunt)
-  MULTI_CELL_MAX_ENERGY: 400,
-  CYBER_ORGANISM_ENERGY: 1000,   // Stage 3: 1000 energy
-  CYBER_ORGANISM_MAX_ENERGY: 1000,
-  HUMANOID_ENERGY: 2000,         // Stage 4: 2000 energy
-  HUMANOID_MAX_ENERGY: 2000,
-  GODCELL_ENERGY: 3000,          // Stage 5: 3000 energy (transcendent)
-  GODCELL_MAX_ENERGY: 3000,
+  MULTI_CELL_ENERGY: 300,        // Stage 2: starts at evolution threshold
+  MULTI_CELL_MAX_ENERGY: 300,
+  CYBER_ORGANISM_ENERGY: 3000,   // Stage 3: starts at evolution threshold
+  CYBER_ORGANISM_MAX_ENERGY: 3000,
+  HUMANOID_ENERGY: 30000,        // Stage 4: starts at evolution threshold
+  HUMANOID_MAX_ENERGY: 30000,
+  GODCELL_ENERGY: 100000,        // Stage 5: starts at evolution threshold (transcendent)
+  GODCELL_MAX_ENERGY: 100000,
 
   // Decay rates (units per second) - stage-specific metabolic efficiency
   // These drain energy passively - no damage resistance applies
@@ -666,8 +819,8 @@ export const GAME_CONFIG = {
   // Evolution thresholds (maxEnergy required)
   EVOLUTION_MULTI_CELL: 300,       // Stage 1→2: ~20 nutrients (easy access to EMP)
   EVOLUTION_CYBER_ORGANISM: 3000,  // Stage 2→3: Major grind - swarm hunting essential
-  EVOLUTION_HUMANOID: 6000,        // Stage 3→4: Sustained dominance required
-  EVOLUTION_GODCELL: 10000,        // Stage 4→5: Transcendence is earned
+  EVOLUTION_HUMANOID: 30000,       // Stage 3→4: Full jungle ecosystem grind (fruits, bugs, creatures, PvP)
+  EVOLUTION_GODCELL: 100000,       // Stage 4→5: Transcendence is earned
 
   // Evolution
   EVOLUTION_MOLTING_DURATION: 2500, // 2.5 seconds invulnerable animation (ms)
@@ -734,4 +887,52 @@ export const GAME_CONFIG = {
   SWARM_MAX_ENERGY_GAIN: 75,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
   SWARM_BEAM_KILL_MAX_ENERGY_GAIN: 50, // MaxEnergy from beam-killing swarm (less than contact - nutrient loss)
   SWARM_ENERGY: 100,                // Swarm energy pool (set when disabled by EMP)
+
+  // ============================================
+  // Stage 3+ Macro-Resources (Digital Jungle Ecosystem)
+  // Energy values are % of Stage 3→4 threshold (30,000 maxEnergy)
+  // ============================================
+
+  // DataFruit - passive foraging (2% of 30,000 = 600)
+  DATAFRUIT_VALUE: 600,              // Energy on collection
+  DATAFRUIT_CAPACITY: 600,           // maxEnergy increase (evolution progress)
+  DATAFRUIT_RIPENESS_TIME: 30000,    // 30s to ripen on tree (ms)
+  DATAFRUIT_GROUND_LIFETIME: 15000,  // 15s before fallen fruit despawns (ms)
+  DATAFRUIT_COLLISION_RADIUS: 20,    // Collection radius
+  DATAFRUIT_SPAWN_OFFSET: 60,        // Random offset from tree center
+
+  // CyberBug - skittish prey in swarms (5% of 30,000 = 1,500)
+  CYBERBUG_VALUE: 1500,              // Energy on kill
+  CYBERBUG_CAPACITY: 1500,           // maxEnergy increase on kill
+  CYBERBUG_SWARM_SIZE_MIN: 3,        // Minimum bugs per swarm
+  CYBERBUG_SWARM_SIZE_MAX: 5,        // Maximum bugs per swarm
+  CYBERBUG_SWARM_COUNT: 12,          // Number of swarms to spawn in jungle
+  CYBERBUG_FLEE_TRIGGER_RADIUS: 300, // Start fleeing at this distance from player
+  CYBERBUG_FLEE_SPEED: 350,          // Fast when scared (px/s)
+  CYBERBUG_PATROL_SPEED: 100,        // Slow when calm (px/s)
+  CYBERBUG_COLLISION_RADIUS: 15,     // Hit detection radius
+  CYBERBUG_PATROL_RADIUS: 200,       // How far bugs wander from home
+  CYBERBUG_SWARM_RESPAWN_DELAY: 30000, // 30s before swarm respawns after all bugs killed
+
+  // JungleCreature - larger NPC fauna (10% of 30,000 = 3,000)
+  JUNGLE_CREATURE_VALUE: 3000,       // Energy on kill
+  JUNGLE_CREATURE_CAPACITY: 3000,    // maxEnergy increase on kill
+  JUNGLE_CREATURE_COUNT: 8,          // Number of creatures to spawn
+  JUNGLE_CREATURE_PATROL_RADIUS: 500, // How far creatures wander from home
+  JUNGLE_CREATURE_AGGRO_RADIUS: 250, // Distance at which stalker/ambusher attacks
+  JUNGLE_CREATURE_COLLISION_RADIUS: 40, // Hit detection radius (larger than bugs)
+  JUNGLE_CREATURE_SPEED: 180,        // Base movement speed (px/s)
+  JUNGLE_CREATURE_CHASE_SPEED: 280,  // Speed when hunting (stalker/ambusher)
+  JUNGLE_CREATURE_DAMAGE_RATE: 80,   // Energy drain per second on player contact (stalker/ambusher)
+  JUNGLE_CREATURE_RESPAWN_DELAY: 45000, // 45s before creature respawns after killed
+
+  // OrganismProjectile - Stage 3 attack ability (jungle-scale projectile)
+  // Values scaled for jungle view (camera frustum ~4800 wide)
+  ORGANISM_PROJECTILE_SPEED: 4000,   // Pixels per second (fast at jungle scale)
+  ORGANISM_PROJECTILE_MAX_DISTANCE: 2000, // Max travel distance (visible range)
+  ORGANISM_PROJECTILE_COOLDOWN: 400, // ms between shots
+  ORGANISM_PROJECTILE_DAMAGE: 500,   // Energy drained from target
+  ORGANISM_PROJECTILE_CAPACITY_STEAL: 0, // No capacity steal from fauna (for now)
+  ORGANISM_PROJECTILE_COLLISION_RADIUS: 50, // Hit detection radius (jungle scale)
+  ORGANISM_PROJECTILE_ENERGY_COST: 20, // Energy cost to fire
 };

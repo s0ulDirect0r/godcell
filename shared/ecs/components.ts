@@ -110,6 +110,7 @@ export interface StunnedComponent {
 export interface CooldownsComponent {
   lastEMPTime?: number;       // Timestamp of last EMP use
   lastPseudopodTime?: number; // Timestamp of last pseudopod fire
+  lastOrganismProjectileTime?: number; // Timestamp of last organism projectile fire (Stage 3+)
 }
 
 /**
@@ -260,6 +261,79 @@ export interface CanEngulfComponent {
  */
 export interface CanDetectComponent {
   radius: number; // Detection range in pixels
+}
+
+// ============================================
+// Stage 3+ Macro-Resource Components
+// ============================================
+
+/**
+ * DataFruit - harvestable resource that grows on digital trees.
+ * Passive foraging option for Stage 3+ players.
+ * Trees produce fruits periodically; bigger trees = more fruit.
+ */
+export interface DataFruitComponent {
+  treeEntityId: number;       // EntityId of parent tree (0 if fallen/detached)
+  value: number;              // Energy gain on collection
+  capacityIncrease: number;   // maxEnergy increase (evolution progress)
+  ripeness: number;           // 0-1, affects visual glow intensity
+  fallenAt?: number;          // Timestamp when fruit fell from tree (undefined = still attached)
+}
+
+/**
+ * CyberBug - small jungle creature that flees when approached.
+ * Easy prey, low reward. Travels in swarms of 3-5.
+ * Skittish AI: patrol until player approaches, then flee.
+ */
+export interface CyberBugComponent {
+  swarmId: string;            // Groups bugs into swarms (same swarmId = same group)
+  size: number;               // Collision radius
+  state: 'idle' | 'patrol' | 'flee';
+  fleeingFrom?: number;       // EntityId of player being fled from
+  homePosition: Position;     // Spawn point for patrol behavior
+  patrolTarget?: Position;    // Current wander destination
+  value: number;              // Energy gain on kill
+  capacityIncrease: number;   // maxEnergy increase on kill
+}
+
+/**
+ * JungleCreature - larger NPC predator/prey in the digital jungle.
+ * Medium risk/reward. Can be aggressive or passive depending on variant.
+ * Stage 3 equivalent of soup's entropy swarms but huntable.
+ */
+export interface JungleCreatureComponent {
+  variant: 'grazer' | 'stalker' | 'ambusher';  // Behavior archetype
+  size: number;               // Collision radius (larger than bugs)
+  state: 'idle' | 'patrol' | 'hunt' | 'flee';
+  targetEntityId?: number;    // EntityId being hunted (if state === 'hunt')
+  homePosition: Position;     // Spawn territory center
+  territoryRadius: number;    // How far it wanders from home
+  value: number;              // Energy gain on kill
+  capacityIncrease: number;   // maxEnergy increase on kill
+  aggressionRange?: number;   // Distance at which it attacks (stalker/ambusher only)
+}
+
+/**
+ * OrganismProjectile - Stage 3 attack projectile (cloned from Pseudopod).
+ * Used to hunt CyberBugs and JungleCreatures in the digital jungle.
+ * Same core mechanics as pseudopod but targets fauna instead of players.
+ */
+export interface OrganismProjectileComponent {
+  ownerId: number;           // EntityId of player who fired
+  ownerSocketId: string;     // For network attribution and rewards
+  damage: number;            // Energy drained from target on hit
+  capacitySteal: number;     // maxEnergy stolen from target (0 for fauna)
+  startX: number;            // Starting position X
+  startY: number;            // Starting position Y
+  targetX: number;           // Target position X
+  targetY: number;           // Target position Y
+  speed: number;             // Travel speed (px/s)
+  maxDistance: number;       // Max travel distance before despawn
+  distanceTraveled: number;  // How far it's traveled
+  state: 'traveling' | 'hit' | 'missed';
+  hitEntityId?: number;      // EntityId of what was hit (if state === 'hit')
+  color: string;             // Owner's color (for rendering)
+  createdAt: number;         // Timestamp for tracking
 }
 
 // ============================================

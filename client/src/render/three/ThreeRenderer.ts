@@ -20,6 +20,11 @@ import { EffectsSystem } from '../systems/EffectsSystem';
 import { AuraSystem } from '../systems/AuraSystem';
 import { CameraSystem } from '../systems/CameraSystem';
 import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
+// Stage 3+ render systems
+import { DataFruitRenderSystem } from '../systems/DataFruitRenderSystem';
+import { CyberBugRenderSystem } from '../systems/CyberBugRenderSystem';
+import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSystem';
+import { OrganismProjectileRenderSystem } from '../systems/OrganismProjectileRenderSystem';
 import {
   World,
   Tags,
@@ -90,6 +95,12 @@ export class ThreeRenderer implements Renderer {
   // Aura system (owns drain and gain auras)
   private auraSystem!: AuraSystem;
 
+  // Stage 3+ render systems (jungle fauna and projectiles)
+  private dataFruitRenderSystem!: DataFruitRenderSystem;
+  private cyberBugRenderSystem!: CyberBugRenderSystem;
+  private jungleCreatureRenderSystem!: JungleCreatureRenderSystem;
+  private organismProjectileRenderSystem!: OrganismProjectileRenderSystem;
+
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
     this.world = world;
@@ -145,6 +156,19 @@ export class ThreeRenderer implements Renderer {
     // Create pseudopod render system (owns lightning beam meshes)
     this.pseudopodRenderSystem = new PseudopodRenderSystem();
     this.pseudopodRenderSystem.init(this.scene, this.world);
+
+    // Create Stage 3+ render systems (jungle fauna and projectiles)
+    this.dataFruitRenderSystem = new DataFruitRenderSystem();
+    this.dataFruitRenderSystem.init(this.scene, this.world);
+
+    this.cyberBugRenderSystem = new CyberBugRenderSystem();
+    this.cyberBugRenderSystem.init(this.scene, this.world);
+
+    this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem();
+    this.jungleCreatureRenderSystem.init(this.scene, this.world);
+
+    this.organismProjectileRenderSystem = new OrganismProjectileRenderSystem();
+    this.organismProjectileRenderSystem.init(this.scene, this.world);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -478,6 +502,12 @@ export class ThreeRenderer implements Renderer {
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
+    // Stage 3+ render systems (jungle fauna and projectiles)
+    this.dataFruitRenderSystem.sync(this.environmentSystem.getMode());
+    this.cyberBugRenderSystem.sync(this.environmentSystem.getMode());
+    this.jungleCreatureRenderSystem.sync(this.environmentSystem.getMode());
+    this.organismProjectileRenderSystem.sync(this.environmentSystem.getMode());
+
     // Apply spawn animations (scale/opacity) to entities
     this.applySpawnAnimations(spawnProgress);
 
@@ -489,6 +519,16 @@ export class ThreeRenderer implements Renderer {
 
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
+
+    // Stage 3+ interpolation and animations
+    this.dataFruitRenderSystem.interpolate();
+    this.dataFruitRenderSystem.updateAnimations(dt);
+    this.cyberBugRenderSystem.interpolate();
+    this.cyberBugRenderSystem.updateAnimations(dt);
+    this.jungleCreatureRenderSystem.interpolate();
+    this.jungleCreatureRenderSystem.updateAnimations(dt);
+    this.organismProjectileRenderSystem.interpolate();
+    this.organismProjectileRenderSystem.updateAnimations(dt);
 
     // Build data maps for AuraSystem and TrailSystem by querying World
     const playersForAura = this.buildPlayersForAura();
@@ -900,6 +940,12 @@ export class ThreeRenderer implements Renderer {
 
     // Clean up pseudopods
     this.pseudopodRenderSystem.dispose();
+
+    // Clean up Stage 3+ render systems
+    this.dataFruitRenderSystem.dispose();
+    this.cyberBugRenderSystem.dispose();
+    this.jungleCreatureRenderSystem.dispose();
+    this.organismProjectileRenderSystem.dispose();
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());

@@ -28,11 +28,17 @@ export type {
   ObstacleComponent,
   SwarmComponent,
   PseudopodComponent,
+  TreeComponent,
   CanFireEMPComponent,
   CanFirePseudopodComponent,
   CanSprintComponent,
   CanEngulfComponent,
   CanDetectComponent,
+  // Stage 3+ components
+  DataFruitComponent,
+  CyberBugComponent,
+  JungleCreatureComponent,
+  OrganismProjectileComponent,
 } from '@godcell/shared';
 
 // Factories and World Setup
@@ -118,8 +124,38 @@ export {
   getAllTreeSnapshots,
   getTreeCount,
   buildTreesRecord,
+  // DataFruit query helpers (Stage 3+)
+  createDataFruit,
+  forEachDataFruit,
+  getAllDataFruitSnapshots,
+  buildDataFruitsRecord,
+  // CyberBug query helpers (Stage 3+)
+  createCyberBug,
+  forEachCyberBug,
+  getAllCyberBugSnapshots,
+  buildCyberBugsRecord,
+  // JungleCreature query helpers (Stage 3+)
+  createJungleCreature,
+  forEachJungleCreature,
+  getAllJungleCreatureSnapshots,
+  buildJungleCreaturesRecord,
+  // OrganismProjectile query helpers (Stage 3+)
+  createOrganismProjectile,
+  forEachOrganismProjectile,
+  getAllOrganismProjectileSnapshots,
+  buildOrganismProjectilesRecord,
 } from './factories';
-export type { PlayerSnapshot, NutrientSnapshot, ObstacleSnapshot, SwarmSnapshot, TreeSnapshot } from './factories';
+export type {
+  PlayerSnapshot,
+  NutrientSnapshot,
+  ObstacleSnapshot,
+  SwarmSnapshot,
+  TreeSnapshot,
+  DataFruitSnapshot,
+  CyberBugSnapshot,
+  JungleCreatureSnapshot,
+  OrganismProjectileSnapshot,
+} from './factories';
 
 // Systems
 export * from './systems';

@@ -2,15 +2,19 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type {
   Position,
   Pseudopod, // Still needed for local pseudopod object creation
+  OrganismProjectile,
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
+  OrganismProjectileSpawnedMessage,
 } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
 import { logger } from './logger';
+import { isJungleStage } from './helpers/stages';
 import {
   createPseudopod as ecsCreatePseudopod,
+  createOrganismProjectile,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   getEntityByStringId,
@@ -338,6 +342,109 @@ export class AbilitySystem {
   }
 
   // ============================================
+  // Stage 3: Cyber-Organism Abilities
+  // ============================================
+
+  /**
+   * Fire organism projectile (Stage 3+ Cyber-Organism only)
+   * Fires a hunting projectile toward jungle fauna
+   * @returns true if projectile was fired successfully
+   */
+  fireOrganismProjectile(playerId: string, targetX: number, targetY: number): boolean {
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const player = getPlayerBySocketId(world, playerId);
+
+    // Debug: log what we received
+    logger.debug({
+      event: 'organism_projectile_attempt',
+      playerId,
+      targetX,
+      targetY,
+      hasEnergy: !!energyComp,
+      hasStage: !!stageComp,
+      hasPos: !!posComp,
+      hasPlayer: !!player,
+      stage: stageComp?.stage,
+      isJungle: stageComp ? isJungleStage(stageComp.stage) : false,
+      energy: energyComp?.current,
+    });
+
+    if (!energyComp || !stageComp || !posComp || !player) return false;
+
+    // Stage 3+ only (Cyber-Organism and above)
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+    if (energyComp.current < GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST) return false;
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastOrganismProjectileTime || 0;
+    if (now - lastUse < GAME_CONFIG.ORGANISM_PROJECTILE_COOLDOWN) return false;
+
+    const playerPosition = { x: posComp.x, y: posComp.y };
+    const targetPosition = { x: targetX, y: targetY };
+
+    // Get owner entity for the projectile component (must validate before deducting energy)
+    const ownerEntity = getEntityBySocketId(playerId);
+    if (ownerEntity === undefined) return false;
+
+    // Deduct energy (only after all validation passes)
+    energyComp.current -= GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST;
+
+    // Create projectile ID
+    const projectileId = `proj-${playerId}-${now}`;
+
+    // Create projectile via ECS factory
+    createOrganismProjectile(
+      world,
+      projectileId,
+      ownerEntity,
+      playerId,
+      playerPosition,
+      targetPosition,
+      player.color
+    );
+
+    // Update cooldown in ECS
+    cooldowns.lastOrganismProjectileTime = now;
+
+    // Broadcast to clients
+    const projectile: OrganismProjectile = {
+      id: projectileId,
+      ownerId: playerId,
+      position: playerPosition,
+      targetPosition,
+      state: 'traveling',
+      color: player.color,
+    };
+    this.ctx.io.emit('organismProjectileSpawned', {
+      type: 'organismProjectileSpawned',
+      projectile,
+    } as OrganismProjectileSpawnedMessage);
+
+    logger.info({
+      event: 'organism_projectile_fired',
+      playerId,
+      targetX,
+      targetY,
+      energySpent: GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST,
+    });
+
+    return true;
+  }
+
+  // ============================================
   // Utility Methods
   // ============================================
 
@@ -395,5 +502,28 @@ export class AbilitySystem {
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastPseudopodTime || 0;
     return now - lastUse >= getConfig('PSEUDOPOD_COOLDOWN');
+  }
+
+  /**
+   * Check if a player can fire organism projectile (has the ability and it's off cooldown)
+   */
+  canFireOrganismProjectile(playerId: string): boolean {
+    const { world } = this.ctx;
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    if (!energyComp || !stageComp) return false;
+
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+    if (energyComp.current < GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST) return false;
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastOrganismProjectileTime || 0;
+    return now - lastUse >= GAME_CONFIG.ORGANISM_PROJECTILE_COOLDOWN;
   }
 }

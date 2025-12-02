@@ -8,6 +8,7 @@ import {
   ComponentStore,
   Components,
   Tags,
+  GAME_CONFIG,
 } from '@godcell/shared';
 import type {
   EntityId,
@@ -21,6 +22,10 @@ import type {
   SwarmComponent,
   PseudopodComponent,
   TreeComponent,
+  DataFruitComponent,
+  CyberBugComponent,
+  JungleCreatureComponent,
+  OrganismProjectileComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '@godcell/shared';
@@ -31,6 +36,10 @@ import type {
   EntropySwarm,
   Pseudopod,
   Tree,
+  DataFruit,
+  CyberBug,
+  JungleCreature,
+  OrganismProjectile,
   DamageSource,
   EvolutionStage,
 } from '@godcell/shared';
@@ -61,6 +70,12 @@ export function createClientWorld(): World {
   world.registerStore<SwarmComponent>(Components.Swarm, new ComponentStore());
   world.registerStore<PseudopodComponent>(Components.Pseudopod, new ComponentStore());
   world.registerStore<TreeComponent>(Components.Tree, new ComponentStore());
+
+  // Stage 3+ macro-resource components
+  world.registerStore<DataFruitComponent>(Components.DataFruit, new ComponentStore());
+  world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
+  world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
+  world.registerStore<OrganismProjectileComponent>(Components.OrganismProjectile, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
@@ -571,6 +586,342 @@ export function updatePseudopodPosition(world: World, pseudopodId: string, x: nu
  */
 export function removePseudopod(world: World, pseudopodId: string): void {
   const entity = stringIdToEntity.get(pseudopodId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+// ============================================
+// Stage 3+ Macro-Resource Factories
+// ============================================
+
+/**
+ * Create or update a DataFruit entity from a network DataFruit object.
+ */
+export function upsertDataFruit(world: World, fruit: DataFruit): EntityId {
+  let entity = stringIdToEntity.get(fruit.id);
+
+  if (entity !== undefined) {
+    // Update existing entity
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (pos) {
+      pos.x = fruit.position.x;
+      pos.y = fruit.position.y;
+    }
+
+    const fruitComp = world.getComponent<DataFruitComponent>(entity, Components.DataFruit);
+    if (fruitComp) {
+      fruitComp.ripeness = fruit.ripeness;
+      fruitComp.fallenAt = fruit.fallenAt;
+    }
+
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: fruit.position.x,
+    y: fruit.position.y,
+  });
+
+  world.addComponent<DataFruitComponent>(entity, Components.DataFruit, {
+    treeEntityId: fruit.treeEntityId,
+    value: fruit.value,
+    capacityIncrease: fruit.capacityIncrease,
+    ripeness: fruit.ripeness,
+    fallenAt: fruit.fallenAt,
+  });
+
+  world.addTag(entity, Tags.DataFruit);
+  registerMapping(entity, fruit.id);
+
+  return entity;
+}
+
+/**
+ * Remove a DataFruit entity.
+ */
+export function removeDataFruit(world: World, fruitId: string): void {
+  const entity = stringIdToEntity.get(fruitId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+/**
+ * Create or update a CyberBug entity from a network CyberBug object.
+ */
+export function upsertCyberBug(world: World, bug: CyberBug): EntityId {
+  let entity = stringIdToEntity.get(bug.id);
+
+  if (entity !== undefined) {
+    // Update existing entity
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (pos) {
+      pos.x = bug.position.x;
+      pos.y = bug.position.y;
+    }
+
+    const bugComp = world.getComponent<CyberBugComponent>(entity, Components.CyberBug);
+    if (bugComp) {
+      bugComp.state = bug.state;
+    }
+
+    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    if (interp) {
+      interp.targetX = bug.position.x;
+      interp.targetY = bug.position.y;
+      interp.timestamp = Date.now();
+    }
+
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: bug.position.x,
+    y: bug.position.y,
+  });
+
+  // Client uses defaults for server-side fields (homePosition, size)
+  world.addComponent<CyberBugComponent>(entity, Components.CyberBug, {
+    swarmId: bug.swarmId,
+    size: GAME_CONFIG.CYBERBUG_COLLISION_RADIUS, // Default size for rendering
+    state: bug.state,
+    homePosition: { x: bug.position.x, y: bug.position.y }, // Not tracked on client
+    value: bug.value,
+    capacityIncrease: bug.capacityIncrease,
+  });
+
+  world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
+    targetX: bug.position.x,
+    targetY: bug.position.y,
+    timestamp: Date.now(),
+  });
+
+  world.addTag(entity, Tags.CyberBug);
+  registerMapping(entity, bug.id);
+
+  return entity;
+}
+
+/**
+ * Remove a CyberBug entity.
+ */
+export function removeCyberBug(world: World, bugId: string): void {
+  const entity = stringIdToEntity.get(bugId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+/**
+ * Update a CyberBug's position and state from a movement message.
+ */
+export function updateCyberBugPosition(
+  world: World,
+  bugId: string,
+  x: number,
+  y: number,
+  state: string
+): void {
+  const entity = stringIdToEntity.get(bugId);
+  if (entity === undefined) return;
+
+  // Update interpolation target (render systems interpolate toward this)
+  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  if (interp) {
+    interp.targetX = x;
+    interp.targetY = y;
+    interp.timestamp = Date.now();
+  }
+
+  // Update state for visual changes
+  const bugComp = world.getComponent<CyberBugComponent>(entity, Components.CyberBug);
+  if (bugComp) {
+    bugComp.state = state as 'idle' | 'patrol' | 'flee';
+  }
+}
+
+/**
+ * Create or update a JungleCreature entity from a network JungleCreature object.
+ */
+export function upsertJungleCreature(world: World, creature: JungleCreature): EntityId {
+  let entity = stringIdToEntity.get(creature.id);
+
+  if (entity !== undefined) {
+    // Update existing entity
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (pos) {
+      pos.x = creature.position.x;
+      pos.y = creature.position.y;
+    }
+
+    const creatureComp = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
+    if (creatureComp) {
+      creatureComp.state = creature.state;
+    }
+
+    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    if (interp) {
+      interp.targetX = creature.position.x;
+      interp.targetY = creature.position.y;
+      interp.timestamp = Date.now();
+    }
+
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: creature.position.x,
+    y: creature.position.y,
+  });
+
+  // Client uses defaults for server-side AI fields
+  world.addComponent<JungleCreatureComponent>(entity, Components.JungleCreature, {
+    variant: creature.variant,
+    size: GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS, // Default size for rendering
+    state: creature.state,
+    homePosition: { x: creature.position.x, y: creature.position.y }, // Not tracked on client
+    territoryRadius: GAME_CONFIG.JUNGLE_CREATURE_PATROL_RADIUS, // Default
+    value: creature.value,
+    capacityIncrease: creature.capacityIncrease,
+    aggressionRange: GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS, // Default
+  });
+
+  world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
+    targetX: creature.position.x,
+    targetY: creature.position.y,
+    timestamp: Date.now(),
+  });
+
+  world.addTag(entity, Tags.JungleCreature);
+  registerMapping(entity, creature.id);
+
+  return entity;
+}
+
+/**
+ * Remove a JungleCreature entity.
+ */
+export function removeJungleCreature(world: World, creatureId: string): void {
+  const entity = stringIdToEntity.get(creatureId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+/**
+ * Update a JungleCreature's position and state from a movement message.
+ */
+export function updateJungleCreaturePosition(
+  world: World,
+  creatureId: string,
+  x: number,
+  y: number,
+  state: string
+): void {
+  const entity = stringIdToEntity.get(creatureId);
+  if (entity === undefined) return;
+
+  // Update interpolation target (render systems interpolate toward this)
+  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  if (interp) {
+    interp.targetX = x;
+    interp.targetY = y;
+    interp.timestamp = Date.now();
+  }
+
+  // Update state for visual changes
+  const creatureComp = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
+  if (creatureComp) {
+    creatureComp.state = state as 'idle' | 'patrol' | 'hunt' | 'flee';
+  }
+}
+
+/**
+ * Create or update an OrganismProjectile entity from a network OrganismProjectile object.
+ */
+export function upsertOrganismProjectile(world: World, projectile: OrganismProjectile): EntityId {
+  let entity = stringIdToEntity.get(projectile.id);
+
+  if (entity !== undefined) {
+    // Update existing entity
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (pos) {
+      pos.x = projectile.position.x;
+      pos.y = projectile.position.y;
+    }
+
+    const projComp = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+    if (projComp) {
+      projComp.state = projectile.state;
+    }
+
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  // Compute velocity direction from position to target
+  const dx = projectile.targetPosition.x - projectile.position.x;
+  const dy = projectile.targetPosition.y - projectile.position.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const speed = GAME_CONFIG.ORGANISM_PROJECTILE_SPEED;
+  const vx = dist > 0 ? (dx / dist) * speed : 0;
+  const vy = dist > 0 ? (dy / dist) * speed : 0;
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: projectile.position.x,
+    y: projectile.position.y,
+  });
+
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: vx,
+    y: vy,
+  });
+
+  // Client uses defaults for server-only fields
+  world.addComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile, {
+    ownerId: 0, // Not used on client
+    ownerSocketId: projectile.ownerId,
+    damage: GAME_CONFIG.ORGANISM_PROJECTILE_DAMAGE,
+    capacitySteal: 0,
+    startX: projectile.position.x,
+    startY: projectile.position.y,
+    targetX: projectile.targetPosition.x,
+    targetY: projectile.targetPosition.y,
+    speed: speed,
+    maxDistance: GAME_CONFIG.ORGANISM_PROJECTILE_MAX_DISTANCE,
+    distanceTraveled: 0,
+    state: projectile.state,
+    color: projectile.color,
+    createdAt: Date.now(),
+  });
+
+  world.addTag(entity, Tags.OrganismProjectile);
+  registerMapping(entity, projectile.id);
+
+  return entity;
+}
+
+/**
+ * Remove an OrganismProjectile entity.
+ */
+export function removeOrganismProjectile(world: World, projectileId: string): void {
+  const entity = stringIdToEntity.get(projectileId);
   if (entity === undefined) return;
 
   unregisterEntity(entity);

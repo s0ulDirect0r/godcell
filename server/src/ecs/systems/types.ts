@@ -43,13 +43,19 @@ export interface System {
 export const SystemPriority = {
   // AI decisions - before physics
   BOT_AI: 100,
+  CYBER_BUG_AI: 105,       // Stage 3 skittish prey AI
+  JUNGLE_CREATURE_AI: 106, // Stage 3 predator/grazer AI
   SWARM_AI: 110,
+
+  // Lifecycle systems (fruit ripening, etc.)
+  DATA_FRUIT: 150,
 
   // Physics and forces
   GRAVITY: 200,
 
-  // Abilities (pseudopods, EMP effects)
+  // Abilities (pseudopods, EMP effects, organism projectiles)
   PSEUDOPOD: 300,
+  ORGANISM_PROJECTILE: 310, // Stage 3 attack projectile (similar to pseudopod)
 
   // Collisions and interactions (before movement)
   PREDATION: 400,
@@ -62,6 +68,7 @@ export const SystemPriority = {
   // Life cycle
   METABOLISM: 600,
   NUTRIENT_COLLISION: 610,
+  MACRO_RESOURCE_COLLISION: 615, // Stage 3 fruit collection
   NUTRIENT_ATTRACTION: 620,
   DEATH: 700,
 
