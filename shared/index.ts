@@ -433,7 +433,7 @@ export interface JungleCreatureMovedMessage {
   type: 'jungleCreatureMoved';
   creatureId: string;
   position: Position;
-  state: string;  // 'idle' | 'patrol' | 'hunt'
+  state: string;  // 'idle' | 'patrol' | 'hunt' | 'flee'
   variant: string;  // 'grazer' | 'stalker' | 'ambusher'
 }
 

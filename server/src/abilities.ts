@@ -395,15 +395,15 @@ export class AbilitySystem {
     const playerPosition = { x: posComp.x, y: posComp.y };
     const targetPosition = { x: targetX, y: targetY };
 
-    // Deduct energy
+    // Get owner entity for the projectile component (must validate before deducting energy)
+    const ownerEntity = getEntityBySocketId(playerId);
+    if (ownerEntity === undefined) return false;
+
+    // Deduct energy (only after all validation passes)
     energyComp.current -= GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST;
 
     // Create projectile ID
     const projectileId = `proj-${playerId}-${now}`;
-
-    // Get owner entity for the projectile component
-    const ownerEntity = getEntityBySocketId(playerId);
-    if (ownerEntity === undefined) return false;
 
     // Create projectile via ECS factory
     createOrganismProjectile(

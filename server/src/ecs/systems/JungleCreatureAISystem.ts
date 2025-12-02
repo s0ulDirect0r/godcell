@@ -18,6 +18,7 @@ import type {
 import type { System } from './types';
 import { forEachJungleCreature, forEachPlayer, addEnergyBySocketId } from '../factories';
 import { processCreatureRespawns } from '../../jungleFauna';
+import { isJungleStage } from '../../helpers/stages';
 
 // ============================================
 // Helper Functions
@@ -32,17 +33,6 @@ function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): n
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/**
- * Check if player is in jungle stage (Stage 3+)
- * JungleCreatures only interact with jungle-stage players
- */
-function isJungleStage(stage: EvolutionStage): boolean {
-  return (
-    stage === EvolutionStage.CYBER_ORGANISM ||
-    stage === EvolutionStage.HUMANOID ||
-    stage === EvolutionStage.GODCELL
-  );
-}
 
 /**
  * Generate a random patrol target within territory radius

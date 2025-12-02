@@ -2073,6 +2073,7 @@ export interface JungleCreatureSnapshot {
   position: Position;
   variant: 'grazer' | 'stalker' | 'ambusher';
   state: 'idle' | 'patrol' | 'hunt' | 'flee';
+  size: number;  // Collision radius
   value: number;
   capacityIncrease: number;
 }
@@ -2111,6 +2112,7 @@ export function getAllJungleCreatureSnapshots(world: World): JungleCreatureSnaps
       position: { x: pos.x, y: pos.y },
       variant: creature.variant,
       state: creature.state,
+      size: creature.size,
       value: creature.value,
       capacityIncrease: creature.capacityIncrease,
     });

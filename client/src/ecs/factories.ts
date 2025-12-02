@@ -846,7 +846,7 @@ export function updateJungleCreaturePosition(
   // Update state for visual changes
   const creatureComp = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
   if (creatureComp) {
-    creatureComp.state = state as 'idle' | 'patrol' | 'hunt';
+    creatureComp.state = state as 'idle' | 'patrol' | 'hunt' | 'flee';
   }
 }
 

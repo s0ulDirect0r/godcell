@@ -26,18 +26,8 @@ import {
 } from '../factories';
 import { logger } from '../../logger';
 import { distance } from '../../helpers';
+import { isJungleStage } from '../../helpers/stages';
 
-/**
- * Check if player is in jungle stage (Stage 3+)
- * Only jungle-stage players can collect macro-resources
- */
-function isJungleStage(stage: EvolutionStage): boolean {
-  return (
-    stage === EvolutionStage.CYBER_ORGANISM ||
-    stage === EvolutionStage.HUMANOID ||
-    stage === EvolutionStage.GODCELL
-  );
-}
 
 /**
  * Get collection radius based on player stage
@@ -68,14 +58,16 @@ export class MacroResourceCollisionSystem implements System {
   readonly name = 'MacroResourceCollisionSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-    const fruitsToCollect: {
+    // Use Map to ensure each fruit is only collected by one player (nearest)
+    const fruitsToCollect = new Map<string, {
       entity: EntityId;
       fruitId: string;
       collectorSocketId: string;
       value: number;
       capacityIncrease: number;
       position: { x: number; y: number };
-    }[] = [];
+      distance: number;
+    }>();
 
     // Check each player against each fruit
     forEachPlayer(world, (playerEntity, playerId) => {
@@ -101,21 +93,25 @@ export class MacroResourceCollisionSystem implements System {
         const dist = distance(playerPosition, fruitPosition);
 
         if (dist < collectionRadius) {
-          // Mark for collection (don't modify while iterating)
-          fruitsToCollect.push({
-            entity: fruitEntity,
-            fruitId,
-            collectorSocketId: playerId,
-            value: fruitComp.value,
-            capacityIncrease: fruitComp.capacityIncrease,
-            position: fruitPosition,
-          });
+          // Only update if this player is closer than any previous candidate
+          const existing = fruitsToCollect.get(fruitId);
+          if (!existing || dist < existing.distance) {
+            fruitsToCollect.set(fruitId, {
+              entity: fruitEntity,
+              fruitId,
+              collectorSocketId: playerId,
+              value: fruitComp.value,
+              capacityIncrease: fruitComp.capacityIncrease,
+              position: fruitPosition,
+              distance: dist,
+            });
+          }
         }
       });
     });
 
-    // Process collections
-    for (const fruit of fruitsToCollect) {
+    // Process collections (one collector per fruit)
+    for (const fruit of fruitsToCollect.values()) {
       // Award energy and capacity
       addEnergyBySocketId(world, fruit.collectorSocketId, fruit.value);
       const collectorEnergy = getEnergyBySocketId(world, fruit.collectorSocketId);

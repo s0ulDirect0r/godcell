@@ -753,6 +753,9 @@ setInterval(() => {
   // Calculate deltaTime (seconds per tick)
   const deltaTime = TICK_INTERVAL / 1000;
 
+  // Process fauna respawns before system updates (Stage 3+ ecosystem)
+  processJungleFaunaRespawns(world, io);
+
   // Run all systems in priority order
   // World = game state, deltaTime = frame context, io = network infrastructure
   systemRunner.update(world, deltaTime, io);
