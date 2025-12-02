@@ -376,14 +376,8 @@ export class ThreeRenderer implements Renderer {
 
       // === DataFruit collected - trigger gold gain aura (jungle-scale) ===
       eventBus.on('dataFruitCollected', (event) => {
-        console.log('[DEBUG] dataFruitCollected event:', {
-          eventPlayerId: event.playerId,
-          myPlayerId: this.myPlayerId,
-          match: event.playerId === this.myPlayerId,
-        });
         // Only trigger aura for local player
         if (event.playerId === this.myPlayerId) {
-          console.log('[DEBUG] Triggering fruit collection aura');
           this.auraStateSystem.triggerFruitCollectionAura(this.world, event.playerId);
         }
       });

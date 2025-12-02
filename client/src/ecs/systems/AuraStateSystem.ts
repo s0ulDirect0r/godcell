@@ -190,16 +190,12 @@ export class AuraStateSystem {
    * Called externally when dataFruitCollected event fires
    */
   triggerFruitCollectionAura(world: World, entityId: string): void {
-    console.log('[DEBUG] triggerFruitCollectionAura called with entityId:', entityId);
     const entity = this.getEntityFromStringId(world, entityId);
-    console.log('[DEBUG] Entity lookup result:', entity);
     if (entity === undefined) {
-      console.log('[DEBUG] Entity not found, returning early');
       return;
     }
 
     // Trigger gold aura for fruit collection
-    console.log('[DEBUG] Triggering gold gain aura');
     triggerGainAura(world, entity, 0.8, 0xffd700, 600);
     this.gainAuraEntities.add(entity);
   }

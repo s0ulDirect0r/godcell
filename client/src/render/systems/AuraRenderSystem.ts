@@ -173,8 +173,17 @@ export class AuraRenderSystem {
 
     let auraMesh = this.drainAuraMeshes.get(entityId);
 
+    // Recreate aura if player evolved to a new stage
+    if (auraMesh && auraMesh.userData.stage !== stage) {
+      this.scene.remove(auraMesh);
+      this.disposeMesh(auraMesh);
+      auraMesh = undefined;
+      this.drainAuraMeshes.delete(entityId);
+    }
+
     if (!auraMesh) {
       auraMesh = this.createPlayerDrainAura(stage);
+      auraMesh.userData.stage = stage;
       this.drainAuraMeshes.set(entityId, auraMesh);
       this.scene.add(auraMesh);
     }
@@ -244,11 +253,23 @@ export class AuraRenderSystem {
 
     let auraMesh = this.drainAuraMeshes.get(auraId);
 
+    // Recreate aura if swarm size changed significantly (>20% difference)
+    if (auraMesh && auraMesh.userData.swarmSize) {
+      const sizeDiff = Math.abs(auraMesh.userData.swarmSize - swarmSize) / auraMesh.userData.swarmSize;
+      if (sizeDiff > 0.2) {
+        this.scene.remove(auraMesh);
+        this.disposeMesh(auraMesh);
+        auraMesh = undefined;
+        this.drainAuraMeshes.delete(auraId);
+      }
+    }
+
     if (!auraMesh) {
       auraMesh = new THREE.Group();
       const swarmAura = createCellAura(swarmSize);
       auraMesh.add(swarmAura);
       auraMesh.position.y = -1;
+      auraMesh.userData.swarmSize = swarmSize;
 
       this.drainAuraMeshes.set(auraId, auraMesh);
       this.scene.add(auraMesh);
@@ -335,11 +356,15 @@ export class AuraRenderSystem {
   }
 
   /**
-   * Dispose a mesh group
+   * Dispose a mesh group recursively
+   * Handles nested groups (e.g., createPlayerDrainAura creates Groups with cell auras)
    */
-  private disposeMesh(mesh: THREE.Group): void {
+  private disposeMesh(mesh: THREE.Object3D): void {
     mesh.children.forEach((child) => {
-      if (child instanceof THREE.Mesh) {
+      // Recursively dispose nested groups
+      if (child instanceof THREE.Group) {
+        this.disposeMesh(child);
+      } else if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         const mat = child.material;
         if (Array.isArray(mat)) {
