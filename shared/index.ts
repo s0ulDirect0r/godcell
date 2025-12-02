@@ -855,10 +855,10 @@ export const GAME_CONFIG = {
 
   // Digital Jungle Trees (Stage 3+ environment obstacles)
   TREE_COUNT: 80,                     // Number of trees to spawn (~75-100 for medium density)
-  TREE_MIN_RADIUS: 40,                // Small bush collision radius
-  TREE_MAX_RADIUS: 120,               // Large ancient tree collision radius
-  TREE_MIN_HEIGHT: 100,               // Small bush visual height
-  TREE_MAX_HEIGHT: 400,               // Large ancient tree visual height
+  TREE_MIN_RADIUS: 80,                // Small bush collision radius
+  TREE_MAX_RADIUS: 360,               // Large ancient tree collision radius
+  TREE_MIN_HEIGHT: 200,               // Small bush visual height
+  TREE_MAX_HEIGHT: 2400,              // Large ancient tree visual height
   TREE_MIN_SPACING: 800,              // Minimum distance between trees (Poisson disc fills naturally)
   SOUP_POOL_RADIUS: 300,              // Visual pool radius in jungle (represents soup world)
   TREE_POOL_BUFFER: 100,              // Buffer around soup pool for tree spawning

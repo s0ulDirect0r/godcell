@@ -122,8 +122,8 @@ const JUNGLE_CONFIG = {
 
   // === DIGITAL GRASS FLOOR PATTERN ===
   GRASS_BLADE_COUNT: 120000,      // Dense ground cover (halved)
-  GRASS_MIN_HEIGHT: 50,           // Doubled blade height
-  GRASS_MAX_HEIGHT: 120,          // Doubled blade height
+  GRASS_MIN_HEIGHT: 100,          // Min blade height (2x for first-person visibility)
+  GRASS_MAX_HEIGHT: 240,          // Max blade height (2x for first-person visibility)
   GRASS_WIDTH: 24,                // Doubled blade width
   GRASS_COLORS: [
     0x006633, // Dark green-cyan

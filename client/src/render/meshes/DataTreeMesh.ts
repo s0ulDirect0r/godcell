@@ -236,9 +236,8 @@ export function createDataTree(radius: number, height: number, variant: number):
     group.add(root);
   }
 
-  // Rotate entire group so Y-up becomes Z-up (for top-down view)
-  // In our game: +Z is up (toward camera), +X is right, +Y is forward
-  group.rotation.x = -Math.PI / 2;
+  // Trees stand upright with Y-axis as vertical (no rotation needed)
+  // Trunk extends along +Y, canopy on top
 
   return group;
 }
