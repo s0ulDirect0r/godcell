@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { Renderer, CameraCapabilities } from '../Renderer';
-import { GAME_CONFIG, EvolutionStage, type DamageSource } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, getEntityScale } from '@godcell/shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
@@ -17,7 +17,8 @@ import { TreeRenderSystem } from '../systems/TreeRenderSystem';
 import { SwarmRenderSystem } from '../systems/SwarmRenderSystem';
 import { PseudopodRenderSystem } from '../systems/PseudopodRenderSystem';
 import { EffectsSystem } from '../systems/EffectsSystem';
-import { AuraSystem } from '../systems/AuraSystem';
+import { AuraRenderSystem } from '../systems/AuraRenderSystem';
+import { AuraStateSystem } from '../../ecs/systems/AuraStateSystem';
 import { CameraSystem } from '../systems/CameraSystem';
 import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem';
 // Stage 3+ render systems
@@ -28,13 +29,10 @@ import { OrganismProjectileRenderSystem } from '../systems/OrganismProjectileRen
 import {
   World,
   Tags,
-  Components,
   getStringIdByEntity,
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
-  type ClientDamageInfoComponent,
-  type SwarmComponent,
 } from '../../ecs';
 
 /**
@@ -93,8 +91,9 @@ export class ThreeRenderer implements Renderer {
   // Effects system (particle effects, animations)
   private effectsSystem!: EffectsSystem;
 
-  // Aura system (owns drain and gain auras)
-  private auraSystem!: AuraSystem;
+  // Aura systems (ECS-driven visual feedback)
+  private auraStateSystem!: AuraStateSystem;
+  private auraRenderSystem!: AuraRenderSystem;
 
   // Stage 3+ render systems (jungle fauna and projectiles)
   private dataFruitRenderSystem!: DataFruitRenderSystem;
@@ -129,9 +128,10 @@ export class ThreeRenderer implements Renderer {
     this.effectsSystem = new EffectsSystem();
     this.effectsSystem.init(this.scene);
 
-    // Create aura system (owns drain and gain auras)
-    this.auraSystem = new AuraSystem();
-    this.auraSystem.init(this.scene);
+    // Create aura systems (ECS-driven visual feedback)
+    this.auraStateSystem = new AuraStateSystem();
+    this.auraRenderSystem = new AuraRenderSystem();
+    this.auraRenderSystem.init(this.scene);
 
     // Create trail system (owns player trail points and meshes)
     this.trailSystem = new TrailSystem();
@@ -305,7 +305,7 @@ export class ThreeRenderer implements Renderer {
         this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
         // Flash the drain aura on the target (shows they're taking damage)
-        this.auraSystem.flashDrainAura(event.targetId);
+        this.auraRenderSystem.flashDrainAura(event.targetId);
 
         // Note: No energy transfer particles here - pseudopod hits only damage the target,
         // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
@@ -372,6 +372,14 @@ export class ThreeRenderer implements Renderer {
 
         // Clean up cached position
         this.nutrientRenderSystem.clearNutrientPosition(event.nutrientId);
+      });
+
+      // === DataFruit collected - trigger gold gain aura (jungle-scale) ===
+      eventBus.on('dataFruitCollected', (event) => {
+        // Only trigger aura for local player
+        if (event.playerId === this.myPlayerId) {
+          this.auraStateSystem.triggerFruitCollectionAura(this.world, event.playerId);
+        }
       });
 
       // Player engulfed another player - energy transfer (soup mode only)
@@ -489,7 +497,7 @@ export class ThreeRenderer implements Renderer {
     this.environmentSystem.update(dt);
 
     // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
-    const { spawnProgress, receivingEnergy } = this.effectsSystem.update(dt);
+    const { spawnProgress } = this.effectsSystem.update(dt);
 
     // Sync all entities (systems query World directly)
     this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw());
@@ -527,35 +535,24 @@ export class ThreeRenderer implements Renderer {
     this.organismProjectileRenderSystem.interpolate();
     this.organismProjectileRenderSystem.updateAnimations(dt);
 
-    // Build data maps for AuraSystem and TrailSystem by querying World
-    const playersForAura = this.buildPlayersForAura();
-    const swarmsForAura = this.buildSwarmsForAura();
-    const playerDamageInfo = this.buildPlayerDamageInfo();
-    const swarmDamageInfo = this.buildSwarmDamageInfo();
+    // Build data maps for TrailSystem by querying World
     const playersForTrail = this.buildPlayersForTrail();
 
-    // Update auras only in soup mode (soup-scale visual feedback)
-    if (this.environmentSystem.getMode() === 'soup') {
-      // Update drain visual feedback (red auras)
-      this.auraSystem.updateDrainAuras(
-        playersForAura,
-        swarmsForAura,
-        this.playerRenderSystem.getPlayerMeshes(),
-        this.swarmRenderSystem.getSwarmMeshes(),
-        playerDamageInfo,
-        swarmDamageInfo
-      );
+    // Update aura ECS components (state-driven: damage info, energy gains, evolution)
+    this.auraStateSystem.update(this.world, dt);
 
-      // Update gain auras (cyan glow when receiving energy)
-      this.auraSystem.updateGainAuras(
-        playersForAura,
-        this.playerRenderSystem.getPlayerMeshes(),
-        receivingEnergy
-      );
-    } else {
-      // Clear auras when not in soup mode
-      this.auraSystem.clearAll();
-    }
+    // Determine viewer scale for aura filtering
+    const viewerScale = myPlayer
+      ? getEntityScale(myPlayer.stage)
+      : getEntityScale(EvolutionStage.SINGLE_CELL);
+
+    // Render auras for entities at viewer's scale
+    this.auraRenderSystem.sync(
+      this.world,
+      viewerScale,
+      this.playerRenderSystem.getPlayerMeshes(),
+      this.swarmRenderSystem.getSwarmMeshes()
+    );
 
     // Animate obstacle particles
     this.obstacleRenderSystem.updateAnimations(dt);
@@ -807,91 +804,6 @@ export class ThreeRenderer implements Renderer {
   // ============================================
 
   /**
-   * Build player data map for AuraSystem (needs stage and energy)
-   */
-  private buildPlayersForAura(): Map<string, { stage: string; energy: number }> {
-    const result = new Map<string, { stage: string; energy: number }>();
-    this.world.forEachWithTag(Tags.Player, (entity) => {
-      const playerId = getStringIdByEntity(entity);
-      if (!playerId) return;
-      const player = getPlayer(this.world, playerId);
-      if (player) {
-        result.set(playerId, { stage: player.stage, energy: player.energy });
-      }
-    });
-    return result;
-  }
-
-  /**
-   * Build swarm size map for AuraSystem (only needs size)
-   */
-  private buildSwarmsForAura(): Map<string, { size: number }> {
-    const result = new Map<string, { size: number }>();
-    this.world.forEachWithTag(Tags.Swarm, (entity) => {
-      const swarmId = getStringIdByEntity(entity);
-      if (!swarmId) return;
-      const swarm = this.world.getComponent<SwarmComponent>(entity, Components.Swarm);
-      if (swarm) {
-        result.set(swarmId, { size: swarm.size });
-      }
-    });
-    return result;
-  }
-
-  /**
-   * Build player damage info map for AuraSystem
-   */
-  private buildPlayerDamageInfo(): Map<string, {
-    totalDamageRate: number;
-    primarySource: DamageSource;
-    proximityFactor?: number;
-  }> {
-    const result = new Map<string, {
-      totalDamageRate: number;
-      primarySource: DamageSource;
-      proximityFactor?: number;
-    }>();
-    this.world.forEachWithTag(Tags.Player, (entity) => {
-      const playerId = getStringIdByEntity(entity);
-      if (!playerId) return;
-      const damage = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
-      if (damage) {
-        result.set(playerId, {
-          totalDamageRate: damage.totalDamageRate,
-          primarySource: damage.primarySource,
-          proximityFactor: damage.proximityFactor,
-        });
-      }
-    });
-    return result;
-  }
-
-  /**
-   * Build swarm damage info map for AuraSystem
-   */
-  private buildSwarmDamageInfo(): Map<string, {
-    totalDamageRate: number;
-    primarySource: DamageSource;
-  }> {
-    const result = new Map<string, {
-      totalDamageRate: number;
-      primarySource: DamageSource;
-    }>();
-    this.world.forEachWithTag(Tags.Swarm, (entity) => {
-      const swarmId = getStringIdByEntity(entity);
-      if (!swarmId) return;
-      const damage = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
-      if (damage) {
-        result.set(swarmId, {
-          totalDamageRate: damage.totalDamageRate,
-          primarySource: damage.primarySource,
-        });
-      }
-    });
-    return result;
-  }
-
-  /**
    * Build player data map for TrailSystem (needs stage, color, energy, maxEnergy)
    */
   private buildPlayersForTrail(): Map<string, {
@@ -933,7 +845,7 @@ export class ThreeRenderer implements Renderer {
     this.trailSystem.dispose();
 
     // Clean up auras (drain and gain)
-    this.auraSystem.dispose();
+    this.auraRenderSystem.dispose();
 
     // Clean up all particle effects (death, evolution, EMP, spawn, energy transfer)
     this.effectsSystem.dispose();

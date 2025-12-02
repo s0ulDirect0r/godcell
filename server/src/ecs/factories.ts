@@ -1943,6 +1943,13 @@ export function forEachDataFruit(
 }
 
 /**
+ * Get total number of DataFruit entities.
+ */
+export function getDataFruitCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.DataFruit).length;
+}
+
+/**
  * Get all DataFruits as snapshots.
  */
 export function getAllDataFruitSnapshots(world: World): DataFruitSnapshot[] {

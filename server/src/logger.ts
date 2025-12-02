@@ -188,6 +188,7 @@ export function logAggregateStats(stats: {
   aliveBots: number;
   avgPlayerEnergy: number;
   totalNutrients: number;
+  totalDataFruits: number;
   stageDistribution: Record<string, number>; // e.g., {"single-cell": 3, "multi-cell": 1}
 }) {
   logger.info(
@@ -195,7 +196,7 @@ export function logAggregateStats(stats: {
       ...stats,
       event: 'aggregate_stats',
     },
-    `Stats: ${stats.alivePlayers}/${stats.totalPlayers} players alive, ${stats.totalNutrients} nutrients, avg energy: ${stats.avgPlayerEnergy.toFixed(0)}`
+    `Stats: ${stats.alivePlayers}/${stats.totalPlayers} players alive, ${stats.totalNutrients} nutrients, ${stats.totalDataFruits} fruits, avg energy: ${stats.avgPlayerEnergy.toFixed(0)}`
   );
 }
 

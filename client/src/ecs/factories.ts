@@ -10,6 +10,12 @@ import {
   Tags,
   GAME_CONFIG,
 } from '@godcell/shared';
+import { ClientComponents } from './types';
+import type {
+  DrainAuraComponent,
+  GainAuraComponent,
+  EvolutionAuraComponent,
+} from './components';
 import type {
   EntityId,
   PositionComponent,
@@ -80,6 +86,11 @@ export function createClientWorld(): World {
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
   world.registerStore<ClientDamageInfoComponent>(Components.ClientDamageInfo, new ComponentStore());
+
+  // Client-only aura components (visual feedback)
+  world.registerStore<DrainAuraComponent>(ClientComponents.DrainAura, new ComponentStore());
+  world.registerStore<GainAuraComponent>(ClientComponents.GainAura, new ComponentStore());
+  world.registerStore<EvolutionAuraComponent>(ClientComponents.EvolutionAura, new ComponentStore());
 
   return world;
 }
@@ -1121,4 +1132,147 @@ export function forEachPlayer(
       callback(entity, playerId, playerObj);
     }
   });
+}
+
+// ============================================
+// Aura Component Helpers
+// ============================================
+
+/**
+ * Add or update a drain aura on an entity.
+ * Used by AuraStateSystem when entity is taking damage.
+ */
+export function setDrainAura(
+  world: World,
+  entity: EntityId,
+  intensity: number,
+  source: DamageSource,
+  proximityFactor?: number
+): void {
+  const existing = world.getComponent<DrainAuraComponent>(entity, ClientComponents.DrainAura);
+  if (existing) {
+    existing.intensity = intensity;
+    existing.source = source;
+    existing.proximityFactor = proximityFactor;
+  } else {
+    world.addComponent<DrainAuraComponent>(entity, ClientComponents.DrainAura, {
+      intensity,
+      source,
+      proximityFactor,
+    });
+  }
+}
+
+/**
+ * Remove drain aura from an entity.
+ * Used by AuraStateSystem when entity stops taking damage.
+ */
+export function clearDrainAura(world: World, entity: EntityId): void {
+  if (world.hasComponent(entity, ClientComponents.DrainAura)) {
+    world.removeComponent(entity, ClientComponents.DrainAura);
+  }
+}
+
+/**
+ * Trigger a gain aura flash on an entity.
+ * Used for nutrient collection, fruit collection, predation gains.
+ *
+ * @param color - THREE.Color hex value (0x00ffff cyan, 0xffd700 gold, etc.)
+ * @param duration - Flash duration in ms (default 500)
+ */
+export function triggerGainAura(
+  world: World,
+  entity: EntityId,
+  intensity: number,
+  color: number,
+  duration: number = 500
+): void {
+  const existing = world.getComponent<GainAuraComponent>(entity, ClientComponents.GainAura);
+  if (existing) {
+    // Reset the trigger time to restart animation
+    existing.intensity = intensity;
+    existing.color = color;
+    existing.triggerTime = Date.now();
+    existing.duration = duration;
+  } else {
+    world.addComponent<GainAuraComponent>(entity, ClientComponents.GainAura, {
+      intensity,
+      color,
+      triggerTime: Date.now(),
+      duration,
+    });
+  }
+}
+
+/**
+ * Remove gain aura from an entity.
+ * Called when flash animation completes.
+ */
+export function clearGainAura(world: World, entity: EntityId): void {
+  if (world.hasComponent(entity, ClientComponents.GainAura)) {
+    world.removeComponent(entity, ClientComponents.GainAura);
+  }
+}
+
+/**
+ * Set evolution aura on an entity.
+ * Used when entity starts evolving (molting).
+ */
+export function setEvolutionAura(
+  world: World,
+  entity: EntityId,
+  targetStage: EvolutionStage,
+  duration: number
+): void {
+  const existing = world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);
+  if (existing) {
+    existing.progress = 0;
+    existing.targetStage = targetStage;
+    existing.startTime = Date.now();
+    existing.duration = duration;
+  } else {
+    world.addComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura, {
+      progress: 0,
+      targetStage,
+      startTime: Date.now(),
+      duration,
+    });
+  }
+}
+
+/**
+ * Remove evolution aura from an entity.
+ * Called when evolution completes.
+ */
+export function clearEvolutionAura(world: World, entity: EntityId): void {
+  if (world.hasComponent(entity, ClientComponents.EvolutionAura)) {
+    world.removeComponent(entity, ClientComponents.EvolutionAura);
+  }
+}
+
+/**
+ * Get the drain aura component for an entity by string ID.
+ */
+export function getDrainAura(world: World, entityId: string): DrainAuraComponent | undefined {
+  const entity = stringIdToEntity.get(entityId);
+  if (entity === undefined) return undefined;
+  return world.getComponent<DrainAuraComponent>(entity, ClientComponents.DrainAura);
+}
+
+/**
+ * Get the gain aura component for an entity by string ID.
+ */
+export function getGainAura(world: World, entityId: string): GainAuraComponent | undefined {
+  const entity = stringIdToEntity.get(entityId);
+  if (entity === undefined) return undefined;
+  return world.getComponent<GainAuraComponent>(entity, ClientComponents.GainAura);
+}
+
+/**
+ * Get the evolution aura component for an entity by string ID.
+ */
+export function getEvolutionAura(world: World, entityId: string): EvolutionAuraComponent | undefined {
+  const entity = stringIdToEntity.get(entityId);
+  if (entity === undefined) return undefined;
+  return world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);
 }
