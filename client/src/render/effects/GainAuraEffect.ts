@@ -7,13 +7,14 @@
 import * as THREE from 'three';
 
 /**
- * Create a gain aura (cyan glow) for a cell
- * Similar to drain aura but blue/cyan color
+ * Create a gain aura for a cell
+ * Blue/cyan glow for nutrients, gold for fruit collection
  *
  * @param cellRadius - Radius of the cell to create aura around
+ * @param color - THREE.Color hex value (default 0x00ffff cyan)
  * @returns Group containing glow sphere mesh
  */
-export function createGainAura(cellRadius: number): THREE.Group {
+export function createGainAura(cellRadius: number, color: number = 0x00ffff): THREE.Group {
   const auraGroup = new THREE.Group();
 
   const glowRadius = cellRadius * 1.15; // Slightly larger than cell
@@ -21,8 +22,8 @@ export function createGainAura(cellRadius: number): THREE.Group {
   // Create outer glow sphere
   const geometry = new THREE.SphereGeometry(glowRadius, 32, 32);
   const material = new THREE.MeshStandardMaterial({
-    color: 0x00ffff,              // Cyan color
-    emissive: 0x00ffff,           // Cyan glow
+    color: color,                 // Configurable color
+    emissive: color,              // Matching glow
     emissiveIntensity: 2.0,       // Strong glow
     transparent: true,
     opacity: 0.0,                 // Starts invisible
@@ -39,6 +40,7 @@ export function createGainAura(cellRadius: number): THREE.Group {
     triggerTime: 0,
     duration: 500, // 500ms flash duration
     active: false,
+    color: color,  // Store for color changes
   };
 
   return auraGroup;
@@ -48,11 +50,31 @@ export function createGainAura(cellRadius: number): THREE.Group {
  * Trigger a gain aura flash (call when entity gains energy)
  * @param aura - The gain aura group
  * @param intensity - Energy gain intensity (0-1, affects brightness)
+ * @param color - Optional color override (hex value like 0xffd700 for gold)
  */
-export function triggerGainFlash(aura: THREE.Group, intensity: number = 0.5): void {
+export function triggerGainFlash(aura: THREE.Group, intensity: number = 0.5, color?: number): void {
   aura.userData.triggerTime = Date.now();
   aura.userData.active = true;
   aura.userData.intensity = Math.min(1.0, Math.max(0.2, intensity));
+
+  // Update color if provided
+  if (color !== undefined && color !== aura.userData.color) {
+    aura.userData.color = color;
+    setAuraColor(aura, color);
+  }
+}
+
+/**
+ * Set the color of a gain aura
+ */
+function setAuraColor(aura: THREE.Group, color: number): void {
+  aura.children.forEach((child) => {
+    if (child instanceof THREE.Mesh) {
+      const mat = child.material as THREE.MeshStandardMaterial;
+      mat.color.setHex(color);
+      mat.emissive.setHex(color);
+    }
+  });
 }
 
 /**

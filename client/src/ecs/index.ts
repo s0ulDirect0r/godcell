@@ -9,9 +9,11 @@ export {
   Components,
   Tags,
   GAME_CONFIG,
+  getEntityScale,
 } from '@godcell/shared';
 export type {
   EntityId,
+  EntityScale,
   PositionComponent,
   VelocityComponent,
   EnergyComponent,
@@ -30,6 +32,14 @@ export type {
   JungleCreatureComponent,
   OrganismProjectileComponent,
 } from '@godcell/shared';
+
+// Client-only component types and interfaces
+export { ClientComponents, ClientComponentType } from './types';
+export type {
+  DrainAuraComponent,
+  GainAuraComponent,
+  EvolutionAuraComponent,
+} from './components';
 
 // Client-specific factories and helpers
 export {
@@ -89,4 +99,17 @@ export {
   updateJungleCreaturePosition,
   upsertOrganismProjectile,
   removeOrganismProjectile,
+  // Aura component helpers
+  setDrainAura,
+  clearDrainAura,
+  triggerGainAura,
+  clearGainAura,
+  setEvolutionAura,
+  clearEvolutionAura,
+  getDrainAura,
+  getGainAura,
+  getEvolutionAura,
 } from './factories';
+
+// Client-only ECS systems
+export { AuraStateSystem } from './systems/AuraStateSystem';
