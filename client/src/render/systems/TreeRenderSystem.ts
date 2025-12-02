@@ -111,27 +111,7 @@ export class TreeRenderSystem {
     if (this.treeMeshes.size > 0 && this.treeMeshes.size !== this.rootNetworkTreeCount) {
       this.rebuildRootNetwork();
     }
-
-    // Debug: log tree sync status and positions
-    if (treeCount > 0 && this.treeMeshes.size === 0) {
-      console.log('[TreeRenderSystem] ECS has', treeCount, 'trees but no meshes created');
-    } else if (this.treeMeshes.size > 0 && this._lastLoggedCount !== this.treeMeshes.size) {
-      console.log('[TreeRenderSystem] Synced', this.treeMeshes.size, 'tree meshes');
-      this._lastLoggedCount = this.treeMeshes.size;
-
-      // Log sample tree positions for debugging
-      let sampleCount = 0;
-      this.treeMeshes.forEach((group, id) => {
-        if (sampleCount < 3) {
-          console.log(`[TreeRenderSystem] Tree ${id} at Three.js pos:`,
-            group.position.x.toFixed(0), group.position.y.toFixed(0), group.position.z.toFixed(0));
-          sampleCount++;
-        }
-      });
-    }
   }
-
-  private _lastLoggedCount = 0;
 
   /**
    * Debug: log tree bounds for camera comparison
@@ -149,7 +129,6 @@ export class TreeRenderSystem {
       maxZ = Math.max(maxZ, group.position.z);
     });
 
-    console.log(`[TreeRenderSystem] Bounds: X[${minX.toFixed(0)}, ${maxX.toFixed(0)}] Z[${minZ.toFixed(0)}, ${maxZ.toFixed(0)}]`);
     return { minX, maxX, minZ, maxZ };
   }
 
@@ -203,8 +182,6 @@ export class TreeRenderSystem {
     this.rootNetwork = createRootNetworkFromTrees(treePositions);
     this.scene.add(this.rootNetwork);
     this.rootNetworkTreeCount = this.treeMeshes.size;
-
-    console.log('[TreeRenderSystem] Rebuilt root network for', treePositions.length, 'trees');
   }
 
   /**
