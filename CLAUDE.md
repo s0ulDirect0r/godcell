@@ -472,11 +472,29 @@ Keep the game fun and legible, but keep the codebase stable and predictable.
 
 ## 10. Documentation Map
 
+### When to Read These Docs
+
+**Read `SYSTEM_DESIGN.md` BEFORE:**
+- Implementing new features that touch multiple systems (server + client)
+- Adding new entity types, components, or server systems
+- Debugging data flow issues between server and client
+- Any architectural changes or refactors
+
+**Read `GAME_DESIGN.md` BEFORE:**
+- Implementing new gameplay mechanics or abilities
+- Making decisions about game feel, balance, or player experience
+- Working on evolution stages or progression systems
+- Any task where "why" matters as much as "how"
+
+**For routine tasks** (bug fixes, small tweaks, config changes): CLAUDE.md alone is usually sufficient.
+
+### Reference Files
+
 - **System Design:** `SYSTEM_DESIGN.md`
-  Technical architecture, ECS details, data flow diagrams.
+  Technical architecture, ECS details, server systems, render systems, data flow.
 
 - **Game Design:** `GAME_DESIGN.md`
-  High-level vision, stages, mechanics, and future ideas.
+  High-level vision, evolution stages, mechanics, and future direction.
 
 - **ECS Reference:** `shared/ecs/REFERENCE.md`
   Quick lookup for components, tags, abilities, and stage progression.

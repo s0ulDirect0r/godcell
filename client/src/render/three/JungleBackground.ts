@@ -365,8 +365,6 @@ export function createCircuitTraces(group: THREE.Group): void {
  */
 // Alternative floor pattern - exported for potential future use
 export function createGroundTexture(group: THREE.Group): void {
-  console.log('[JungleBackground] Creating ground texture with noise shader');
-
   const geometry = new THREE.PlaneGeometry(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
@@ -499,8 +497,6 @@ export function createGroundTexture(group: THREE.Group): void {
 
   // Store material reference for animation
   (group as unknown as { groundMaterial: THREE.ShaderMaterial }).groundMaterial = material;
-
-  console.log('[JungleBackground] Ground texture created');
 }
 
 /**
@@ -508,8 +504,6 @@ export function createGroundTexture(group: THREE.Group): void {
  * Simple brown noise texture for organic ground feel
  */
 function createDirtGround(group: THREE.Group): void {
-  console.log('[JungleBackground] Creating dirt ground layer');
-
   const geometry = new THREE.PlaneGeometry(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
@@ -583,11 +577,6 @@ function createDirtGround(group: THREE.Group): void {
   mesh.renderOrder = -200; // Render before grass (-100)
 
   group.add(mesh);
-  console.log('[JungleBackground] Created dirt ground layer', {
-    position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
-    size: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
-    renderOrder: mesh.renderOrder,
-  });
 }
 
 /**
@@ -599,8 +588,6 @@ function createDirtGround(group: THREE.Group): void {
  * Wind: sin(time + position) creates asynchronous gust effects
  */
 function createStylizedGrass(group: THREE.Group): THREE.Mesh {
-  console.log('[JungleBackground] Creating stylized grass');
-
   const bladeCount = JUNGLE_CONFIG.GRASS_BLADE_COUNT;
 
   // Each blade has 5 vertices, forming 3 triangles (triangle strip style)
@@ -781,7 +768,6 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
   // Store material reference for animation
   (group as unknown as { grassMaterial: THREE.ShaderMaterial }).grassMaterial = material;
 
-  console.log('[JungleBackground] Created', bladeCount, 'grass blades');
   return grassMesh;
 }
 

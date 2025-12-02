@@ -7,7 +7,7 @@ import { GAME_CONFIG } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import {
   type World,
-  createDataFruit,
+  createDataFruitOnGround,
   createCyberBug,
   createJungleCreature,
   forEachTree,
@@ -50,86 +50,35 @@ const creatureRespawnQueue: Array<{
 // ============================================
 
 /**
- * Spawn initial DataFruits on all trees
- * Each tree gets 1-2 fruits at varying ripeness
+ * Spawn initial DataFruits near trees
+ * Simple: spawn on ground, ready to collect, despawn after timeout
  */
 export function initializeDataFruits(world: World, io: Server): void {
   let fruitCount = 0;
 
-  forEachTree(world, (treeEntity, _treeId, treePos, treeComp) => {
-    // Each tree gets 1-2 fruits
+  forEachTree(world, (_treeEntity, _treeId, treePos, treeComp) => {
+    // Each tree gets 1-2 fruits nearby
     const numFruits = 1 + Math.floor(Math.random() * 2);
 
     for (let i = 0; i < numFruits; i++) {
       const fruitId = `fruit-${dataFruitIdCounter++}`;
 
-      // Random offset from tree center
+      // Random offset from tree (2.25x tree radius = 50% further than before)
       const offsetAngle = Math.random() * Math.PI * 2;
-      const offsetDist = Math.random() * GAME_CONFIG.DATAFRUIT_SPAWN_OFFSET;
+      const offsetDist = treeComp.radius + Math.random() * treeComp.radius * 1.25;
       const fruitPos = {
         x: treePos.x + Math.cos(offsetAngle) * offsetDist,
         y: treePos.y + Math.sin(offsetAngle) * offsetDist,
       };
 
-      // Spawn fully ripe (ripening disabled for now)
-      const ripeness = 1.0;
-
-      createDataFruit(
-        world,
-        fruitId,
-        treeEntity, // treeEntityId
-        fruitPos,   // position
-        GAME_CONFIG.DATAFRUIT_VALUE,
-        GAME_CONFIG.DATAFRUIT_CAPACITY,
-        ripeness
-      );
-
+      createDataFruitOnGround(world, fruitId, fruitPos);
       fruitCount++;
     }
   });
 
   logger.info({
-    event: 'data_fruits_spawned',
+    event: 'system_fruits_spawned',
     count: fruitCount,
-  });
-}
-
-/**
- * Spawn a single fruit on a specific tree
- * Used for respawning after collection
- */
-export function spawnFruitOnTree(
-  world: World,
-  io: Server,
-  treeEntity: number,
-  treePos: { x: number; y: number }
-): void {
-  const fruitId = `fruit-${dataFruitIdCounter++}`;
-
-  // Random offset from tree center
-  const offsetAngle = Math.random() * Math.PI * 2;
-  const offsetDist = Math.random() * GAME_CONFIG.DATAFRUIT_SPAWN_OFFSET;
-  const fruitPos = {
-    x: treePos.x + Math.cos(offsetAngle) * offsetDist,
-    y: treePos.y + Math.sin(offsetAngle) * offsetDist,
-  };
-
-  createDataFruit(
-    world,
-    fruitId,
-    treeEntity, // treeEntityId
-    fruitPos,   // position
-    GAME_CONFIG.DATAFRUIT_VALUE,
-    GAME_CONFIG.DATAFRUIT_CAPACITY,
-    0 // Start unripe
-  );
-
-  io.emit('dataFruitSpawned', {
-    type: 'dataFruitSpawned',
-    fruitId,
-    position: fruitPos,
-    treeEntityId: treeEntity,
-    ripeness: 0,
   });
 }
 

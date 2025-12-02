@@ -1700,7 +1700,38 @@ export function buildTreesRecord(world: World): Record<string, {
 // ============================================
 
 /**
- * Create a DataFruit entity (harvestable resource near trees).
+ * Create a DataFruit on the ground (simple, ready to collect).
+ * Uses GAME_CONFIG for value/capacity. Despawns after timeout.
+ */
+export function createDataFruitOnGround(
+  world: World,
+  fruitId: string,
+  position: Position
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: 0,
+  });
+  world.addComponent<DataFruitComponent>(entity, Components.DataFruit, {
+    treeEntityId: 0,  // Not attached to tree
+    value: GAME_CONFIG.DATAFRUIT_VALUE,
+    capacityIncrease: GAME_CONFIG.DATAFRUIT_CAPACITY,
+    ripeness: 1.0,
+    fallenAt: Date.now(),  // Already on ground, starts despawn timer
+  });
+
+  world.addTag(entity, Tags.DataFruit);
+  registerStringIdMapping(entity, fruitId);
+
+  return entity;
+}
+
+/**
+ * Create a DataFruit entity (legacy, supports tree attachment).
+ * @deprecated Use createDataFruitOnGround for simpler spawning
  */
 export function createDataFruit(
   world: World,

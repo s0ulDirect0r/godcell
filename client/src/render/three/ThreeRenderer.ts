@@ -48,9 +48,6 @@ export class ThreeRenderer implements Renderer {
   private renderPass!: RenderPass; // Stored to update camera on mode switch
   private bloomPass!: import('three/addons/postprocessing/UnrealBloomPass.js').UnrealBloomPass;
 
-  // Debug counter for throttled logging
-  private _debugTreeLogCounter = 0;
-
   // Perf debug toggles
   private _bloomEnabled = true;
 
@@ -499,14 +496,6 @@ export class ThreeRenderer implements Renderer {
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
     this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
     this.treeRenderSystem.sync(this.environmentSystem.getMode());
-
-    // Debug: log camera vs tree positions when in jungle mode
-    if (this.environmentSystem.getMode() === 'jungle' && this._debugTreeLogCounter++ % 300 === 0) {
-      const cam = this.cameraSystem.getActiveCamera();
-      console.log(`[ThreeRenderer] Jungle mode - Camera at: X=${cam.position.x.toFixed(0)}, Y=${cam.position.y.toFixed(0)}, Z=${cam.position.z.toFixed(0)}`);
-      this.treeRenderSystem.debugLogBounds();
-    }
-
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -593,36 +582,6 @@ export class ThreeRenderer implements Renderer {
     // Update renderPass camera based on current mode before rendering
     this.renderPass.camera = this.cameraSystem.getActiveCamera();
 
-    // DEBUG: Log camera and entity state every 60 frames
-    if (!this._debugFrameCount) this._debugFrameCount = 0;
-    this._debugFrameCount++;
-    if (this._debugFrameCount % 60 === 0) {
-      const orthoCamera = this.cameraSystem.getOrthoCamera();
-      console.log('[DEBUG] Camera:', {
-        pos: { x: orthoCamera.position.x.toFixed(0), y: orthoCamera.position.y.toFixed(0), z: orthoCamera.position.z.toFixed(0) },
-        frustum: { left: orthoCamera.left.toFixed(0), right: orthoCamera.right.toFixed(0), top: orthoCamera.top.toFixed(0), bottom: orthoCamera.bottom.toFixed(0) },
-        near: orthoCamera.near,
-        far: orthoCamera.far,
-      });
-      console.log('[DEBUG] Entities:', {
-        players: this.playerRenderSystem.getMeshCount(),
-        nutrients: this.nutrientRenderSystem.getMeshCount(),
-        swarms: this.swarmRenderSystem.getMeshCount(),
-        obstacles: this.obstacleRenderSystem.getMeshCount(),
-      });
-      const playerMeshes = this.playerRenderSystem.getPlayerMeshes();
-      if (playerMeshes.size > 0) {
-        const firstPlayer = playerMeshes.values().next().value;
-        if (firstPlayer) {
-          console.log('[DEBUG] First player mesh pos:', {
-            x: firstPlayer.position.x.toFixed(0),
-            y: firstPlayer.position.y.toFixed(0),
-            z: firstPlayer.position.z.toFixed(0),
-          });
-        }
-      }
-    }
-
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
 
@@ -681,7 +640,6 @@ export class ThreeRenderer implements Renderer {
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
   private _perfRenderTimeSum?: number;
-  private _debugFrameCount?: number;
 
   /**
    * Set the render mode (soup vs jungle world)

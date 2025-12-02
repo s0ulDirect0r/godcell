@@ -67,7 +67,7 @@ let gui: GUI;
 let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
-let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'tree' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
+let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'tree' | 'data-fruit' | 'cyber-bug' | 'jungle-creature' | 'swarm' | 'obstacle' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let lastTime = 0;
 let energyDirection = -1; // -1 = draining, 1 = filling
@@ -181,7 +181,7 @@ function initGUI() {
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
   entityFolder.add({ type: currentEntityType }, 'type', [
-    'single-cell', 'multi-cell', 'cyber-organism', 'tree', 'swarm', 'obstacle', 'nutrient', 'all'
+    'single-cell', 'multi-cell', 'cyber-organism', 'tree', 'data-fruit', 'cyber-bug', 'jungle-creature', 'swarm', 'obstacle', 'nutrient', 'all'
   ])
     .name('Entity Type')
     .onChange((value: typeof currentEntityType) => {
@@ -416,6 +416,107 @@ function updateModels() {
       break;
     }
 
+    case 'data-fruit': {
+      // Data fruit - glowing orb that Stage 3+ players collect
+      // DATAFRUIT_COLLISION_RADIUS = 40 (doubled for visibility)
+      // Show at different "ripeness" levels and one next to tree for scale
+
+      // Unripe fruit (cyan-green)
+      const unripe = createDataFruitMesh(40, 0.2);
+      unripe.position.set(-120, 0, 0);
+      scene.add(unripe);
+      models.push(unripe);
+
+      // Half-ripe fruit (yellow-green)
+      const halfRipe = createDataFruitMesh(40, 0.5);
+      halfRipe.position.set(-40, 0, 0);
+      scene.add(halfRipe);
+      models.push(halfRipe);
+
+      // Ripe fruit (gold) - this is what players see
+      const ripe = createDataFruitMesh(40, 1.0);
+      ripe.position.set(40, 0, 0);
+      scene.add(ripe);
+      models.push(ripe);
+
+      // Show scale: tree with fruit nearby (fruit spawns further out now)
+      const scaleTree = createDataTree(60, 200, 0.5);
+      scaleTree.position.set(250, 0, 0);
+      scene.add(scaleTree);
+      models.push(scaleTree);
+
+      const scaleFruit = createDataFruitMesh(40, 1.0);
+      scaleFruit.position.set(320, 10, 0); // Further from tree (2.25x radius)
+      scene.add(scaleFruit);
+      models.push(scaleFruit);
+
+      camera.position.set(0, 80, 300);
+      break;
+    }
+
+    case 'cyber-bug': {
+      // CyberBug - small skittish prey, mint green glowing insect
+      // CYBERBUG_COLLISION_RADIUS = 8 (game uses this)
+      const bugSize = 8;
+      const bugSpacing = 40;
+
+      // Normal state bug
+      const normalBug = createCyberBugMesh(bugSize, 'idle');
+      normalBug.position.set(-bugSpacing, 0, 0);
+      scene.add(normalBug);
+      models.push(normalBug);
+
+      // Fleeing state bug (orange glow when scared)
+      const fleeingBug = createCyberBugMesh(bugSize, 'flee');
+      fleeingBug.position.set(0, 0, 0);
+      scene.add(fleeingBug);
+      models.push(fleeingBug);
+
+      // Small swarm of bugs for context
+      for (let i = 0; i < 4; i++) {
+        const swarmBug = createCyberBugMesh(bugSize, 'patrol');
+        const angle = (i / 4) * Math.PI * 2;
+        swarmBug.position.set(
+          bugSpacing * 2 + Math.cos(angle) * 20,
+          Math.sin(angle) * 5,
+          Math.sin(angle) * 20
+        );
+        scene.add(swarmBug);
+        models.push(swarmBug);
+      }
+
+      camera.position.set(0, 30, 100);
+      break;
+    }
+
+    case 'jungle-creature': {
+      // JungleCreature - three variants: grazer, stalker, ambusher
+      // JUNGLE_CREATURE_COLLISION_RADIUS = 30 (game uses this)
+      const creatureSize = 30;
+      const creatureSpacing = 120;
+
+      // Grazer: Green, rounded, passive
+      const grazer = createJungleCreatureMesh(creatureSize, 'grazer');
+      grazer.position.set(-creatureSpacing, 0, 0);
+      scene.add(grazer);
+      models.push(grazer);
+
+      // Stalker: Red, angular, aggressive
+      const stalker = createJungleCreatureMesh(creatureSize, 'stalker');
+      stalker.position.set(0, 0, 0);
+      scene.add(stalker);
+      models.push(stalker);
+
+      // Ambusher: Purple, low/wide, spider-like
+      const ambusher = createJungleCreatureMesh(creatureSize, 'ambusher');
+      ambusher.position.set(creatureSpacing, 0, 0);
+      scene.add(ambusher);
+      models.push(ambusher);
+
+      camera.position.set(0, 80, 300);
+      break;
+    }
+
     case 'swarm': {
       const swarm = createEntropySwarm(40);
       swarm.position.set(0, 0, 0);
@@ -627,4 +728,232 @@ function onResize() {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/**
+ * Create a data fruit mesh (glowing orb)
+ * Matches DataFruitRenderSystem appearance
+ * @param radius - Fruit radius (game uses 20)
+ * @param ripeness - 0-1, affects color (green → gold)
+ */
+function createDataFruitMesh(radius: number, ripeness: number): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'dataFruit';
+  group.userData.ripeness = ripeness;
+
+  // Color based on ripeness: cyan-green (#00ff88) → gold (#ffcc00)
+  const r = Math.floor(ripeness * 255);
+  const g = Math.floor(255 - ripeness * 51); // 255 → 204
+  const b = Math.floor((1 - ripeness) * 136);
+  const color = (r << 16) | (g << 8) | b;
+
+  // Core sphere - solid glowing orb
+  const coreGeometry = new THREE.SphereGeometry(radius, 16, 16);
+  const coreMaterial = new THREE.MeshPhysicalMaterial({
+    color: color,
+    emissive: color,
+    emissiveIntensity: 0.3 + ripeness * 0.7, // Brighter when ripe
+    transparent: true,
+    opacity: 0.9,
+    roughness: 0.2,
+    metalness: 0.5,
+  });
+  const core = new THREE.Mesh(coreGeometry, coreMaterial);
+  group.add(core);
+
+  // Outer glow shell
+  const glowGeometry = new THREE.SphereGeometry(radius * 1.5, 16, 16);
+  const glowMaterial = new THREE.MeshBasicMaterial({
+    color: color,
+    transparent: true,
+    opacity: 0.2 + ripeness * 0.3, // More visible when ripe
+    side: THREE.BackSide,
+  });
+  const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+  group.add(glow);
+
+  return group;
+}
+
+/**
+ * Create a cyber bug mesh (small glowing insect)
+ * Matches CyberBugRenderSystem appearance
+ * @param size - Bug collision radius (game uses 8)
+ * @param state - 'idle' | 'patrol' | 'flee' - affects color
+ */
+function createCyberBugMesh(size: number, state: string): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'cyberBug';
+
+  // Color: mint green normally, orange when fleeing
+  const isFleeing = state === 'flee';
+  const color = isFleeing ? 0xff8800 : 0x00ff88;
+  const intensity = isFleeing ? 0.8 : 0.5;
+
+  // Body (elongated ellipsoid)
+  const bodyGeometry = new THREE.SphereGeometry(size, 8, 8);
+  bodyGeometry.scale(1, 0.5, 1.5); // Flattened and elongated
+  const bodyMaterial = new THREE.MeshPhysicalMaterial({
+    color: color,
+    emissive: color,
+    emissiveIntensity: intensity,
+    transparent: true,
+    opacity: 0.9,
+    roughness: 0.3,
+    metalness: 0.7,
+  });
+  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  group.add(body);
+
+  // Glow effect
+  const glowGeometry = new THREE.SphereGeometry(size * 1.5, 8, 8);
+  const glowMaterial = new THREE.MeshBasicMaterial({
+    color: color,
+    transparent: true,
+    opacity: 0.2,
+    side: THREE.BackSide,
+  });
+  const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+  group.add(glow);
+
+  // Eyes (two bright white dots)
+  const eyeGeometry = new THREE.SphereGeometry(size * 0.2, 4, 4);
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+  leftEye.position.set(-size * 0.3, size * 0.2, size * 0.8);
+  group.add(leftEye);
+
+  const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+  rightEye.position.set(size * 0.3, size * 0.2, size * 0.8);
+  group.add(rightEye);
+
+  return group;
+}
+
+// Variant color schemes for jungle creatures
+const CREATURE_COLORS = {
+  grazer: { primary: 0x44aa44, secondary: 0x88ff88 },   // Green - passive
+  stalker: { primary: 0xaa4444, secondary: 0xff8888 },  // Red - aggressive
+  ambusher: { primary: 0x8844aa, secondary: 0xcc88ff }, // Purple - sneaky
+};
+
+/**
+ * Create a jungle creature mesh
+ * Matches JungleCreatureRenderSystem appearance
+ * @param size - Creature collision radius (game uses 30)
+ * @param variant - 'grazer' | 'stalker' | 'ambusher'
+ */
+function createJungleCreatureMesh(size: number, variant: string): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'jungleCreature';
+  group.userData.variant = variant;
+
+  const colors = CREATURE_COLORS[variant as keyof typeof CREATURE_COLORS] || CREATURE_COLORS.grazer;
+
+  if (variant === 'grazer') {
+    // Grazer: Large rounded sphere, friendly look
+    const bodyGeometry = new THREE.SphereGeometry(size, 16, 16);
+    bodyGeometry.scale(1.2, 0.8, 1);
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
+      color: colors.primary,
+      emissive: colors.secondary,
+      emissiveIntensity: 0.2,
+      roughness: 0.6,
+      metalness: 0.2,
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    group.add(body);
+
+    // Head
+    const headGeometry = new THREE.SphereGeometry(size * 0.4, 12, 12);
+    const head = new THREE.Mesh(headGeometry, bodyMaterial.clone());
+    head.position.set(0, size * 0.3, size * 0.8);
+    group.add(head);
+
+    // Glow
+    const glowGeometry = new THREE.SphereGeometry(size * 1.3, 12, 12);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: colors.secondary,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.BackSide,
+    });
+    group.add(new THREE.Mesh(glowGeometry, glowMaterial));
+
+  } else if (variant === 'stalker') {
+    // Stalker: Angular, cone-shaped predator
+    const bodyGeometry = new THREE.ConeGeometry(size * 0.8, size * 2, 6);
+    bodyGeometry.rotateX(Math.PI / 2);
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
+      color: colors.primary,
+      emissive: colors.secondary,
+      emissiveIntensity: 0.3,
+      roughness: 0.4,
+      metalness: 0.5,
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    group.add(body);
+
+    // Spikes on back
+    for (let i = 0; i < 3; i++) {
+      const spikeGeometry = new THREE.ConeGeometry(size * 0.15, size * 0.5, 4);
+      const spike = new THREE.Mesh(spikeGeometry, bodyMaterial.clone());
+      spike.position.set(0, size * 0.3, -size * 0.5 + i * size * 0.5);
+      group.add(spike);
+    }
+
+    // Glowing red eyes
+    const eyeGeometry = new THREE.SphereGeometry(size * 0.1, 6, 6);
+    const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    leftEye.position.set(-size * 0.25, size * 0.1, size * 0.9);
+    group.add(leftEye);
+    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+    rightEye.position.set(size * 0.25, size * 0.1, size * 0.9);
+    group.add(rightEye);
+
+  } else {
+    // Ambusher: Low, wide, spider-like
+    const bodyGeometry = new THREE.SphereGeometry(size, 16, 16);
+    bodyGeometry.scale(1.5, 0.4, 1.5);
+    const bodyMaterial = new THREE.MeshPhysicalMaterial({
+      color: colors.primary,
+      emissive: colors.secondary,
+      emissiveIntensity: 0.2,
+      roughness: 0.7,
+      metalness: 0.3,
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    group.add(body);
+
+    // Legs (simplified as spheres)
+    const legPositions = [
+      { x: 1, z: 0.7 }, { x: -1, z: 0.7 },
+      { x: 1.2, z: 0 }, { x: -1.2, z: 0 },
+      { x: 1, z: -0.7 }, { x: -1, z: -0.7 },
+    ];
+    const legGeometry = new THREE.SphereGeometry(size * 0.15, 6, 6);
+    const legMaterial = new THREE.MeshPhysicalMaterial({
+      color: colors.primary,
+      emissive: colors.secondary,
+      emissiveIntensity: 0.3,
+    });
+    legPositions.forEach((pos) => {
+      const leg = new THREE.Mesh(legGeometry, legMaterial.clone());
+      leg.position.set(pos.x * size, -size * 0.2, pos.z * size);
+      group.add(leg);
+    });
+
+    // Multiple purple eyes
+    const eyeGeometry = new THREE.SphereGeometry(size * 0.08, 4, 4);
+    const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xcc00ff });
+    for (let i = -2; i <= 2; i++) {
+      const eye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+      eye.position.set(i * size * 0.15, size * 0.15, size * 0.7);
+      group.add(eye);
+    }
+  }
+
+  return group;
 }

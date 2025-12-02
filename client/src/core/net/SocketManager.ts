@@ -466,19 +466,15 @@ export class SocketManager {
 
     // OrganismProjectile events
     this.socket.on('organismProjectileSpawned', (data: OrganismProjectileSpawnedMessage) => {
-      console.log('[DEBUG] organismProjectileSpawned received', data.projectile);
       upsertOrganismProjectile(this.world, data.projectile);
       eventBus.emit(data);
     });
 
     this.socket.on('organismProjectileHit', (data: OrganismProjectileHitMessage) => {
-      console.log('[DEBUG] organismProjectileHit received', data);
-      // Emit to EventBus for visual effects (particle burst)
       eventBus.emit(data);
     });
 
     this.socket.on('organismProjectileRetracted', (data: OrganismProjectileRetractedMessage) => {
-      console.log('[DEBUG] organismProjectileRetracted received', data);
       removeOrganismProjectile(this.world, data.projectileId);
       eventBus.emit(data);
     });

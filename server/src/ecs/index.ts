@@ -125,6 +125,7 @@ export {
   getTreeCount,
   buildTreesRecord,
   // DataFruit query helpers (Stage 3+)
+  createDataFruitOnGround,
   createDataFruit,
   forEachDataFruit,
   getAllDataFruitSnapshots,
