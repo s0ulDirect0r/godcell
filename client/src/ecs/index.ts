@@ -8,6 +8,7 @@ export {
   ComponentStore,
   Components,
   Tags,
+  GAME_CONFIG,
 } from '@godcell/shared';
 export type {
   EntityId,
@@ -23,6 +24,11 @@ export type {
   TreeComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
+  // Stage 3+ component types
+  DataFruitComponent,
+  CyberBugComponent,
+  JungleCreatureComponent,
+  OrganismProjectileComponent,
 } from '@godcell/shared';
 
 // Client-specific factories and helpers
@@ -72,4 +78,15 @@ export {
   setPlayerDamageInfo,
   clearPlayerDamageInfo,
   setSwarmDamageInfo,
+  // Stage 3+ macro-resource operations
+  upsertDataFruit,
+  removeDataFruit,
+  upsertCyberBug,
+  removeCyberBug,
+  updateCyberBugPosition,
+  upsertJungleCreature,
+  removeJungleCreature,
+  updateJungleCreaturePosition,
+  upsertOrganismProjectile,
+  removeOrganismProjectile,
 } from './factories';
