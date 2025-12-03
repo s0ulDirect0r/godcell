@@ -341,7 +341,7 @@ export function updateMultiCellEnergy(
   maxEnergy: number
 ): void {
   const energyRatio = energy / maxEnergy;
-  const time = Date.now() * 0.001;
+  const time = performance.now() * 0.001;
 
   if (style === 'colonial') {
     animateColonialCluster(group, time, energyRatio);

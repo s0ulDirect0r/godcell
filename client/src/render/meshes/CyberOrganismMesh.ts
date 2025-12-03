@@ -224,7 +224,7 @@ export function updateCyberOrganismAnimation(
   isMoving: boolean,
   _dt: number
 ): void {
-  const time = Date.now() * 0.001;
+  const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
   // Float animation (now in Y since that's height after rotation)

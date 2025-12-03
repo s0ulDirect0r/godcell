@@ -251,7 +251,7 @@ export function updateObstacleAnimation(
   dt: number
 ): void {
   const deltaSeconds = dt / 1000;
-  const time = Date.now() * 0.001; // Time in seconds
+  const time = performance.now() * 0.001; // Time in seconds
 
   // === PULSING ANIMATION ===
 

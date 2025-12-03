@@ -11,7 +11,7 @@ import type {
   PlayerSprintMessage,
   PseudopodFireMessage,
   OrganismProjectileFireMessage,
-  GameStateMessage,
+  WorldSnapshotMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerRespawnedMessage,
@@ -59,16 +59,12 @@ import {
   buildAlivePlayersRecord,
   buildPlayersRecord,
   buildNutrientsRecord,
-  getNutrientCount,
-  getAllNutrientSnapshots,
   buildObstaclesRecord,
-  getAllObstacleSnapshots,
   getObstacleCount,
   buildTreesRecord,
   getTreeCount,
   // Stage 3+ entity builders
   buildDataFruitsRecord,
-  getDataFruitCount,
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
   buildOrganismProjectilesRecord,
@@ -140,6 +136,7 @@ import {
   randomColor,
   randomSpawnPosition,
 } from './helpers';
+import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
 // ============================================
 // Server Configuration
@@ -564,10 +561,10 @@ io.on('connection', (socket) => {
   // Track spawn time for evolution rate tracking
   recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
 
-  // Send current game state to the new player
+  // Send world snapshot to the new player (initial state, sent once on connect)
   // Uses ECS to build player records, filtering out dead players (energy <= 0)
-  const gameState: GameStateMessage = {
-    type: 'gameState',
+  const worldSnapshot: WorldSnapshotMessage = {
+    type: 'worldSnapshot',
     players: buildAlivePlayersRecord(world),
     nutrients: buildNutrientsRecord(world),
     obstacles: buildObstaclesRecord(world),
@@ -579,7 +576,7 @@ io.on('connection', (socket) => {
     jungleCreatures: buildJungleCreaturesRecord(world),
     organismProjectiles: buildOrganismProjectilesRecord(world),
   };
-  socket.emit('gameState', gameState);
+  socket.emit('worldSnapshot', worldSnapshot);
 
   // Notify all OTHER players that someone joined
   const joinMessage: PlayerJoinedMessage = {
@@ -770,110 +767,9 @@ setInterval(() => {
 // Periodic Logging
 // ============================================
 
-/**
- * Calculate aggregate statistics about the game state
- * Energy-only system: energy is the sole life resource
- */
-function calculateAggregateStats() {
-  // Collect stats using ECS iteration
-  const stats = {
-    totalPlayers: 0,
-    alivePlayers: 0,
-    deadPlayers: 0,
-    totalBots: 0,
-    aliveBots: 0,
-    totalEnergy: 0,
-    stageDistribution: {} as Record<string, number>,
-  };
-
-  forEachPlayer(world, (entity, id) => {
-    const energyComp = getEnergyBySocketId(world, id);
-    const stageComp = getStageBySocketId(world, id);
-    if (!energyComp || !stageComp) return;
-
-    stats.totalPlayers++;
-    const isAlive = energyComp.current > 0;
-    const isBotPlayer = isBot(id);
-
-    if (isAlive) {
-      stats.alivePlayers++;
-      stats.totalEnergy += energyComp.current;
-      stats.stageDistribution[stageComp.stage] = (stats.stageDistribution[stageComp.stage] || 0) + 1;
-    } else {
-      stats.deadPlayers++;
-    }
-
-    if (isBotPlayer) {
-      stats.totalBots++;
-      if (isAlive) stats.aliveBots++;
-    }
-  });
-
-  return {
-    totalPlayers: stats.totalPlayers,
-    alivePlayers: stats.alivePlayers,
-    deadPlayers: stats.deadPlayers,
-    totalBots: stats.totalBots,
-    aliveBots: stats.aliveBots,
-    avgPlayerEnergy: stats.alivePlayers > 0 ? stats.totalEnergy / stats.alivePlayers : 0,
-    totalNutrients: getNutrientCount(world),
-    totalDataFruits: getDataFruitCount(world),
-    stageDistribution: stats.stageDistribution,
-  };
-}
-
-/**
- * Create a complete game state snapshot
- * Energy-only system: energy is the sole life resource
- */
-function createGameStateSnapshot() {
-  // Build players array using ECS iteration
-  const playerSnapshots: Array<{
-    id: string;
-    isBot: boolean;
-    stage: string;
-    energy: number;
-    maxEnergy: number;
-    position: { x: number; y: number };
-    alive: boolean;
-  }> = [];
-
-  forEachPlayer(world, (entity, id) => {
-    const energyComp = getEnergyBySocketId(world, id);
-    const stageComp = getStageBySocketId(world, id);
-    const posComp = getPositionBySocketId(world, id);
-    if (!energyComp || !stageComp || !posComp) return;
-
-    playerSnapshots.push({
-      id,
-      isBot: isBot(id),
-      stage: stageComp.stage,
-      energy: energyComp.current,
-      maxEnergy: energyComp.max,
-      position: { x: posComp.x, y: posComp.y },
-      alive: energyComp.current > 0,
-    });
-  });
-
-  return {
-    timestamp: Date.now(),
-    players: playerSnapshots,
-    nutrients: getAllNutrientSnapshots(world).map(n => ({
-      id: n.id,
-      position: { x: n.position.x, y: n.position.y },
-      value: n.value,
-    })),
-    obstacles: getAllObstacleSnapshots(world).map(o => ({
-      id: o.id,
-      position: { x: o.position.x, y: o.position.y },
-      radius: o.radius,
-    })),
-  };
-}
-
 // Log aggregate stats every 15 seconds
 setInterval(() => {
-  const stats = calculateAggregateStats();
+  const stats = calculateAggregateStats(world);
   logAggregateStats(stats);
 }, 15000);
 
@@ -897,8 +793,8 @@ setInterval(() => {
   maybeLogLifetimeStats();
 }, 10000); // Check every 10s, but only logs every 60s
 
-// Log full game state snapshot every 60 seconds
+// Log full world snapshot every 60 seconds
 setInterval(() => {
-  const snapshot = createGameStateSnapshot();
+  const snapshot = createWorldSnapshot(world);
   logGameStateSnapshot(snapshot);
 }, 60000);

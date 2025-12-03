@@ -42,6 +42,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
     roughness: 0.1,          // Smooth surface
     metalness: 0.05,         // Slight metallic sheen
     clearcoat: 0.8,          // Wet/glossy appearance
+    depthWrite: false,       // Don't write depth - allows inner layers (nucleus) to render
   });
 
   const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
@@ -49,7 +50,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 
   // === CYTOPLASM (Volumetric jelly with shader) ===
   // Custom shader creates depth-based coloring and fresnel edge glow
-  const nucleusRadius = radius * 0.3;
+  const nucleusRadius = radius * 0.3;  // 30% of cell radius
   const cytoplasmGeometry = getGeometry(`sphere-cytoplasm-${radius}`, () =>
     new THREE.SphereGeometry(radius * 0.95, 32, 32)
   );
@@ -231,7 +232,7 @@ export function updateSingleCellEnergy(cellGroup: THREE.Group, energy: number, m
     nucleus.scale.set(1, 1, 1);
   } else if (energyRatio > 0.1) {
     // Low energy: dramatic flickering
-    const time = Date.now() * 0.01;
+    const time = performance.now() * 0.01;
     const flicker = Math.sin(time) * 0.5 + 0.5;
     nucleusMaterial.emissiveIntensity = (0.3 + energyRatio * 2) * (0.4 + flicker * 0.6);
     if (cytoplasmMaterial.uniforms?.opacity) {
@@ -243,7 +244,7 @@ export function updateSingleCellEnergy(cellGroup: THREE.Group, energy: number, m
     nucleus.scale.set(scalePulse, scalePulse, scalePulse);
   } else {
     // Critical energy: URGENT pulsing
-    const time = Date.now() * 0.015;
+    const time = performance.now() * 0.015;
     const pulse = Math.sin(time) * 0.6 + 0.4;
     nucleusMaterial.emissiveIntensity = 0.2 + pulse * 0.8;
     if (cytoplasmMaterial.uniforms?.opacity) {

@@ -99,7 +99,7 @@ export class AuraSystem {
     playerDamageInfo: Map<string, EntityDamageInfo>,
     swarmDamageInfo: Map<string, EntityDamageInfo>,
   ): void {
-    const time = Date.now() * 0.001;
+    const time = performance.now() * 0.001;
 
     // For each player, check if they should have a drain aura
     players.forEach((player, playerId) => {

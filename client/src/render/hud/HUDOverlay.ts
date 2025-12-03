@@ -175,8 +175,8 @@ export class HUDOverlay {
       }
     });
 
-    // Initialize session stats on first game state
-    eventBus.on('gameState', () => {
+    // Initialize session stats on first world snapshot
+    eventBus.on('worldSnapshot', () => {
       this.resetSessionStats();
     });
 
