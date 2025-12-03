@@ -80,12 +80,8 @@ export class AuraSystem {
     if (!auraMesh) return; // No aura to flash (target may not be currently drained)
 
     // Boost emissive intensity for a brief flash (handled by applyAuraIntensity)
-    if (!auraMesh.userData.flashTime) {
-      auraMesh.userData.flashTime = Date.now();
-    } else {
-      // Refresh flash
-      auraMesh.userData.flashTime = Date.now();
-    }
+    // Use performance.now() for consistency with animation timing
+    auraMesh.userData.flashTime = performance.now();
   }
 
   /**

@@ -144,7 +144,7 @@ export function applyAuraIntensity(
 
   // Check for hit flash (brief intense brightness boost from pseudopod hit)
   if (auraMesh.userData.flashTime) {
-    const flashAge = Date.now() - auraMesh.userData.flashTime;
+    const flashAge = performance.now() - auraMesh.userData.flashTime;
     const flashDuration = 200; // 200ms flash
 
     if (flashAge < flashDuration) {

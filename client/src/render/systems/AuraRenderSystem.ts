@@ -329,7 +329,7 @@ export class AuraRenderSystem {
     const auraMesh = this.drainAuraMeshes.get(targetId);
     if (!auraMesh) return;
 
-    auraMesh.userData.flashTime = Date.now();
+    auraMesh.userData.flashTime = performance.now();
   }
 
   /**
