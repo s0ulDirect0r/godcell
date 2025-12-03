@@ -2,7 +2,7 @@
 // Event Bus - Type-Safe Local Pub/Sub
 // ============================================
 
-import type { ServerMessage } from '@godcell/shared';
+import type { ServerMessage, CombatSpecialization } from '@godcell/shared';
 
 // Client-only events (internal state, not from server)
 type ClientEvent =
@@ -16,7 +16,8 @@ type ClientEvent =
   | { type: 'client:debugToggle'; enabled: boolean }
   | { type: 'client:socketConnected'; socketId: string }
   | { type: 'client:socketDisconnected' }
-  | { type: 'client:socketFailed'; error: string };
+  | { type: 'client:socketFailed'; error: string }
+  | { type: 'client:selectSpecialization'; specialization: CombatSpecialization };
 
 // All possible events = server messages + client-only events
 export type GameEvent = ServerMessage | ClientEvent;
