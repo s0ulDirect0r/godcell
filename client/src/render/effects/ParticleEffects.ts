@@ -591,3 +591,333 @@ export function spawnEnergyTransferParticles(
     targetId,
   };
 }
+
+/**
+ * Animation data for melee arc attack effect
+ * Intense visual with solid arc mesh, particles, trails, and sparks
+ */
+export interface MeleeArcAnimation {
+  particles: THREE.Points;           // Main arc particles
+  trailParticles: THREE.Points;      // Trailing particles behind the arc
+  sparkParticles: THREE.Points;      // Spark particles that fly off
+  arcMesh: THREE.Mesh;               // Solid arc sweep mesh
+  hitboxMesh?: THREE.Line;           // Debug visualization of actual hitbox
+  particleData: Array<{
+    angle: number;      // Current angle in arc
+    radius: number;     // Distance from center
+    radiusSpeed: number; // How fast it expands outward
+    life: number;       // Remaining life (1.0 → 0.0)
+  }>;
+  trailData: Array<{
+    angle: number;
+    radius: number;
+    radiusSpeed: number;
+    life: number;
+  }>;
+  sparkData: Array<{
+    x: number;
+    y: number;
+    vx: number;         // Velocity X
+    vy: number;         // Velocity Y
+    life: number;
+  }>;
+  startTime: number;
+  duration: number;
+  centerX: number;
+  centerY: number;
+  baseAngle: number;   // Direction player is facing
+  arcAngle: number;    // Width of arc (swipe = 90°, thrust = 30°)
+  colorHex: number;    // Store color for updates
+}
+
+/**
+ * Spawn melee arc attack effect - intense visual with multiple layers
+ * Swipe: 90° arc, Thrust: 30° narrow cone
+ * Features: solid arc mesh, bright particles, trails, sparks
+ */
+export function spawnMeleeArc(
+  scene: THREE.Scene,
+  x: number,
+  y: number,
+  attackType: 'swipe' | 'thrust',
+  directionX: number,
+  directionY: number,
+  colorHex: number = 0xff6666
+): MeleeArcAnimation {
+  // Much more particles for intense effect
+  const particleCount = attackType === 'swipe' ? 150 : 80;
+  const trailCount = attackType === 'swipe' ? 100 : 50;
+  const sparkCount = attackType === 'swipe' ? 40 : 20;
+  const duration = 300; // Slightly longer for visual impact
+  const initialRadius = 200;  // Min range (closer to player)
+  const maxRadius = 732;      // Max range (50% larger arc area)
+
+  // Calculate arc parameters
+  const arcAngle = attackType === 'swipe' ? (Math.PI / 2) : (Math.PI / 6);
+  const baseAngle = Math.atan2(directionY, directionX);
+  const halfArc = arcAngle / 2;
+
+  // Extract RGB components for color variations
+  const r = (colorHex >> 16) & 0xff;
+  const g = (colorHex >> 8) & 0xff;
+  const b = colorHex & 0xff;
+  // Brighter version of the color
+  const brightColor = ((Math.min(255, r + 100) << 16) | (Math.min(255, g + 100) << 8) | Math.min(255, b + 100));
+
+  // ============================================
+  // 1. SOLID ARC MESH - The main visual impact
+  // ============================================
+  const arcShape = new THREE.Shape();
+  const segments = 32;
+
+  // Start at inner arc
+  const startAngle = baseAngle - halfArc;
+  arcShape.moveTo(
+    Math.cos(startAngle) * initialRadius,
+    Math.sin(startAngle) * initialRadius
+  );
+
+  // Draw inner arc
+  for (let i = 1; i <= segments; i++) {
+    const t = i / segments;
+    const angle = startAngle + t * arcAngle;
+    arcShape.lineTo(
+      Math.cos(angle) * initialRadius,
+      Math.sin(angle) * initialRadius
+    );
+  }
+
+  // Draw outer arc (reverse)
+  for (let i = segments; i >= 0; i--) {
+    const t = i / segments;
+    const angle = startAngle + t * arcAngle;
+    arcShape.lineTo(
+      Math.cos(angle) * maxRadius,
+      Math.sin(angle) * maxRadius
+    );
+  }
+
+  arcShape.closePath();
+
+  const arcGeometry = new THREE.ShapeGeometry(arcShape);
+  const arcMaterial = new THREE.MeshBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+  const arcMesh = new THREE.Mesh(arcGeometry, arcMaterial);
+  // Rotate to XZ plane and position
+  arcMesh.rotation.x = -Math.PI / 2;
+  arcMesh.position.set(x, 1, -y);
+  scene.add(arcMesh);
+
+  // ============================================
+  // 2. MAIN PARTICLES - Bright edge particles
+  // ============================================
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const colors = new Float32Array(particleCount * 3);
+  const sizes = new Float32Array(particleCount);
+  const particleData: MeleeArcAnimation['particleData'] = [];
+
+  for (let i = 0; i < particleCount; i++) {
+    const arcProgress = (i / (particleCount - 1)) - 0.5;
+    const angle = baseAngle + arcProgress * arcAngle;
+    // Distribute along the arc width (inner to outer)
+    const radiusOffset = Math.random();
+    const startRadius = initialRadius + radiusOffset * (maxRadius - initialRadius);
+
+    positions[i * 3] = x + Math.cos(angle) * startRadius;
+    positions[i * 3 + 1] = 0.5 + Math.random() * 2; // Vary height
+    positions[i * 3 + 2] = -(y + Math.sin(angle) * startRadius);
+
+    // Color variation - mix between base and bright
+    const colorMix = Math.random();
+    colors[i * 3] = (r / 255) * (1 - colorMix) + (Math.min(255, r + 100) / 255) * colorMix;
+    colors[i * 3 + 1] = (g / 255) * (1 - colorMix) + (Math.min(255, g + 100) / 255) * colorMix;
+    colors[i * 3 + 2] = (b / 255) * (1 - colorMix) + (Math.min(255, b + 100) / 255) * colorMix;
+
+    sizes[i] = 8 + Math.random() * 8; // Larger particles
+
+    const radiusSpeed = (maxRadius - initialRadius) / (duration / 1000) * (0.8 + Math.random() * 0.4);
+
+    particleData.push({
+      angle,
+      radius: startRadius,
+      radiusSpeed,
+      life: 1.0,
+    });
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+  const material = new THREE.PointsMaterial({
+    size: 10,
+    transparent: true,
+    opacity: 1,
+    vertexColors: true,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const particles = new THREE.Points(geometry, material);
+  scene.add(particles);
+
+  // ============================================
+  // 3. TRAIL PARTICLES - Follow behind the arc
+  // ============================================
+  const trailGeometry = new THREE.BufferGeometry();
+  const trailPositions = new Float32Array(trailCount * 3);
+  const trailColors = new Float32Array(trailCount * 3);
+  const trailSizes = new Float32Array(trailCount);
+  const trailData: MeleeArcAnimation['trailData'] = [];
+
+  for (let i = 0; i < trailCount; i++) {
+    const arcProgress = (i / (trailCount - 1)) - 0.5;
+    const angle = baseAngle + arcProgress * arcAngle;
+    // Start behind the main arc (smaller radius)
+    const startRadius = initialRadius * 0.7 + Math.random() * initialRadius * 0.3;
+
+    trailPositions[i * 3] = x + Math.cos(angle) * startRadius;
+    trailPositions[i * 3 + 1] = 0.3 + Math.random();
+    trailPositions[i * 3 + 2] = -(y + Math.sin(angle) * startRadius);
+
+    // Dimmer color for trails
+    trailColors[i * 3] = r / 255 * 0.6;
+    trailColors[i * 3 + 1] = g / 255 * 0.6;
+    trailColors[i * 3 + 2] = b / 255 * 0.6;
+
+    trailSizes[i] = 4 + Math.random() * 4;
+
+    trailData.push({
+      angle,
+      radius: startRadius,
+      radiusSpeed: (maxRadius - startRadius) / (duration / 1000) * (0.6 + Math.random() * 0.4),
+      life: 1.0,
+    });
+  }
+
+  trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+  trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+  trailGeometry.setAttribute('size', new THREE.BufferAttribute(trailSizes, 1));
+
+  const trailMaterial = new THREE.PointsMaterial({
+    size: 6,
+    transparent: true,
+    opacity: 0.6,
+    vertexColors: true,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const trailParticles = new THREE.Points(trailGeometry, trailMaterial);
+  scene.add(trailParticles);
+
+  // ============================================
+  // 4. SPARK PARTICLES - Fly off the arc edges
+  // ============================================
+  const sparkGeometry = new THREE.BufferGeometry();
+  const sparkPositions = new Float32Array(sparkCount * 3);
+  const sparkSizes = new Float32Array(sparkCount);
+  const sparkData: MeleeArcAnimation['sparkData'] = [];
+
+  for (let i = 0; i < sparkCount; i++) {
+    // Spawn at random points along the outer edge
+    const arcProgress = Math.random() - 0.5;
+    const angle = baseAngle + arcProgress * arcAngle;
+    const radius = maxRadius + Math.random() * 20;
+
+    const sparkX = x + Math.cos(angle) * radius;
+    const sparkY = y + Math.sin(angle) * radius;
+
+    sparkPositions[i * 3] = sparkX;
+    sparkPositions[i * 3 + 1] = 1 + Math.random() * 3;
+    sparkPositions[i * 3 + 2] = -sparkY;
+
+    sparkSizes[i] = 3 + Math.random() * 5;
+
+    // Velocity - fly outward and slightly random
+    const speed = 300 + Math.random() * 200;
+    sparkData.push({
+      x: sparkX,
+      y: sparkY,
+      vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 100,
+      vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 100,
+      life: 1.0,
+    });
+  }
+
+  sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPositions, 3));
+  sparkGeometry.setAttribute('size', new THREE.BufferAttribute(sparkSizes, 1));
+
+  const sparkMaterial = new THREE.PointsMaterial({
+    color: brightColor,
+    size: 6,
+    transparent: true,
+    opacity: 1,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const sparkParticles = new THREE.Points(sparkGeometry, sparkMaterial);
+  scene.add(sparkParticles);
+
+  // ============================================
+  // 5. DEBUG HITBOX (green outline)
+  // ============================================
+  const hitboxPoints: THREE.Vector3[] = [];
+  const minRange = 400;
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const angle = baseAngle - halfArc + t * arcAngle;
+    hitboxPoints.push(new THREE.Vector3(
+      x + Math.cos(angle) * minRange,
+      0.5,
+      -(y + Math.sin(angle) * minRange)
+    ));
+  }
+
+  for (let i = segments; i >= 0; i--) {
+    const t = i / segments;
+    const angle = baseAngle - halfArc + t * arcAngle;
+    hitboxPoints.push(new THREE.Vector3(
+      x + Math.cos(angle) * maxRadius,
+      0.5,
+      -(y + Math.sin(angle) * maxRadius)
+    ));
+  }
+
+  hitboxPoints.push(hitboxPoints[0].clone());
+
+  const hitboxGeometry = new THREE.BufferGeometry().setFromPoints(hitboxPoints);
+  const hitboxMaterial = new THREE.LineBasicMaterial({
+    color: 0x00ff00,
+    transparent: true,
+    opacity: 0.8,
+  });
+  const hitboxMesh = new THREE.Line(hitboxGeometry, hitboxMaterial);
+  scene.add(hitboxMesh);
+
+  return {
+    particles,
+    trailParticles,
+    sparkParticles,
+    arcMesh,
+    hitboxMesh,
+    particleData,
+    trailData,
+    sparkData,
+    startTime: Date.now(),
+    duration,
+    centerX: x,
+    centerY: y,
+    baseAngle,
+    arcAngle,
+    colorHex,
+  };
+}

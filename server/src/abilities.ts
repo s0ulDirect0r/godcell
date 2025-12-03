@@ -1,12 +1,18 @@
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, Components } from '@godcell/shared';
 import type {
   Position,
   Pseudopod, // Still needed for local pseudopod object creation
-  OrganismProjectile,
+  Projectile,
+  Trap,
+  MeleeAttackType,
+  MeleeAttackExecutedMessage,
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
-  OrganismProjectileSpawnedMessage,
+  ProjectileSpawnedMessage,
+  TrapPlacedMessage,
+  CombatSpecializationComponent,
+  KnockbackComponent,
 } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -14,7 +20,9 @@ import { logger } from './logger';
 import { isJungleStage } from './helpers/stages';
 import {
   createPseudopod as ecsCreatePseudopod,
-  createOrganismProjectile,
+  createProjectile,
+  createTrap,
+  countTrapsForPlayer,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   getEntityByStringId,
@@ -26,7 +34,12 @@ import {
   getCooldownsBySocketId,
   forEachPlayer,
   forEachSwarm,
+  forEachCyberBug,
+  forEachJungleCreature,
+  addEnergyBySocketId,
+  setMaxEnergyBySocketId,
   subtractEnergyBySocketId,
+  destroyEntity,
   type World,
 } from './ecs';
 
@@ -43,10 +56,6 @@ export interface AbilityContext {
   // Swarms are queried via forEachSwarm
   world: World;
   io: Server;
-
-  // NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
-  // NOTE: Cooldowns migrated to ECS CooldownsComponent
-  // NOTE: Swarms migrated to ECS - use forEachSwarm
 
   // Functions from main module
   checkBeamHitscan: (start: Position, end: Position, shooterId: string) => string | null;
@@ -346,11 +355,11 @@ export class AbilitySystem {
   // ============================================
 
   /**
-   * Fire organism projectile (Stage 3+ Cyber-Organism only)
-   * Fires a hunting projectile toward jungle fauna
+   * Fire projectile (Stage 3 Ranged specialization only)
+   * Fires a hunting projectile toward jungle fauna and other players
    * @returns true if projectile was fired successfully
    */
-  fireOrganismProjectile(playerId: string, targetX: number, targetY: number): boolean {
+  fireProjectile(playerId: string, targetX: number, targetY: number): boolean {
     const { world } = this.ctx;
 
     // Get player state from ECS
@@ -359,10 +368,11 @@ export class AbilitySystem {
     const posComp = getPositionBySocketId(world, playerId);
     const stunnedComp = getStunnedBySocketId(world, playerId);
     const player = getPlayerBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
 
     // Debug: log what we received
     logger.debug({
-      event: 'organism_projectile_attempt',
+      event: 'projectile_attempt',
       playerId,
       targetX,
       targetY,
@@ -375,41 +385,41 @@ export class AbilitySystem {
       energy: energyComp?.current,
     });
 
-    if (!energyComp || !stageComp || !posComp || !player) return false;
+    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
 
     // Stage 3+ only (Cyber-Organism and above)
     if (!isJungleStage(stageComp.stage)) return false;
     if (energyComp.current <= 0) return false;
     if (stageComp.isEvolving) return false;
 
+    // Check specialization - must be ranged
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'ranged') return false;
+
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
-    if (energyComp.current < GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST) return false;
+    if (energyComp.current < GAME_CONFIG.PROJECTILE_ENERGY_COST) return false;
 
     // Cooldown check via ECS
     const cooldowns = getCooldownsBySocketId(world, playerId);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastOrganismProjectileTime || 0;
-    if (now - lastUse < GAME_CONFIG.ORGANISM_PROJECTILE_COOLDOWN) return false;
+    if (now - lastUse < GAME_CONFIG.PROJECTILE_COOLDOWN) return false;
 
     const playerPosition = { x: posComp.x, y: posComp.y };
     const targetPosition = { x: targetX, y: targetY };
 
-    // Get owner entity for the projectile component (must validate before deducting energy)
-    const ownerEntity = getEntityBySocketId(playerId);
-    if (ownerEntity === undefined) return false;
-
     // Deduct energy (only after all validation passes)
-    energyComp.current -= GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST;
+    energyComp.current -= GAME_CONFIG.PROJECTILE_ENERGY_COST;
 
     // Create projectile ID
     const projectileId = `proj-${playerId}-${now}`;
 
     // Create projectile via ECS factory
-    createOrganismProjectile(
+    createProjectile(
       world,
       projectileId,
-      ownerEntity,
+      entity,
       playerId,
       playerPosition,
       targetPosition,
@@ -420,7 +430,7 @@ export class AbilitySystem {
     cooldowns.lastOrganismProjectileTime = now;
 
     // Broadcast to clients
-    const projectile: OrganismProjectile = {
+    const projectile: Projectile = {
       id: projectileId,
       ownerId: playerId,
       position: playerPosition,
@@ -428,17 +438,418 @@ export class AbilitySystem {
       state: 'traveling',
       color: player.color,
     };
-    this.ctx.io.emit('organismProjectileSpawned', {
-      type: 'organismProjectileSpawned',
+    this.ctx.io.emit('projectileSpawned', {
+      type: 'projectileSpawned',
       projectile,
-    } as OrganismProjectileSpawnedMessage);
+    } as ProjectileSpawnedMessage);
 
     logger.info({
-      event: 'organism_projectile_fired',
+      event: 'projectile_fired',
       playerId,
       targetX,
       targetY,
-      energySpent: GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST,
+      energySpent: GAME_CONFIG.PROJECTILE_ENERGY_COST,
+    });
+
+    return true;
+  }
+
+  /**
+   * Fire melee attack (Stage 3 Melee specialization only)
+   * Performs an arc-based instant hit check with knockback
+   * @param attackType 'swipe' (90°) or 'thrust' (30°)
+   * @returns true if attack was executed successfully
+   */
+  fireMeleeAttack(playerId: string, attackType: MeleeAttackType, targetX: number, targetY: number): boolean {
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const player = getPlayerBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
+
+    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
+
+    // Stage 3+ only (Cyber-Organism and above)
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+
+    // Check specialization - must be melee
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'melee') return false;
+
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    // Get attack parameters based on type
+    const isSwipe = attackType === 'swipe';
+    const energyCost = isSwipe ? GAME_CONFIG.MELEE_SWIPE_ENERGY_COST : GAME_CONFIG.MELEE_THRUST_ENERGY_COST;
+    const cooldown = isSwipe ? GAME_CONFIG.MELEE_SWIPE_COOLDOWN : GAME_CONFIG.MELEE_THRUST_COOLDOWN;
+    const range = isSwipe ? GAME_CONFIG.MELEE_SWIPE_RANGE : GAME_CONFIG.MELEE_THRUST_RANGE;
+    const arc = isSwipe ? GAME_CONFIG.MELEE_SWIPE_ARC : GAME_CONFIG.MELEE_THRUST_ARC;
+    const damage = isSwipe ? GAME_CONFIG.MELEE_SWIPE_DAMAGE : GAME_CONFIG.MELEE_THRUST_DAMAGE;
+    const knockback = isSwipe ? GAME_CONFIG.MELEE_SWIPE_KNOCKBACK : GAME_CONFIG.MELEE_THRUST_KNOCKBACK;
+
+    if (energyComp.current < energyCost) return false;
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = isSwipe ? (cooldowns.lastMeleeSwipeTime || 0) : (cooldowns.lastMeleeThrustTime || 0);
+    if (now - lastUse < cooldown) return false;
+
+    // Deduct energy
+    energyComp.current -= energyCost;
+
+    const playerPosition = { x: posComp.x, y: posComp.y };
+
+    // Calculate attack direction from player toward target
+    const dx = targetX - playerPosition.x;
+    const dy = targetY - playerPosition.y;
+    const attackAngle = Math.atan2(dy, dx); // Radians
+    const halfArcRad = (arc / 2) * (Math.PI / 180); // Convert half arc to radians
+
+    // Find all entities within range and arc
+    const hitPlayerIds: string[] = [];
+    const hitEntities: number[] = [];
+    const killedBugIds: string[] = [];
+    const killedCreatureIds: string[] = [];
+
+    // Check players
+    forEachPlayer(world, (targetEntity, targetPlayerId) => {
+      if (targetPlayerId === playerId) return; // Can't hit yourself
+
+      const targetEnergy = getEnergyBySocketId(world, targetPlayerId);
+      const targetStage = getStageBySocketId(world, targetPlayerId);
+      const targetPos = getPositionBySocketId(world, targetPlayerId);
+      if (!targetEnergy || !targetStage || !targetPos) return;
+      if (targetEnergy.current <= 0) return; // Skip dead players
+
+      // Only hit jungle-scale players (Stage 3+)
+      if (!isJungleStage(targetStage.stage)) return;
+
+      const targetPosition = { x: targetPos.x, y: targetPos.y };
+      const dist = this.distance(playerPosition, targetPosition);
+
+      // Get target's collision radius (cyber-organism is 144px, etc.)
+      const targetRadius = this.ctx.getPlayerRadius(targetStage.stage);
+
+      // Check if within range (min 200px to match visual, max = range + target size)
+      if (dist < 200 || dist > range + targetRadius) return;
+
+      // Check if within arc
+      const toTargetAngle = Math.atan2(targetPos.y - playerPosition.y, targetPos.x - playerPosition.x);
+      let angleDiff = Math.abs(toTargetAngle - attackAngle);
+      // Normalize to [-PI, PI]
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+      if (angleDiff <= halfArcRad) {
+        hitPlayerIds.push(targetPlayerId);
+        hitEntities.push(targetEntity);
+
+        // Apply damage
+        targetEnergy.current -= damage;
+
+        // Apply knockback via KnockbackComponent
+        const knockbackDir = Math.atan2(targetPos.y - playerPosition.y, targetPos.x - playerPosition.x);
+        const knockbackForceX = Math.cos(knockbackDir) * knockback;
+        const knockbackForceY = Math.sin(knockbackDir) * knockback;
+
+        // Add or update KnockbackComponent on target
+        if (world.hasComponent(targetEntity, Components.Knockback)) {
+          const kbComp = world.getComponent<KnockbackComponent>(targetEntity, Components.Knockback)!;
+          kbComp.forceX += knockbackForceX;
+          kbComp.forceY += knockbackForceY;
+        } else {
+          world.addComponent<KnockbackComponent>(targetEntity, Components.Knockback, {
+            forceX: knockbackForceX,
+            forceY: knockbackForceY,
+            decayRate: GAME_CONFIG.MELEE_KNOCKBACK_DECAY_RATE,
+          });
+        }
+
+        logger.info({
+          event: 'melee_attack_hit',
+          attacker: playerId,
+          target: targetPlayerId,
+          attackType,
+          damage,
+          knockback,
+        });
+      }
+    });
+
+    // Check CyberBugs (one-shot kills, award energy)
+    const bugsToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number }[] = [];
+    forEachCyberBug(world, (bugEntity, bugId, bugPos, bugComp) => {
+      const bugPosition = { x: bugPos.x, y: bugPos.y };
+      const dist = this.distance(playerPosition, bugPosition);
+
+      // Check if within range (min 200px to match visual, max = range + bug size)
+      if (dist < 200 || dist > range + bugComp.size) return;
+
+      // Check if within arc
+      const toTargetAngle = Math.atan2(bugPos.y - playerPosition.y, bugPos.x - playerPosition.x);
+      let angleDiff = Math.abs(toTargetAngle - attackAngle);
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+      if (angleDiff <= halfArcRad) {
+        bugsToKill.push({
+          entity: bugEntity,
+          id: bugId,
+          pos: bugPosition,
+          value: bugComp.value,
+          capacityIncrease: bugComp.capacityIncrease,
+        });
+      }
+    });
+
+    // Process bug kills (after iteration to avoid mutation during iteration)
+    for (const bug of bugsToKill) {
+      // Award energy and capacity to attacker
+      addEnergyBySocketId(world, playerId, bug.value);
+      const attackerEnergy = getEnergyBySocketId(world, playerId);
+      if (attackerEnergy) {
+        setMaxEnergyBySocketId(world, playerId, attackerEnergy.max + bug.capacityIncrease);
+      }
+
+      // Emit kill event
+      this.ctx.io.emit('cyberBugKilled', {
+        type: 'cyberBugKilled',
+        bugId: bug.id,
+        killerId: playerId,
+        position: bug.pos,
+        energyGained: bug.value,
+        capacityGained: bug.capacityIncrease,
+      });
+
+      killedBugIds.push(bug.id);
+      destroyEntity(world, bug.entity);
+
+      logger.info({
+        event: 'melee_kill_bug',
+        attacker: playerId,
+        bugId: bug.id,
+        attackType,
+        energyGained: bug.value,
+        capacityGained: bug.capacityIncrease,
+      });
+    }
+
+    // Check JungleCreatures (one-shot kills, award energy)
+    const creaturesToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number; variant: string }[] = [];
+    forEachJungleCreature(world, (creatureEntity, creatureId, creaturePos, creatureComp) => {
+      const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
+      const dist = this.distance(playerPosition, creaturePosition);
+
+      // Check if within range (min 200px to match visual, max = range + creature size)
+      if (dist < 200 || dist > range + creatureComp.size) return;
+
+      // Check if within arc
+      const toTargetAngle = Math.atan2(creaturePos.y - playerPosition.y, creaturePos.x - playerPosition.x);
+      let angleDiff = Math.abs(toTargetAngle - attackAngle);
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+      if (angleDiff <= halfArcRad) {
+        creaturesToKill.push({
+          entity: creatureEntity,
+          id: creatureId,
+          pos: creaturePosition,
+          value: creatureComp.value,
+          capacityIncrease: creatureComp.capacityIncrease,
+          variant: creatureComp.variant,
+        });
+      }
+    });
+
+    // Process creature kills
+    for (const creature of creaturesToKill) {
+      // Award energy and capacity to attacker
+      addEnergyBySocketId(world, playerId, creature.value);
+      const attackerEnergy2 = getEnergyBySocketId(world, playerId);
+      if (attackerEnergy2) {
+        setMaxEnergyBySocketId(world, playerId, attackerEnergy2.max + creature.capacityIncrease);
+      }
+
+      // Emit kill event
+      this.ctx.io.emit('jungleCreatureKilled', {
+        type: 'jungleCreatureKilled',
+        creatureId: creature.id,
+        killerId: playerId,
+        position: creature.pos,
+        energyGained: creature.value,
+        capacityGained: creature.capacityIncrease,
+      });
+
+      killedCreatureIds.push(creature.id);
+      destroyEntity(world, creature.entity);
+
+      logger.info({
+        event: 'melee_kill_creature',
+        attacker: playerId,
+        creatureId: creature.id,
+        variant: creature.variant,
+        attackType,
+        energyGained: creature.value,
+        capacityGained: creature.capacityIncrease,
+      });
+    }
+
+    // Update cooldown
+    if (isSwipe) {
+      cooldowns.lastMeleeSwipeTime = now;
+    } else {
+      cooldowns.lastMeleeThrustTime = now;
+    }
+
+    // Broadcast attack to all clients
+    const attackMessage: MeleeAttackExecutedMessage = {
+      type: 'meleeAttackExecuted',
+      playerId,
+      attackType,
+      position: playerPosition,
+      direction: { x: Math.cos(attackAngle), y: Math.sin(attackAngle) },
+      hitPlayerIds,
+    };
+    this.ctx.io.emit('meleeAttackExecuted', attackMessage);
+
+    logger.info({
+      event: 'melee_attack_executed',
+      playerId,
+      attackType,
+      playerHits: hitPlayerIds.length,
+      bugKills: killedBugIds.length,
+      creatureKills: killedCreatureIds.length,
+      energySpent: energyCost,
+    });
+
+    return true;
+  }
+
+  /**
+   * Place a trap (Stage 3 Traps specialization only)
+   * Places a disguised mine at the player's current position
+   * @returns true if trap was placed successfully
+   */
+  placeTrap(playerId: string): boolean {
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const player = getPlayerBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
+
+    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'missing_components' });
+      return false;
+    }
+
+    // Stage 3+ only (Cyber-Organism and above)
+    if (!isJungleStage(stageComp.stage)) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'wrong_stage', stage: stageComp.stage });
+      return false;
+    }
+    if (energyComp.current <= 0) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_energy' });
+      return false;
+    }
+    if (stageComp.isEvolving) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'evolving' });
+      return false;
+    }
+
+    // Check specialization - must be traps
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'traps') {
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'wrong_specialization',
+        hasSpec: !!specComp,
+        spec: specComp?.specialization ?? 'none',
+      });
+      return false;
+    }
+
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'stunned' });
+      return false;
+    }
+    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'insufficient_energy', energy: energyComp.current, cost: GAME_CONFIG.TRAP_ENERGY_COST });
+      return false;
+    }
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_cooldowns_component' });
+      return false;
+    }
+    const lastUse = cooldowns.lastTrapPlaceTime || 0;
+    if (now - lastUse < GAME_CONFIG.TRAP_COOLDOWN) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'cooldown', remaining: GAME_CONFIG.TRAP_COOLDOWN - (now - lastUse) });
+      return false;
+    }
+
+    // Check max active traps
+    const activeTraps = countTrapsForPlayer(world, playerId);
+    if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) {
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'max_active_reached',
+        activeTraps,
+        max: GAME_CONFIG.TRAP_MAX_ACTIVE,
+      });
+      return false;
+    }
+
+    // Deduct energy
+    energyComp.current -= GAME_CONFIG.TRAP_ENERGY_COST;
+
+    const trapPosition = { x: posComp.x, y: posComp.y };
+    const trapId = `trap-${playerId}-${now}`;
+
+    // Create trap via ECS factory
+    createTrap(world, trapId, entity, playerId, trapPosition, player.color);
+
+    // Update cooldown
+    cooldowns.lastTrapPlaceTime = now;
+
+    // Broadcast to clients
+    const trap: Trap = {
+      id: trapId,
+      ownerId: playerId,
+      position: trapPosition,
+      triggerRadius: GAME_CONFIG.TRAP_TRIGGER_RADIUS,
+      damage: GAME_CONFIG.TRAP_DAMAGE,
+      stunDuration: GAME_CONFIG.TRAP_STUN_DURATION,
+      placedAt: now,
+      lifetime: GAME_CONFIG.TRAP_LIFETIME,
+      color: player.color,
+    };
+    this.ctx.io.emit('trapPlaced', {
+      type: 'trapPlaced',
+      trap,
+    } as TrapPlacedMessage);
+
+    logger.info({
+      event: 'player_trap_placed',
+      playerId,
+      trapId,
+      position: trapPosition,
+      activeTraps: activeTraps + 1,
+      energySpent: GAME_CONFIG.TRAP_ENERGY_COST,
+      remainingEnergy: energyComp.current,
     });
 
     return true;
@@ -505,25 +916,64 @@ export class AbilitySystem {
   }
 
   /**
-   * Check if a player can fire organism projectile (has the ability and it's off cooldown)
+   * Check if a player can fire projectile (ranged specialization and off cooldown)
    */
-  canFireOrganismProjectile(playerId: string): boolean {
+  canFireProjectile(playerId: string): boolean {
     const { world } = this.ctx;
     const energyComp = getEnergyBySocketId(world, playerId);
     const stageComp = getStageBySocketId(world, playerId);
     const stunnedComp = getStunnedBySocketId(world, playerId);
-    if (!energyComp || !stageComp) return false;
+    const entity = getEntityBySocketId(playerId);
+    if (!energyComp || !stageComp || entity === undefined) return false;
 
     if (!isJungleStage(stageComp.stage)) return false;
     if (energyComp.current <= 0) return false;
     if (stageComp.isEvolving) return false;
-    if (energyComp.current < GAME_CONFIG.ORGANISM_PROJECTILE_ENERGY_COST) return false;
+
+    // Check specialization - must be ranged
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'ranged') return false;
+
+    if (energyComp.current < GAME_CONFIG.PROJECTILE_ENERGY_COST) return false;
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
     const cooldowns = getCooldownsBySocketId(world, playerId);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastOrganismProjectileTime || 0;
-    return now - lastUse >= GAME_CONFIG.ORGANISM_PROJECTILE_COOLDOWN;
+    return now - lastUse >= GAME_CONFIG.PROJECTILE_COOLDOWN;
+  }
+
+  /**
+   * Check if a player can place a trap (traps specialization and off cooldown)
+   */
+  canPlaceTrap(playerId: string): boolean {
+    const { world } = this.ctx;
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
+    if (!energyComp || !stageComp || entity === undefined) return false;
+
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+
+    // Check specialization - must be traps
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'traps') return false;
+
+    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) return false;
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    // Check max active traps
+    const activeTraps = countTrapsForPlayer(world, playerId);
+    if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) return false;
+
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastTrapPlaceTime || 0;
+    return now - lastUse >= GAME_CONFIG.TRAP_COOLDOWN;
   }
 }

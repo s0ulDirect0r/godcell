@@ -1,7 +1,7 @@
 // ============================================
-// Organism Projectile System
-// Handles Stage 3 projectile movement and collision with fauna
-// Cloned from PseudopodSystem, targets CyberBugs and JungleCreatures
+// Projectile System
+// Handles Stage 3 ranged specialization projectile movement and collision
+// Targets CyberBugs, JungleCreatures, and other jungle-scale players
 // ============================================
 
 import type { Server } from 'socket.io';
@@ -9,10 +9,11 @@ import { GAME_CONFIG, Tags, type World, Components } from '@godcell/shared';
 import type {
   PositionComponent,
   VelocityComponent,
-  OrganismProjectileComponent,
-  EnergyComponent,
+  ProjectileComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  StageComponent,
+  EnergyComponent,
   EntityId,
 } from '@godcell/shared';
 import type { System } from './types';
@@ -21,33 +22,38 @@ import {
   destroyEntity,
   forEachCyberBug,
   forEachJungleCreature,
-  getEntityBySocketId,
+  forEachPlayer,
   addEnergyBySocketId,
   setMaxEnergyBySocketId,
   getEnergyBySocketId,
+  getPositionBySocketId,
+  getStageBySocketId,
+  subtractEnergyBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
+import { isJungleStage, getPlayerRadius } from '../../helpers/stages';
 import { logger } from '../../logger';
+import { isBot } from '../../bots';
 
 /**
- * OrganismProjectileSystem - Manages Stage 3 attack projectiles
+ * ProjectileSystem - Manages Stage 3 ranged specialization attack projectiles
  *
  * Handles:
  * - Projectile movement
  * - Collision detection with CyberBugs and JungleCreatures
  * - Damage application and kill rewards
  */
-export class OrganismProjectileSystem implements System {
-  readonly name = 'OrganismProjectileSystem';
+export class ProjectileSystem implements System {
+  readonly name = 'ProjectileSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
     const toRemove: EntityId[] = [];
 
-    // Iterate organism projectile entities
-    world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+    // Iterate projectile entities
+    world.forEachWithTag(Tags.Projectile, (entity) => {
       const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
-      const projComp = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+      const projComp = world.getComponent<ProjectileComponent>(entity, Components.Projectile);
       if (!posComp || !velComp || !projComp) return;
 
       const projectileId = getStringIdByEntity(entity);
@@ -69,15 +75,18 @@ export class OrganismProjectileSystem implements System {
       if (projComp.distanceTraveled >= projComp.maxDistance) {
         projComp.state = 'missed';
         toRemove.push(entity);
-        io.emit('organismProjectileRetracted', {
-          type: 'organismProjectileRetracted',
+        io.emit('projectileRetracted', {
+          type: 'projectileRetracted',
           projectileId,
         });
         return;
       }
 
-      // Check collision with fauna
-      const hit = this.checkFaunaCollision(world, io, entity, projectileId, posComp, projComp);
+      // Check collision with players first (PvP), then fauna
+      let hit = this.checkPlayerCollision(world, io, projectileId, posComp, projComp);
+      if (!hit) {
+        hit = this.checkFaunaCollision(world, io, entity, projectileId, posComp, projComp);
+      }
       if (hit) {
         projComp.state = 'hit';
         toRemove.push(entity);
@@ -99,10 +108,10 @@ export class OrganismProjectileSystem implements System {
     _projectileEntity: EntityId,
     projectileId: string,
     posComp: PositionComponent,
-    projComp: OrganismProjectileComponent
+    projComp: ProjectileComponent
   ): boolean {
     const projectilePos = { x: posComp.x, y: posComp.y };
-    const collisionRadius = GAME_CONFIG.ORGANISM_PROJECTILE_COLLISION_RADIUS;
+    const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
 
     // Check CyberBugs first (smaller, easier to hit)
     let hitBug = false;
@@ -144,8 +153,8 @@ export class OrganismProjectileSystem implements System {
           capacityGained: bugComp.capacityIncrease,
         });
 
-        io.emit('organismProjectileHit', {
-          type: 'organismProjectileHit',
+        io.emit('projectileHit', {
+          type: 'projectileHit',
           projectileId,
           targetId: bug.id,
           targetType: 'cyberbug',
@@ -155,7 +164,7 @@ export class OrganismProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'organism_projectile_kill_bug',
+          event: 'projectile_kill_bug',
           shooter: projComp.ownerSocketId,
           bugId: bug.id,
           energyGained: bugComp.value,
@@ -221,8 +230,8 @@ export class OrganismProjectileSystem implements System {
           capacityGained: creatureComp.capacityIncrease,
         });
 
-        io.emit('organismProjectileHit', {
-          type: 'organismProjectileHit',
+        io.emit('projectileHit', {
+          type: 'projectileHit',
           projectileId,
           targetId: creature.id,
           targetType: 'junglecreature',
@@ -232,7 +241,7 @@ export class OrganismProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'organism_projectile_kill_creature',
+          event: 'projectile_kill_creature',
           shooter: projComp.ownerSocketId,
           creatureId: creature.id,
           variant: creatureComp.variant,
@@ -243,6 +252,99 @@ export class OrganismProjectileSystem implements System {
         // Destroy the creature
         destroyEntity(world, creature.entity);
       }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check projectile collision with other jungle-scale players (PvP)
+   * Skips the projectile owner and non-jungle-stage players
+   */
+  private checkPlayerCollision(
+    world: World,
+    io: Server,
+    projectileId: string,
+    posComp: PositionComponent,
+    projComp: ProjectileComponent
+  ): boolean {
+    const projectilePos = { x: posComp.x, y: posComp.y };
+    const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
+
+    let hitPlayer = false;
+    let hitPlayerData: {
+      socketId: string;
+      pos: { x: number; y: number };
+      damage: number;
+      killed: boolean;
+      entity: EntityId;
+    } | null = null;
+
+    forEachPlayer(world, (playerEntity, socketId) => {
+      if (hitPlayer) return; // Only hit one target per projectile
+
+      // Skip the projectile owner
+      if (socketId === projComp.ownerSocketId) return;
+
+      // Only hit jungle-scale players (Stage 3+)
+      const stage = getStageBySocketId(world, socketId);
+      if (!stage || !isJungleStage(stage.stage)) return;
+
+      // Get player position
+      const playerPos = getPositionBySocketId(world, socketId);
+      if (!playerPos) return;
+
+      const playerPosition = { x: playerPos.x, y: playerPos.y };
+      const playerRadius = getPlayerRadius(stage.stage);
+      const dist = distance(projectilePos, playerPosition);
+      const hitDist = collisionRadius + playerRadius;
+
+      if (dist < hitDist) {
+        hitPlayer = true;
+        projComp.hitEntityId = playerEntity;
+
+        // Apply damage to target player
+        const targetEnergy = getEnergyBySocketId(world, socketId);
+        if (targetEnergy) {
+          const newEnergy = Math.max(0, targetEnergy.current - projComp.damage);
+          subtractEnergyBySocketId(world, socketId, projComp.damage);
+
+          hitPlayerData = {
+            socketId,
+            pos: playerPosition,
+            damage: projComp.damage,
+            killed: newEnergy <= 0,
+            entity: playerEntity,
+          };
+        }
+      }
+    });
+
+    // Process player hit
+    if (hitPlayerData) {
+      const { socketId, pos, damage, killed } = hitPlayerData;
+
+      io.emit('projectileHit', {
+        type: 'projectileHit',
+        projectileId,
+        targetId: socketId,
+        targetType: 'player',
+        hitPosition: pos,
+        damage,
+        killed,
+      });
+
+      logger.info({
+        event: isBot(projComp.ownerSocketId) ? 'bot_projectile_hit_player' : 'player_projectile_hit_player',
+        shooter: projComp.ownerSocketId,
+        targetId: socketId,
+        damage,
+        killed,
+      });
+
+      // Note: Death handling is done by DeathSystem when energy reaches 0
+
       return true;
     }
 

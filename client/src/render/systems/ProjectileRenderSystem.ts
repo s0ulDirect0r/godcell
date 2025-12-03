@@ -1,6 +1,6 @@
 // ============================================
-// OrganismProjectileRenderSystem - Manages organism projectile rendering
-// Renders Stage 3 attack projectiles (similar to pseudopod beam)
+// ProjectileRenderSystem - Manages projectile rendering
+// Renders Stage 3 ranged specialization attack projectiles
 // ============================================
 
 import * as THREE from 'three';
@@ -11,19 +11,19 @@ import {
   getStringIdByEntity,
   GAME_CONFIG,
   type PositionComponent,
-  type OrganismProjectileComponent,
+  type ProjectileComponent,
   type VelocityComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
 
 /**
- * OrganismProjectileRenderSystem - Manages organism projectile rendering
+ * ProjectileRenderSystem - Manages projectile rendering
  *
  * Owns:
  * - Projectile meshes (glowing energy bolts)
  * - Trail effects
  */
-export class OrganismProjectileRenderSystem {
+export class ProjectileRenderSystem {
   private scene!: THREE.Scene;
   private world!: World;
 
@@ -53,13 +53,13 @@ export class OrganismProjectileRenderSystem {
     // Track which projectiles exist in ECS
     const currentProjectileIds = new Set<string>();
 
-    // Query ECS World for all organism projectiles
-    this.world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+    // Query ECS World for all projectiles
+    this.world.forEachWithTag(Tags.Projectile, (entity) => {
       const projId = getStringIdByEntity(entity);
       if (!projId) return;
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
-      const proj = this.world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+      const proj = this.world.getComponent<ProjectileComponent>(entity, Components.Projectile);
       const vel = this.world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!pos || !proj) return;
 
@@ -128,7 +128,7 @@ export class OrganismProjectileRenderSystem {
 
     // Move projectiles based on velocity (client-side prediction)
     // Server doesn't broadcast position updates for fast projectiles
-    this.world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+    this.world.forEachWithTag(Tags.Projectile, (entity) => {
       const projId = getStringIdByEntity(entity);
       if (!projId) return;
 
@@ -171,8 +171,8 @@ export class OrganismProjectileRenderSystem {
    */
   private createProjectileMesh(color: string): THREE.Group {
     const group = new THREE.Group();
-    // Jungle-scale size (collision radius is 50, visual slightly larger)
-    const size = GAME_CONFIG.ORGANISM_PROJECTILE_COLLISION_RADIUS;
+    // Jungle-scale size (collision radius is 30, visual slightly larger)
+    const size = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
 
     // Parse color string
     const colorValue = parseInt(color.replace('#', ''), 16) || 0x00ffff;

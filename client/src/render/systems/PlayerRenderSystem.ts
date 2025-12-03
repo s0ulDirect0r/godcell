@@ -223,15 +223,16 @@ export class PlayerRenderSystem {
                 this.pendingHumanoidLoads.delete(id);
                 this.humanoidModels.set(id, model);
 
-                // Replace placeholder with loaded model
+                // Replace placeholder with loaded model - but only if player is still humanoid
+                // This prevents race condition where player evolves to godcell before model loads
                 const placeholder = this.playerMeshes.get(id);
-                if (placeholder) {
+                if (placeholder && placeholder.userData.stage === 'humanoid') {
                   this.scene.remove(placeholder);
+                  model.userData.stage = 'humanoid';
+                  model.userData.isHumanoid = true;
+                  this.scene.add(model);
+                  this.playerMeshes.set(id, model);
                 }
-                model.userData.stage = 'humanoid';
-                model.userData.isHumanoid = true;
-                this.scene.add(model);
-                this.playerMeshes.set(id, model);
               }).catch(err => {
                 console.error('Failed to load humanoid model:', err);
                 this.pendingHumanoidLoads.delete(id);
@@ -488,12 +489,25 @@ export class PlayerRenderSystem {
 
   /**
    * Get player color from mesh
+   * Checks userData.colorHex first (used by cyber-organism, humanoid, godcell),
+   * then falls back to extracting from mesh materials (soup-scale stages)
    */
   getPlayerColor(playerId: string): number {
     const group = this.playerMeshes.get(playerId);
     if (!group) return 0x00ffff;
 
+    // First check userData.colorHex (set by stage 3+ mesh factories)
+    if (typeof group.userData.colorHex === 'number') {
+      return group.userData.colorHex;
+    }
+
+    // Check first child's userData (for nested structures)
     const firstChild = group.children[0];
+    if (firstChild instanceof THREE.Group && typeof firstChild.userData.colorHex === 'number') {
+      return firstChild.userData.colorHex;
+    }
+
+    // Fall back to extracting from mesh materials (soup-scale stages)
     if (firstChild instanceof THREE.Group && firstChild.children.length > 1) {
       const nucleus = firstChild.children[1] as THREE.Mesh;
       if (nucleus?.material) {
@@ -506,6 +520,72 @@ export class PlayerRenderSystem {
       }
     }
     return 0x00ffff;
+  }
+
+  /**
+   * Flash a player mesh red briefly to indicate damage taken
+   * Sets a flash timestamp on userData - actual flash is applied in updatePlayerVisuals
+   */
+  flashDamage(playerId: string): void {
+    const group = this.playerMeshes.get(playerId);
+    if (!group) return;
+
+    // Set flash start time - will be processed in update loop
+    group.userData.damageFlashTime = performance.now();
+  }
+
+  /**
+   * Apply damage flash effect to a mesh group based on flash timing
+   * Called from updatePlayerVisuals each frame
+   */
+  private applyDamageFlash(group: THREE.Group): void {
+    const flashTime = group.userData.damageFlashTime;
+    if (!flashTime) return;
+
+    const elapsed = performance.now() - flashTime;
+    const flashDuration = 300; // ms (longer for visibility)
+
+    if (elapsed >= flashDuration) {
+      // Flash complete - clear the flag and restore materials
+      delete group.userData.damageFlashTime;
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          const mat = child.material as THREE.MeshStandardMaterial;
+          if (mat.userData.originalEmissive !== undefined) {
+            mat.emissive.setHex(mat.userData.originalEmissive);
+            mat.emissiveIntensity = mat.userData.originalIntensity;
+            delete mat.userData.originalEmissive;
+            delete mat.userData.originalIntensity;
+          }
+        }
+      });
+      return;
+    }
+
+    // Calculate flash intensity with easing (stays bright longer, fades at end)
+    const progress = elapsed / flashDuration;
+    const flashIntensity = progress < 0.5 ? 1.0 : 1.0 - (progress - 0.5) * 2; // Hold at full for first half
+
+    // Apply bright white/red flash to all emissive materials
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const mat = child.material as THREE.MeshStandardMaterial;
+        if (mat.emissive && mat.userData.originalEmissive === undefined) {
+          // Store original on first flash frame
+          mat.userData.originalEmissive = mat.emissive.getHex();
+          mat.userData.originalIntensity = mat.emissiveIntensity;
+        }
+
+        if (mat.emissive && mat.userData.originalEmissive !== undefined) {
+          // Lerp between bright white flash and original color
+          const original = new THREE.Color(mat.userData.originalEmissive);
+          const flash = new THREE.Color(0xffffff); // Pure white for more visible flash
+          mat.emissive.lerpColors(original, flash, flashIntensity);
+          // Much higher intensity for visibility (up to 15)
+          mat.emissiveIntensity = mat.userData.originalIntensity + (15 - mat.userData.originalIntensity) * flashIntensity;
+        }
+      }
+    });
   }
 
   /**
@@ -748,6 +828,9 @@ export class PlayerRenderSystem {
     } else {
       this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.stage);
     }
+
+    // Apply damage flash effect if active (fades white -> original over 300ms)
+    this.applyDamageFlash(cellGroup);
   }
 
   private updateCellEnergy(

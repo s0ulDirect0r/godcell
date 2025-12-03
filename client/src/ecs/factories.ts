@@ -31,7 +31,8 @@ import type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
-  OrganismProjectileComponent,
+  ProjectileComponent,
+  TrapComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '@godcell/shared';
@@ -45,7 +46,8 @@ import type {
   DataFruit,
   CyberBug,
   JungleCreature,
-  OrganismProjectile,
+  Projectile,
+  Trap,
   DamageSource,
   EvolutionStage,
 } from '@godcell/shared';
@@ -81,7 +83,8 @@ export function createClientWorld(): World {
   world.registerStore<DataFruitComponent>(Components.DataFruit, new ComponentStore());
   world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
-  world.registerStore<OrganismProjectileComponent>(Components.OrganismProjectile, new ComponentStore());
+  world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
+  world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
@@ -862,9 +865,9 @@ export function updateJungleCreaturePosition(
 }
 
 /**
- * Create or update an OrganismProjectile entity from a network OrganismProjectile object.
+ * Create or update a Projectile entity from a network Projectile object.
  */
-export function upsertOrganismProjectile(world: World, projectile: OrganismProjectile): EntityId {
+export function upsertProjectile(world: World, projectile: Projectile): EntityId {
   let entity = stringIdToEntity.get(projectile.id);
 
   if (entity !== undefined) {
@@ -875,7 +878,7 @@ export function upsertOrganismProjectile(world: World, projectile: OrganismProje
       pos.y = projectile.position.y;
     }
 
-    const projComp = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+    const projComp = world.getComponent<ProjectileComponent>(entity, Components.Projectile);
     if (projComp) {
       projComp.state = projectile.state;
     }
@@ -890,7 +893,7 @@ export function upsertOrganismProjectile(world: World, projectile: OrganismProje
   const dx = projectile.targetPosition.x - projectile.position.x;
   const dy = projectile.targetPosition.y - projectile.position.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  const speed = GAME_CONFIG.ORGANISM_PROJECTILE_SPEED;
+  const speed = GAME_CONFIG.PROJECTILE_SPEED;
   const vx = dist > 0 ? (dx / dist) * speed : 0;
   const vy = dist > 0 ? (dy / dist) * speed : 0;
 
@@ -905,34 +908,86 @@ export function upsertOrganismProjectile(world: World, projectile: OrganismProje
   });
 
   // Client uses defaults for server-only fields
-  world.addComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile, {
+  world.addComponent<ProjectileComponent>(entity, Components.Projectile, {
     ownerId: 0, // Not used on client
     ownerSocketId: projectile.ownerId,
-    damage: GAME_CONFIG.ORGANISM_PROJECTILE_DAMAGE,
+    damage: GAME_CONFIG.PROJECTILE_DAMAGE,
     capacitySteal: 0,
     startX: projectile.position.x,
     startY: projectile.position.y,
     targetX: projectile.targetPosition.x,
     targetY: projectile.targetPosition.y,
     speed: speed,
-    maxDistance: GAME_CONFIG.ORGANISM_PROJECTILE_MAX_DISTANCE,
+    maxDistance: GAME_CONFIG.PROJECTILE_MAX_DISTANCE,
     distanceTraveled: 0,
     state: projectile.state,
     color: projectile.color,
     createdAt: Date.now(),
   });
 
-  world.addTag(entity, Tags.OrganismProjectile);
+  world.addTag(entity, Tags.Projectile);
   registerMapping(entity, projectile.id);
 
   return entity;
 }
 
 /**
- * Remove an OrganismProjectile entity.
+ * Remove a Projectile entity.
  */
-export function removeOrganismProjectile(world: World, projectileId: string): void {
+export function removeProjectile(world: World, projectileId: string): void {
   const entity = stringIdToEntity.get(projectileId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+// ============================================
+// Trap (Stage 3 Traps Specialization)
+// ============================================
+
+/**
+ * Upsert a Trap entity from network data.
+ * Creates new entity or updates existing one.
+ */
+export function upsertTrap(world: World, trap: Trap): EntityId {
+  let entity = stringIdToEntity.get(trap.id);
+
+  if (entity !== undefined) {
+    // Traps don't move - no update needed
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: trap.position.x,
+    y: trap.position.y,
+  });
+
+  world.addComponent<TrapComponent>(entity, Components.Trap, {
+    ownerId: 0, // Not used on client
+    ownerSocketId: trap.ownerId,
+    damage: trap.damage,
+    stunDuration: trap.stunDuration,
+    triggerRadius: trap.triggerRadius,
+    placedAt: trap.placedAt,
+    lifetime: trap.lifetime,
+    color: trap.color,
+  });
+
+  world.addTag(entity, Tags.Trap);
+  registerMapping(entity, trap.id);
+
+  return entity;
+}
+
+/**
+ * Remove a Trap entity.
+ */
+export function removeTrap(world: World, trapId: string): void {
+  const entity = stringIdToEntity.get(trapId);
   if (entity === undefined) return;
 
   unregisterEntity(entity);

@@ -30,7 +30,8 @@ export type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
-  OrganismProjectileComponent,
+  ProjectileComponent,
+  TrapComponent,
 } from '@godcell/shared';
 
 // Client-only component types and interfaces
@@ -97,8 +98,11 @@ export {
   upsertJungleCreature,
   removeJungleCreature,
   updateJungleCreaturePosition,
-  upsertOrganismProjectile,
-  removeOrganismProjectile,
+  upsertProjectile,
+  removeProjectile,
+  // Trap operations (Stage 3 traps specialization)
+  upsertTrap,
+  removeTrap,
   // Aura component helpers
   setDrainAura,
   clearDrainAura,

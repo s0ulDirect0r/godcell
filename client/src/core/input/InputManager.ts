@@ -4,10 +4,17 @@
 
 import { InputState } from './InputState';
 import { eventBus } from '../events/EventBus';
+import type { CombatSpecialization, EvolutionStage } from '@godcell/shared';
 
 export interface CameraProjection {
   screenToWorld(screenX: number, screenY: number): { x: number; y: number };
   worldToScreen(worldX: number, worldY: number): { x: number; y: number };
+}
+
+// Provider for querying local player state (avoids circular dependency)
+export interface PlayerStateProvider {
+  getStage(): EvolutionStage | null;
+  getSpecialization(): CombatSpecialization;
 }
 
 export class InputManager {
@@ -22,16 +29,30 @@ export class InputManager {
   private empClientCooldown = 300; // Local anti-spam cooldown
 
   private lastPseudopodTime = 0;
-  private pseudopodClientCooldown = 300; // Local anti-spam cooldown
+  private pseudopodClientCooldown = 300; // Local anti-spam cooldown for Stage 1-2 beams
+
+  private lastProjectileTime = 0;
+  private projectileClientCooldown = 333; // Local anti-spam cooldown for Stage 3+ projectiles
 
   // Track previous movement direction to avoid redundant network updates
   private lastMoveDirection = { x: 0, y: 0, z: 0 };
 
-  // Track previous mouse state
-  private wasMouseDown = false;
+  // Track previous mouse state (LMB and RMB)
+  private wasLMBDown = false;
+  private wasRMBDown = false;
+
+  // Cooldowns for combat abilities (Stage 3+)
+  private lastMeleeTime = 0;
+  private meleeClientCooldown = 200; // Local anti-spam cooldown (matches server 200ms)
+
+  private lastTrapTime = 0;
+  private trapClientCooldown = 1000; // Local anti-spam cooldown (matches server 1000ms)
 
   // Track sprint state (Shift key)
   private wasSprinting = false;
+
+  // Provider for querying local player state
+  private playerStateProvider?: PlayerStateProvider;
 
   // First-person mode (Stage 4+) - enables pointer lock and mouse look
   private firstPersonMode = false;
@@ -47,6 +68,13 @@ export class InputManager {
    */
   setCameraProjection(projection: CameraProjection): void {
     this.cameraProjection = projection;
+  }
+
+  /**
+   * Set player state provider (for querying stage/specialization)
+   */
+  setPlayerStateProvider(provider: PlayerStateProvider): void {
+    this.playerStateProvider = provider;
   }
 
   /**
@@ -103,7 +131,7 @@ export class InputManager {
     this.updateSprint();
     this.updateRespawn();
     this.updateEMP();
-    this.updatePseudopod();
+    this.updateCombatInput();
     this.updateMouseLook();
   }
 
@@ -245,37 +273,122 @@ export class InputManager {
     }
   }
 
-  private updatePseudopod(): void {
+  /**
+   * Handle combat input: LMB and RMB for attacks based on stage and specialization.
+   *
+   * Stage 1-2: LMB = pseudopod beam
+   * Stage 3+ Melee: LMB = swipe, RMB = thrust
+   * Stage 3+ Ranged: LMB = projectile
+   * Stage 3+ Traps: LMB = projectile, RMB = place trap
+   */
+  private updateCombatInput(): void {
     const now = Date.now();
-    const isMouseDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 0;
 
-    // Detect left-click (rising edge)
-    if (isMouseDown && !this.wasMouseDown) {
-      // Check cooldown
-      if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) {
-        this.wasMouseDown = isMouseDown;
-        return;
-      }
+    // Get current mouse button states
+    const isLMBDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 0;
+    const isRMBDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 2;
 
-      // Convert screen to world coordinates
-      if (this.cameraProjection) {
-        const worldPos = this.cameraProjection.screenToWorld(
-          this.inputState.pointer.screenX,
-          this.inputState.pointer.screenY
-        );
+    // Get player stage and specialization
+    const stage = this.playerStateProvider?.getStage() ?? null;
+    const specialization = this.playerStateProvider?.getSpecialization() ?? null;
 
-        // Emit pseudopod fire intent with target position
-        eventBus.emit({
-          type: 'client:pseudopodFire',
-          targetX: worldPos.x,
-          targetY: worldPos.y,
-        });
+    // Determine if we're Stage 3+ (jungle scale - can use specializations)
+    const isJungleStage = stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell';
 
-        this.lastPseudopodTime = now;
-      }
+    // Handle LMB (rising edge)
+    if (isLMBDown && !this.wasLMBDown) {
+      this.handleLMB(now, isJungleStage, specialization);
     }
 
-    this.wasMouseDown = isMouseDown;
+    // Handle RMB (rising edge)
+    if (isRMBDown && !this.wasRMBDown) {
+      this.handleRMB(now, isJungleStage, specialization);
+    }
+
+    // Update previous state
+    this.wasLMBDown = isLMBDown;
+    this.wasRMBDown = isRMBDown;
+  }
+
+  /**
+   * Handle left mouse button click
+   */
+  private handleLMB(now: number, isJungleStage: boolean, specialization: CombatSpecialization): void {
+    if (!this.cameraProjection) return;
+
+    const worldPos = this.cameraProjection.screenToWorld(
+      this.inputState.pointer.screenX,
+      this.inputState.pointer.screenY
+    );
+
+    if (isJungleStage && specialization === 'melee') {
+      // Melee: LMB = Swipe (180° arc attack)
+      if (now - this.lastMeleeTime < this.meleeClientCooldown) return;
+
+      eventBus.emit({
+        type: 'client:meleeAttack',
+        attackType: 'swipe',
+        targetX: worldPos.x,
+        targetY: worldPos.y,
+      });
+      this.lastMeleeTime = now;
+
+    } else if (isJungleStage) {
+      // Stage 3+ (ranged or traps): LMB = projectile
+      if (now - this.lastProjectileTime < this.projectileClientCooldown) return;
+
+      eventBus.emit({
+        type: 'client:projectileFire',
+        targetX: worldPos.x,
+        targetY: worldPos.y,
+      });
+      this.lastProjectileTime = now;
+
+    } else {
+      // Stage 1-2: LMB = pseudopod beam
+      if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) return;
+
+      eventBus.emit({
+        type: 'client:pseudopodFire',
+        targetX: worldPos.x,
+        targetY: worldPos.y,
+      });
+      this.lastPseudopodTime = now;
+    }
+  }
+
+  /**
+   * Handle right mouse button click
+   */
+  private handleRMB(now: number, isJungleStage: boolean, specialization: CombatSpecialization): void {
+    if (!this.cameraProjection) return;
+    if (!isJungleStage) return; // RMB only used in Stage 3+
+
+    const worldPos = this.cameraProjection.screenToWorld(
+      this.inputState.pointer.screenX,
+      this.inputState.pointer.screenY
+    );
+
+    if (specialization === 'melee') {
+      // Melee: RMB = Thrust (30° cone attack)
+      if (now - this.lastMeleeTime < this.meleeClientCooldown) return;
+
+      eventBus.emit({
+        type: 'client:meleeAttack',
+        attackType: 'thrust',
+        targetX: worldPos.x,
+        targetY: worldPos.y,
+      });
+      this.lastMeleeTime = now;
+
+    } else if (specialization === 'traps') {
+      // Traps: RMB = place trap at player position
+      if (now - this.lastTrapTime < this.trapClientCooldown) return;
+
+      eventBus.emit({ type: 'client:placeTrap' });
+      this.lastTrapTime = now;
+    }
+    // Ranged: No RMB action
   }
 
   /**

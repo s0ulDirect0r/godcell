@@ -25,7 +25,8 @@ import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem
 import { DataFruitRenderSystem } from '../systems/DataFruitRenderSystem';
 import { CyberBugRenderSystem } from '../systems/CyberBugRenderSystem';
 import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSystem';
-import { OrganismProjectileRenderSystem } from '../systems/OrganismProjectileRenderSystem';
+import { ProjectileRenderSystem } from '../systems/ProjectileRenderSystem';
+import { TrapRenderSystem } from '../systems/TrapRenderSystem';
 import {
   World,
   Tags,
@@ -95,11 +96,12 @@ export class ThreeRenderer implements Renderer {
   private auraStateSystem!: AuraStateSystem;
   private auraRenderSystem!: AuraRenderSystem;
 
-  // Stage 3+ render systems (jungle fauna and projectiles)
+  // Stage 3+ render systems (jungle fauna, projectiles, and traps)
   private dataFruitRenderSystem!: DataFruitRenderSystem;
   private cyberBugRenderSystem!: CyberBugRenderSystem;
   private jungleCreatureRenderSystem!: JungleCreatureRenderSystem;
-  private organismProjectileRenderSystem!: OrganismProjectileRenderSystem;
+  private projectileRenderSystem!: ProjectileRenderSystem;
+  private trapRenderSystem!: TrapRenderSystem;
 
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
@@ -171,8 +173,11 @@ export class ThreeRenderer implements Renderer {
     this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem();
     this.jungleCreatureRenderSystem.init(this.scene, this.world);
 
-    this.organismProjectileRenderSystem = new OrganismProjectileRenderSystem();
-    this.organismProjectileRenderSystem.init(this.scene, this.world);
+    this.projectileRenderSystem = new ProjectileRenderSystem();
+    this.projectileRenderSystem.init(this.scene, this.world);
+
+    this.trapRenderSystem = new TrapRenderSystem();
+    this.trapRenderSystem.init(this.scene, this.world);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -401,6 +406,66 @@ export class ThreeRenderer implements Renderer {
         }
       });
 
+      // === Melee attack visual feedback (jungle-scale) ===
+      eventBus.on('meleeAttackExecuted', (event) => {
+        // Only show effects in jungle mode (Stage 3+ melee attacks)
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Calculate direction from position to target
+        const dx = event.direction.x;
+        const dy = event.direction.y;
+
+        // Spawn melee arc effect at attacker position
+        // Use player color if available, otherwise default red-orange
+        const attackerPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
+        if (attackerPos) {
+          const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId) || 0xff6666;
+          this.effectsSystem.spawnMeleeAttack(
+            attackerPos.x,
+            attackerPos.y,
+            event.attackType,
+            dx,
+            dy,
+            colorHex
+          );
+        }
+
+        // Spawn hit effects on each player that was hit
+        for (const hitPlayerId of event.hitPlayerIds) {
+          const hitPos = this.playerRenderSystem.getPlayerPosition(hitPlayerId);
+          if (hitPos) {
+            // Spawn hit sparks at victim position
+            this.effectsSystem.spawnHitBurst(hitPos.x, hitPos.y);
+            // Flash the victim's mesh to indicate damage
+            this.playerRenderSystem.flashDamage(hitPlayerId);
+          }
+        }
+      });
+
+      // === Projectile hit visual feedback (jungle-scale ranged attacks) ===
+      eventBus.on('projectileHit', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Spawn hit sparks at impact location
+        this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
+
+        // Flash the victim if it's a player
+        if (event.targetType === 'player') {
+          this.playerRenderSystem.flashDamage(event.targetId);
+        }
+      });
+
+      // === Trap triggered visual feedback (jungle-scale traps) ===
+      eventBus.on('trapTriggered', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Spawn hit sparks at trap position
+        this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
+
+        // Flash the victim's mesh
+        this.playerRenderSystem.flashDamage(event.victimId);
+      });
+
       // Mouse look event - update first-person camera rotation
       eventBus.on('client:mouseLook', (event) => {
         if (this.cameraSystem.getMode() === 'firstperson') {
@@ -507,11 +572,12 @@ export class ThreeRenderer implements Renderer {
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
-    // Stage 3+ render systems (jungle fauna and projectiles)
+    // Stage 3+ render systems (jungle fauna, projectiles, and traps)
     this.dataFruitRenderSystem.sync(this.environmentSystem.getMode());
     this.cyberBugRenderSystem.sync(this.environmentSystem.getMode());
     this.jungleCreatureRenderSystem.sync(this.environmentSystem.getMode());
-    this.organismProjectileRenderSystem.sync(this.environmentSystem.getMode());
+    this.projectileRenderSystem.sync(this.environmentSystem.getMode());
+    this.trapRenderSystem.sync(this.environmentSystem.getMode());
 
     // Apply spawn animations (scale/opacity) to entities
     this.applySpawnAnimations(spawnProgress);
@@ -532,8 +598,9 @@ export class ThreeRenderer implements Renderer {
     this.cyberBugRenderSystem.updateAnimations(dt);
     this.jungleCreatureRenderSystem.interpolate();
     this.jungleCreatureRenderSystem.updateAnimations(dt);
-    this.organismProjectileRenderSystem.interpolate();
-    this.organismProjectileRenderSystem.updateAnimations(dt);
+    this.projectileRenderSystem.interpolate();
+    this.projectileRenderSystem.updateAnimations(dt);
+    this.trapRenderSystem.updateAnimations(dt);
 
     // Build data maps for TrailSystem by querying World
     const playersForTrail = this.buildPlayersForTrail();
@@ -866,7 +933,8 @@ export class ThreeRenderer implements Renderer {
     this.dataFruitRenderSystem.dispose();
     this.cyberBugRenderSystem.dispose();
     this.jungleCreatureRenderSystem.dispose();
-    this.organismProjectileRenderSystem.dispose();
+    this.projectileRenderSystem.dispose();
+    this.trapRenderSystem.dispose();
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());

@@ -10,12 +10,16 @@ import type {
   PlayerRespawnRequestMessage,
   PlayerSprintMessage,
   PseudopodFireMessage,
-  OrganismProjectileFireMessage,
+  ProjectileFireMessage,
   WorldSnapshotMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerRespawnedMessage,
   EMPActivateMessage,
+  SelectSpecializationMessage,
+  SpecializationSelectedMessage,
+  CombatSpecialization,
+  MeleeAttackMessage,
 } from '@godcell/shared';
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
@@ -67,7 +71,8 @@ import {
   buildDataFruitsRecord,
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
-  buildOrganismProjectilesRecord,
+  buildProjectilesRecord,
+  buildTrapsRecord,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -105,7 +110,8 @@ import {
   CyberBugAISystem,
   JungleCreatureAISystem,
   PseudopodSystem,
-  OrganismProjectileSystem,
+  ProjectileSystem,
+  TrapSystem,
   PredationSystem,
   SwarmCollisionSystem,
   TreeCollisionSystem,
@@ -117,6 +123,8 @@ import {
   DataFruitSystem,
   DeathSystem,
   NetworkBroadcastSystem,
+  SpecializationSystem,
+  type CombatSpecializationComponent,
 } from './ecs';
 import {
   // Math utilities
@@ -502,6 +510,7 @@ systemRunner.register(new BotAISystem(), SystemPriority.BOT_AI);
 systemRunner.register(new CyberBugAISystem(), SystemPriority.CYBER_BUG_AI);
 systemRunner.register(new JungleCreatureAISystem(), SystemPriority.JUNGLE_CREATURE_AI);
 systemRunner.register(new SwarmAISystem(), SystemPriority.SWARM_AI);
+systemRunner.register(new SpecializationSystem(), SystemPriority.SPECIALIZATION);
 
 // Lifecycle (fruit ripening)
 systemRunner.register(new DataFruitSystem(), SystemPriority.DATA_FRUIT);
@@ -511,7 +520,8 @@ systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
 
 // Abilities
 systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
-systemRunner.register(new OrganismProjectileSystem(), SystemPriority.ORGANISM_PROJECTILE);
+systemRunner.register(new ProjectileSystem(), SystemPriority.PROJECTILE);
+systemRunner.register(new TrapSystem(), SystemPriority.TRAP);
 
 // Collisions
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
@@ -574,7 +584,8 @@ io.on('connection', (socket) => {
     dataFruits: buildDataFruitsRecord(world),
     cyberBugs: buildCyberBugsRecord(world),
     jungleCreatures: buildJungleCreaturesRecord(world),
-    organismProjectiles: buildOrganismProjectilesRecord(world),
+    projectiles: buildProjectilesRecord(world),
+    traps: buildTrapsRecord(world),
   };
   socket.emit('worldSnapshot', worldSnapshot);
 
@@ -620,12 +631,12 @@ io.on('connection', (socket) => {
   });
 
   // ============================================
-  // Organism Projectile Fire (Stage 3+ hunting projectile)
+  // Projectile Fire (Stage 3 ranged specialization attack)
   // ============================================
 
-  socket.on('organismProjectileFire', (message: OrganismProjectileFireMessage) => {
-    // Delegate to AbilitySystem (used by both players and bots)
-    abilitySystem.fireOrganismProjectile(socket.id, message.targetX, message.targetY);
+  socket.on('projectileFire', (message: ProjectileFireMessage) => {
+    // Delegate to AbilitySystem (ranged spec only)
+    abilitySystem.fireProjectile(socket.id, message.targetX, message.targetY);
   });
 
   // ============================================
@@ -654,6 +665,76 @@ io.on('connection', (socket) => {
 
     // Update sprint state in ECS
     setSprintBySocketId(world, socket.id, message.sprinting);
+  });
+
+  // ============================================
+  // Combat Specialization Selection (Stage 3)
+  // ============================================
+
+  socket.on('selectSpecialization', (message: SelectSpecializationMessage) => {
+    const entity = getEntityBySocketId(socket.id);
+    if (!entity) return;
+
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
+
+    // Validate: must have pending selection
+    if (!specComp || !specComp.selectionPending) {
+      logger.warn({
+        event: 'specialization_select_rejected',
+        playerId: socket.id,
+        reason: 'no_pending_selection',
+      });
+      return;
+    }
+
+    // Validate: must be a valid specialization choice
+    const validChoices: CombatSpecialization[] = ['melee', 'ranged', 'traps'];
+    if (!validChoices.includes(message.specialization as CombatSpecialization)) {
+      logger.warn({
+        event: 'specialization_select_rejected',
+        playerId: socket.id,
+        reason: 'invalid_choice',
+        received: message.specialization,
+      });
+      return;
+    }
+
+    // Apply the selection
+    specComp.specialization = message.specialization;
+    specComp.selectionPending = false;
+
+    // Broadcast the selection to all clients
+    const selectedMessage: SpecializationSelectedMessage = {
+      type: 'specializationSelected',
+      playerId: socket.id,
+      specialization: specComp.specialization,
+    };
+    io.emit('specializationSelected', selectedMessage);
+
+    logger.info({
+      event: 'specialization_selected',
+      playerId: socket.id,
+      specialization: specComp.specialization,
+      isBot: isBot(socket.id),
+    });
+  });
+
+  // ============================================
+  // Melee Attack (Stage 3 Melee specialization)
+  // ============================================
+
+  socket.on('meleeAttack', (message: MeleeAttackMessage) => {
+    // Delegate to AbilitySystem (validates specialization, cooldown, energy, etc.)
+    abilitySystem.fireMeleeAttack(socket.id, message.attackType, message.targetX, message.targetY);
+  });
+
+  socket.on('placeTrap', () => {
+    logger.debug({ event: 'socket_place_trap', socketId: socket.id });
+    // Delegate to AbilitySystem (validates specialization, cooldown, energy, max traps, etc.)
+    abilitySystem.placeTrap(socket.id);
   });
 
   // ============================================
