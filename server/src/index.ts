@@ -732,6 +732,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('placeTrap', () => {
+    logger.debug({ event: 'socket_place_trap', socketId: socket.id });
     // Delegate to AbilitySystem (validates specialization, cooldown, energy, max traps, etc.)
     abilitySystem.placeTrap(socket.id);
   });
