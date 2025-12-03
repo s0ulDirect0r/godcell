@@ -429,6 +429,41 @@ export class ThreeRenderer implements Renderer {
             colorHex
           );
         }
+
+        // Spawn hit effects on each player that was hit
+        for (const hitPlayerId of event.hitPlayerIds) {
+          const hitPos = this.playerRenderSystem.getPlayerPosition(hitPlayerId);
+          if (hitPos) {
+            // Spawn hit sparks at victim position
+            this.effectsSystem.spawnHitBurst(hitPos.x, hitPos.y);
+            // Flash the victim's mesh to indicate damage
+            this.playerRenderSystem.flashDamage(hitPlayerId);
+          }
+        }
+      });
+
+      // === Projectile hit visual feedback (jungle-scale ranged attacks) ===
+      eventBus.on('projectileHit', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Spawn hit sparks at impact location
+        this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
+
+        // Flash the victim if it's a player
+        if (event.targetType === 'player') {
+          this.playerRenderSystem.flashDamage(event.targetId);
+        }
+      });
+
+      // === Trap triggered visual feedback (jungle-scale traps) ===
+      eventBus.on('trapTriggered', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Spawn hit sparks at trap position
+        this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
+
+        // Flash the victim's mesh
+        this.playerRenderSystem.flashDamage(event.victimId);
       });
 
       // Mouse look event - update first-person camera rotation
