@@ -46,6 +46,7 @@ export const SystemPriority = {
   CYBER_BUG_AI: 105,       // Stage 3 skittish prey AI
   JUNGLE_CREATURE_AI: 106, // Stage 3 predator/grazer AI
   SWARM_AI: 110,
+  SPECIALIZATION: 120,     // Stage 3 combat specialization timeout check
 
   // Lifecycle systems (fruit ripening, etc.)
   DATA_FRUIT: 150,
@@ -53,9 +54,9 @@ export const SystemPriority = {
   // Physics and forces
   GRAVITY: 200,
 
-  // Abilities (pseudopods, EMP effects, organism projectiles)
+  // Abilities (pseudopods, EMP effects, projectiles)
   PSEUDOPOD: 300,
-  ORGANISM_PROJECTILE: 310, // Stage 3 attack projectile (similar to pseudopod)
+  PROJECTILE: 310, // Stage 3 ranged specialization attack
 
   // Collisions and interactions (before movement)
   PREDATION: 400,

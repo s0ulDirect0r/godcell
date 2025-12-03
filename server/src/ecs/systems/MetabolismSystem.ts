@@ -5,7 +5,12 @@
 
 import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
-import type { PlayerEvolutionStartedMessage, PlayerEvolvedMessage } from '@godcell/shared';
+import type {
+  PlayerEvolutionStartedMessage,
+  PlayerEvolvedMessage,
+  SpecializationPromptMessage,
+} from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
 import type { System } from './types';
 import {
   Components,
@@ -19,10 +24,11 @@ import {
   recordDamage,
   type EnergyComponent,
   type StageComponent,
+  type CombatSpecializationComponent,
 } from '../index';
 import { getConfig } from '../../dev';
 import { getNextEvolutionStage, getStageMaxEnergy, getEnergyDecayRate } from '../../helpers';
-import { recordEvolution } from '../../logger';
+import { recordEvolution, logger } from '../../logger';
 import { isBot } from '../../bots';
 
 /**
@@ -144,6 +150,35 @@ export class MetabolismSystem implements System {
       const entity = getEntityBySocketId(playerId);
       if (entity) {
         setPlayerStage(world, entity, targetStage);
+
+        // Stage 3 (Cyber-Organism): Add combat specialization component
+        // Player must choose melee, ranged, or traps pathway
+        if (targetStage === EvolutionStage.CYBER_ORGANISM) {
+          const now = Date.now();
+          const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
+
+          // Add the combat specialization component with pending selection
+          world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
+            specialization: null,
+            selectionPending: true,
+            selectionDeadline: deadline,
+          });
+
+          // Emit specialization prompt to the evolving player
+          const promptMessage: SpecializationPromptMessage = {
+            type: 'specializationPrompt',
+            playerId: playerId,
+            deadline: deadline,
+          };
+          io.emit('specializationPrompt', promptMessage);
+
+          logger.info({
+            event: 'specialization_prompt_sent',
+            playerId,
+            deadline,
+            isBot: isBot(playerId),
+          });
+        }
       }
 
       // Broadcast evolution event

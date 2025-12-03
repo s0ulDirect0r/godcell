@@ -38,7 +38,11 @@ export type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
-  OrganismProjectileComponent,
+  ProjectileComponent,
+  TrapComponent,
+  // Combat specialization components
+  CombatSpecializationComponent,
+  KnockbackComponent,
 } from '@godcell/shared';
 
 // Factories and World Setup
@@ -141,11 +145,11 @@ export {
   forEachJungleCreature,
   getAllJungleCreatureSnapshots,
   buildJungleCreaturesRecord,
-  // OrganismProjectile query helpers (Stage 3+)
-  createOrganismProjectile,
-  forEachOrganismProjectile,
-  getAllOrganismProjectileSnapshots,
-  buildOrganismProjectilesRecord,
+  // Projectile query helpers (Stage 3 ranged specialization)
+  createProjectile,
+  forEachProjectile,
+  getAllProjectileSnapshots,
+  buildProjectilesRecord,
 } from './factories';
 export type {
   PlayerSnapshot,
@@ -156,7 +160,7 @@ export type {
   DataFruitSnapshot,
   CyberBugSnapshot,
   JungleCreatureSnapshot,
-  OrganismProjectileSnapshot,
+  ProjectileSnapshot,
 } from './factories';
 
 // Systems
