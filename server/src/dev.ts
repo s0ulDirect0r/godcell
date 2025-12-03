@@ -17,6 +17,8 @@ import {
   type EntropySwarm,  // Still needed for spawnSwarmAt return type
   type TunableConfigKey,
   type World,
+  type SpecializationPromptMessage,
+  type CombatSpecializationComponent,
 } from '@godcell/shared';
 import { logger } from './logger';
 import {
@@ -27,6 +29,7 @@ import {
   getEnergyBySocketId,
   getStageBySocketId,
   getPositionBySocketId,
+  getEntityBySocketId,
   forEachPlayer,
   hasPlayer,
   // Nutrient ECS helpers
@@ -357,6 +360,37 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
   setStageBySocketId(devContext.world, playerId, stage);
   setMaxEnergyBySocketId(devContext.world, playerId, stageStats.maxEnergy);
   setEnergyBySocketId(devContext.world, playerId, stageStats.energy);
+
+  // Stage 3 (Cyber-Organism): Add combat specialization component and prompt
+  // This mirrors MetabolismSystem behavior for natural evolution
+  if (stage === EvolutionStage.CYBER_ORGANISM) {
+    const entity = getEntityBySocketId(playerId);
+    if (entity !== undefined) {
+      const now = Date.now();
+      const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
+
+      // Add the combat specialization component with pending selection
+      devContext.world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
+        specialization: null,
+        selectionPending: true,
+        selectionDeadline: deadline,
+      });
+
+      // Emit specialization prompt to trigger the modal
+      const promptMessage: SpecializationPromptMessage = {
+        type: 'specializationPrompt',
+        playerId: playerId,
+        deadline: deadline,
+      };
+      io.emit('specializationPrompt', promptMessage);
+
+      logger.info({
+        event: 'dev_specialization_prompt_sent',
+        playerId,
+        deadline,
+      });
+    }
+  }
 
   io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy });
   io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: stageStats.energy });
