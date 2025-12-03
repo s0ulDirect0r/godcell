@@ -41,6 +41,12 @@ import type {
   ProjectileSpawnedMessage,
   ProjectileHitMessage,
   ProjectileRetractedMessage,
+  // Trap messages
+  TrapPlacedMessage,
+  TrapTriggeredMessage,
+  TrapDespawnedMessage,
+  // Melee attack messages
+  MeleeAttackExecutedMessage,
   // Stage 3 specialization messages
   CombatSpecialization,
   SpecializationPromptMessage,
@@ -84,6 +90,8 @@ import {
   updateJungleCreaturePosition,
   upsertProjectile,
   removeProjectile,
+  upsertTrap,
+  removeTrap,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -95,6 +103,9 @@ export class SocketManager {
 
   // Local player ID - tracked here instead of GameState
   private _myPlayerId: string | null = null;
+
+  // Local player's combat specialization (Stage 3+)
+  private _mySpecialization: CombatSpecialization = null;
 
   constructor(serverUrl: string, world: World, isPlaygroundParam = false) {
     this.world = world;
@@ -144,6 +155,14 @@ export class SocketManager {
    */
   getSocket(): Socket {
     return this.socket;
+  }
+
+  /**
+   * Get local player's combat specialization (Stage 3+)
+   * Returns null if not Stage 3+ or specialization not yet selected
+   */
+  getMySpecialization(): CombatSpecialization {
+    return this._mySpecialization;
   }
 
   /**
@@ -225,6 +244,29 @@ export class SocketManager {
     this.socket.emit('selectSpecialization', {
       type: 'selectSpecialization',
       specialization,
+    });
+  }
+
+  /**
+   * Send melee attack (Stage 3 melee specialization)
+   */
+  sendMeleeAttack(attackType: 'swipe' | 'thrust', targetX: number, targetY: number): void {
+    this.socket.emit('meleeAttack', {
+      type: 'meleeAttack',
+      attackType,
+      targetX,
+      targetY,
+    });
+  }
+
+  /**
+   * Send place trap (Stage 3 traps specialization)
+   */
+  sendPlaceTrap(x: number, y: number): void {
+    this.socket.emit('placeTrap', {
+      type: 'placeTrap',
+      x,
+      y,
     });
   }
 
@@ -486,15 +528,18 @@ export class SocketManager {
 
     // Projectile events (Stage 3 ranged specialization)
     this.socket.on('projectileSpawned', (data: ProjectileSpawnedMessage) => {
+      console.log('[SOCKET] projectileSpawned:', { id: data.projectile.id, ownerId: data.projectile.ownerId });
       upsertProjectile(this.world, data.projectile);
       eventBus.emit(data);
     });
 
     this.socket.on('projectileHit', (data: ProjectileHitMessage) => {
+      console.log('[SOCKET] projectileHit:', { projectileId: data.projectileId, targetId: data.targetId, targetType: data.targetType, killed: data.killed });
       eventBus.emit(data);
     });
 
     this.socket.on('projectileRetracted', (data: ProjectileRetractedMessage) => {
+      console.log('[SOCKET] projectileRetracted:', { projectileId: data.projectileId });
       removeProjectile(this.world, data.projectileId);
       eventBus.emit(data);
     });
@@ -504,6 +549,7 @@ export class SocketManager {
     // ============================================
 
     this.socket.on('specializationPrompt', (data: SpecializationPromptMessage) => {
+      console.log('[SOCKET] specializationPrompt:', { playerId: data.playerId, isLocal: data.playerId === this._myPlayerId });
       // Only show modal for local player
       if (data.playerId === this._myPlayerId) {
         eventBus.emit(data);
@@ -511,6 +557,35 @@ export class SocketManager {
     });
 
     this.socket.on('specializationSelected', (data: SpecializationSelectedMessage) => {
+      console.log('[SOCKET] specializationSelected:', { playerId: data.playerId, specialization: data.specialization, isLocal: data.playerId === this._myPlayerId });
+      // Track local player's specialization
+      if (data.playerId === this._myPlayerId) {
+        this._mySpecialization = data.specialization;
+      }
+      eventBus.emit(data);
+    });
+
+    // Trap events (Stage 3 traps specialization)
+    this.socket.on('trapPlaced', (data: TrapPlacedMessage) => {
+      console.log('[SOCKET] trapPlaced:', { trapId: data.trap.id, ownerId: data.trap.ownerId, pos: { x: Math.round(data.trap.position.x), y: Math.round(data.trap.position.y) } });
+      upsertTrap(this.world, data.trap);
+      eventBus.emit(data);
+    });
+
+    this.socket.on('trapTriggered', (data: TrapTriggeredMessage) => {
+      console.log('[SOCKET] trapTriggered:', { trapId: data.trapId, victimId: data.victimId, damage: data.damage, killed: data.killed });
+      eventBus.emit(data);
+    });
+
+    this.socket.on('trapDespawned', (data: TrapDespawnedMessage) => {
+      console.log('[SOCKET] trapDespawned:', { trapId: data.trapId, reason: data.reason });
+      removeTrap(this.world, data.trapId);
+      eventBus.emit(data);
+    });
+
+    // Melee attack events (Stage 3 melee specialization)
+    this.socket.on('meleeAttackExecuted', (data: MeleeAttackExecutedMessage) => {
+      console.log('[SOCKET] meleeAttackExecuted:', { playerId: data.playerId, attackType: data.attackType, hits: data.hitPlayerIds.length });
       eventBus.emit(data);
     });
   }
@@ -553,6 +628,9 @@ export class SocketManager {
     if (snapshot.projectiles) {
       Object.values(snapshot.projectiles).forEach(p => upsertProjectile(this.world, p));
     }
+    if (snapshot.traps) {
+      Object.values(snapshot.traps).forEach(t => upsertTrap(this.world, t));
+    }
   }
 
   /**
@@ -572,6 +650,7 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.CyberBug, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.JungleCreature, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Projectile, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Trap, (entity) => toDestroy.push(entity));
     toDestroy.forEach(entity => this.world.destroyEntity(entity));
 
     // Clear string ID lookups

@@ -591,3 +591,108 @@ export function spawnEnergyTransferParticles(
     targetId,
   };
 }
+
+/**
+ * Animation data for melee arc attack effect
+ * Particles sweep outward in an arc pattern
+ */
+export interface MeleeArcAnimation {
+  particles: THREE.Points;
+  particleData: Array<{
+    angle: number;      // Current angle in arc
+    radius: number;     // Distance from center
+    radiusSpeed: number; // How fast it expands outward
+    life: number;       // Remaining life (1.0 → 0.0)
+  }>;
+  startTime: number;
+  duration: number;
+  centerX: number;
+  centerY: number;
+  baseAngle: number;   // Direction player is facing
+  arcAngle: number;    // Width of arc (swipe = 180°, thrust = 30°)
+}
+
+/**
+ * Spawn melee arc attack effect - particles sweep in an arc pattern
+ * Swipe: 180° wide arc, Thrust: 30° narrow cone
+ * @param attackType - 'swipe' for wide arc, 'thrust' for narrow cone
+ * @param direction - Direction angle in radians (where player is facing)
+ * @returns Animation object to track
+ */
+export function spawnMeleeArc(
+  scene: THREE.Scene,
+  x: number,
+  y: number,
+  attackType: 'swipe' | 'thrust',
+  directionX: number,
+  directionY: number,
+  colorHex: number = 0xff6666 // Red-orange for melee attacks
+): MeleeArcAnimation {
+  // Swipe: many particles in wide arc, Thrust: fewer particles in narrow cone
+  const particleCount = attackType === 'swipe' ? 60 : 30;
+  const duration = 250; // Quick attack animation (matches 200ms cooldown)
+  const initialRadius = 20;
+  const maxRadius = 288; // Matches MELEE_RANGE from config
+
+  // Calculate arc parameters
+  const arcAngle = attackType === 'swipe' ? Math.PI : (Math.PI / 6); // 180° or 30°
+  const baseAngle = Math.atan2(directionY, directionX);
+
+  // Create particle geometry and material
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const sizes = new Float32Array(particleCount);
+  const particleData: MeleeArcAnimation['particleData'] = [];
+
+  for (let i = 0; i < particleCount; i++) {
+    // Distribute particles across the arc
+    const arcProgress = (i / (particleCount - 1)) - 0.5; // -0.5 to 0.5
+    const angle = baseAngle + arcProgress * arcAngle;
+
+    // Start at initial radius with slight random offset
+    const startRadius = initialRadius + Math.random() * 10;
+
+    // XZ plane: X=game X, Y=height, Z=-game Y
+    positions[i * 3] = x + Math.cos(angle) * startRadius;
+    positions[i * 3 + 1] = 0.3; // Height (above ground)
+    positions[i * 3 + 2] = -(y + Math.sin(angle) * startRadius);
+
+    sizes[i] = 4 + Math.random() * 3;
+
+    // Expansion speed with slight variation
+    const radiusSpeed = (maxRadius - initialRadius) / (duration / 1000) * (0.9 + Math.random() * 0.2);
+
+    particleData.push({
+      angle,
+      radius: startRadius,
+      radiusSpeed,
+      life: 1.0,
+    });
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+  const material = new THREE.PointsMaterial({
+    color: colorHex,
+    size: 5,
+    transparent: true,
+    opacity: 1,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending, // Additive for energy slash
+  });
+
+  const particles = new THREE.Points(geometry, material);
+  scene.add(particles);
+
+  return {
+    particles,
+    particleData,
+    startTime: Date.now(),
+    duration,
+    centerX: x,
+    centerY: y,
+    baseAngle,
+    arcAngle,
+  };
+}

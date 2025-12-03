@@ -104,6 +104,12 @@ function initializeGame(settings: PreGameSettings): void {
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());
 
+  // Wire input manager with player state provider (for stage/specialization)
+  inputManager.setPlayerStateProvider({
+    getStage: () => getLocalPlayer(world)?.stage ?? null,
+    getSpecialization: () => socketManager.getMySpecialization(),
+  });
+
   // Initialize HUD
   hudOverlay = new HUDOverlay();
 
@@ -146,20 +152,8 @@ function initializeGame(settings: PreGameSettings): void {
   });
 
   eventBus.on('client:pseudopodFire', (event) => {
-    // Route to appropriate projectile based on player stage
-    const myPlayer = getLocalPlayer(world);
-    const stage = myPlayer?.stage;
-
-    // Stage 3+ with ranged specialization uses projectile
-    // Stage 2 uses pseudopod beam (for PvP)
-    // Note: Server validates specialization - just send projectileFire for Stage 3+
-    if (stage === EvolutionStage.CYBER_ORGANISM ||
-        stage === EvolutionStage.HUMANOID ||
-        stage === EvolutionStage.GODCELL) {
-      socketManager.sendProjectileFire(event.targetX, event.targetY);
-    } else {
-      socketManager.sendPseudopodFire(event.targetX, event.targetY);
-    }
+    // Stage 1-2 pseudopod beam attack
+    socketManager.sendPseudopodFire(event.targetX, event.targetY);
   });
 
   eventBus.on('client:sprint', (event) => {
@@ -169,6 +163,21 @@ function initializeGame(settings: PreGameSettings): void {
   // Stage 3 specialization selection
   eventBus.on('client:selectSpecialization', (event) => {
     socketManager.sendSelectSpecialization(event.specialization);
+  });
+
+  // Stage 3 melee attack
+  eventBus.on('client:meleeAttack', (event) => {
+    socketManager.sendMeleeAttack(event.attackType, event.targetX, event.targetY);
+  });
+
+  // Stage 3 trap placement
+  eventBus.on('client:placeTrap', (event) => {
+    socketManager.sendPlaceTrap(event.x, event.y);
+  });
+
+  // Stage 3+ projectile fire (from InputManager when ranged spec or default)
+  eventBus.on('client:projectileFire', (event) => {
+    socketManager.sendProjectileFire(event.targetX, event.targetY);
   });
 
   // Show specialization modal when server prompts

@@ -150,6 +150,12 @@ export {
   forEachProjectile,
   getAllProjectileSnapshots,
   buildProjectilesRecord,
+  // Trap query helpers (Stage 3 traps specialization)
+  createTrap,
+  forEachTrap,
+  countTrapsForPlayer,
+  getAllTrapSnapshots,
+  buildTrapsRecord,
 } from './factories';
 export type {
   PlayerSnapshot,

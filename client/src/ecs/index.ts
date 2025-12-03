@@ -31,6 +31,7 @@ export type {
   CyberBugComponent,
   JungleCreatureComponent,
   ProjectileComponent,
+  TrapComponent,
 } from '@godcell/shared';
 
 // Client-only component types and interfaces
@@ -99,6 +100,9 @@ export {
   updateJungleCreaturePosition,
   upsertProjectile,
   removeProjectile,
+  // Trap operations (Stage 3 traps specialization)
+  upsertTrap,
+  removeTrap,
   // Aura component helpers
   setDrainAura,
   clearDrainAura,

@@ -2,7 +2,7 @@
 // Event Bus - Type-Safe Local Pub/Sub
 // ============================================
 
-import type { ServerMessage, CombatSpecialization } from '@godcell/shared';
+import type { ServerMessage, CombatSpecialization, MeleeAttackType } from '@godcell/shared';
 
 // Client-only events (internal state, not from server)
 type ClientEvent =
@@ -17,7 +17,10 @@ type ClientEvent =
   | { type: 'client:socketConnected'; socketId: string }
   | { type: 'client:socketDisconnected' }
   | { type: 'client:socketFailed'; error: string }
-  | { type: 'client:selectSpecialization'; specialization: CombatSpecialization };
+  | { type: 'client:selectSpecialization'; specialization: CombatSpecialization }
+  | { type: 'client:meleeAttack'; attackType: MeleeAttackType; targetX: number; targetY: number }
+  | { type: 'client:placeTrap'; x: number; y: number }
+  | { type: 'client:projectileFire'; targetX: number; targetY: number };
 
 // All possible events = server messages + client-only events
 export type GameEvent = ServerMessage | ClientEvent;

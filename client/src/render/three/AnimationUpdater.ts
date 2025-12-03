@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@godcell/shared';
-import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation } from '../effects/ParticleEffects';
+import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation } from '../effects/ParticleEffects';
 
 /**
  * Update death particle animations (radial burst that fades)
@@ -437,4 +437,70 @@ export function updateEnergyTransferAnimations(
   }
 
   return receivingEnergy;
+}
+
+/**
+ * Update melee arc attack animations (particles expand outward in arc)
+ * Mutates the animations array in place, removing finished animations
+ *
+ * @param scene - Three.js scene (for removing finished particles)
+ * @param animations - Array of melee arc animations (mutated in place)
+ * @param dt - Delta time in milliseconds
+ */
+export function updateMeleeArcAnimations(
+  scene: THREE.Scene,
+  animations: MeleeArcAnimation[],
+  dt: number
+): void {
+  const deltaSeconds = dt / 1000;
+  const now = Date.now();
+  const finishedAnimations: number[] = [];
+
+  animations.forEach((anim, index) => {
+    const elapsed = now - anim.startTime;
+    const progress = Math.min(elapsed / anim.duration, 1);
+
+    if (progress >= 1) {
+      // Animation finished - mark for removal
+      finishedAnimations.push(index);
+      return;
+    }
+
+    // Update particle positions (expand outward)
+    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+
+    for (let i = 0; i < anim.particleData.length; i++) {
+      const p = anim.particleData[i];
+
+      // Expand radius
+      p.radius += p.radiusSpeed * deltaSeconds;
+
+      // Calculate new position based on angle and radius
+      const newX = anim.centerX + Math.cos(p.angle) * p.radius;
+      const newY = anim.centerY + Math.sin(p.angle) * p.radius;
+
+      // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
+      positions[i * 3] = newX;
+      positions[i * 3 + 1] = 0.3; // Height (constant)
+      positions[i * 3 + 2] = -newY;
+    }
+
+    anim.particles.geometry.attributes.position.needsUpdate = true;
+
+    // Fade out quickly near end
+    const material = anim.particles.material as THREE.PointsMaterial;
+    material.opacity = progress < 0.5 ? 1.0 : (1.0 - (progress - 0.5) * 2);
+  });
+
+  // Clean up finished animations (reverse order to avoid index shifting)
+  for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+    const index = finishedAnimations[i];
+    const anim = animations[index];
+
+    scene.remove(anim.particles);
+    anim.particles.geometry.dispose();
+    (anim.particles.material as THREE.Material).dispose();
+
+    animations.splice(index, 1);
+  }
 }

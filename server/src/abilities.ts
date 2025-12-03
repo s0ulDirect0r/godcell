@@ -3,12 +3,14 @@ import type {
   Position,
   Pseudopod, // Still needed for local pseudopod object creation
   Projectile,
+  Trap,
   MeleeAttackType,
   MeleeAttackExecutedMessage,
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
   ProjectileSpawnedMessage,
+  TrapPlacedMessage,
   CombatSpecializationComponent,
   KnockbackComponent,
 } from '@godcell/shared';
@@ -19,6 +21,8 @@ import { isJungleStage } from './helpers/stages';
 import {
   createPseudopod as ecsCreatePseudopod,
   createProjectile,
+  createTrap,
+  countTrapsForPlayer,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   getEntityByStringId,
@@ -30,7 +34,12 @@ import {
   getCooldownsBySocketId,
   forEachPlayer,
   forEachSwarm,
+  forEachCyberBug,
+  forEachJungleCreature,
+  addEnergyBySocketId,
+  setMaxEnergyBySocketId,
   subtractEnergyBySocketId,
+  destroyEntity,
   type World,
 } from './ecs';
 
@@ -507,7 +516,10 @@ export class AbilitySystem {
     // Find all entities within range and arc
     const hitPlayerIds: string[] = [];
     const hitEntities: number[] = [];
+    const killedBugIds: string[] = [];
+    const killedCreatureIds: string[] = [];
 
+    // Check players
     forEachPlayer(world, (targetEntity, targetPlayerId) => {
       if (targetPlayerId === playerId) return; // Can't hit yourself
 
@@ -568,6 +580,122 @@ export class AbilitySystem {
       }
     });
 
+    // Check CyberBugs (one-shot kills, award energy)
+    const bugsToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number }[] = [];
+    forEachCyberBug(world, (bugEntity, bugId, bugPos, bugComp) => {
+      const bugPosition = { x: bugPos.x, y: bugPos.y };
+      const dist = this.distance(playerPosition, bugPosition);
+
+      // Check if within range (use bug size as effective collision radius)
+      if (dist > range + bugComp.size) return;
+
+      // Check if within arc
+      const toTargetAngle = Math.atan2(bugPos.y - playerPosition.y, bugPos.x - playerPosition.x);
+      let angleDiff = Math.abs(toTargetAngle - attackAngle);
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+      if (angleDiff <= halfArcRad) {
+        bugsToKill.push({
+          entity: bugEntity,
+          id: bugId,
+          pos: bugPosition,
+          value: bugComp.value,
+          capacityIncrease: bugComp.capacityIncrease,
+        });
+      }
+    });
+
+    // Process bug kills (after iteration to avoid mutation during iteration)
+    for (const bug of bugsToKill) {
+      // Award energy and capacity to attacker
+      addEnergyBySocketId(world, playerId, bug.value);
+      const attackerEnergy = getEnergyBySocketId(world, playerId);
+      if (attackerEnergy) {
+        setMaxEnergyBySocketId(world, playerId, attackerEnergy.max + bug.capacityIncrease);
+      }
+
+      // Emit kill event
+      this.ctx.io.emit('cyberBugKilled', {
+        type: 'cyberBugKilled',
+        bugId: bug.id,
+        killerId: playerId,
+        position: bug.pos,
+        energyGained: bug.value,
+        capacityGained: bug.capacityIncrease,
+      });
+
+      killedBugIds.push(bug.id);
+      destroyEntity(world, bug.entity);
+
+      logger.info({
+        event: 'melee_kill_bug',
+        attacker: playerId,
+        bugId: bug.id,
+        attackType,
+        energyGained: bug.value,
+        capacityGained: bug.capacityIncrease,
+      });
+    }
+
+    // Check JungleCreatures (one-shot kills, award energy)
+    const creaturesToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number; variant: string }[] = [];
+    forEachJungleCreature(world, (creatureEntity, creatureId, creaturePos, creatureComp) => {
+      const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
+      const dist = this.distance(playerPosition, creaturePosition);
+
+      // Check if within range (use creature size as effective collision radius)
+      if (dist > range + creatureComp.size) return;
+
+      // Check if within arc
+      const toTargetAngle = Math.atan2(creaturePos.y - playerPosition.y, creaturePos.x - playerPosition.x);
+      let angleDiff = Math.abs(toTargetAngle - attackAngle);
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+      if (angleDiff <= halfArcRad) {
+        creaturesToKill.push({
+          entity: creatureEntity,
+          id: creatureId,
+          pos: creaturePosition,
+          value: creatureComp.value,
+          capacityIncrease: creatureComp.capacityIncrease,
+          variant: creatureComp.variant,
+        });
+      }
+    });
+
+    // Process creature kills
+    for (const creature of creaturesToKill) {
+      // Award energy and capacity to attacker
+      addEnergyBySocketId(world, playerId, creature.value);
+      const attackerEnergy2 = getEnergyBySocketId(world, playerId);
+      if (attackerEnergy2) {
+        setMaxEnergyBySocketId(world, playerId, attackerEnergy2.max + creature.capacityIncrease);
+      }
+
+      // Emit kill event
+      this.ctx.io.emit('jungleCreatureKilled', {
+        type: 'jungleCreatureKilled',
+        creatureId: creature.id,
+        killerId: playerId,
+        position: creature.pos,
+        energyGained: creature.value,
+        capacityGained: creature.capacityIncrease,
+      });
+
+      killedCreatureIds.push(creature.id);
+      destroyEntity(world, creature.entity);
+
+      logger.info({
+        event: 'melee_kill_creature',
+        attacker: playerId,
+        creatureId: creature.id,
+        variant: creature.variant,
+        attackType,
+        energyGained: creature.value,
+        capacityGained: creature.capacityIncrease,
+      });
+    }
+
     // Update cooldown
     if (isSwipe) {
       cooldowns.lastMeleeSwipeTime = now;
@@ -590,8 +718,101 @@ export class AbilitySystem {
       event: 'melee_attack_executed',
       playerId,
       attackType,
-      hits: hitPlayerIds.length,
+      playerHits: hitPlayerIds.length,
+      bugKills: killedBugIds.length,
+      creatureKills: killedCreatureIds.length,
       energySpent: energyCost,
+    });
+
+    return true;
+  }
+
+  /**
+   * Place a trap (Stage 3 Traps specialization only)
+   * Places a disguised mine at the player's current position
+   * @returns true if trap was placed successfully
+   */
+  placeTrap(playerId: string): boolean {
+    const { world } = this.ctx;
+
+    // Get player state from ECS
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const posComp = getPositionBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const player = getPlayerBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
+
+    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
+
+    // Stage 3+ only (Cyber-Organism and above)
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+
+    // Check specialization - must be traps
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'traps') return false;
+
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) return false;
+
+    // Cooldown check via ECS
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastTrapPlaceTime || 0;
+    if (now - lastUse < GAME_CONFIG.TRAP_COOLDOWN) return false;
+
+    // Check max active traps
+    const activeTraps = countTrapsForPlayer(world, playerId);
+    if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) {
+      logger.debug({
+        event: 'trap_place_denied',
+        playerId,
+        reason: 'max_active_reached',
+        activeTraps,
+        max: GAME_CONFIG.TRAP_MAX_ACTIVE,
+      });
+      return false;
+    }
+
+    // Deduct energy
+    energyComp.current -= GAME_CONFIG.TRAP_ENERGY_COST;
+
+    const trapPosition = { x: posComp.x, y: posComp.y };
+    const trapId = `trap-${playerId}-${now}`;
+
+    // Create trap via ECS factory
+    createTrap(world, trapId, entity, playerId, trapPosition, player.color);
+
+    // Update cooldown
+    cooldowns.lastTrapPlaceTime = now;
+
+    // Broadcast to clients
+    const trap: Trap = {
+      id: trapId,
+      ownerId: playerId,
+      position: trapPosition,
+      triggerRadius: GAME_CONFIG.TRAP_TRIGGER_RADIUS,
+      damage: GAME_CONFIG.TRAP_DAMAGE,
+      stunDuration: GAME_CONFIG.TRAP_STUN_DURATION,
+      placedAt: now,
+      lifetime: GAME_CONFIG.TRAP_LIFETIME,
+      color: player.color,
+    };
+    this.ctx.io.emit('trapPlaced', {
+      type: 'trapPlaced',
+      trap,
+    } as TrapPlacedMessage);
+
+    logger.info({
+      event: 'trap_placed',
+      playerId,
+      trapId,
+      position: trapPosition,
+      activeTraps: activeTraps + 1,
+      energySpent: GAME_CONFIG.TRAP_ENERGY_COST,
     });
 
     return true;
@@ -684,5 +905,38 @@ export class AbilitySystem {
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastOrganismProjectileTime || 0;
     return now - lastUse >= GAME_CONFIG.PROJECTILE_COOLDOWN;
+  }
+
+  /**
+   * Check if a player can place a trap (traps specialization and off cooldown)
+   */
+  canPlaceTrap(playerId: string): boolean {
+    const { world } = this.ctx;
+    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStageBySocketId(world, playerId);
+    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const entity = getEntityBySocketId(playerId);
+    if (!energyComp || !stageComp || entity === undefined) return false;
+
+    if (!isJungleStage(stageComp.stage)) return false;
+    if (energyComp.current <= 0) return false;
+    if (stageComp.isEvolving) return false;
+
+    // Check specialization - must be traps
+    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    if (!specComp || specComp.specialization !== 'traps') return false;
+
+    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) return false;
+    const now = Date.now();
+    if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+    // Check max active traps
+    const activeTraps = countTrapsForPlayer(world, playerId);
+    if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) return false;
+
+    const cooldowns = getCooldownsBySocketId(world, playerId);
+    if (!cooldowns) return false;
+    const lastUse = cooldowns.lastTrapPlaceTime || 0;
+    return now - lastUse >= GAME_CONFIG.TRAP_COOLDOWN;
   }
 }

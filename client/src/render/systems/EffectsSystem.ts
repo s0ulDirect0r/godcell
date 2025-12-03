@@ -12,6 +12,7 @@ import {
   type SwarmDeathAnimation,
   type SpawnAnimation,
   type EnergyTransferAnimation,
+  type MeleeArcAnimation,
   spawnDeathParticles,
   spawnHitSparks,
   spawnEvolutionParticles,
@@ -19,6 +20,7 @@ import {
   spawnMaterializeParticles,
   spawnSwarmDeathExplosion,
   spawnEnergyTransferParticles,
+  spawnMeleeArc,
 } from '../effects/ParticleEffects';
 import {
   updateDeathAnimations,
@@ -27,6 +29,7 @@ import {
   updateSwarmDeathAnimations,
   updateSpawnAnimations,
   updateEnergyTransferAnimations,
+  updateMeleeArcAnimations,
 } from '../three/AnimationUpdater';
 
 /**
@@ -60,6 +63,7 @@ export class EffectsSystem {
   private swarmDeathAnimations: SwarmDeathAnimation[] = [];
   private spawnAnimations: SpawnAnimation[] = [];
   private energyTransferAnimations: EnergyTransferAnimation[] = [];
+  private meleeArcAnimations: MeleeArcAnimation[] = [];
 
   // Track entities that are currently spawning
   private spawningEntities: Set<string> = new Set();
@@ -156,6 +160,25 @@ export class EffectsSystem {
     );
   }
 
+  /**
+   * Spawn melee arc attack effect - particles sweep in arc pattern
+   * @param attackType - 'swipe' for wide arc (180°), 'thrust' for narrow cone (30°)
+   * @param directionX - X component of attack direction
+   * @param directionY - Y component of attack direction
+   */
+  spawnMeleeAttack(
+    x: number,
+    y: number,
+    attackType: 'swipe' | 'thrust',
+    directionX: number,
+    directionY: number,
+    colorHex: number = 0xff6666
+  ): void {
+    this.meleeArcAnimations.push(
+      spawnMeleeArc(this.scene, x, y, attackType, directionX, directionY, colorHex)
+    );
+  }
+
   // ============================================
   // Query Methods
   // ============================================
@@ -201,6 +224,9 @@ export class EffectsSystem {
 
     // Update energy transfer animations
     const receivingEnergy = updateEnergyTransferAnimations(this.scene, this.energyTransferAnimations, dt);
+
+    // Update melee arc animations
+    updateMeleeArcAnimations(this.scene, this.meleeArcAnimations, dt);
 
     return { spawnProgress, receivingEnergy };
   }
@@ -313,6 +339,14 @@ export class EffectsSystem {
       (anim.particles.material as THREE.Material).dispose();
     });
     this.energyTransferAnimations = [];
+
+    // Clean up melee arc animations
+    this.meleeArcAnimations.forEach(anim => {
+      this.scene.remove(anim.particles);
+      anim.particles.geometry.dispose();
+      (anim.particles.material as THREE.Material).dispose();
+    });
+    this.meleeArcAnimations = [];
 
     this.spawningEntities.clear();
   }

@@ -32,6 +32,7 @@ import type {
   CyberBugComponent,
   JungleCreatureComponent,
   ProjectileComponent,
+  TrapComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '@godcell/shared';
@@ -46,6 +47,7 @@ import type {
   CyberBug,
   JungleCreature,
   Projectile,
+  Trap,
   DamageSource,
   EvolutionStage,
 } from '@godcell/shared';
@@ -933,6 +935,58 @@ export function upsertProjectile(world: World, projectile: Projectile): EntityId
  */
 export function removeProjectile(world: World, projectileId: string): void {
   const entity = stringIdToEntity.get(projectileId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+// ============================================
+// Trap (Stage 3 Traps Specialization)
+// ============================================
+
+/**
+ * Upsert a Trap entity from network data.
+ * Creates new entity or updates existing one.
+ */
+export function upsertTrap(world: World, trap: Trap): EntityId {
+  let entity = stringIdToEntity.get(trap.id);
+
+  if (entity !== undefined) {
+    // Traps don't move - no update needed
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: trap.position.x,
+    y: trap.position.y,
+  });
+
+  world.addComponent<TrapComponent>(entity, Components.Trap, {
+    ownerId: 0, // Not used on client
+    ownerSocketId: trap.ownerId,
+    damage: trap.damage,
+    stunDuration: trap.stunDuration,
+    triggerRadius: trap.triggerRadius,
+    placedAt: trap.placedAt,
+    lifetime: trap.lifetime,
+    color: trap.color,
+  });
+
+  world.addTag(entity, Tags.Trap);
+  registerMapping(entity, trap.id);
+
+  return entity;
+}
+
+/**
+ * Remove a Trap entity.
+ */
+export function removeTrap(world: World, trapId: string): void {
+  const entity = stringIdToEntity.get(trapId);
   if (entity === undefined) return;
 
   unregisterEntity(entity);

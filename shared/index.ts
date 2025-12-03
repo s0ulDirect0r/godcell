@@ -585,12 +585,15 @@ export interface TrapTriggeredMessage {
   victimId: string;
   position: Position;
   damage: number;
+  stunDuration: number;
+  killed: boolean;
 }
 
 // Trap despawned (timeout or triggered)
 export interface TrapDespawnedMessage {
   type: 'trapDespawned';
   trapId: string;
+  reason: 'expired' | 'triggered';
 }
 
 // Knockback applied to a player

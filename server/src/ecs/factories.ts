@@ -42,6 +42,7 @@ import type {
   CyberBugComponent,
   JungleCreatureComponent,
   ProjectileComponent,
+  TrapComponent,
 } from '@godcell/shared';
 
 // ============================================
@@ -2293,6 +2294,156 @@ export function buildProjectilesRecord(world: World): Record<string, {
       targetPosition: { x: projectile.targetX, y: projectile.targetY },
       state: projectile.state,
       color: projectile.color,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// Trap Factory & Query Helpers
+// ============================================
+
+/**
+ * Create a trap entity.
+ * Traps are disguised as DataFruits and trigger when enemies approach.
+ */
+export function createTrap(
+  world: World,
+  trapId: string,
+  ownerId: EntityId,
+  ownerSocketId: string,
+  position: Position,
+  color: string
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: 0,
+  });
+
+  world.addComponent<TrapComponent>(entity, Components.Trap, {
+    ownerId,
+    ownerSocketId,
+    damage: GAME_CONFIG.TRAP_DAMAGE,
+    stunDuration: GAME_CONFIG.TRAP_STUN_DURATION,
+    triggerRadius: GAME_CONFIG.TRAP_TRIGGER_RADIUS,
+    placedAt: Date.now(),
+    lifetime: GAME_CONFIG.TRAP_LIFETIME,
+    color,
+  });
+
+  world.addTag(entity, Tags.Trap);
+  registerStringIdMapping(entity, trapId);
+
+  return entity;
+}
+
+/**
+ * Iterate over all Trap entities.
+ */
+export function forEachTrap(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    trap: TrapComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.Trap, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const trap = world.getComponent<TrapComponent>(entity, Components.Trap);
+    const id = getStringIdByEntity(entity);
+    if (pos && trap && id) {
+      callback(entity, id, pos, trap);
+    }
+  });
+}
+
+/**
+ * Count traps owned by a specific player.
+ */
+export function countTrapsForPlayer(world: World, ownerSocketId: string): number {
+  let count = 0;
+  forEachTrap(world, (_entity, _id, _pos, trap) => {
+    if (trap.ownerSocketId === ownerSocketId) {
+      count++;
+    }
+  });
+  return count;
+}
+
+/**
+ * Get all Trap entities as snapshots.
+ */
+export function getAllTrapSnapshots(world: World): {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  ownerSocketId: string;
+  color: string;
+}[] {
+  const snapshots: {
+    entity: EntityId;
+    id: string;
+    position: Position;
+    ownerSocketId: string;
+    color: string;
+  }[] = [];
+
+  forEachTrap(world, (entity, id, pos, trap) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      ownerSocketId: trap.ownerSocketId,
+      color: trap.color,
+    });
+  });
+
+  return snapshots;
+}
+
+/**
+ * Convert ECS Traps to network format.
+ */
+export function buildTrapsRecord(world: World): Record<string, {
+  id: string;
+  ownerId: string;
+  position: Position;
+  triggerRadius: number;
+  damage: number;
+  stunDuration: number;
+  placedAt: number;
+  lifetime: number;
+  color: string;
+}> {
+  const result: Record<string, {
+    id: string;
+    ownerId: string;
+    position: Position;
+    triggerRadius: number;
+    damage: number;
+    stunDuration: number;
+    placedAt: number;
+    lifetime: number;
+    color: string;
+  }> = {};
+
+  forEachTrap(world, (_entity, id, pos, trap) => {
+    result[id] = {
+      id,
+      ownerId: trap.ownerSocketId,
+      position: { x: pos.x, y: pos.y },
+      triggerRadius: trap.triggerRadius,
+      damage: trap.damage,
+      stunDuration: trap.stunDuration,
+      placedAt: trap.placedAt,
+      lifetime: trap.lifetime,
+      color: trap.color,
     };
   });
 

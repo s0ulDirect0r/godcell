@@ -23,6 +23,7 @@ export { MovementSystem } from './MovementSystem';
 // Ability Systems
 export { PseudopodSystem } from './PseudopodSystem';
 export { ProjectileSystem } from './ProjectileSystem';
+export { TrapSystem } from './TrapSystem';
 
 // Collision Systems
 export { PredationSystem } from './PredationSystem';

@@ -54,9 +54,10 @@ export const SystemPriority = {
   // Physics and forces
   GRAVITY: 200,
 
-  // Abilities (pseudopods, EMP effects, projectiles)
+  // Abilities (pseudopods, EMP effects, projectiles, traps)
   PSEUDOPOD: 300,
   PROJECTILE: 310, // Stage 3 ranged specialization attack
+  TRAP: 320,       // Stage 3 traps specialization trigger/lifetime
 
   // Collisions and interactions (before movement)
   PREDATION: 400,

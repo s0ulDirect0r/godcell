@@ -12,6 +12,8 @@ import type {
   ProjectileComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  StageComponent,
+  EnergyComponent,
   EntityId,
 } from '@godcell/shared';
 import type { System } from './types';
@@ -20,11 +22,16 @@ import {
   destroyEntity,
   forEachCyberBug,
   forEachJungleCreature,
+  forEachPlayer,
   addEnergyBySocketId,
   setMaxEnergyBySocketId,
   getEnergyBySocketId,
+  getPositionBySocketId,
+  getStageBySocketId,
+  subtractEnergyBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
+import { isJungleStage, getPlayerRadius } from '../../helpers/stages';
 import { logger } from '../../logger';
 
 /**
@@ -74,8 +81,11 @@ export class ProjectileSystem implements System {
         return;
       }
 
-      // Check collision with fauna
-      const hit = this.checkFaunaCollision(world, io, entity, projectileId, posComp, projComp);
+      // Check collision with players first (PvP), then fauna
+      let hit = this.checkPlayerCollision(world, io, projectileId, posComp, projComp);
+      if (!hit) {
+        hit = this.checkFaunaCollision(world, io, entity, projectileId, posComp, projComp);
+      }
       if (hit) {
         projComp.state = 'hit';
         toRemove.push(entity);
@@ -241,6 +251,99 @@ export class ProjectileSystem implements System {
         // Destroy the creature
         destroyEntity(world, creature.entity);
       }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check projectile collision with other jungle-scale players (PvP)
+   * Skips the projectile owner and non-jungle-stage players
+   */
+  private checkPlayerCollision(
+    world: World,
+    io: Server,
+    projectileId: string,
+    posComp: PositionComponent,
+    projComp: ProjectileComponent
+  ): boolean {
+    const projectilePos = { x: posComp.x, y: posComp.y };
+    const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
+
+    let hitPlayer = false;
+    let hitPlayerData: {
+      socketId: string;
+      pos: { x: number; y: number };
+      damage: number;
+      killed: boolean;
+      entity: EntityId;
+    } | null = null;
+
+    forEachPlayer(world, (playerEntity, socketId) => {
+      if (hitPlayer) return; // Only hit one target per projectile
+
+      // Skip the projectile owner
+      if (socketId === projComp.ownerSocketId) return;
+
+      // Only hit jungle-scale players (Stage 3+)
+      const stage = getStageBySocketId(world, socketId);
+      if (!stage || !isJungleStage(stage.stage)) return;
+
+      // Get player position
+      const playerPos = getPositionBySocketId(world, socketId);
+      if (!playerPos) return;
+
+      const playerPosition = { x: playerPos.x, y: playerPos.y };
+      const playerRadius = getPlayerRadius(stage.stage);
+      const dist = distance(projectilePos, playerPosition);
+      const hitDist = collisionRadius + playerRadius;
+
+      if (dist < hitDist) {
+        hitPlayer = true;
+        projComp.hitEntityId = playerEntity;
+
+        // Apply damage to target player
+        const targetEnergy = getEnergyBySocketId(world, socketId);
+        if (targetEnergy) {
+          const newEnergy = Math.max(0, targetEnergy.current - projComp.damage);
+          subtractEnergyBySocketId(world, socketId, projComp.damage);
+
+          hitPlayerData = {
+            socketId,
+            pos: playerPosition,
+            damage: projComp.damage,
+            killed: newEnergy <= 0,
+            entity: playerEntity,
+          };
+        }
+      }
+    });
+
+    // Process player hit
+    if (hitPlayerData) {
+      const { socketId, pos, damage, killed } = hitPlayerData;
+
+      io.emit('projectileHit', {
+        type: 'projectileHit',
+        projectileId,
+        targetId: socketId,
+        targetType: 'player',
+        hitPosition: pos,
+        damage,
+        killed,
+      });
+
+      logger.info({
+        event: 'projectile_hit_player',
+        shooter: projComp.ownerSocketId,
+        targetId: socketId,
+        damage,
+        killed,
+      });
+
+      // Note: Death handling is done by DeathSystem when energy reaches 0
+
       return true;
     }
 

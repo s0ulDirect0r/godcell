@@ -72,6 +72,7 @@ import {
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
   buildProjectilesRecord,
+  buildTrapsRecord,
   // Direct component access helpers
   getPlayerBySocketId,
   hasPlayer,
@@ -110,6 +111,7 @@ import {
   JungleCreatureAISystem,
   PseudopodSystem,
   ProjectileSystem,
+  TrapSystem,
   PredationSystem,
   SwarmCollisionSystem,
   TreeCollisionSystem,
@@ -519,6 +521,7 @@ systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
 // Abilities
 systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
 systemRunner.register(new ProjectileSystem(), SystemPriority.PROJECTILE);
+systemRunner.register(new TrapSystem(), SystemPriority.TRAP);
 
 // Collisions
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
@@ -582,6 +585,7 @@ io.on('connection', (socket) => {
     cyberBugs: buildCyberBugsRecord(world),
     jungleCreatures: buildJungleCreaturesRecord(world),
     projectiles: buildProjectilesRecord(world),
+    traps: buildTrapsRecord(world),
   };
   socket.emit('worldSnapshot', worldSnapshot);
 
@@ -725,6 +729,11 @@ io.on('connection', (socket) => {
   socket.on('meleeAttack', (message: MeleeAttackMessage) => {
     // Delegate to AbilitySystem (validates specialization, cooldown, energy, etc.)
     abilitySystem.fireMeleeAttack(socket.id, message.attackType, message.targetX, message.targetY);
+  });
+
+  socket.on('placeTrap', () => {
+    // Delegate to AbilitySystem (validates specialization, cooldown, energy, max traps, etc.)
+    abilitySystem.placeTrap(socket.id);
   });
 
   // ============================================
