@@ -38,9 +38,13 @@ import type {
   JungleCreatureSpawnedMessage,
   JungleCreatureKilledMessage,
   JungleCreatureMovedMessage,
-  OrganismProjectileSpawnedMessage,
-  OrganismProjectileHitMessage,
-  OrganismProjectileRetractedMessage,
+  ProjectileSpawnedMessage,
+  ProjectileHitMessage,
+  ProjectileRetractedMessage,
+  // Stage 3 specialization messages
+  CombatSpecialization,
+  SpecializationPromptMessage,
+  SpecializationSelectedMessage,
 } from '@godcell/shared';
 import {
   World,
@@ -78,8 +82,8 @@ import {
   upsertJungleCreature,
   removeJungleCreature,
   updateJungleCreaturePosition,
-  upsertOrganismProjectile,
-  removeOrganismProjectile,
+  upsertProjectile,
+  removeProjectile,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -204,13 +208,23 @@ export class SocketManager {
   }
 
   /**
-   * Send organism projectile fire (Stage 3+ attack for hunting fauna)
+   * Send projectile fire (Stage 3 ranged specialization attack)
    */
-  sendOrganismProjectileFire(targetX: number, targetY: number): void {
-    this.socket.emit('organismProjectileFire', {
-      type: 'organismProjectileFire',
+  sendProjectileFire(targetX: number, targetY: number): void {
+    this.socket.emit('projectileFire', {
+      type: 'projectileFire',
       targetX,
       targetY,
+    });
+  }
+
+  /**
+   * Send combat specialization selection (Stage 3)
+   */
+  sendSelectSpecialization(specialization: CombatSpecialization): void {
+    this.socket.emit('selectSpecialization', {
+      type: 'selectSpecialization',
+      specialization,
     });
   }
 
@@ -470,18 +484,33 @@ export class SocketManager {
       updateJungleCreaturePosition(this.world, data.creatureId, data.position.x, data.position.y, data.state);
     });
 
-    // OrganismProjectile events
-    this.socket.on('organismProjectileSpawned', (data: OrganismProjectileSpawnedMessage) => {
-      upsertOrganismProjectile(this.world, data.projectile);
+    // Projectile events (Stage 3 ranged specialization)
+    this.socket.on('projectileSpawned', (data: ProjectileSpawnedMessage) => {
+      upsertProjectile(this.world, data.projectile);
       eventBus.emit(data);
     });
 
-    this.socket.on('organismProjectileHit', (data: OrganismProjectileHitMessage) => {
+    this.socket.on('projectileHit', (data: ProjectileHitMessage) => {
       eventBus.emit(data);
     });
 
-    this.socket.on('organismProjectileRetracted', (data: OrganismProjectileRetractedMessage) => {
-      removeOrganismProjectile(this.world, data.projectileId);
+    this.socket.on('projectileRetracted', (data: ProjectileRetractedMessage) => {
+      removeProjectile(this.world, data.projectileId);
+      eventBus.emit(data);
+    });
+
+    // ============================================
+    // Stage 3 Specialization Events
+    // ============================================
+
+    this.socket.on('specializationPrompt', (data: SpecializationPromptMessage) => {
+      // Only show modal for local player
+      if (data.playerId === this._myPlayerId) {
+        eventBus.emit(data);
+      }
+    });
+
+    this.socket.on('specializationSelected', (data: SpecializationSelectedMessage) => {
       eventBus.emit(data);
     });
   }
@@ -521,8 +550,8 @@ export class SocketManager {
     if (snapshot.jungleCreatures) {
       Object.values(snapshot.jungleCreatures).forEach(c => upsertJungleCreature(this.world, c));
     }
-    if (snapshot.organismProjectiles) {
-      Object.values(snapshot.organismProjectiles).forEach(p => upsertOrganismProjectile(this.world, p));
+    if (snapshot.projectiles) {
+      Object.values(snapshot.projectiles).forEach(p => upsertProjectile(this.world, p));
     }
   }
 
@@ -542,7 +571,7 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.DataFruit, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.CyberBug, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.JungleCreature, (entity) => toDestroy.push(entity));
-    this.world.forEachWithTag(Tags.OrganismProjectile, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.Projectile, (entity) => toDestroy.push(entity));
     toDestroy.forEach(entity => this.world.destroyEntity(entity));
 
     // Clear string ID lookups

@@ -13,6 +13,7 @@ import { DebugOverlay } from './ui/DebugOverlay';
 import { HUDOverlay } from './render/hud/HUDOverlay';
 import { DevPanel } from './ui/DevPanel';
 import { StartScreen, type PreGameSettings } from './ui/StartScreen';
+import { SpecializationModal } from './ui/SpecializationModal';
 
 // ============================================
 // URL Flags
@@ -149,12 +150,13 @@ function initializeGame(settings: PreGameSettings): void {
     const myPlayer = getLocalPlayer(world);
     const stage = myPlayer?.stage;
 
-    // Stage 3+ uses organism projectile (for hunting jungle fauna)
+    // Stage 3+ with ranged specialization uses projectile
     // Stage 2 uses pseudopod beam (for PvP)
+    // Note: Server validates specialization - just send projectileFire for Stage 3+
     if (stage === EvolutionStage.CYBER_ORGANISM ||
         stage === EvolutionStage.HUMANOID ||
         stage === EvolutionStage.GODCELL) {
-      socketManager.sendOrganismProjectileFire(event.targetX, event.targetY);
+      socketManager.sendProjectileFire(event.targetX, event.targetY);
     } else {
       socketManager.sendPseudopodFire(event.targetX, event.targetY);
     }
@@ -162,6 +164,19 @@ function initializeGame(settings: PreGameSettings): void {
 
   eventBus.on('client:sprint', (event) => {
     socketManager.sendSprint(event.sprinting);
+  });
+
+  // Stage 3 specialization selection
+  eventBus.on('client:selectSpecialization', (event) => {
+    socketManager.sendSelectSpecialization(event.specialization);
+  });
+
+  // Show specialization modal when server prompts
+  eventBus.on('specializationPrompt', (event) => {
+    new SpecializationModal({
+      playerId: event.playerId,
+      deadline: event.deadline,
+    });
   });
 
   // Wire mouse look event to update InputManager's yaw (for movement rotation)

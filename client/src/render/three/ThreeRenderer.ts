@@ -25,7 +25,7 @@ import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem
 import { DataFruitRenderSystem } from '../systems/DataFruitRenderSystem';
 import { CyberBugRenderSystem } from '../systems/CyberBugRenderSystem';
 import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSystem';
-import { OrganismProjectileRenderSystem } from '../systems/OrganismProjectileRenderSystem';
+import { ProjectileRenderSystem } from '../systems/ProjectileRenderSystem';
 import {
   World,
   Tags,
@@ -99,7 +99,7 @@ export class ThreeRenderer implements Renderer {
   private dataFruitRenderSystem!: DataFruitRenderSystem;
   private cyberBugRenderSystem!: CyberBugRenderSystem;
   private jungleCreatureRenderSystem!: JungleCreatureRenderSystem;
-  private organismProjectileRenderSystem!: OrganismProjectileRenderSystem;
+  private projectileRenderSystem!: ProjectileRenderSystem;
 
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
@@ -171,8 +171,8 @@ export class ThreeRenderer implements Renderer {
     this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem();
     this.jungleCreatureRenderSystem.init(this.scene, this.world);
 
-    this.organismProjectileRenderSystem = new OrganismProjectileRenderSystem();
-    this.organismProjectileRenderSystem.init(this.scene, this.world);
+    this.projectileRenderSystem = new ProjectileRenderSystem();
+    this.projectileRenderSystem.init(this.scene, this.world);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -511,7 +511,7 @@ export class ThreeRenderer implements Renderer {
     this.dataFruitRenderSystem.sync(this.environmentSystem.getMode());
     this.cyberBugRenderSystem.sync(this.environmentSystem.getMode());
     this.jungleCreatureRenderSystem.sync(this.environmentSystem.getMode());
-    this.organismProjectileRenderSystem.sync(this.environmentSystem.getMode());
+    this.projectileRenderSystem.sync(this.environmentSystem.getMode());
 
     // Apply spawn animations (scale/opacity) to entities
     this.applySpawnAnimations(spawnProgress);
@@ -532,8 +532,8 @@ export class ThreeRenderer implements Renderer {
     this.cyberBugRenderSystem.updateAnimations(dt);
     this.jungleCreatureRenderSystem.interpolate();
     this.jungleCreatureRenderSystem.updateAnimations(dt);
-    this.organismProjectileRenderSystem.interpolate();
-    this.organismProjectileRenderSystem.updateAnimations(dt);
+    this.projectileRenderSystem.interpolate();
+    this.projectileRenderSystem.updateAnimations(dt);
 
     // Build data maps for TrailSystem by querying World
     const playersForTrail = this.buildPlayersForTrail();
@@ -866,7 +866,7 @@ export class ThreeRenderer implements Renderer {
     this.dataFruitRenderSystem.dispose();
     this.cyberBugRenderSystem.dispose();
     this.jungleCreatureRenderSystem.dispose();
-    this.organismProjectileRenderSystem.dispose();
+    this.projectileRenderSystem.dispose();
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());

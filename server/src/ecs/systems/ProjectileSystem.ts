@@ -1,7 +1,7 @@
 // ============================================
-// Organism Projectile System
-// Handles Stage 3 projectile movement and collision with fauna
-// Cloned from PseudopodSystem, targets CyberBugs and JungleCreatures
+// Projectile System
+// Handles Stage 3 ranged specialization projectile movement and collision
+// Targets CyberBugs, JungleCreatures, and other jungle-scale players
 // ============================================
 
 import type { Server } from 'socket.io';
@@ -9,8 +9,7 @@ import { GAME_CONFIG, Tags, type World, Components } from '@godcell/shared';
 import type {
   PositionComponent,
   VelocityComponent,
-  OrganismProjectileComponent,
-  EnergyComponent,
+  ProjectileComponent,
   CyberBugComponent,
   JungleCreatureComponent,
   EntityId,
@@ -21,7 +20,6 @@ import {
   destroyEntity,
   forEachCyberBug,
   forEachJungleCreature,
-  getEntityBySocketId,
   addEnergyBySocketId,
   setMaxEnergyBySocketId,
   getEnergyBySocketId,
@@ -30,24 +28,24 @@ import { distance } from '../../helpers';
 import { logger } from '../../logger';
 
 /**
- * OrganismProjectileSystem - Manages Stage 3 attack projectiles
+ * ProjectileSystem - Manages Stage 3 ranged specialization attack projectiles
  *
  * Handles:
  * - Projectile movement
  * - Collision detection with CyberBugs and JungleCreatures
  * - Damage application and kill rewards
  */
-export class OrganismProjectileSystem implements System {
-  readonly name = 'OrganismProjectileSystem';
+export class ProjectileSystem implements System {
+  readonly name = 'ProjectileSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
     const toRemove: EntityId[] = [];
 
-    // Iterate organism projectile entities
-    world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+    // Iterate projectile entities
+    world.forEachWithTag(Tags.Projectile, (entity) => {
       const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
-      const projComp = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+      const projComp = world.getComponent<ProjectileComponent>(entity, Components.Projectile);
       if (!posComp || !velComp || !projComp) return;
 
       const projectileId = getStringIdByEntity(entity);
@@ -69,8 +67,8 @@ export class OrganismProjectileSystem implements System {
       if (projComp.distanceTraveled >= projComp.maxDistance) {
         projComp.state = 'missed';
         toRemove.push(entity);
-        io.emit('organismProjectileRetracted', {
-          type: 'organismProjectileRetracted',
+        io.emit('projectileRetracted', {
+          type: 'projectileRetracted',
           projectileId,
         });
         return;
@@ -99,10 +97,10 @@ export class OrganismProjectileSystem implements System {
     _projectileEntity: EntityId,
     projectileId: string,
     posComp: PositionComponent,
-    projComp: OrganismProjectileComponent
+    projComp: ProjectileComponent
   ): boolean {
     const projectilePos = { x: posComp.x, y: posComp.y };
-    const collisionRadius = GAME_CONFIG.ORGANISM_PROJECTILE_COLLISION_RADIUS;
+    const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
 
     // Check CyberBugs first (smaller, easier to hit)
     let hitBug = false;
@@ -144,8 +142,8 @@ export class OrganismProjectileSystem implements System {
           capacityGained: bugComp.capacityIncrease,
         });
 
-        io.emit('organismProjectileHit', {
-          type: 'organismProjectileHit',
+        io.emit('projectileHit', {
+          type: 'projectileHit',
           projectileId,
           targetId: bug.id,
           targetType: 'cyberbug',
@@ -155,7 +153,7 @@ export class OrganismProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'organism_projectile_kill_bug',
+          event: 'projectile_kill_bug',
           shooter: projComp.ownerSocketId,
           bugId: bug.id,
           energyGained: bugComp.value,
@@ -221,8 +219,8 @@ export class OrganismProjectileSystem implements System {
           capacityGained: creatureComp.capacityIncrease,
         });
 
-        io.emit('organismProjectileHit', {
-          type: 'organismProjectileHit',
+        io.emit('projectileHit', {
+          type: 'projectileHit',
           projectileId,
           targetId: creature.id,
           targetType: 'junglecreature',
@@ -232,7 +230,7 @@ export class OrganismProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'organism_projectile_kill_creature',
+          event: 'projectile_kill_creature',
           shooter: projComp.ownerSocketId,
           creatureId: creature.id,
           variant: creatureComp.variant,
