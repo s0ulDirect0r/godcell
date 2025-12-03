@@ -457,7 +457,7 @@ export class AbilitySystem {
   /**
    * Fire melee attack (Stage 3 Melee specialization only)
    * Performs an arc-based instant hit check with knockback
-   * @param attackType 'swipe' (180°) or 'thrust' (30°)
+   * @param attackType 'swipe' (90°) or 'thrust' (30°)
    * @returns true if attack was executed successfully
    */
   fireMeleeAttack(playerId: string, attackType: MeleeAttackType, targetX: number, targetY: number): boolean {
@@ -535,8 +535,11 @@ export class AbilitySystem {
       const targetPosition = { x: targetPos.x, y: targetPos.y };
       const dist = this.distance(playerPosition, targetPosition);
 
-      // Check if within range
-      if (dist > range) return;
+      // Get target's collision radius (cyber-organism is 144px, etc.)
+      const targetRadius = this.ctx.getPlayerRadius(targetStage.stage);
+
+      // Check if within range (min 200px to match visual, max = range + target size)
+      if (dist < 200 || dist > range + targetRadius) return;
 
       // Check if within arc
       const toTargetAngle = Math.atan2(targetPos.y - playerPosition.y, targetPos.x - playerPosition.x);
@@ -586,8 +589,8 @@ export class AbilitySystem {
       const bugPosition = { x: bugPos.x, y: bugPos.y };
       const dist = this.distance(playerPosition, bugPosition);
 
-      // Check if within range (use bug size as effective collision radius)
-      if (dist > range + bugComp.size) return;
+      // Check if within range (min 200px to match visual, max = range + bug size)
+      if (dist < 200 || dist > range + bugComp.size) return;
 
       // Check if within arc
       const toTargetAngle = Math.atan2(bugPos.y - playerPosition.y, bugPos.x - playerPosition.x);
@@ -643,8 +646,8 @@ export class AbilitySystem {
       const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
       const dist = this.distance(playerPosition, creaturePosition);
 
-      // Check if within range (use creature size as effective collision radius)
-      if (dist > range + creatureComp.size) return;
+      // Check if within range (min 200px to match visual, max = range + creature size)
+      if (dist < 200 || dist > range + creatureComp.size) return;
 
       // Check if within arc
       const toTargetAngle = Math.atan2(creaturePos.y - playerPosition.y, creaturePos.x - playerPosition.x);
@@ -743,16 +746,37 @@ export class AbilitySystem {
     const player = getPlayerBySocketId(world, playerId);
     const entity = getEntityBySocketId(playerId);
 
-    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
+    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) {
+      logger.debug({ event: 'trap_place_denied', playerId, reason: 'missing_components' });
+      return false;
+    }
 
     // Stage 3+ only (Cyber-Organism and above)
-    if (!isJungleStage(stageComp.stage)) return false;
-    if (energyComp.current <= 0) return false;
-    if (stageComp.isEvolving) return false;
+    if (!isJungleStage(stageComp.stage)) {
+      logger.debug({ event: 'trap_place_denied', playerId, reason: 'wrong_stage', stage: stageComp.stage });
+      return false;
+    }
+    if (energyComp.current <= 0) {
+      logger.debug({ event: 'trap_place_denied', playerId, reason: 'no_energy' });
+      return false;
+    }
+    if (stageComp.isEvolving) {
+      logger.debug({ event: 'trap_place_denied', playerId, reason: 'evolving' });
+      return false;
+    }
 
     // Check specialization - must be traps
     const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
-    if (!specComp || specComp.specialization !== 'traps') return false;
+    if (!specComp || specComp.specialization !== 'traps') {
+      logger.debug({
+        event: 'trap_place_denied',
+        playerId,
+        reason: 'wrong_specialization',
+        hasSpec: !!specComp,
+        spec: specComp?.specialization ?? 'none',
+      });
+      return false;
+    }
 
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;

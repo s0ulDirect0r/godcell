@@ -1104,14 +1104,14 @@ export const GAME_CONFIG = {
   // Melee Pathway - close-range swipe and thrust attacks
   // Energy costs: 0.5% of 3000 = 15
   // Damage: 5% of 3000 = 150
-  MELEE_SWIPE_RANGE: 288,             // 2x player radius (144 * 2)
-  MELEE_SWIPE_ARC: 180,               // degrees (semicircle)
+  MELEE_SWIPE_RANGE: 732,             // Max range (50% larger arc area)
+  MELEE_SWIPE_ARC: 90,                // degrees (quarter arc)
   MELEE_SWIPE_DAMAGE: 150,            // 5% of Stage 3 maxEnergy
   MELEE_SWIPE_KNOCKBACK: 200,         // pixels push distance
   MELEE_SWIPE_ENERGY_COST: 15,        // 0.5% of Stage 3 maxEnergy
   MELEE_SWIPE_COOLDOWN: 200,          // ms between attacks (very fast)
 
-  MELEE_THRUST_RANGE: 288,            // 2x player radius
+  MELEE_THRUST_RANGE: 732,            // Max range (50% larger arc area)
   MELEE_THRUST_ARC: 30,               // degrees (narrow cone)
   MELEE_THRUST_DAMAGE: 150,           // 5% of Stage 3 maxEnergy
   MELEE_THRUST_KNOCKBACK: 200,        // pixels push distance
