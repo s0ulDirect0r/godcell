@@ -73,6 +73,15 @@ export class InputState {
         e.preventDefault();
       }
     });
+
+    // Prevent context menu on right-click (needed for RMB game actions)
+    window.addEventListener('contextmenu', (e) => {
+      // Only prevent on game canvas, allow on UI elements
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'CANVAS' || target.closest('canvas')) {
+        e.preventDefault();
+      }
+    });
   }
 
   /**
