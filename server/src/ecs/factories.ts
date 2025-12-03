@@ -41,7 +41,7 @@ import type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
-  OrganismProjectileComponent,
+  ProjectileComponent,
 } from '@godcell/shared';
 
 // ============================================
@@ -76,7 +76,7 @@ export function createWorld(): World {
   world.registerStore<DataFruitComponent>(Components.DataFruit, new ComponentStore());
   world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
-  world.registerStore<OrganismProjectileComponent>(Components.OrganismProjectile, new ComponentStore());
+  world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -1847,19 +1847,32 @@ export function createJungleCreature(
 }
 
 /**
- * Create an OrganismProjectile entity (Stage 3 attack projectile).
+ * Create a Projectile entity (Stage 3 ranged specialization attack).
  * Cloned from createPseudopod pattern.
  */
-export function createOrganismProjectile(
+export interface ProjectileOptions {
+  speed?: number;
+  damage?: number;
+  maxDistance?: number;
+  collisionRadius?: number;
+}
+
+export function createProjectile(
   world: World,
   projectileId: string,
   ownerId: EntityId,
   ownerSocketId: string,
   startPos: Position,
   targetPos: Position,
-  color: string
+  color: string,
+  options?: ProjectileOptions
 ): EntityId {
   const entity = world.createEntity();
+
+  // Use provided options or fall back to default config values
+  const speed = options?.speed ?? GAME_CONFIG.PROJECTILE_SPEED;
+  const damage = options?.damage ?? GAME_CONFIG.PROJECTILE_DAMAGE;
+  const maxDistance = options?.maxDistance ?? GAME_CONFIG.PROJECTILE_MAX_DISTANCE;
 
   // Calculate direction vector
   const dx = targetPos.x - startPos.x;
@@ -1874,21 +1887,21 @@ export function createOrganismProjectile(
     z: 0,
   });
   world.addComponent<VelocityComponent>(entity, Components.Velocity, {
-    x: dirX * GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
-    y: dirY * GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
+    x: dirX * speed,
+    y: dirY * speed,
     z: 0,
   });
-  world.addComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile, {
+  world.addComponent<ProjectileComponent>(entity, Components.Projectile, {
     ownerId,
     ownerSocketId,
-    damage: GAME_CONFIG.ORGANISM_PROJECTILE_DAMAGE,
-    capacitySteal: GAME_CONFIG.ORGANISM_PROJECTILE_CAPACITY_STEAL,
+    damage,
+    capacitySteal: GAME_CONFIG.PROJECTILE_CAPACITY_STEAL,
     startX: startPos.x,
     startY: startPos.y,
     targetX: targetPos.x,
     targetY: targetPos.y,
-    speed: GAME_CONFIG.ORGANISM_PROJECTILE_SPEED,
-    maxDistance: GAME_CONFIG.ORGANISM_PROJECTILE_MAX_DISTANCE,
+    speed,
+    maxDistance,
     distanceTraveled: 0,
     state: 'traveling',
     hitEntityId: undefined,
@@ -1896,7 +1909,7 @@ export function createOrganismProjectile(
     createdAt: Date.now(),
   });
 
-  world.addTag(entity, Tags.OrganismProjectile);
+  world.addTag(entity, Tags.Projectile);
   registerStringIdMapping(entity, projectileId);
 
   return entity;
@@ -2193,13 +2206,13 @@ export function buildJungleCreaturesRecord(world: World): Record<string, {
 }
 
 // ============================================
-// OrganismProjectile Query Helpers
+// Projectile Query Helpers
 // ============================================
 
 /**
- * OrganismProjectile snapshot for collision detection.
+ * Projectile snapshot for collision detection.
  */
-export interface OrganismProjectileSnapshot {
+export interface ProjectileSnapshot {
   entity: EntityId;
   id: string;
   position: Position;
@@ -2211,20 +2224,20 @@ export interface OrganismProjectileSnapshot {
 }
 
 /**
- * Iterate over all OrganismProjectile entities.
+ * Iterate over all Projectile entities.
  */
-export function forEachOrganismProjectile(
+export function forEachProjectile(
   world: World,
   callback: (
     entity: EntityId,
     id: string,
     position: PositionComponent,
-    projectile: OrganismProjectileComponent
+    projectile: ProjectileComponent
   ) => void
 ): void {
-  world.forEachWithTag(Tags.OrganismProjectile, (entity) => {
+  world.forEachWithTag(Tags.Projectile, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
-    const projectile = world.getComponent<OrganismProjectileComponent>(entity, Components.OrganismProjectile);
+    const projectile = world.getComponent<ProjectileComponent>(entity, Components.Projectile);
     const id = getStringIdByEntity(entity);
     if (pos && projectile && id) {
       callback(entity, id, pos, projectile);
@@ -2233,11 +2246,11 @@ export function forEachOrganismProjectile(
 }
 
 /**
- * Get all OrganismProjectiles as snapshots.
+ * Get all Projectiles as snapshots.
  */
-export function getAllOrganismProjectileSnapshots(world: World): OrganismProjectileSnapshot[] {
-  const snapshots: OrganismProjectileSnapshot[] = [];
-  forEachOrganismProjectile(world, (entity, id, pos, projectile) => {
+export function getAllProjectileSnapshots(world: World): ProjectileSnapshot[] {
+  const snapshots: ProjectileSnapshot[] = [];
+  forEachProjectile(world, (entity, id, pos, projectile) => {
     snapshots.push({
       entity,
       id,
@@ -2253,9 +2266,9 @@ export function getAllOrganismProjectileSnapshots(world: World): OrganismProject
 }
 
 /**
- * Convert ECS OrganismProjectiles to network format.
+ * Convert ECS Projectiles to network format.
  */
-export function buildOrganismProjectilesRecord(world: World): Record<string, {
+export function buildProjectilesRecord(world: World): Record<string, {
   id: string;
   ownerId: string;
   position: Position;
@@ -2272,7 +2285,7 @@ export function buildOrganismProjectilesRecord(world: World): Record<string, {
     color: string;
   }> = {};
 
-  forEachOrganismProjectile(world, (_entity, id, pos, projectile) => {
+  forEachProjectile(world, (_entity, id, pos, projectile) => {
     result[id] = {
       id,
       ownerId: projectile.ownerSocketId,

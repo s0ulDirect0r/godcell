@@ -14,6 +14,7 @@ import type {
   VelocityComponent,
   InputComponent,
   SprintComponent,
+  KnockbackComponent,
 } from '@godcell/shared';
 import type { System } from './types';
 import { getConfig } from '../../dev';
@@ -114,6 +115,28 @@ export class MovementSystem implements System {
       if (stage === EvolutionStage.GODCELL) {
         const currentVZ = velocityComponent.z ?? 0;
         velocityComponent.z = currentVZ + inputNormZ * acceleration * deltaTime;
+      }
+
+      // Apply knockback force (from melee attacks, etc.)
+      const knockbackComponent = world.getComponent<KnockbackComponent>(entity, Components.Knockback);
+      if (knockbackComponent) {
+        // Apply knockback to velocity (instant impulse, not additive)
+        velocityComponent.x += knockbackComponent.forceX * deltaTime;
+        velocityComponent.y += knockbackComponent.forceY * deltaTime;
+
+        // Decay knockback force over time
+        const decay = knockbackComponent.decayRate * deltaTime;
+        const forceMag = Math.sqrt(knockbackComponent.forceX * knockbackComponent.forceX + knockbackComponent.forceY * knockbackComponent.forceY);
+
+        if (forceMag <= decay || forceMag < 1) {
+          // Knockback exhausted - remove component
+          world.removeComponent(entity, Components.Knockback);
+        } else {
+          // Reduce knockback force
+          const scale = (forceMag - decay) / forceMag;
+          knockbackComponent.forceX *= scale;
+          knockbackComponent.forceY *= scale;
+        }
       }
 
       // Calculate max speed (2D for most stages, 3D for godcell)
