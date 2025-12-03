@@ -31,6 +31,26 @@ import { getConfig } from '../../dev';
 import { logger } from '../../logger';
 import { getPlayerRadius, isSoupStage } from '../../helpers';
 
+// Pre-collected target snapshots for O(1) collision checks per beam
+interface PlayerTargetSnapshot {
+  entity: EntityId;
+  playerId: string;
+  x: number;
+  y: number;
+  radius: number;
+  energyComp: EnergyComponent;
+  isStunned: boolean;
+}
+
+interface SwarmTargetSnapshot {
+  entity: EntityId;
+  swarmId: string;
+  x: number;
+  y: number;
+  size: number;
+  energyComp: EnergyComponent;
+}
+
 /**
  * PseudopodSystem - Manages pseudopod projectiles
  *
@@ -47,6 +67,40 @@ export class PseudopodSystem implements System {
 
     // Skip if using hitscan mode (beams are visual-only and auto-removed)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;
+
+    // Pre-collect soup-stage players once per tick (avoids O(beams × players))
+    const playerTargets: PlayerTargetSnapshot[] = [];
+    forEachPlayer(world, (entity, playerId) => {
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+      if (!stageComp || !energyComp || !posComp) return;
+      if (!isSoupStage(stageComp.stage)) return;
+      if (energyComp.current <= 0 || stageComp.isEvolving) return;
+      playerTargets.push({
+        entity,
+        playerId,
+        x: posComp.x,
+        y: posComp.y,
+        radius: getPlayerRadius(stageComp.stage),
+        energyComp,
+        isStunned: !!(stunnedComp?.until && Date.now() < stunnedComp.until),
+      });
+    });
+
+    // Pre-collect swarms once per tick (avoids O(beams × swarms))
+    const swarmTargets: SwarmTargetSnapshot[] = [];
+    forEachSwarm(world, (entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
+      swarmTargets.push({
+        entity,
+        swarmId,
+        x: posComp.x,
+        y: posComp.y,
+        size: swarmComp.size,
+        energyComp,
+      });
+    });
 
     const toRemove: EntityId[] = [];
 
@@ -79,8 +133,8 @@ export class PseudopodSystem implements System {
         return;
       }
 
-      // Check collision with players (multi-cells only)
-      this.checkBeamCollisionECS(world, io, entity, beamId, posComp, pseudopodComp);
+      // Check collision with pre-collected targets
+      this.checkBeamCollisionFast(world, io, beamId, posComp, pseudopodComp, playerTargets, swarmTargets);
       // Beam continues traveling even if it hits (can hit multiple targets)
     });
 
@@ -240,6 +294,133 @@ export class PseudopodSystem implements System {
     });
 
     // Remove killed swarms after iteration
+    for (const swarmId of swarmsToRemove) {
+      removeSwarm(world, swarmId);
+    }
+
+    return hitSomething;
+  }
+
+  /**
+   * Fast beam collision check using pre-collected targets
+   * Uses squared distance to avoid sqrt in hot loop
+   */
+  private checkBeamCollisionFast(
+    world: World,
+    io: Server,
+    beamId: string,
+    posComp: PositionComponent,
+    pseudopodComp: PseudopodComponent,
+    playerTargets: PlayerTargetSnapshot[],
+    swarmTargets: SwarmTargetSnapshot[]
+  ): boolean {
+    // Get shooter for energy rewards
+    const shooterEntity = getEntityBySocketId(pseudopodComp.ownerSocketId);
+    if (shooterEntity === undefined) return false;
+    const shooterStage = world.getComponent<StageComponent>(shooterEntity, Components.Stage);
+    const shooterEnergy = world.getComponent<EnergyComponent>(shooterEntity, Components.Energy);
+    if (!shooterStage || !shooterEnergy) return false;
+    if (!isSoupStage(shooterStage.stage)) return false;
+
+    const hitEntities = pseudopodComp.hitEntities;
+    const beamX = posComp.x;
+    const beamY = posComp.y;
+    const beamHalfWidth = pseudopodComp.width / 2;
+
+    let hitSomething = false;
+
+    // Check collision with pre-collected players (squared distance)
+    for (const target of playerTargets) {
+      if (target.playerId === pseudopodComp.ownerSocketId) continue;
+      if (hitEntities.has(target.entity)) continue;
+      if (target.isStunned) continue;
+
+      const dx = beamX - target.x;
+      const dy = beamY - target.y;
+      const distSq = dx * dx + dy * dy;
+      const collisionDist = beamHalfWidth + target.radius;
+      const collisionDistSq = collisionDist * collisionDist;
+
+      if (distSq < collisionDistSq) {
+        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+        target.energyComp.current -= damage;
+        hitSomething = true;
+        hitEntities.add(target.entity);
+
+        const damageTracking = getDamageTrackingBySocketId(world, target.playerId);
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'beam';
+          damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+          damageTracking.pseudopodHitRate = damage;
+          damageTracking.pseudopodHitExpiresAt = Date.now() + 1500;
+        }
+
+        logger.info({
+          event: 'beam_hit',
+          shooter: pseudopodComp.ownerSocketId,
+          target: target.playerId,
+          damage,
+          targetEnergyRemaining: target.energyComp.current.toFixed(0),
+        });
+
+        io.emit('pseudopodHit', {
+          type: 'pseudopodHit',
+          beamId,
+          targetId: target.playerId,
+          hitPosition: { x: beamX, y: beamY },
+        });
+      }
+    }
+
+    // Check collision with pre-collected swarms (squared distance)
+    const swarmsToRemove: string[] = [];
+
+    for (const swarm of swarmTargets) {
+      if (hitEntities.has(swarm.entity)) continue;
+
+      const dx = beamX - swarm.x;
+      const dy = beamY - swarm.y;
+      const distSq = dx * dx + dy * dy;
+      const collisionDist = beamHalfWidth + swarm.size;
+      const collisionDistSq = collisionDist * collisionDist;
+
+      if (distSq < collisionDistSq) {
+        swarm.energyComp.current -= getConfig('PSEUDOPOD_DRAIN_RATE');
+        hitSomething = true;
+        hitEntities.add(swarm.entity);
+
+        logger.info({
+          event: 'beam_hit_swarm',
+          shooter: pseudopodComp.ownerSocketId,
+          swarmId: swarm.swarmId,
+          damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+          swarmEnergyRemaining: swarm.energyComp.current.toFixed(0),
+        });
+
+        if (swarm.energyComp.current <= 0) {
+          const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+          setMaxEnergyBySocketId(world, pseudopodComp.ownerSocketId, newMaxEnergy);
+          addEnergyBySocketId(world, pseudopodComp.ownerSocketId, GAME_CONFIG.SWARM_ENERGY_GAIN);
+          swarmsToRemove.push(swarm.swarmId);
+
+          io.emit('swarmConsumed', {
+            type: 'swarmConsumed',
+            swarmId: swarm.swarmId,
+            consumerId: pseudopodComp.ownerSocketId,
+            position: { x: swarm.x, y: swarm.y },
+          });
+
+          logger.info({
+            event: 'beam_kill_swarm',
+            shooter: pseudopodComp.ownerSocketId,
+            swarmId: swarm.swarmId,
+            maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
+            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+          });
+        }
+      }
+    }
+
     for (const swarmId of swarmsToRemove) {
       removeSwarm(world, swarmId);
     }

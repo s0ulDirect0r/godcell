@@ -24,15 +24,6 @@ import { processCyberBugRespawns } from '../../jungleFauna';
 // ============================================
 
 /**
- * Calculate distance between two positions
- */
-function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
  * Check if player is in jungle stage (Stage 3+)
  * CyberBugs only flee from jungle-stage players
  */
@@ -56,37 +47,37 @@ function generatePatrolTarget(homePosition: { x: number; y: number }): { x: numb
   };
 }
 
+// Pre-collected threat snapshot for O(1) lookup per bug
+interface ThreatSnapshot {
+  entityId: EntityId;
+  x: number;
+  y: number;
+}
+
 /**
- * Find the nearest jungle-stage player within flee range
+ * Find the nearest jungle-stage player from pre-collected threats
+ * Uses squared distance to avoid sqrt in hot loop
  */
-function findNearestThreat(
-  bugPosition: { x: number; y: number },
-  world: World
-): { entityId: EntityId; position: { x: number; y: number } } | null {
-  let nearestThreat: { entityId: EntityId; position: { x: number; y: number } } | null = null;
-  let nearestDist = GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS;
+function findNearestThreatFast(
+  bugX: number,
+  bugY: number,
+  threats: ThreatSnapshot[]
+): ThreatSnapshot | null {
+  let nearest: ThreatSnapshot | null = null;
+  const fleeRadiusSq = GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS * GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS;
+  let nearestDistSq = fleeRadiusSq;
 
-  forEachPlayer(world, (entity, _playerId) => {
-    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-    const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-    if (!energyComp || !posComp || !stageComp) return;
-
-    // Skip dead players and evolving players
-    if (energyComp.current <= 0 || stageComp.isEvolving) return;
-
-    // CyberBugs only flee from jungle-stage players (Stage 3+)
-    if (!isJungleStage(stageComp.stage)) return;
-
-    const playerPosition = { x: posComp.x, y: posComp.y };
-    const dist = distance(bugPosition, playerPosition);
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearestThreat = { entityId: entity, position: playerPosition };
+  for (const threat of threats) {
+    const dx = bugX - threat.x;
+    const dy = bugY - threat.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < nearestDistSq) {
+      nearestDistSq = distSq;
+      nearest = threat;
     }
-  });
+  }
 
-  return nearestThreat;
+  return nearest;
 }
 
 /**
@@ -101,14 +92,27 @@ export class CyberBugAISystem implements System {
   readonly name = 'CyberBugAISystem';
 
   update(world: World, deltaTime: number, io: Server): void {
+    // Pre-collect jungle-stage players once per tick (avoids O(bugs × players))
+    const threats: ThreatSnapshot[] = [];
+    forEachPlayer(world, (entity, _playerId) => {
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!energyComp || !posComp || !stageComp) return;
+      if (energyComp.current <= 0 || stageComp.isEvolving) return;
+      if (!isJungleStage(stageComp.stage)) return;
+      threats.push({ entityId: entity, x: posComp.x, y: posComp.y });
+    });
+
     forEachCyberBug(world, (entity, _bugId, posComp, bugComp) => {
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!velComp) return;
 
-      const bugPosition = { x: posComp.x, y: posComp.y };
+      const bugX = posComp.x;
+      const bugY = posComp.y;
 
-      // Check for nearby threats (jungle-stage players)
-      const threat = findNearestThreat(bugPosition, world);
+      // Check for nearby threats from pre-collected array
+      const threat = findNearestThreatFast(bugX, bugY, threats);
 
       if (threat) {
         // FLEE: Player detected within flee range
@@ -119,8 +123,8 @@ export class CyberBugAISystem implements System {
         }
 
         // Calculate direction AWAY from player
-        const dx = bugPosition.x - threat.position.x;
-        const dy = bugPosition.y - threat.position.y;
+        const dx = bugX - threat.x;
+        const dy = bugY - threat.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0) {
@@ -147,9 +151,11 @@ export class CyberBugAISystem implements System {
         } else if (bugComp.state === 'patrol') {
           // Check if reached patrol target
           if (bugComp.patrolTarget) {
-            const distToTarget = distance(bugPosition, bugComp.patrolTarget);
+            const patrolDx = bugComp.patrolTarget.x - bugX;
+            const patrolDy = bugComp.patrolTarget.y - bugY;
+            const distToTargetSq = patrolDx * patrolDx + patrolDy * patrolDy;
 
-            if (distToTarget < 30) {
+            if (distToTargetSq < 900) { // 30^2 = 900
               // Reached target, maybe go idle or pick new target
               if (Math.random() < 0.3) {
                 bugComp.state = 'idle';
@@ -161,8 +167,8 @@ export class CyberBugAISystem implements System {
 
             // Move toward patrol target
             if (bugComp.patrolTarget) {
-              const dx = bugComp.patrolTarget.x - bugPosition.x;
-              const dy = bugComp.patrolTarget.y - bugPosition.y;
+              const dx = bugComp.patrolTarget.x - bugX;
+              const dy = bugComp.patrolTarget.y - bugY;
               const dist = Math.sqrt(dx * dx + dy * dy);
 
               if (dist > 0) {

@@ -6,6 +6,7 @@
 import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
 import type { System } from './types';
+import { perfLogger } from '../../logger';
 
 /**
  * Registered system with its priority
@@ -36,10 +37,35 @@ export class SystemRunner {
 
   /**
    * Run all systems in priority order
+   * Tracks per-system timing and logs when tick is slow
    */
   update(world: World, deltaTime: number, io: Server): void {
+    const tickStart = performance.now();
+    const timings: { name: string; ms: number }[] = [];
+
     for (const { system } of this.systems) {
+      const systemStart = performance.now();
       system.update(world, deltaTime, io);
+      const systemMs = performance.now() - systemStart;
+      timings.push({ name: system.name, ms: systemMs });
+    }
+
+    const totalMs = performance.now() - tickStart;
+
+    // Log breakdown when tick takes > 10ms (should be < 5ms normally)
+    if (totalMs > 10) {
+      // Sort by time descending to show slowest first
+      const sorted = [...timings].sort((a, b) => b.ms - a.ms);
+      const breakdown = sorted
+        .filter(t => t.ms > 0.5) // Only show systems that took > 0.5ms
+        .map(t => `${t.name}:${t.ms.toFixed(1)}`)
+        .join(' ');
+
+      perfLogger.info({
+        event: 'slow_tick_breakdown',
+        totalMs: totalMs.toFixed(1),
+        breakdown: sorted.filter(t => t.ms > 0.5).map(t => ({ name: t.name, ms: parseFloat(t.ms.toFixed(2)) })),
+      }, `Slow tick ${totalMs.toFixed(1)}ms: ${breakdown}`);
     }
   }
 

@@ -279,6 +279,26 @@ function findNearestNutrient(botPosition: Position, world: World): Nutrient | nu
 }
 
 /**
+ * Fast nutrient lookup from pre-collected array (avoids ECS queries per bot)
+ * Uses squared distance to avoid sqrt in hot loop
+ */
+function findNearestNutrientFast(botPosition: Position, nutrients: NutrientSnapshot[]): NutrientSnapshot | null {
+  let nearest: NutrientSnapshot | null = null;
+  let nearestDistSq = BOT_CONFIG.SEARCH_RADIUS * BOT_CONFIG.SEARCH_RADIUS;
+
+  for (const nutrient of nutrients) {
+    const dx = botPosition.x - nutrient.x;
+    const dy = botPosition.y - nutrient.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < nearestDistSq) {
+      nearest = nutrient;
+      nearestDistSq = distSq;
+    }
+  }
+  return nearest;
+}
+
+/**
  * Steer bot towards target position (smooth turning)
  */
 function steerTowards(
@@ -496,9 +516,9 @@ function avoidSwarms(
 function updateBotAI(
   bot: BotController,
   currentTime: number,
-  world: World,
   obstacles: ObstacleSnapshot[],
-  swarms: EntropySwarm[]
+  swarms: EntropySwarm[],
+  nutrients: NutrientSnapshot[]
 ) {
   const player = bot.player;
 
@@ -509,10 +529,14 @@ function updateBotAI(
     return;
   }
 
-  // Single-cell bots: ONLY avoid singularities, NO swarm avoidance
-  // They gotta EAT - swarms are a risk they accept for food
+  // Single-cell bots: Avoid singularities + emergency swarm escape
+  // They're hungry and accept swarm risk, but will juke to break contact when caught
   const obstacleAvoidance = avoidObstacles(player.position, obstacles);
-  const avoidance = obstacleAvoidance;
+  const emergencySwarmAvoidance = avoidSwarmsEmergencyOnly(player.position, swarms);
+  const avoidance = {
+    x: obstacleAvoidance.x + emergencySwarmAvoidance.x,
+    y: obstacleAvoidance.y + emergencySwarmAvoidance.y,
+  };
 
   // PRIORITIZED STEERING - but HUNGRY by default
   // Only pure escape when REALLY close to singularity (> 0.8)
@@ -529,11 +553,11 @@ function updateBotAI(
     bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else if (avoidanceMag > AVOIDANCE_BLEND_THRESHOLD) {
     // MODERATE DANGER - blend avoidance with seeking (SEEKING weighted higher - hungry bots!)
-    const nearestNutrient = findNearestNutrient(player.position, world);
+    const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
     if (nearestNutrient) {
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
-      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+      const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
       // Blend: 60% seek, 40% avoid - hungry bots prioritize food!
       const seekWeight = 0.6;
       const avoidWeight = 0.4;
@@ -548,7 +572,7 @@ function updateBotAI(
     }
   } else {
     // Safe zone - normal seeking/wandering behavior
-    const nearestNutrient = findNearestNutrient(player.position, world);
+    const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
 
     if (nearestNutrient) {
       // SEEK state - move towards nutrient
@@ -556,7 +580,7 @@ function updateBotAI(
       bot.ai.targetNutrient = nearestNutrient.id;
 
       // Steer towards target (returns direction vector, not velocity)
-      const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+      const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
 
       // No avoidance needed, just seek
       bot.inputDirection.x = seekDirection.x;
@@ -681,7 +705,8 @@ function updateMultiCellBotAI(
   world: World,
   obstacles: ObstacleSnapshot[],
   swarms: EntropySwarm[],
-  abilitySystem: AbilitySystem
+  abilitySystem: AbilitySystem,
+  nutrients: NutrientSnapshot[]
 ) {
   const player = bot.player;
 
@@ -881,10 +906,10 @@ function updateMultiCellBotAI(
       bot.inputDirection.x = seekDirection.x;
       bot.inputDirection.y = seekDirection.y;
     } else {
-      // Seek nutrients (fallback behavior)
-      const nearestNutrient = findNearestNutrient(player.position, world);
+      // Seek nutrients (fallback behavior) - use pre-collected array
+      const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
       if (nearestNutrient) {
-        const seekDirection = steerTowards(player.position, nearestNutrient.position, bot.inputDirection);
+        const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
         bot.inputDirection.x = seekDirection.x;
         bot.inputDirection.y = seekDirection.y;
       } else {
@@ -910,6 +935,14 @@ function updateMultiCellBotAI(
  * Call this before the movement loop in the game tick
  * NOTE: obstacles migrated to ECS - queries ECS directly
  */
+// Simple nutrient snapshot for bot AI (avoids re-querying ECS per bot)
+interface NutrientSnapshot {
+  id: string;
+  x: number;
+  y: number;
+  value: number;
+}
+
 export function updateBots(
   currentTime: number,
   world: World,
@@ -919,6 +952,17 @@ export function updateBots(
   // Query obstacles from ECS once per tick (shared across all bots)
   const obstacles = getAllObstacleSnapshots(world);
 
+  // Pre-collect nutrients once per tick (avoids O(bots × nutrients) queries)
+  const nutrients: NutrientSnapshot[] = [];
+  world.forEachWithTag(Tags.Nutrient, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const nutrientComp = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
+    const id = getStringIdByEntity(entity);
+    if (pos && nutrientComp && id) {
+      nutrients.push({ id, x: pos.x, y: pos.y, value: nutrientComp.value });
+    }
+  });
+
   // Update single-cell bots (no abilities)
   for (const [botId, bot] of singleCellBots) {
     // Refresh bot.player from ECS (the cached reference goes stale each tick)
@@ -926,7 +970,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateBotAI(bot, currentTime, world, obstacles, swarms);
+    updateBotAI(bot, currentTime, obstacles, swarms, nutrients);
   }
 
   // Update multi-cell bots (hunter AI with EMP and pseudopod abilities)
@@ -936,7 +980,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem);
+    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem, nutrients);
   }
 }
 
