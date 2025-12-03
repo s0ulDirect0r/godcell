@@ -38,36 +38,42 @@ export class SwarmCollisionSystem implements System {
 
     // ============================================
     // Part 1: Swarm collision detection (damage + slow)
-    // Inlined from swarms.ts checkSwarmCollisions
+    // Optimized: Pre-filter players by stage to avoid O(S×P) on all players
     // ============================================
     const damagedPlayerIds = new Set<string>();
     const slowedPlayerIds = new Set<string>();
     const now = Date.now();
 
+    // Pre-collect soup-stage players (stages 1-2) - these are the only ones that interact with swarms
+    // This avoids checking stage inside the nested loop
+    const soupPlayers: { entity: number; playerId: string; energyComp: EnergyComponent; posComp: PositionComponent }[] = [];
+    forEachPlayer(world, (entity, playerId) => {
+      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!energyComp || !posComp || !stageComp) return;
+      if (energyComp.current <= 0 || stageComp.isEvolving) return;
+      if (!isSoupStage(stageComp.stage)) return;
+      soupPlayers.push({ entity, playerId, energyComp, posComp });
+    });
+
+    // Now check swarms only against soup players
     forEachSwarm(world, (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp) => {
       // Skip disabled swarms (hit by EMP)
       if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
 
-      const swarmPosition = { x: swarmPos.x, y: swarmPos.y };
+      const swarmX = swarmPos.x;
+      const swarmY = swarmPos.y;
+      const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
+      const collisionDistSq = collisionDist * collisionDist; // Avoid sqrt in hot loop
 
-      forEachPlayer(world, (entity, playerId) => {
-        const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-        const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-        const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-        if (!energyComp || !posComp || !stageComp) return;
+      for (const { playerId, energyComp, posComp } of soupPlayers) {
+        // Fast squared distance check (avoid sqrt)
+        const dx = swarmX - posComp.x;
+        const dy = swarmY - posComp.y;
+        const distSq = dx * dx + dy * dy;
 
-        // Skip dead/evolving players
-        if (energyComp.current <= 0 || stageComp.isEvolving) return;
-
-        // Stage 3+ players don't interact with soup swarms (they've evolved past)
-        if (!isSoupStage(stageComp.stage)) return;
-
-        // Check collision (circle-circle)
-        const playerPosition = { x: posComp.x, y: posComp.y };
-        const dist = distance(swarmPosition, playerPosition);
-        const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
-
-        if (dist < collisionDist) {
+        if (distSq < collisionDistSq) {
           // Apply damage directly (energy pools provide stage durability)
           const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
           energyComp.current -= damage;
@@ -80,7 +86,7 @@ export class SwarmCollisionSystem implements System {
           // Apply movement slow debuff
           slowedPlayerIds.add(playerId);
         }
-      });
+      }
     });
 
     // ============================================
@@ -107,73 +113,90 @@ export class SwarmCollisionSystem implements System {
     }
 
     // Handle swarm consumption (multi-cells eating disabled swarms)
-    // First, clear all beingConsumedBy flags (will be set again if still being consumed)
-    forEachSwarm(world, (_entity, _swarmId, _posComp, _velComp, swarmComp) => {
+    // Optimized: Pre-filter to only multi-cell players and disabled swarms
+
+    // Pre-collect disabled swarms (usually very few - only those hit by EMP)
+    const disabledSwarms: { swarmId: string; x: number; y: number; size: number; swarmComp: any; energyComp: EnergyComponent }[] = [];
+    forEachSwarm(world, (_entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
+      // Clear consumption flag
       swarmComp.beingConsumedBy = undefined;
+      // Only collect disabled swarms with health remaining
+      if (swarmComp.disabledUntil && now < swarmComp.disabledUntil && energyComp.current > 0) {
+        disabledSwarms.push({ swarmId, x: posComp.x, y: posComp.y, size: swarmComp.size, swarmComp, energyComp });
+      }
     });
 
+    // Early exit if no disabled swarms (common case - saves the player loop entirely)
+    if (disabledSwarms.length === 0) return;
+
+    // Pre-collect multi-cell players (usually only 1-2)
+    const multiCellPlayers: { playerId: string; x: number; y: number; radius: number; energyComp: EnergyComponent }[] = [];
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
       if (!playerId) return;
-
-      // Get ECS components directly
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
       const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
       const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
       if (!energyComp || !posComp || !stageComp) return;
-
-      // Only Stage 2 (MULTI_CELL) can consume swarms
       if (stageComp.stage !== EvolutionStage.MULTI_CELL) return;
       if (energyComp.current <= 0) return;
+      multiCellPlayers.push({
+        playerId,
+        x: posComp.x,
+        y: posComp.y,
+        radius: getPlayerRadius(stageComp.stage),
+        energyComp,
+      });
+    });
 
-      // Track swarms to remove (can't modify during iteration)
-      const swarmsToRemove: string[] = [];
+    // Check collisions between multi-cell players and disabled swarms
+    const swarmsToRemove: string[] = [];
 
-      forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
-        // Only consume disabled swarms with health remaining
-        if (!swarmComp.disabledUntil || Date.now() >= swarmComp.disabledUntil) return;
-        if (swarmEnergyComp.current <= 0) return;
+    for (const player of multiCellPlayers) {
+      for (const swarm of disabledSwarms) {
+        // Fast squared distance check
+        const dx = player.x - swarm.x;
+        const dy = player.y - swarm.y;
+        const distSq = dx * dx + dy * dy;
+        const collisionDist = swarm.size + player.radius;
+        const collisionDistSq = collisionDist * collisionDist;
 
-        // Check if multi-cell is touching the swarm
-        const dist = distance({ x: posComp.x, y: posComp.y }, { x: swarmPosComp.x, y: swarmPosComp.y });
-        const collisionDist = swarmComp.size + getPlayerRadius(stageComp.stage);
+        if (distSq < collisionDistSq) {
+          // Mark swarm as being consumed
+          swarm.swarmComp.beingConsumedBy = player.playerId;
 
-        if (dist < collisionDist) {
-          // Mark swarm as being consumed via ECS component
-          swarmComp.beingConsumedBy = playerId;
-
-          // Gradual consumption - mutate ECS component directly
+          // Gradual consumption
           const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
-          swarmEnergyComp.current -= damageDealt;
+          swarm.energyComp.current -= damageDealt;
 
-          if (swarmEnergyComp.current <= 0) {
-            // Swarm fully consumed - grant rewards via ECS components directly
-            energyComp.current = Math.min(energyComp.max, energyComp.current + GAME_CONFIG.SWARM_ENERGY_GAIN);
-            energyComp.max += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
+          if (swarm.energyComp.current <= 0) {
+            // Swarm fully consumed - grant rewards
+            player.energyComp.current = Math.min(player.energyComp.max, player.energyComp.current + GAME_CONFIG.SWARM_ENERGY_GAIN);
+            player.energyComp.max += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
 
             io.emit('swarmConsumed', {
               type: 'swarmConsumed',
-              swarmId,
-              consumerId: playerId,
+              swarmId: swarm.swarmId,
+              consumerId: player.playerId,
             } as SwarmConsumedMessage);
 
             logger.info({
               event: 'swarm_consumed',
-              consumerId: playerId,
-              swarmId,
+              consumerId: player.playerId,
+              swarmId: swarm.swarmId,
               energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
               maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
             });
 
-            swarmsToRemove.push(swarmId);
+            swarmsToRemove.push(swarm.swarmId);
           }
         }
-      });
-
-      // Remove consumed swarms after iteration
-      for (const swarmId of swarmsToRemove) {
-        removeSwarm(world, swarmId);
       }
-    });
+    }
+
+    // Remove consumed swarms after iteration
+    for (const swarmId of swarmsToRemove) {
+      removeSwarm(world, swarmId);
+    }
   }
 }

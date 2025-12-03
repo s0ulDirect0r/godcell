@@ -175,12 +175,23 @@ export class MovementSystem implements System {
         }
       }
 
-      // Apply friction for godcell 3D flight (gradual slowdown when not inputting)
+      // Apply friction (velocity decay) - stage-specific for different movement feels
+      // Use exponential decay for smooth deceleration: v = v * friction^dt
+      let friction: number;
+      if (stage === EvolutionStage.CYBER_ORGANISM) {
+        friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
+      } else if (stage === EvolutionStage.HUMANOID) {
+        friction = getConfig('HUMANOID_FRICTION'); // FPS-style tight control (0.35)
+      } else if (stage === EvolutionStage.GODCELL) {
+        friction = getConfig('GODCELL_FRICTION'); // 3D flight friction (0.4)
+      } else {
+        friction = getConfig('MOVEMENT_FRICTION'); // Soup friction (0.66) - floaty feel
+      }
+
+      const frictionFactor = Math.pow(friction, deltaTime);
+      velocityComponent.x *= frictionFactor;
+      velocityComponent.y *= frictionFactor;
       if (stage === EvolutionStage.GODCELL) {
-        const friction = getConfig('GODCELL_FRICTION');
-        const frictionFactor = Math.pow(1 - friction, deltaTime * 60); // Frame-rate independent friction
-        velocityComponent.x *= frictionFactor;
-        velocityComponent.y *= frictionFactor;
         velocityComponent.z = (velocityComponent.z ?? 0) * frictionFactor;
       }
 

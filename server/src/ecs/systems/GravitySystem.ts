@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, type World } from '@godcell/shared';
+import { type World } from '@godcell/shared';
 import type { VelocityComponent } from '@godcell/shared';
 import type { System } from './types';
 import {
@@ -27,9 +27,9 @@ import { isBot } from '../../bots';
  * GravitySystem - Applies gravity forces from obstacles
  *
  * Handles:
- * - Friction/momentum decay for players and swarms
  * - Gravitational pull from obstacles (inverse-square)
  * - Singularity instant death at obstacle cores
+ * - Friction/momentum decay for swarms (player friction is in MovementSystem)
  */
 export class GravitySystem implements System {
   readonly name = 'GravitySystem';
@@ -46,21 +46,7 @@ export class GravitySystem implements System {
 
       if (energyComponent.current <= 0 || stageComponent.isEvolving) return;
 
-      // Apply friction to create momentum/inertia (velocity decays over time)
-      // Use exponential decay for smooth deceleration: v = v * friction^dt
-      // Stage-specific friction for different movement feels
-      let friction = getConfig('MOVEMENT_FRICTION'); // Default soup friction (0.66)
-
-      if (stageComponent.stage === EvolutionStage.CYBER_ORGANISM) {
-        friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
-      } else if (stageComponent.stage === EvolutionStage.HUMANOID) {
-        friction = getConfig('HUMANOID_FRICTION'); // FPS-style tight control (0.35)
-      }
-      // TODO: GODCELL friction when implemented
-
-      const frictionFactor = Math.pow(friction, deltaTime);
-      velocityComponent.x *= frictionFactor;
-      velocityComponent.y *= frictionFactor;
+      // NOTE: Friction is handled in MovementSystem for all stages
 
       // Stage 3+ players don't interact with soup obstacles (they've transcended)
       if (isJungleStage(stageComponent.stage)) return;

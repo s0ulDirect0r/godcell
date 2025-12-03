@@ -744,12 +744,25 @@ io.on('connection', (socket) => {
  * 11. DeathSystem (700) - Death checks
  * 12. NetworkBroadcastSystem (900) - State broadcasts
  */
+// Track actual tick timing to detect variance
+let lastTickTime = performance.now();
+let tickCount = 0;
+
 setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
   if (!shouldRunTick()) return;
 
+  // Measure actual time since last tick (detects server tick variance)
+  const now = performance.now();
+  const actualDelta = now - lastTickTime;
+  lastTickTime = now;
+  tickCount++;
+
   // Calculate deltaTime (seconds per tick)
   const deltaTime = TICK_INTERVAL / 1000;
+
+  // Time the actual tick processing
+  const tickProcessingStart = performance.now();
 
   // Process fauna respawns before system updates (Stage 3+ ecosystem)
   processJungleFaunaRespawns(world, io);
@@ -761,6 +774,23 @@ setInterval(() => {
   // Clear transient per-tick tags used for cross-system communication
   world.clearTagFromAll(Tags.SlowedThisTick);
   world.clearTagFromAll(Tags.DamagedThisTick);
+
+  const tickProcessingMs = performance.now() - tickProcessingStart;
+
+  // Log if actual tick delta exceeds expected by 50% (> 25ms for 16.67ms tick)
+  // Compare actualDelta (time since last tick) vs tickProcessingMs (time spent in tick)
+  // If actualDelta >> tickProcessingMs, event loop was blocked (GC, etc.)
+  // If tickProcessingMs is high, our systems are slow
+  if (actualDelta > TICK_INTERVAL * 1.5) {
+    perfLogger.info({
+      event: 'tick_variance',
+      tickNum: tickCount,
+      actualDeltaMs: actualDelta.toFixed(1),
+      tickProcessingMs: tickProcessingMs.toFixed(1),
+      expectedMs: TICK_INTERVAL.toFixed(1),
+      ratio: (actualDelta / TICK_INTERVAL).toFixed(2),
+    }, `Tick variance: ${actualDelta.toFixed(1)}ms (processing: ${tickProcessingMs.toFixed(1)}ms)`);
+  }
 }, TICK_INTERVAL);
 
 // ============================================
