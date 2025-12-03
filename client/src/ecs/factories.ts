@@ -84,6 +84,7 @@ export function createClientWorld(): World {
   world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
+  world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
