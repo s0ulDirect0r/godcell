@@ -25,6 +25,8 @@ export type {
   CooldownsComponent,
   DamageTrackingComponent,
   DrainTargetComponent,
+  CombatSpecializationComponent,
+  KnockbackComponent,
   // Entity type components
   NutrientComponent,
   ObstacleComponent,
@@ -35,7 +37,8 @@ export type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
-  OrganismProjectileComponent,
+  ProjectileComponent,
+  TrapComponent,
   // Ability components
   CanFireEMPComponent,
   CanFirePseudopodComponent,

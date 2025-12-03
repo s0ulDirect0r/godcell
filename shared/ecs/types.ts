@@ -34,6 +34,8 @@ export const Components = {
   Cooldowns: 'Cooldowns',
   DamageTracking: 'DamageTracking',
   DrainTarget: 'DrainTarget',
+  CombatSpecialization: 'CombatSpecialization',
+  Knockback: 'Knockback',
 
   // Entity-type components
   Nutrient: 'Nutrient',
@@ -46,7 +48,8 @@ export const Components = {
   DataFruit: 'DataFruit',
   CyberBug: 'CyberBug',
   JungleCreature: 'JungleCreature',
-  OrganismProjectile: 'OrganismProjectile',
+  Projectile: 'Projectile',
+  Trap: 'Trap',
 
   // Ability components (added/removed on evolution)
   CanFireEMP: 'CanFireEMP',
@@ -77,7 +80,8 @@ export const Tags = {
   DataFruit: 'datafruit',
   CyberBug: 'cyberbug',
   JungleCreature: 'junglecreature',
-  OrganismProjectile: 'organismprojectile',
+  Projectile: 'projectile',
+  Trap: 'trap',
 
   // Client-only tags
   LocalPlayer: 'local_player', // The player controlled by this client

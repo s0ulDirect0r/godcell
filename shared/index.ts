@@ -27,7 +27,20 @@ export type DamageSource =
   | 'swarm'       // Red (entropy swarm attacks)
   | 'beam'        // Red (pseudopod projectiles)
   | 'gravity'     // Red (gravity well crushing)
-  | 'starvation'; // Yellow/orange (zero energy)
+  | 'starvation'  // Yellow/orange (zero energy)
+  | 'melee'       // Red (Stage 3 melee attacks)
+  | 'trap';       // Red (Stage 3 trap detonation)
+
+// ============================================
+// Stage 3 Combat Specialization
+// Chosen at evolution to Stage 3, locked for that life
+// ============================================
+
+// Combat pathway chosen at Stage 3 evolution
+export type CombatSpecialization = 'melee' | 'ranged' | 'traps' | null;
+
+// Melee attack types for the melee pathway
+export type MeleeAttackType = 'swipe' | 'thrust';
 
 // Evolution stages
 export enum EvolutionStage {
@@ -173,13 +186,26 @@ export interface JungleCreature {
   capacityIncrease: number;   // maxEnergy increase on kill
 }
 
-// OrganismProjectile - Stage 3 attack projectile (cloned from pseudopod)
-export interface OrganismProjectile {
+// Projectile - Stage 3 ranged specialization attack
+export interface Projectile {
   id: string;
   ownerId: string;            // Socket ID of player who fired
   position: Position;         // Current position
   targetPosition: Position;   // Where it's heading
   state: 'traveling' | 'hit' | 'missed';
+  color: string;              // Owner's color (for rendering)
+}
+
+// Trap - Stage 3 traps pathway disguised mine
+export interface Trap {
+  id: string;
+  ownerId: string;            // Socket ID of player who placed
+  position: Position;
+  triggerRadius: number;      // Activation distance
+  damage: number;             // Energy damage on trigger
+  stunDuration: number;       // Stun duration in ms
+  placedAt: number;           // Timestamp for lifetime tracking
+  lifetime: number;           // Max lifetime in ms
   color: string;              // Owner's color (for rendering)
 }
 
@@ -215,11 +241,36 @@ export interface EMPActivateMessage {
   type: 'empActivate';
 }
 
-// Stage 3 organism projectile fire (for hunting jungle fauna)
-export interface OrganismProjectileFireMessage {
-  type: 'organismProjectileFire';
+// Stage 3 projectile fire (ranged specialization)
+export interface ProjectileFireMessage {
+  type: 'projectileFire';
   targetX: number;  // World position to fire towards
   targetY: number;
+}
+
+// ============================================
+// Stage 3 Combat Specialization Messages (Client → Server)
+// ============================================
+
+// Player selects combat specialization at Stage 3 evolution
+export interface SelectSpecializationMessage {
+  type: 'selectSpecialization';
+  specialization: CombatSpecialization;
+}
+
+// Melee attack (swipe or thrust)
+export interface MeleeAttackMessage {
+  type: 'meleeAttack';
+  attackType: MeleeAttackType;
+  targetX: number;  // Direction to attack towards
+  targetY: number;
+}
+
+// Place a trap at position
+export interface PlaceTrapMessage {
+  type: 'placeTrap';
+  x: number;
+  y: number;
 }
 
 // ============================================
@@ -238,7 +289,8 @@ export interface WorldSnapshotMessage {
   dataFruits?: Record<string, DataFruit>;
   cyberBugs?: Record<string, CyberBug>;
   jungleCreatures?: Record<string, JungleCreature>;
-  organismProjectiles?: Record<string, OrganismProjectile>;
+  projectiles?: Record<string, Projectile>;
+  traps?: Record<string, Trap>;
 }
 
 // Backwards compat alias
@@ -471,25 +523,82 @@ export interface JungleCreatureMovedMessage {
   variant: string;  // 'grazer' | 'stalker' | 'ambusher'
 }
 
-// OrganismProjectile messages (cloned from pseudopod pattern)
-export interface OrganismProjectileSpawnedMessage {
-  type: 'organismProjectileSpawned';
-  projectile: OrganismProjectile;
+// Projectile messages (ranged specialization)
+export interface ProjectileSpawnedMessage {
+  type: 'projectileSpawned';
+  projectile: Projectile;
 }
 
-export interface OrganismProjectileHitMessage {
-  type: 'organismProjectileHit';
+export interface ProjectileHitMessage {
+  type: 'projectileHit';
   projectileId: string;
   targetId: string;
-  targetType: 'cyberbug' | 'junglecreature';
+  targetType: 'player' | 'cyberbug' | 'junglecreature';
   hitPosition: Position;
   damage: number;
   killed: boolean;
 }
 
-export interface OrganismProjectileRetractedMessage {
-  type: 'organismProjectileRetracted';
+export interface ProjectileRetractedMessage {
+  type: 'projectileRetracted';
   projectileId: string;
+}
+
+// ============================================
+// Stage 3 Combat Specialization Messages (Server → Client)
+// ============================================
+
+// Server prompts client to choose specialization (on Stage 3 evolution)
+export interface SpecializationPromptMessage {
+  type: 'specializationPrompt';
+  playerId: string;
+  deadline: number;  // Timestamp when auto-assign triggers
+}
+
+// Server confirms specialization choice
+export interface SpecializationSelectedMessage {
+  type: 'specializationSelected';
+  playerId: string;
+  specialization: CombatSpecialization;
+}
+
+// Melee attack executed (for visual effects on all clients)
+export interface MeleeAttackExecutedMessage {
+  type: 'meleeAttackExecuted';
+  playerId: string;
+  attackType: MeleeAttackType;
+  position: Position;
+  direction: { x: number; y: number };  // Normalized direction
+  hitPlayerIds: string[];               // Who got hit
+}
+
+// Trap placed in world
+export interface TrapPlacedMessage {
+  type: 'trapPlaced';
+  trap: Trap;
+}
+
+// Trap triggered by a player
+export interface TrapTriggeredMessage {
+  type: 'trapTriggered';
+  trapId: string;
+  victimId: string;
+  position: Position;
+  damage: number;
+}
+
+// Trap despawned (timeout or triggered)
+export interface TrapDespawnedMessage {
+  type: 'trapDespawned';
+  trapId: string;
+}
+
+// Knockback applied to a player
+export interface KnockbackAppliedMessage {
+  type: 'knockbackApplied';
+  playerId: string;
+  forceX: number;
+  forceY: number;
 }
 
 // Union type of all possible server messages
@@ -527,9 +636,17 @@ export type ServerMessage =
   | JungleCreatureSpawnedMessage
   | JungleCreatureKilledMessage
   | JungleCreatureMovedMessage
-  | OrganismProjectileSpawnedMessage
-  | OrganismProjectileHitMessage
-  | OrganismProjectileRetractedMessage
+  | ProjectileSpawnedMessage
+  | ProjectileHitMessage
+  | ProjectileRetractedMessage
+  // Stage 3 combat specialization messages
+  | SpecializationPromptMessage
+  | SpecializationSelectedMessage
+  | MeleeAttackExecutedMessage
+  | TrapPlacedMessage
+  | TrapTriggeredMessage
+  | TrapDespawnedMessage
+  | KnockbackAppliedMessage
   | DevConfigUpdatedMessage;
 
 // ============================================
@@ -962,13 +1079,52 @@ export const GAME_CONFIG = {
   JUNGLE_CREATURE_DAMAGE_RATE: 80,   // Energy drain per second on player contact (stalker/ambusher)
   JUNGLE_CREATURE_RESPAWN_DELAY: 45000, // 45s before creature respawns after killed
 
-  // OrganismProjectile - Stage 3 attack ability (jungle-scale projectile)
+  // Projectile - Stage 3 ranged specialization attack
   // Values scaled for jungle view (camera frustum ~4800 wide)
-  ORGANISM_PROJECTILE_SPEED: 4000,   // Pixels per second (fast at jungle scale)
-  ORGANISM_PROJECTILE_MAX_DISTANCE: 2000, // Max travel distance (visible range)
-  ORGANISM_PROJECTILE_COOLDOWN: 400, // ms between shots
-  ORGANISM_PROJECTILE_DAMAGE: 500,   // Energy drained from target
-  ORGANISM_PROJECTILE_CAPACITY_STEAL: 0, // No capacity steal from fauna (for now)
-  ORGANISM_PROJECTILE_COLLISION_RADIUS: 50, // Hit detection radius (jungle scale)
-  ORGANISM_PROJECTILE_ENERGY_COST: 20, // Energy cost to fire
+  PROJECTILE_SPEED: 7200,            // Pixels per second (2x pseudopod speed)
+  PROJECTILE_MAX_DISTANCE: 10800,    // ~10,800px range (1.5s * 7200 px/s)
+  PROJECTILE_COOLDOWN: 333,          // ms between shots (3 shots/sec)
+  PROJECTILE_DAMAGE: 150,            // 5% of Stage 3 maxEnergy
+  PROJECTILE_CAPACITY_STEAL: 0,      // No capacity steal from fauna (for now)
+  PROJECTILE_COLLISION_RADIUS: 30,   // Hit detection radius
+  PROJECTILE_ENERGY_COST: 30,        // 1% of Stage 3 maxEnergy
+  PROJECTILE_LIFETIME: 1500,         // ms before despawn
+
+  // ============================================
+  // Stage 3 Combat Specialization System
+  // Base values calculated from Stage 3 initial maxEnergy (3000)
+  // ============================================
+
+  // Specialization selection
+  SPECIALIZATION_SELECTION_DURATION: 5000,  // 5 seconds to choose before auto-assign
+
+  // Melee Pathway - close-range swipe and thrust attacks
+  // Energy costs: 0.5% of 3000 = 15
+  // Damage: 5% of 3000 = 150
+  MELEE_SWIPE_RANGE: 288,             // 2x player radius (144 * 2)
+  MELEE_SWIPE_ARC: 180,               // degrees (semicircle)
+  MELEE_SWIPE_DAMAGE: 150,            // 5% of Stage 3 maxEnergy
+  MELEE_SWIPE_KNOCKBACK: 200,         // pixels push distance
+  MELEE_SWIPE_ENERGY_COST: 15,        // 0.5% of Stage 3 maxEnergy
+  MELEE_SWIPE_COOLDOWN: 200,          // ms between attacks (very fast)
+
+  MELEE_THRUST_RANGE: 288,            // 2x player radius
+  MELEE_THRUST_ARC: 30,               // degrees (narrow cone)
+  MELEE_THRUST_DAMAGE: 150,           // 5% of Stage 3 maxEnergy
+  MELEE_THRUST_KNOCKBACK: 200,        // pixels push distance
+  MELEE_THRUST_ENERGY_COST: 15,       // 0.5% of Stage 3 maxEnergy
+  MELEE_THRUST_COOLDOWN: 200,         // ms between attacks
+
+  MELEE_KNOCKBACK_DECAY_RATE: 2000,   // Knockback force decay per second
+
+  // Traps Pathway - disguised mines that stun victims
+  // Energy cost: 5% of 3000 = 150
+  // Damage: 12.5% of 3000 = 375
+  TRAP_MAX_ACTIVE: 5,                 // Max traps per player
+  TRAP_LIFETIME: 120000,              // 120 seconds before auto-despawn
+  TRAP_TRIGGER_RADIUS: 144,           // Same as player radius
+  TRAP_DAMAGE: 375,                   // 12.5% of Stage 3 maxEnergy
+  TRAP_STUN_DURATION: 1000,           // 1 second stun
+  TRAP_ENERGY_COST: 150,              // 5% of Stage 3 maxEnergy
+  TRAP_COOLDOWN: 1000,                // 1 second between placements
 };

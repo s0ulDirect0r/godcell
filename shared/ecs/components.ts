@@ -97,10 +97,30 @@ export interface SprintComponent {
 
 /**
  * Stunned state - entity cannot move or act.
- * Applied by EMP hits.
+ * Applied by EMP hits and trap detonations.
  */
 export interface StunnedComponent {
   until: number; // Timestamp when stun expires
+}
+
+/**
+ * CombatSpecialization - Stage 3 combat pathway choice.
+ * Chosen at evolution to Stage 3, locked for that life.
+ */
+export interface CombatSpecializationComponent {
+  specialization: 'melee' | 'ranged' | 'traps' | null;  // Chosen pathway
+  selectionPending: boolean;   // True while modal is shown, waiting for choice
+  selectionDeadline?: number;  // Timestamp when auto-assign triggers
+}
+
+/**
+ * Knockback - applied force that decays over time.
+ * Used by melee attacks to push targets away.
+ */
+export interface KnockbackComponent {
+  forceX: number;      // Knockback force in X direction (pixels/second)
+  forceY: number;      // Knockback force in Y direction (pixels/second)
+  decayRate: number;   // Force reduction per second
 }
 
 /**
@@ -111,6 +131,9 @@ export interface CooldownsComponent {
   lastEMPTime?: number;       // Timestamp of last EMP use
   lastPseudopodTime?: number; // Timestamp of last pseudopod fire
   lastOrganismProjectileTime?: number; // Timestamp of last organism projectile fire (Stage 3+)
+  lastMeleeSwipeTime?: number;  // Timestamp of last melee swipe
+  lastMeleeThrustTime?: number; // Timestamp of last melee thrust
+  lastTrapPlaceTime?: number;   // Timestamp of last trap placement
 }
 
 /**
@@ -314,11 +337,10 @@ export interface JungleCreatureComponent {
 }
 
 /**
- * OrganismProjectile - Stage 3 attack projectile (cloned from Pseudopod).
- * Used to hunt CyberBugs and JungleCreatures in the digital jungle.
- * Same core mechanics as pseudopod but targets fauna instead of players.
+ * Projectile - Stage 3 ranged specialization attack.
+ * Used by ranged spec to hunt fauna and attack other players.
  */
-export interface OrganismProjectileComponent {
+export interface ProjectileComponent {
   ownerId: number;           // EntityId of player who fired
   ownerSocketId: string;     // For network attribution and rewards
   damage: number;            // Energy drained from target on hit
@@ -334,6 +356,22 @@ export interface OrganismProjectileComponent {
   hitEntityId?: number;      // EntityId of what was hit (if state === 'hit')
   color: string;             // Owner's color (for rendering)
   createdAt: number;         // Timestamp for tracking
+}
+
+/**
+ * Trap - Stage 3 traps pathway disguised mine.
+ * Looks like a DataFruit but detonates when enemies approach.
+ * Applies damage and stun to the victim.
+ */
+export interface TrapComponent {
+  ownerId: number;           // EntityId of player who placed
+  ownerSocketId: string;     // For kill attribution
+  damage: number;            // Energy damage on detonation
+  stunDuration: number;      // Stun duration in ms
+  triggerRadius: number;     // Activation distance from trap center
+  placedAt: number;          // Timestamp for lifetime tracking
+  lifetime: number;          // Max lifetime in ms before auto-despawn
+  color: string;             // Owner's color (for rendering)
 }
 
 // ============================================
