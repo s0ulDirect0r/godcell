@@ -226,8 +226,9 @@ export interface OrganismProjectileFireMessage {
 // Network Messages (Server → Client)
 // ============================================
 
-export interface GameStateMessage {
-  type: 'gameState';
+// WorldSnapshot: Sent once on connect with full world state (not continuous)
+export interface WorldSnapshotMessage {
+  type: 'worldSnapshot';
   players: Record<string, Player>; // Map of playerId → Player
   nutrients: Record<string, Nutrient>; // Map of nutrientId → Nutrient
   obstacles: Record<string, Obstacle>; // Map of obstacleId → Obstacle
@@ -239,6 +240,9 @@ export interface GameStateMessage {
   jungleCreatures?: Record<string, JungleCreature>;
   organismProjectiles?: Record<string, OrganismProjectile>;
 }
+
+// Backwards compat alias
+export type GameStateMessage = WorldSnapshotMessage;
 
 export interface PlayerJoinedMessage {
   type: 'playerJoined';
@@ -490,7 +494,7 @@ export interface OrganismProjectileRetractedMessage {
 
 // Union type of all possible server messages
 export type ServerMessage =
-  | GameStateMessage
+  | WorldSnapshotMessage
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | PlayerMovedMessage

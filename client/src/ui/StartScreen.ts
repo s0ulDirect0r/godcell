@@ -34,6 +34,14 @@ export class StartScreen {
         <h1 class="start-title">GODCELL</h1>
         <p class="start-subtitle">"To become a god is to realize you're still just a cell in a vaster ocean."</p>
 
+        <div class="controls-info">
+          <div class="controls-title">CONTROLS</div>
+          <div class="controls-row"><span class="key">WASD</span> Move</div>
+          <div class="controls-row"><span class="key">SPACE</span> EMP Pulse (Stage 2+)</div>
+          <div class="controls-row"><span class="key">CLICK</span> Pseudopod Attack (Stage 2+)</div>
+          <div class="controls-row"><span class="key">SHIFT</span> Sprint (Stage 3+)</div>
+        </div>
+
         ${this.options.devMode ? `
           <div class="dev-settings">
             <label class="dev-toggle">
@@ -119,8 +127,45 @@ export class StartScreen {
       .start-subtitle {
         font-size: 16px;
         color: #888;
-        margin: 0 0 50px 0;
+        margin: 0 0 30px 0;
         letter-spacing: 2px;
+      }
+
+      .controls-info {
+        background: rgba(0, 255, 255, 0.05);
+        border: 1px solid rgba(0, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 15px 25px;
+        margin-bottom: 30px;
+        text-align: left;
+        display: inline-block;
+      }
+
+      .controls-title {
+        color: #00ffff;
+        font-size: 12px;
+        letter-spacing: 3px;
+        margin-bottom: 10px;
+        text-align: center;
+      }
+
+      .controls-row {
+        color: #aaa;
+        font-size: 13px;
+        margin: 6px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .controls-row .key {
+        background: rgba(0, 255, 255, 0.15);
+        color: #00ffff;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        min-width: 50px;
+        text-align: center;
       }
 
       .start-buttons {

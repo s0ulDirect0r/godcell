@@ -95,7 +95,7 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
   }
 
   // Update particle positions (orbit around cell)
-  const time = Date.now() * 0.001; // seconds
+  const time = performance.now() * 0.001; // seconds
   corona.children.forEach((particle) => {
     if (particle instanceof THREE.Mesh) {
       const orbitSpeed = particle.userData.orbitSpeed || 1.0;
@@ -161,7 +161,7 @@ export function updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: n
   material.opacity = evolutionProgress * 0.8;
 
   // Gentle rotation
-  const time = Date.now() * 0.0005;
+  const time = performance.now() * 0.0005;
   ring.rotation.z = time;
 }
 

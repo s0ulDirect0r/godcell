@@ -4,7 +4,7 @@
 
 import { io, Socket } from 'socket.io-client';
 import type {
-  GameStateMessage,
+  WorldSnapshotMessage,
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
@@ -283,8 +283,8 @@ export class SocketManager {
       }
     });
 
-    // Game state snapshot
-    this.socket.on('gameState', (data: GameStateMessage) => {
+    // World snapshot (sent once on connect)
+    this.socket.on('worldSnapshot', (data: WorldSnapshotMessage) => {
       this.applySnapshot(data);
       this._myPlayerId = this.socket.id || null;
       // Tag local player entity
@@ -491,10 +491,10 @@ export class SocketManager {
   // ============================================
 
   /**
-   * Apply full game state snapshot from server.
+   * Apply world snapshot from server (sent once on connect).
    * Clears existing state and populates from snapshot.
    */
-  private applySnapshot(snapshot: GameStateMessage): void {
+  private applySnapshot(snapshot: WorldSnapshotMessage): void {
     // Clear existing state
     this.resetWorld();
 

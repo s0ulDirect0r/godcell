@@ -763,7 +763,7 @@ export class PlayerRenderSystem {
 
     if (isApproachingEvolution) {
       // Pulsing scale effect
-      const time = Date.now() * 0.003;
+      const time = performance.now() * 0.003;
       const pulseIntensity = 0.05 + evolutionProgress * 0.05;
       const cellPulse = 1.0 + Math.sin(time) * pulseIntensity;
       cellGroup.scale.set(cellPulse, cellPulse, cellPulse);

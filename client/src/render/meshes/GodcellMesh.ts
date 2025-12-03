@@ -129,7 +129,7 @@ export function updateGodcellEnergy(godcellGroup: THREE.Group, energyRatio: numb
 
   // Pulsing effect at low energy (death warning)
   if (ratio < 0.2) {
-    const time = Date.now() * 0.015;
+    const time = performance.now() * 0.015;
     const pulse = Math.sin(time) * 0.5 + 0.5;
     nucleusMaterial.emissiveIntensity = 0.5 + pulse * 1.5;
     outerMaterial.opacity = 0.05 + pulse * 0.15;

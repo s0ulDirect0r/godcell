@@ -98,7 +98,7 @@ export class AuraRenderSystem {
     this.activeDrainIds.clear();
     this.activeGainIds.clear();
 
-    const time = Date.now() * 0.001;
+    const time = performance.now() * 0.001;
 
     // Process player drain auras
     world.forEachWithTag(Tags.Player, (entity) => {
@@ -329,7 +329,7 @@ export class AuraRenderSystem {
     const auraMesh = this.drainAuraMeshes.get(targetId);
     if (!auraMesh) return;
 
-    auraMesh.userData.flashTime = Date.now();
+    auraMesh.userData.flashTime = performance.now();
   }
 
   /**
