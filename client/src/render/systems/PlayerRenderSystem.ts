@@ -171,7 +171,6 @@ export class PlayerRenderSystem {
       // Check if stage changed (e.g., via dev panel) - need to recreate mesh
       if (cellGroup && cellGroup.userData.stage !== player.stage) {
         // Stage changed - remove old mesh and let it be recreated
-        console.log('[PlayerRender] Stage changed:', { id, from: cellGroup.userData.stage, to: player.stage });
         this.scene.remove(cellGroup);
         cellGroup.traverse((child) => {
           if (child instanceof THREE.Mesh) {
@@ -221,21 +220,18 @@ export class PlayerRenderSystem {
             if (!this.pendingHumanoidLoads.has(id)) {
               this.pendingHumanoidLoads.add(id);
               createHumanoidModel(colorHex).then(({ model }) => {
-                console.log('[PlayerRender] Humanoid model loaded for:', id);
                 this.pendingHumanoidLoads.delete(id);
                 this.humanoidModels.set(id, model);
 
                 // Replace placeholder with loaded model - but only if player is still humanoid
                 // This prevents race condition where player evolves to godcell before model loads
                 const placeholder = this.playerMeshes.get(id);
-                console.log('[PlayerRender] Placeholder check:', { id, hasPlaceholder: !!placeholder, placeholderStage: placeholder?.userData.stage });
                 if (placeholder && placeholder.userData.stage === 'humanoid') {
                   this.scene.remove(placeholder);
                   model.userData.stage = 'humanoid';
                   model.userData.isHumanoid = true;
                   this.scene.add(model);
                   this.playerMeshes.set(id, model);
-                  console.log('[PlayerRender] Humanoid model applied for:', id);
                 }
               }).catch(err => {
                 console.error('Failed to load humanoid model:', err);
@@ -833,7 +829,7 @@ export class PlayerRenderSystem {
       this.updateCellEnergy(cellGroup, player.energy, player.maxEnergy, player.stage);
     }
 
-    // Apply damage flash effect if active (fades red -> original over 150ms)
+    // Apply damage flash effect if active (fades white -> original over 300ms)
     this.applyDamageFlash(cellGroup);
   }
 

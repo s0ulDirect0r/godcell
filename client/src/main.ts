@@ -171,8 +171,8 @@ function initializeGame(settings: PreGameSettings): void {
   });
 
   // Stage 3 trap placement
-  eventBus.on('client:placeTrap', (event) => {
-    socketManager.sendPlaceTrap(event.x, event.y);
+  eventBus.on('client:placeTrap', () => {
+    socketManager.sendPlaceTrap();
   });
 
   // Stage 3+ projectile fire (from InputManager when ranged spec or default)

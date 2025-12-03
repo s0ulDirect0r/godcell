@@ -62,10 +62,9 @@ export class SpecializationSystem implements System {
         io.emit('specializationSelected', selectedMessage);
 
         logger.info({
-          event: 'specialization_auto_assigned',
+          event: isBot(socketId) ? 'bot_specialization_auto_assigned' : 'player_specialization_auto_assigned',
           playerId: socketId,
           specialization: specComp.specialization,
-          isBot: isBot(socketId),
         });
       }
     });

@@ -261,13 +261,10 @@ export class SocketManager {
 
   /**
    * Send place trap (Stage 3 traps specialization)
+   * Trap is placed at player's current position (server-determined)
    */
-  sendPlaceTrap(x: number, y: number): void {
-    this.socket.emit('placeTrap', {
-      type: 'placeTrap',
-      x,
-      y,
-    });
+  sendPlaceTrap(): void {
+    this.socket.emit('placeTrap', { type: 'placeTrap' });
   }
 
   /**
@@ -528,18 +525,15 @@ export class SocketManager {
 
     // Projectile events (Stage 3 ranged specialization)
     this.socket.on('projectileSpawned', (data: ProjectileSpawnedMessage) => {
-      console.log('[SOCKET] projectileSpawned:', { id: data.projectile.id, ownerId: data.projectile.ownerId });
       upsertProjectile(this.world, data.projectile);
       eventBus.emit(data);
     });
 
     this.socket.on('projectileHit', (data: ProjectileHitMessage) => {
-      console.log('[SOCKET] projectileHit:', { projectileId: data.projectileId, targetId: data.targetId, targetType: data.targetType, killed: data.killed });
       eventBus.emit(data);
     });
 
     this.socket.on('projectileRetracted', (data: ProjectileRetractedMessage) => {
-      console.log('[SOCKET] projectileRetracted:', { projectileId: data.projectileId });
       removeProjectile(this.world, data.projectileId);
       eventBus.emit(data);
     });
@@ -549,7 +543,6 @@ export class SocketManager {
     // ============================================
 
     this.socket.on('specializationPrompt', (data: SpecializationPromptMessage) => {
-      console.log('[SOCKET] specializationPrompt:', { playerId: data.playerId, isLocal: data.playerId === this._myPlayerId });
       // Only show modal for local player
       if (data.playerId === this._myPlayerId) {
         eventBus.emit(data);
@@ -557,7 +550,6 @@ export class SocketManager {
     });
 
     this.socket.on('specializationSelected', (data: SpecializationSelectedMessage) => {
-      console.log('[SOCKET] specializationSelected:', { playerId: data.playerId, specialization: data.specialization, isLocal: data.playerId === this._myPlayerId });
       // Track local player's specialization
       if (data.playerId === this._myPlayerId) {
         this._mySpecialization = data.specialization;
@@ -567,25 +559,21 @@ export class SocketManager {
 
     // Trap events (Stage 3 traps specialization)
     this.socket.on('trapPlaced', (data: TrapPlacedMessage) => {
-      console.log('[SOCKET] trapPlaced:', { trapId: data.trap.id, ownerId: data.trap.ownerId, pos: { x: Math.round(data.trap.position.x), y: Math.round(data.trap.position.y) } });
       upsertTrap(this.world, data.trap);
       eventBus.emit(data);
     });
 
     this.socket.on('trapTriggered', (data: TrapTriggeredMessage) => {
-      console.log('[SOCKET] trapTriggered:', { trapId: data.trapId, victimId: data.victimId, damage: data.damage, killed: data.killed });
       eventBus.emit(data);
     });
 
     this.socket.on('trapDespawned', (data: TrapDespawnedMessage) => {
-      console.log('[SOCKET] trapDespawned:', { trapId: data.trapId, reason: data.reason });
       removeTrap(this.world, data.trapId);
       eventBus.emit(data);
     });
 
     // Melee attack events (Stage 3 melee specialization)
     this.socket.on('meleeAttackExecuted', (data: MeleeAttackExecutedMessage) => {
-      console.log('[SOCKET] meleeAttackExecuted:', { playerId: data.playerId, attackType: data.attackType, hits: data.hitPlayerIds.length });
       eventBus.emit(data);
     });
   }

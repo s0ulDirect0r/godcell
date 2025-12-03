@@ -19,7 +19,7 @@ type ClientEvent =
   | { type: 'client:socketFailed'; error: string }
   | { type: 'client:selectSpecialization'; specialization: CombatSpecialization }
   | { type: 'client:meleeAttack'; attackType: MeleeAttackType; targetX: number; targetY: number }
-  | { type: 'client:placeTrap'; x: number; y: number }
+  | { type: 'client:placeTrap' }
   | { type: 'client:projectileFire'; targetX: number; targetY: number };
 
 // All possible events = server messages + client-only events

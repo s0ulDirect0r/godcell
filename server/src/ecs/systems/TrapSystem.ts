@@ -20,7 +20,6 @@ import {
   getPositionBySocketId,
   getStageBySocketId,
   getEnergyBySocketId,
-  getStunnedBySocketId,
   subtractEnergyBySocketId,
   getEntityBySocketId,
 } from '../factories';
@@ -41,7 +40,7 @@ export class TrapSystem implements System {
 
   update(world: World, _deltaTime: number, io: Server): void {
     const now = Date.now();
-    const toRemove: EntityId[] = [];
+    const toRemove = new Set<EntityId>();
     const triggeredTraps: {
       entity: EntityId;
       id: string;
@@ -56,7 +55,7 @@ export class TrapSystem implements System {
     forEachTrap(world, (entity, trapId, posComp, trapComp) => {
       // Check lifetime expiration
       if (now - trapComp.placedAt >= trapComp.lifetime) {
-        toRemove.push(entity);
+        toRemove.add(entity);
         io.emit('trapDespawned', {
           type: 'trapDespawned',
           trapId,
@@ -139,7 +138,7 @@ export class TrapSystem implements System {
       });
 
       logger.info({
-        event: 'trap_triggered',
+        event: 'player_trap_triggered',
         trapId: trap.id,
         owner: trap.ownerSocketId,
         victim: trap.victimSocketId,
@@ -156,7 +155,7 @@ export class TrapSystem implements System {
       });
 
       // Mark trap for removal
-      toRemove.push(trap.entity);
+      toRemove.add(trap.entity);
     }
 
     // Remove expired and triggered traps

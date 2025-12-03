@@ -173,10 +173,9 @@ export class MetabolismSystem implements System {
           io.emit('specializationPrompt', promptMessage);
 
           logger.info({
-            event: 'specialization_prompt_sent',
+            event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
             playerId,
             deadline,
-            isBot: isBot(playerId),
           });
         }
       }

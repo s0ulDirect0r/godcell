@@ -747,21 +747,21 @@ export class AbilitySystem {
     const entity = getEntityBySocketId(playerId);
 
     if (!energyComp || !stageComp || !posComp || !player || entity === undefined) {
-      logger.debug({ event: 'trap_place_denied', playerId, reason: 'missing_components' });
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'missing_components' });
       return false;
     }
 
     // Stage 3+ only (Cyber-Organism and above)
     if (!isJungleStage(stageComp.stage)) {
-      logger.debug({ event: 'trap_place_denied', playerId, reason: 'wrong_stage', stage: stageComp.stage });
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'wrong_stage', stage: stageComp.stage });
       return false;
     }
     if (energyComp.current <= 0) {
-      logger.debug({ event: 'trap_place_denied', playerId, reason: 'no_energy' });
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_energy' });
       return false;
     }
     if (stageComp.isEvolving) {
-      logger.debug({ event: 'trap_place_denied', playerId, reason: 'evolving' });
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'evolving' });
       return false;
     }
 
@@ -769,7 +769,7 @@ export class AbilitySystem {
     const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
     if (!specComp || specComp.specialization !== 'traps') {
       logger.debug({
-        event: 'trap_place_denied',
+        event: 'player_trap_place_denied',
         playerId,
         reason: 'wrong_specialization',
         hasSpec: !!specComp,
@@ -779,20 +779,32 @@ export class AbilitySystem {
     }
 
     const now = Date.now();
-    if (stunnedComp?.until && now < stunnedComp.until) return false;
-    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) return false;
+    if (stunnedComp?.until && now < stunnedComp.until) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'stunned' });
+      return false;
+    }
+    if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'insufficient_energy', energy: energyComp.current, cost: GAME_CONFIG.TRAP_ENERGY_COST });
+      return false;
+    }
 
     // Cooldown check via ECS
     const cooldowns = getCooldownsBySocketId(world, playerId);
-    if (!cooldowns) return false;
+    if (!cooldowns) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_cooldowns_component' });
+      return false;
+    }
     const lastUse = cooldowns.lastTrapPlaceTime || 0;
-    if (now - lastUse < GAME_CONFIG.TRAP_COOLDOWN) return false;
+    if (now - lastUse < GAME_CONFIG.TRAP_COOLDOWN) {
+      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'cooldown', remaining: GAME_CONFIG.TRAP_COOLDOWN - (now - lastUse) });
+      return false;
+    }
 
     // Check max active traps
     const activeTraps = countTrapsForPlayer(world, playerId);
     if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) {
       logger.debug({
-        event: 'trap_place_denied',
+        event: 'player_trap_place_denied',
         playerId,
         reason: 'max_active_reached',
         activeTraps,
@@ -831,12 +843,13 @@ export class AbilitySystem {
     } as TrapPlacedMessage);
 
     logger.info({
-      event: 'trap_placed',
+      event: 'player_trap_placed',
       playerId,
       trapId,
       position: trapPosition,
       activeTraps: activeTraps + 1,
       energySpent: GAME_CONFIG.TRAP_ENERGY_COST,
+      remainingEnergy: energyComp.current,
     });
 
     return true;

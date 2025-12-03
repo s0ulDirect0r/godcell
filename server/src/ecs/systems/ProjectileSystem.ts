@@ -33,6 +33,7 @@ import {
 import { distance } from '../../helpers';
 import { isJungleStage, getPlayerRadius } from '../../helpers/stages';
 import { logger } from '../../logger';
+import { isBot } from '../../bots';
 
 /**
  * ProjectileSystem - Manages Stage 3 ranged specialization attack projectiles
@@ -335,7 +336,7 @@ export class ProjectileSystem implements System {
       });
 
       logger.info({
-        event: 'projectile_hit_player',
+        event: isBot(projComp.ownerSocketId) ? 'bot_projectile_hit_player' : 'player_projectile_hit_player',
         shooter: projComp.ownerSocketId,
         targetId: socketId,
         damage,

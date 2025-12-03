@@ -29,7 +29,10 @@ export class InputManager {
   private empClientCooldown = 300; // Local anti-spam cooldown
 
   private lastPseudopodTime = 0;
-  private pseudopodClientCooldown = 300; // Local anti-spam cooldown
+  private pseudopodClientCooldown = 300; // Local anti-spam cooldown for Stage 1-2 beams
+
+  private lastProjectileTime = 0;
+  private projectileClientCooldown = 333; // Local anti-spam cooldown for Stage 3+ projectiles
 
   // Track previous movement direction to avoid redundant network updates
   private lastMoveDirection = { x: 0, y: 0, z: 0 };
@@ -294,13 +297,11 @@ export class InputManager {
 
     // Handle LMB (rising edge)
     if (isLMBDown && !this.wasLMBDown) {
-      console.log('[INPUT] LMB click:', { stage, specialization, isJungleStage });
       this.handleLMB(now, isJungleStage, specialization);
     }
 
     // Handle RMB (rising edge)
     if (isRMBDown && !this.wasRMBDown) {
-      console.log('[INPUT] RMB click:', { stage, specialization, isJungleStage });
       this.handleRMB(now, isJungleStage, specialization);
     }
 
@@ -324,7 +325,6 @@ export class InputManager {
       // Melee: LMB = Swipe (180° arc attack)
       if (now - this.lastMeleeTime < this.meleeClientCooldown) return;
 
-      console.log('[INPUT] Emitting melee swipe:', { x: worldPos.x.toFixed(0), y: worldPos.y.toFixed(0) });
       eventBus.emit({
         type: 'client:meleeAttack',
         attackType: 'swipe',
@@ -335,21 +335,19 @@ export class InputManager {
 
     } else if (isJungleStage) {
       // Stage 3+ (ranged or traps): LMB = projectile
-      if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) return;
+      if (now - this.lastProjectileTime < this.projectileClientCooldown) return;
 
-      console.log('[INPUT] Emitting projectile fire:', { x: worldPos.x.toFixed(0), y: worldPos.y.toFixed(0) });
       eventBus.emit({
         type: 'client:projectileFire',
         targetX: worldPos.x,
         targetY: worldPos.y,
       });
-      this.lastPseudopodTime = now;
+      this.lastProjectileTime = now;
 
     } else {
       // Stage 1-2: LMB = pseudopod beam
       if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) return;
 
-      console.log('[INPUT] Emitting pseudopod fire:', { x: worldPos.x.toFixed(0), y: worldPos.y.toFixed(0) });
       eventBus.emit({
         type: 'client:pseudopodFire',
         targetX: worldPos.x,
@@ -375,7 +373,6 @@ export class InputManager {
       // Melee: RMB = Thrust (30° cone attack)
       if (now - this.lastMeleeTime < this.meleeClientCooldown) return;
 
-      console.log('[INPUT] Emitting melee thrust:', { x: worldPos.x.toFixed(0), y: worldPos.y.toFixed(0) });
       eventBus.emit({
         type: 'client:meleeAttack',
         attackType: 'thrust',
@@ -385,15 +382,10 @@ export class InputManager {
       this.lastMeleeTime = now;
 
     } else if (specialization === 'traps') {
-      // Traps: RMB = place trap at click position
+      // Traps: RMB = place trap at player position
       if (now - this.lastTrapTime < this.trapClientCooldown) return;
 
-      console.log('[INPUT] Emitting place trap:', { x: worldPos.x.toFixed(0), y: worldPos.y.toFixed(0) });
-      eventBus.emit({
-        type: 'client:placeTrap',
-        x: worldPos.x,
-        y: worldPos.y,
-      });
+      eventBus.emit({ type: 'client:placeTrap' });
       this.lastTrapTime = now;
     }
     // Ranged: No RMB action
