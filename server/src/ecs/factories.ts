@@ -43,6 +43,9 @@ import type {
   JungleCreatureComponent,
   ProjectileComponent,
   TrapComponent,
+  // Stage 3 combat specialization
+  CombatSpecializationComponent,
+  KnockbackComponent,
 } from '@godcell/shared';
 
 // ============================================
@@ -78,6 +81,11 @@ export function createWorld(): World {
   world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
+  world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
+
+  // Stage 3 combat specialization
+  world.registerStore<CombatSpecializationComponent>(Components.CombatSpecialization, new ComponentStore());
+  world.registerStore<KnockbackComponent>(Components.Knockback, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
