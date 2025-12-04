@@ -12,6 +12,7 @@ import type {
   ProjectileComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  PlayerComponent,
   StageComponent,
   EnergyComponent,
   EntityId,
@@ -20,9 +21,6 @@ import type { System } from './types';
 import {
   getStringIdByEntity,
   destroyEntity,
-  forEachCyberBug,
-  forEachJungleCreature,
-  forEachPlayer,
   addEnergyBySocketId,
   setMaxEnergyBySocketId,
   getEnergyBySocketId,
@@ -114,27 +112,30 @@ export class ProjectileSystem implements System {
     const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
 
     // Check CyberBugs first (smaller, easier to hit)
-    let hitBug = false;
-    const bugsToKill: { entity: EntityId; id: string; pos: { x: number; y: number } }[] = [];
+    // Use for...of with break for true early exit (forEach can't break)
+    let bugToKill: { entity: EntityId; id: string; pos: { x: number; y: number } } | null = null;
 
-    forEachCyberBug(world, (bugEntity, bugId, bugPos, bugComp) => {
-      if (hitBug) return; // Only hit one target per projectile
+    const bugEntities = world.getEntitiesWithTag(Tags.CyberBug);
+    for (const bugEntity of bugEntities) {
+      const bugPos = world.getComponent<PositionComponent>(bugEntity, Components.Position);
+      const bugComp = world.getComponent<CyberBugComponent>(bugEntity, Components.CyberBug);
+      const bugId = getStringIdByEntity(bugEntity);
+      if (!bugPos || !bugComp || !bugId) continue;
 
       const bugPosition = { x: bugPos.x, y: bugPos.y };
       const dist = distance(projectilePos, bugPosition);
       const hitDist = collisionRadius + bugComp.size;
 
       if (dist < hitDist) {
-        hitBug = true;
         projComp.hitEntityId = bugEntity;
-        bugsToKill.push({ entity: bugEntity, id: bugId, pos: bugPosition });
+        bugToKill = { entity: bugEntity, id: bugId, pos: bugPosition };
+        break; // True early exit
       }
-    });
+    }
 
     // Process bug kill
-    if (bugsToKill.length > 0) {
-      const bug = bugsToKill[0];
-      const bugComp = world.getComponent<CyberBugComponent>(bug.entity, Components.CyberBug);
+    if (bugToKill) {
+      const bugComp = world.getComponent<CyberBugComponent>(bugToKill.entity, Components.CyberBug);
       if (bugComp) {
         // Award energy and capacity to shooter
         addEnergyBySocketId(world, projComp.ownerSocketId, bugComp.value);
@@ -146,9 +147,9 @@ export class ProjectileSystem implements System {
         // Emit kill event
         io.emit('cyberBugKilled', {
           type: 'cyberBugKilled',
-          bugId: bug.id,
+          bugId: bugToKill.id,
           killerId: projComp.ownerSocketId,
-          position: bug.pos,
+          position: bugToKill.pos,
           energyGained: bugComp.value,
           capacityGained: bugComp.capacityIncrease,
         });
@@ -156,62 +157,52 @@ export class ProjectileSystem implements System {
         io.emit('projectileHit', {
           type: 'projectileHit',
           projectileId,
-          targetId: bug.id,
+          targetId: bugToKill.id,
           targetType: 'cyberbug',
-          hitPosition: bug.pos,
+          hitPosition: bugToKill.pos,
           damage: projComp.damage,
           killed: true,
         });
 
         logger.info({
-          event: 'projectile_kill_bug',
+          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_bug' : 'player_projectile_kill_bug',
           shooter: projComp.ownerSocketId,
-          bugId: bug.id,
+          bugId: bugToKill.id,
           energyGained: bugComp.value,
           capacityGained: bugComp.capacityIncrease,
         });
 
         // Destroy the bug
-        destroyEntity(world, bug.entity);
+        destroyEntity(world, bugToKill.entity);
       }
       return true;
     }
 
     // Check JungleCreatures
-    let hitCreature = false;
-    const creaturesToDamage: {
-      entity: EntityId;
-      id: string;
-      pos: { x: number; y: number };
-      killed: boolean;
-    }[] = [];
+    // Use for...of with break for true early exit
+    let creatureToKill: { entity: EntityId; id: string; pos: { x: number; y: number } } | null = null;
 
-    forEachJungleCreature(world, (creatureEntity, creatureId, creaturePos, creatureComp) => {
-      if (hitCreature) return;
+    const creatureEntities = world.getEntitiesWithTag(Tags.JungleCreature);
+    for (const creatureEntity of creatureEntities) {
+      const creaturePos = world.getComponent<PositionComponent>(creatureEntity, Components.Position);
+      const creatureComp = world.getComponent<JungleCreatureComponent>(creatureEntity, Components.JungleCreature);
+      const creatureId = getStringIdByEntity(creatureEntity);
+      if (!creaturePos || !creatureComp || !creatureId) continue;
 
       const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
       const dist = distance(projectilePos, creaturePosition);
       const hitDist = collisionRadius + creatureComp.size;
 
       if (dist < hitDist) {
-        hitCreature = true;
         projComp.hitEntityId = creatureEntity;
-
-        // JungleCreatures have health via EnergyComponent (if we add it)
-        // For now, one-shot kill like bugs
-        creaturesToDamage.push({
-          entity: creatureEntity,
-          id: creatureId,
-          pos: creaturePosition,
-          killed: true, // One-shot for now
-        });
+        creatureToKill = { entity: creatureEntity, id: creatureId, pos: creaturePosition };
+        break; // True early exit
       }
-    });
+    }
 
-    // Process creature damage/kill
-    if (creaturesToDamage.length > 0) {
-      const creature = creaturesToDamage[0];
-      const creatureComp = world.getComponent<JungleCreatureComponent>(creature.entity, Components.JungleCreature);
+    // Process creature kill
+    if (creatureToKill) {
+      const creatureComp = world.getComponent<JungleCreatureComponent>(creatureToKill.entity, Components.JungleCreature);
       if (creatureComp) {
         // Award energy and capacity to shooter
         addEnergyBySocketId(world, projComp.ownerSocketId, creatureComp.value);
@@ -223,9 +214,9 @@ export class ProjectileSystem implements System {
         // Emit kill event
         io.emit('jungleCreatureKilled', {
           type: 'jungleCreatureKilled',
-          creatureId: creature.id,
+          creatureId: creatureToKill.id,
           killerId: projComp.ownerSocketId,
-          position: creature.pos,
+          position: creatureToKill.pos,
           energyGained: creatureComp.value,
           capacityGained: creatureComp.capacityIncrease,
         });
@@ -233,24 +224,24 @@ export class ProjectileSystem implements System {
         io.emit('projectileHit', {
           type: 'projectileHit',
           projectileId,
-          targetId: creature.id,
+          targetId: creatureToKill.id,
           targetType: 'junglecreature',
-          hitPosition: creature.pos,
+          hitPosition: creatureToKill.pos,
           damage: projComp.damage,
           killed: true,
         });
 
         logger.info({
-          event: 'projectile_kill_creature',
+          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_creature' : 'player_projectile_kill_creature',
           shooter: projComp.ownerSocketId,
-          creatureId: creature.id,
+          creatureId: creatureToKill.id,
           variant: creatureComp.variant,
           energyGained: creatureComp.value,
           capacityGained: creatureComp.capacityIncrease,
         });
 
         // Destroy the creature
-        destroyEntity(world, creature.entity);
+        destroyEntity(world, creatureToKill.entity);
       }
       return true;
     }
@@ -272,7 +263,7 @@ export class ProjectileSystem implements System {
     const projectilePos = { x: posComp.x, y: posComp.y };
     const collisionRadius = GAME_CONFIG.PROJECTILE_COLLISION_RADIUS;
 
-    let hitPlayer = false;
+    // Use for...of with break for true early exit
     let hitPlayerData: {
       socketId: string;
       pos: { x: number; y: number };
@@ -281,19 +272,22 @@ export class ProjectileSystem implements System {
       entity: EntityId;
     } | null = null;
 
-    forEachPlayer(world, (playerEntity, socketId) => {
-      if (hitPlayer) return; // Only hit one target per projectile
+    const playerEntities = world.getEntitiesWithTag(Tags.Player);
+    for (const playerEntity of playerEntities) {
+      const playerComp = world.getComponent<PlayerComponent>(playerEntity, Components.Player);
+      if (!playerComp) continue;
+      const socketId = playerComp.socketId;
 
       // Skip the projectile owner
-      if (socketId === projComp.ownerSocketId) return;
+      if (socketId === projComp.ownerSocketId) continue;
 
       // Only hit jungle-scale players (Stage 3+)
       const stage = getStageBySocketId(world, socketId);
-      if (!stage || !isJungleStage(stage.stage)) return;
+      if (!stage || !isJungleStage(stage.stage)) continue;
 
       // Get player position
       const playerPos = getPositionBySocketId(world, socketId);
-      if (!playerPos) return;
+      if (!playerPos) continue;
 
       const playerPosition = { x: playerPos.x, y: playerPos.y };
       const playerRadius = getPlayerRadius(stage.stage);
@@ -301,7 +295,6 @@ export class ProjectileSystem implements System {
       const hitDist = collisionRadius + playerRadius;
 
       if (dist < hitDist) {
-        hitPlayer = true;
         projComp.hitEntityId = playerEntity;
 
         // Apply damage to target player
@@ -318,8 +311,9 @@ export class ProjectileSystem implements System {
             entity: playerEntity,
           };
         }
+        break; // True early exit
       }
-    });
+    }
 
     // Process player hit
     if (hitPlayerData) {
