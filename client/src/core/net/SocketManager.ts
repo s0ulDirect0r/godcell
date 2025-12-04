@@ -530,6 +530,8 @@ export class SocketManager {
     });
 
     this.socket.on('projectileHit', (data: ProjectileHitMessage) => {
+      // Remove the projectile entity from ECS (it hit something and is done)
+      removeProjectile(this.world, data.projectileId);
       eventBus.emit(data);
     });
 

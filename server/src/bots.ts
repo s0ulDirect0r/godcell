@@ -1,5 +1,5 @@
 import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
-import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent } from '@godcell/shared';
+import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent, MeleeAttackType } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
@@ -47,6 +47,9 @@ const singleCellBots: Map<string, BotController> = new Map();
 // Multi-cell bots (separate tracking for population management)
 const multiCellBots: Map<string, BotController> = new Map();
 
+// Cyber-organism bots (Stage 3 - jungle hunters with combat specialization)
+const cyberOrganismBots: Map<string, BotController> = new Map();
+
 // ECS World (injected from main module for creating bot entities and obstacle queries)
 let ecsWorld: World | null = null;
 
@@ -62,11 +65,14 @@ export function setBotEcsWorld(world: World): void {
 const BOT_CONFIG = {
   COUNT: 15, // Number of Stage 1 bots to spawn (tripled for stage 1 tuning)
   STAGE2_COUNT: 2, // Number of Stage 2 multi-cell bots (constant presence)
+  STAGE3_COUNT: 2, // Number of Stage 3 cyber-organism bots (jungle hunters)
   SEARCH_RADIUS: 800, // How far bots can see nutrients (doubled from 400 to find food faster)
+  JUNGLE_SEARCH_RADIUS: 1200, // How far Stage 3 bots can see fauna (larger jungle scale)
   WANDER_CHANGE_MIN: 1000, // Min time between direction changes (ms)
   WANDER_CHANGE_MAX: 3000, // Max time between direction changes (ms)
   RESPAWN_DELAY: 3000, // How long to wait before respawning dead Stage 1 bots (ms)
   STAGE2_RESPAWN_DELAY: 5000, // How long to wait before respawning dead Stage 2 bots (ms)
+  STAGE3_RESPAWN_DELAY: 8000, // How long to wait before respawning dead Stage 3 bots (ms)
 };
 
 // ============================================
@@ -214,6 +220,114 @@ function spawnMultiCellBot(io: Server): BotController {
 
   // Track spawn time for evolution rate tracking (Stage 2 spawns directly at multi-cell)
   recordSpawn(botId, EvolutionStage.MULTI_CELL);
+
+  return bot;
+}
+
+/**
+ * Generate a random spawn position in the jungle (outside the soup)
+ * For Stage 3+ bots that live in the larger jungle world
+ */
+function randomJungleSpawnPosition(): Position {
+  const padding = 500;
+
+  // Soup region to avoid (Stage 3 bots don't belong in the soup)
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X - 200;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH + 200;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y - 200;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT + 200;
+
+  let x: number;
+  let y: number;
+  let attempts = 0;
+
+  do {
+    x = padding + Math.random() * (GAME_CONFIG.JUNGLE_WIDTH - 2 * padding);
+    y = padding + Math.random() * (GAME_CONFIG.JUNGLE_HEIGHT - 2 * padding);
+    attempts++;
+
+    // Check if in soup region
+    const inSoup = x > soupMinX && x < soupMaxX && y > soupMinY && y < soupMaxY;
+    if (!inSoup) break;
+  } while (attempts < 50);
+
+  return { x, y };
+}
+
+/**
+ * Spawn a cyber-organism bot (Stage 3) with ranged specialization
+ * These bots hunt in the jungle using projectiles
+ */
+function spawnCyberOrganismBot(io: Server): BotController {
+  if (!ecsWorld) {
+    throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
+  }
+
+  // Generate unique bot ID
+  const botId = `bot-cyber-${Math.random().toString(36).substr(2, 9)}`;
+  const botColor = randomColor();
+  const spawnPosition = randomJungleSpawnPosition();
+
+  // Create bot in ECS at Stage 3 (cyber-organism)
+  ecsCreateBot(ecsWorld, botId, botId, botColor, spawnPosition, EvolutionStage.CYBER_ORGANISM);
+
+  // Randomly choose combat specialization (like a real player would)
+  const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
+  const chosenSpec = specializations[Math.floor(Math.random() * specializations.length)];
+
+  const entity = ecsWorld.query(Components.Player).find(e => {
+    const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
+    return p?.socketId === botId;
+  });
+  if (entity) {
+    ecsWorld.addComponent(entity, Components.CombatSpecialization, {
+      specialization: chosenSpec,
+    });
+  }
+
+  // Get the legacy Player object from ECS for BotController reference
+  const botPlayer = getPlayerBySocketId(ecsWorld, botId);
+  if (!botPlayer) {
+    throw new Error(`Failed to create cyber-organism bot ${botId} in ECS`);
+  }
+
+  // Get ECS components for direct mutation by bot AI
+  const inputComponent = getInputBySocketId(ecsWorld, botId);
+  const velocityComponent = getVelocityBySocketId(ecsWorld, botId);
+  if (!inputComponent || !velocityComponent) {
+    throw new Error(`Failed to get ECS components for cyber-organism bot ${botId}`);
+  }
+
+  // Create bot controller with AI state
+  const bot: BotController = {
+    player: botPlayer,
+    inputDirection: inputComponent.direction,
+    velocity: velocityComponent,
+    ai: {
+      state: 'wander',
+      wanderDirection: { x: 0, y: 0 },
+      nextWanderChange: Date.now(),
+    },
+  };
+
+  cyberOrganismBots.set(botId, bot);
+
+  // Broadcast to all clients
+  const joinMessage: PlayerJoinedMessage = {
+    type: 'playerJoined',
+    player: botPlayer,
+  };
+  io.emit('playerJoined', joinMessage);
+
+  // Track spawn time
+  recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
+
+  logger.info({
+    event: 'cyber_organism_bot_spawned',
+    botId,
+    position: spawnPosition,
+    specialization: chosenSpec,
+  });
 
   return bot;
 }
@@ -687,12 +801,17 @@ export function initializeBots(io: Server) {
     spawnBot(io);
   }
 
-  // Spawn multi-cell bots
+  // Spawn multi-cell bots (Stage 2)
   for (let i = 0; i < BOT_CONFIG.STAGE2_COUNT; i++) {
     spawnMultiCellBot(io);
   }
 
-  logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT);
+  // Spawn cyber-organism bots (Stage 3 - jungle hunters)
+  for (let i = 0; i < BOT_CONFIG.STAGE3_COUNT; i++) {
+    spawnCyberOrganismBot(io);
+  }
+
+  logBotsSpawned(BOT_CONFIG.COUNT + BOT_CONFIG.STAGE2_COUNT + BOT_CONFIG.STAGE3_COUNT);
 }
 
 /**
@@ -930,6 +1049,172 @@ function updateMultiCellBotAI(
   }
 }
 
+// Fauna snapshot for cyber-organism bot AI (jungle targets)
+interface FaunaSnapshot {
+  id: string;
+  x: number;
+  y: number;
+  type: 'bug' | 'creature' | 'fruit' | 'player';
+}
+
+/**
+ * Update cyber-organism bot AI (Stage 3)
+ * Hunts fauna in the jungle using combat specialization abilities.
+ * These bots can't see/interact with soup entities - only jungle fauna and Stage 3+ players.
+ *
+ * AI behavior varies by specialization:
+ * - Ranged: Keep medium distance, fire projectiles
+ * - Melee: Chase and attack at close range
+ * - Traps: Place traps, kite enemies into them
+ */
+function updateCyberOrganismBotAI(
+  bot: BotController,
+  currentTime: number,
+  world: World,
+  abilitySystem: AbilitySystem,
+  fauna: FaunaSnapshot[]
+) {
+  const player = bot.player;
+
+  // Skip dead or evolving bots
+  if (player.energy <= 0 || player.isEvolving) {
+    bot.inputDirection.x = 0;
+    bot.inputDirection.y = 0;
+    return;
+  }
+
+  // Get bot's specialization from ECS
+  const entity = world.query(Components.Player).find(e => {
+    const p = world.getComponent<{ socketId: string }>(e, Components.Player);
+    return p?.socketId === player.id;
+  });
+  if (!entity) return;
+
+  const specComp = world.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(
+    entity,
+    Components.CombatSpecialization
+  );
+  const specialization = specComp?.specialization || 'ranged';
+
+  // Find nearest fauna target
+  let nearestTarget: FaunaSnapshot | null = null;
+  let nearestDist = BOT_CONFIG.JUNGLE_SEARCH_RADIUS;
+
+  for (const target of fauna) {
+    const dx = player.position.x - target.x;
+    const dy = player.position.y - target.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < nearestDist) {
+      nearestTarget = target;
+      nearestDist = dist;
+    }
+  }
+
+  // Behavior based on specialization
+  if (specialization === 'ranged') {
+    // RANGED: Keep medium distance, fire projectiles
+    const projectileRange = getConfig('PROJECTILE_MAX_DISTANCE');
+    const idealDistance = projectileRange * 0.5; // Stay at ~400px
+
+    if (nearestTarget) {
+      // Fire if in range and able
+      if (nearestDist < projectileRange * 0.8 && abilitySystem.canFireProjectile(player.id)) {
+        abilitySystem.fireProjectile(player.id, nearestTarget.x, nearestTarget.y);
+      }
+
+      // Movement: approach if too far, retreat if too close
+      if (nearestDist > idealDistance + 100) {
+        // Too far - approach
+        const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection);
+        bot.inputDirection.x = seekDir.x;
+        bot.inputDirection.y = seekDir.y;
+      } else if (nearestDist < idealDistance - 100) {
+        // Too close - retreat while still facing target
+        const dx = player.position.x - nearestTarget.x;
+        const dy = player.position.y - nearestTarget.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          bot.inputDirection.x = dx / len;
+          bot.inputDirection.y = dy / len;
+        }
+      } else {
+        // Good distance - strafe slowly
+        const dx = nearestTarget.x - player.position.x;
+        const dy = nearestTarget.y - player.position.y;
+        // Perpendicular strafe
+        bot.inputDirection.x = -dy * 0.3;
+        bot.inputDirection.y = dx * 0.3;
+      }
+    } else {
+      updateBotWander(bot, currentTime);
+    }
+  } else if (specialization === 'melee') {
+    // MELEE: Chase and attack at close range
+    const meleeRange = 120; // Close range for melee attacks
+
+    if (nearestTarget) {
+      // Attack if in melee range (fireMeleeAttack handles cooldown internally)
+      if (nearestDist < meleeRange) {
+        const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
+        abilitySystem.fireMeleeAttack(player.id, attackType, nearestTarget.x, nearestTarget.y);
+      }
+
+      // Always chase - melee wants to close distance
+      const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection, 0.2);
+      bot.inputDirection.x = seekDir.x;
+      bot.inputDirection.y = seekDir.y;
+    } else {
+      updateBotWander(bot, currentTime);
+    }
+  } else if (specialization === 'traps') {
+    // TRAPS: Place traps, kite enemies into them
+    const trapTriggerRadius = getConfig('TRAP_TRIGGER_RADIUS') || 100;
+
+    if (nearestTarget) {
+      // Place trap if enemy is approaching and ability ready
+      if (nearestDist < 300 && nearestDist > trapTriggerRadius && abilitySystem.canPlaceTrap(player.id)) {
+        abilitySystem.placeTrap(player.id);
+      }
+
+      // Kite behavior: retreat while leading enemy through traps
+      if (nearestDist < 200) {
+        // Too close - retreat
+        const dx = player.position.x - nearestTarget.x;
+        const dy = player.position.y - nearestTarget.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          bot.inputDirection.x = dx / len;
+          bot.inputDirection.y = dy / len;
+        }
+      } else if (nearestDist < 400) {
+        // Medium range - circle/strafe to reposition
+        const dx = nearestTarget.x - player.position.x;
+        const dy = nearestTarget.y - player.position.y;
+        // Perpendicular movement with slight retreat
+        bot.inputDirection.x = -dy * 0.5 + dx * -0.3;
+        bot.inputDirection.y = dx * 0.5 + dy * -0.3;
+      } else {
+        // Far away - approach cautiously to lure into trap range
+        const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection, 0.1);
+        bot.inputDirection.x = seekDir.x * 0.5;
+        bot.inputDirection.y = seekDir.y * 0.5;
+      }
+    } else {
+      updateBotWander(bot, currentTime);
+    }
+  }
+
+  // Normalize direction
+  const cyberDirLength = Math.sqrt(
+    bot.inputDirection.x * bot.inputDirection.x +
+    bot.inputDirection.y * bot.inputDirection.y
+  );
+  if (cyberDirLength > 1) {
+    bot.inputDirection.x /= cyberDirLength;
+    bot.inputDirection.y /= cyberDirLength;
+  }
+}
+
 /**
  * Update all bots' AI decision-making
  * Call this before the movement loop in the game tick
@@ -982,6 +1267,60 @@ export function updateBots(
     }
     updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem, nutrients);
   }
+
+  // Pre-collect jungle fauna for cyber-organism bots
+  // They can only see/interact with jungle entities, not soup entities
+  const fauna: FaunaSnapshot[] = [];
+
+  // CyberBugs
+  world.forEachWithTag(Tags.CyberBug, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const id = getStringIdByEntity(entity);
+    if (pos && id) {
+      fauna.push({ id, x: pos.x, y: pos.y, type: 'bug' });
+    }
+  });
+
+  // JungleCreatures
+  world.forEachWithTag(Tags.JungleCreature, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const id = getStringIdByEntity(entity);
+    if (pos && id) {
+      fauna.push({ id, x: pos.x, y: pos.y, type: 'creature' });
+    }
+  });
+
+  // DataFruits
+  world.forEachWithTag(Tags.DataFruit, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const id = getStringIdByEntity(entity);
+    if (pos && id) {
+      fauna.push({ id, x: pos.x, y: pos.y, type: 'fruit' });
+    }
+  });
+
+  // Other Stage 3+ players (including other cyber-organism bots for PvP)
+  world.forEachWithTag(Tags.Player, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
+    const playerComp = world.getComponent<{ socketId: string }>(entity, Components.Player);
+    if (!pos || !stageComp || !playerComp) return;
+    // Only include Stage 3+ (jungle scale)
+    if (stageComp.stage < EvolutionStage.CYBER_ORGANISM) return;
+    fauna.push({ id: playerComp.socketId, x: pos.x, y: pos.y, type: 'player' });
+  });
+
+  // Update cyber-organism bots (Stage 3 - jungle hunters with combat specializations)
+  for (const [botId, bot] of cyberOrganismBots) {
+    // Refresh bot.player from ECS
+    const freshPlayer = getPlayerBySocketId(world, botId);
+    if (freshPlayer) {
+      bot.player = freshPlayer;
+    }
+    // Filter out self from fauna targets
+    const targetsForThisBot = fauna.filter(f => f.id !== botId);
+    updateCyberOrganismBotAI(bot, currentTime, world, abilitySystem, targetsForThisBot);
+  }
 }
 
 /**
@@ -998,8 +1337,9 @@ export function removeBotPermanently(botId: string, io: Server): boolean {
   // Remove from bot tracking (prevents respawn)
   const wasSingleCell = singleCellBots.delete(botId);
   const wasMultiCell = multiCellBots.delete(botId);
+  const wasCyberOrganism = cyberOrganismBots.delete(botId);
 
-  if (!wasSingleCell && !wasMultiCell) {
+  if (!wasSingleCell && !wasMultiCell && !wasCyberOrganism) {
     return false; // Not a tracked bot
   }
 
@@ -1019,7 +1359,7 @@ export function removeBotPermanently(botId: string, io: Server): boolean {
  * Get bot count for debugging
  */
 export function getBotCount(): number {
-  return singleCellBots.size + multiCellBots.size;
+  return singleCellBots.size + multiCellBots.size + cyberOrganismBots.size;
 }
 
 /**
@@ -1151,6 +1491,82 @@ export function handleBotDeath(
 
       logBotRespawn(botId);
     }, BOT_CONFIG.STAGE2_RESPAWN_DELAY);
+    return;
+  }
+
+  // Check if it's a cyber-organism bot (Stage 3)
+  const cyberBot = cyberOrganismBots.get(botId);
+  if (cyberBot) {
+    logBotDeath(botId, cause, EvolutionStage.CYBER_ORGANISM);
+    clearSpawnTime(botId);
+
+    // Schedule cyber-organism bot respawn (longer delay)
+    setTimeout(() => {
+      if (!ecsWorld) return;
+
+      // Get ECS components
+      const posComp = getPositionBySocketId(ecsWorld, botId);
+      const energyComp = getEnergyBySocketId(ecsWorld, botId);
+      const stageComp = getStageBySocketId(ecsWorld, botId);
+
+      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
+
+      // Respawn in jungle at Stage 3
+      const newPos = randomJungleSpawnPosition();
+      posComp.x = newPos.x;
+      posComp.y = newPos.y;
+      energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY || 15000;
+      energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY || 30000;
+      stageComp.stage = EvolutionStage.CYBER_ORGANISM;
+      stageComp.isEvolving = false;
+
+      // Reset input direction and velocity
+      cyberBot.inputDirection.x = 0;
+      cyberBot.inputDirection.y = 0;
+      cyberBot.velocity.x = 0;
+      cyberBot.velocity.y = 0;
+
+      // Reset AI state
+      cyberBot.ai.state = 'wander';
+      cyberBot.ai.targetNutrient = undefined;
+      cyberBot.ai.nextWanderChange = Date.now();
+
+      // Re-roll specialization on respawn (fresh start)
+      const entity = ecsWorld.query(Components.Player).find(e => {
+        const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
+        return p?.socketId === botId;
+      });
+      if (entity) {
+        const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
+        const newSpec = specializations[Math.floor(Math.random() * specializations.length)];
+        const specComp = ecsWorld.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(
+          entity,
+          Components.CombatSpecialization
+        );
+        if (specComp) {
+          specComp.specialization = newSpec;
+        }
+      }
+
+      // Get fresh Player object from ECS for broadcast
+      const player = getPlayerBySocketId(ecsWorld, botId);
+      if (!player) return;
+
+      // Update BotController's player reference
+      cyberBot.player = player;
+
+      // Broadcast respawn to all clients
+      const respawnMessage: PlayerRespawnedMessage = {
+        type: 'playerRespawned',
+        player: { ...player },
+      };
+      io.emit('playerRespawned', respawnMessage);
+
+      // Track new spawn time
+      recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
+
+      logBotRespawn(botId);
+    }, BOT_CONFIG.STAGE3_RESPAWN_DELAY);
     return;
   }
 }
