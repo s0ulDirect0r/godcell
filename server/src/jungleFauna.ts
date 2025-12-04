@@ -65,8 +65,9 @@ export function initializeDataFruits(world: World, io: Server): void {
     const staggerOffset = Math.random() * GAME_CONFIG.DATAFRUIT_TREE_SPAWN_INTERVAL;
     treeLastFruitSpawn.set(treeEntity, now - staggerOffset);
 
-    // Each tree gets 1-2 fruits nearby
-    const numFruits = 1 + Math.floor(Math.random() * 2);
+    // 30% of trees get 1 fruit (70% reduction from original 1-2 per tree)
+    if (Math.random() > 0.3) return;
+    const numFruits = 1;
 
     for (let i = 0; i < numFruits; i++) {
       const fruitId = `fruit-${dataFruitIdCounter++}`;
