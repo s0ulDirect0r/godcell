@@ -323,7 +323,7 @@ function spawnCyberOrganismBot(io: Server): BotController {
   recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
 
   logger.info({
-    event: 'cyber_organism_bot_spawned',
+    event: 'bot_cyber_organism_spawned',
     botId,
     position: spawnPosition,
     specialization: chosenSpec,

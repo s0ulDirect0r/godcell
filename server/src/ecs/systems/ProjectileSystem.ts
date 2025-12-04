@@ -165,7 +165,7 @@ export class ProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'projectile_kill_bug',
+          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_bug' : 'player_projectile_kill_bug',
           shooter: projComp.ownerSocketId,
           bugId: bugToKill.id,
           energyGained: bugComp.value,
@@ -232,7 +232,7 @@ export class ProjectileSystem implements System {
         });
 
         logger.info({
-          event: 'projectile_kill_creature',
+          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_creature' : 'player_projectile_kill_creature',
           shooter: projComp.ownerSocketId,
           creatureId: creatureToKill.id,
           variant: creatureComp.variant,
