@@ -19,7 +19,7 @@ GODCELL is a real-time multiplayer evolution game built on an **Entity-Component
 │  │  ECS World  │   GameStateMessage          │  ECS World          │    │
 │  │  (60fps)    │ ─────────────────────────►  │  (render state)     │    │
 │  │             │                             │                     │    │
-│  │  18 Systems │   PlayerMoveMessage         │  15 Render Systems  │    │
+│  │  20 Systems │   PlayerMoveMessage         │  17 Render Systems  │    │
 │  │  (gameplay) │ ◄─────────────────────────  │  (Three.js)         │    │
 │  └─────────────┘                             └─────────────────────┘    │
 │                                                                         │
@@ -47,9 +47,9 @@ godcell/
 │       ├── ecs/
 │       │   ├── factories.ts    # Entity creation, lookups
 │       │   ├── serialization/  # ECS → network format
-│       │   └── systems/        # 18 gameplay systems
+│       │   └── systems/        # 20 gameplay systems
 │       └── helpers/            # Math, spawning, logging, abilities
-│           ├── abilities.ts    # AbilitySystem (EMP, Pseudopod, Projectile)
+│           ├── abilities.ts    # AbilitySystem (EMP, Pseudopod, Projectile, Melee, Trap)
 │           ├── bots.ts         # Bot AI decisions
 │           ├── jungleFauna.ts  # Stage 3 fauna spawning
 │           ├── logger.ts       # Pino logging (3 log files)
@@ -65,7 +65,7 @@ godcell/
         │   ├── input/          # InputManager
         │   └── net/            # SocketManager
         ├── render/
-        │   ├── systems/        # 15 render systems
+        │   ├── systems/        # 17 render systems
         │   ├── three/          # ThreeRenderer, postprocessing
         │   └── meshes/         # Stage-specific mesh factories
         └── ui/                 # HUD, debug overlay, start screen, dev panel
@@ -143,9 +143,11 @@ All component interfaces defined in one place:
 | **Input** | Movement intent | `direction: {x, y, z?}` |
 | **Sprint** | Sprint state | `isSprinting` |
 | **Stunned** | Stun effect | `until` (timestamp) |
-| **Cooldowns** | Ability cooldowns | `lastEMPTime?, lastPseudopodTime?, lastOrganismProjectileTime?` |
+| **Cooldowns** | Ability cooldowns | `lastEMPTime?, lastPseudopodTime?, lastMeleeSwipeTime?, lastTrapPlaceTime?` |
 | **DamageTracking** | Damage sources | `lastDamageSource?, activeDamage[]` |
 | **DrainTarget** | Being drained by | `predatorId` |
+| **CombatSpecialization** | Stage 3 combat path | `specialization: melee\|ranged\|traps, selectionPending` |
+| **Knockback** | Applied force | `forceX, forceY, decayRate` |
 | **Nutrient** | Food entity | `value, capacityIncrease, isHighValue` |
 | **Obstacle** | Gravity well | `radius, strength` |
 | **Swarm** | Entropy swarm | `size, state, targetPlayerId?, homePosition` |
@@ -154,7 +156,8 @@ All component interfaces defined in one place:
 | **DataFruit** | Harvestable fruit | `treeEntityId, value, capacityIncrease, ripeness, fallenAt?` |
 | **CyberBug** | Skittish prey | `swarmId, state, value, capacityIncrease` |
 | **JungleCreature** | Larger fauna | `variant, state, value, capacityIncrease` |
-| **OrganismProjectile** | Stage 3 attack | `ownerId, targetPosition, state, color` |
+| **Projectile** | Ranged spec attack | `ownerId, damage, speed, maxDistance, state` |
+| **Trap** | Traps spec mine | `ownerId, damage, stunDuration, triggerRadius, lifetime` |
 
 **Ability Markers** (presence = ability unlocked):
 - `CanFireEMP` (Stage 2+)
@@ -186,7 +189,8 @@ const Tags = {
   DataFruit: 'datafruit',
   CyberBug: 'cyberbug',
   JungleCreature: 'junglecreature',
-  OrganismProjectile: 'organismprojectile',
+  Projectile: 'projectile',
+  Trap: 'trap',
 
   // Client-only
   LocalPlayer: 'local_player',
@@ -238,14 +242,16 @@ Systems execute in priority order each tick (lower = earlier):
 | 105 | **CyberBugAISystem** | Stage 3 prey AI (idle/patrol/flee) |
 | 106 | **JungleCreatureAISystem** | Stage 3 fauna AI (grazer/stalker/ambusher) |
 | 110 | **SwarmAISystem** | Swarm movement, patrol/chase, respawns |
+| 120 | **SpecializationSystem** | Stage 3 combat spec timeout auto-assign |
 | 150 | **DataFruitSystem** | Fruit ripening, ripeness decay |
 | 200 | **GravitySystem** | Gravity well attraction |
 | 300 | **PseudopodSystem** | Stage 2 beam travel & hits |
-| 310 | **OrganismProjectileSystem** | Stage 3 projectile travel & hits |
+| 310 | **ProjectileSystem** | Ranged spec projectile travel & hits |
+| 320 | **TrapSystem** | Traps spec trigger detection & lifetime |
 | 400 | **PredationSystem** | Multi-cell contact draining |
 | 410 | **SwarmCollisionSystem** | Swarm damage, sets SlowedThisTick |
 | 480 | **TreeCollisionSystem** | Pushes jungle players out of trees |
-| 500 | **MovementSystem** | Physics (reads SlowedThisTick) |
+| 500 | **MovementSystem** | Physics (reads SlowedThisTick, Knockback) |
 | 600 | **MetabolismSystem** | Energy decay |
 | 610 | **NutrientCollisionSystem** | Stage 1-2 nutrient pickup |
 | 615 | **MacroResourceCollisionSystem** | Stage 3 fruit/fauna collection |
@@ -278,7 +284,10 @@ createTree(world, position, radius, height, variant): EntityId
 createDataFruit(world, position, treeEntityId): EntityId
 createCyberBug(world, position, swarmId): EntityId
 createJungleCreature(world, position, variant): EntityId
-createOrganismProjectile(world, ownerId, start, target, color): EntityId
+
+// Stage 3+ combat specialization entities
+createProjectile(world, ownerId, start, target, color): EntityId
+createTrap(world, ownerId, position, color): EntityId
 ```
 
 **Lookup Tables** (bidirectional ID mapping):
@@ -306,6 +315,8 @@ treeSerializer(entity, world): Tree
 dataFruitSerializer(entity, world): DataFruit
 cyberBugSerializer(entity, world): CyberBug
 jungleCreatureSerializer(entity, world): JungleCreature
+projectileSerializer(entity, world): Projectile
+trapSerializer(entity, world): Trap
 ```
 
 ---
@@ -418,7 +429,7 @@ class ThreeRenderer {
     this.scene = new THREE.Scene()
     this.world = world
 
-    // Initialize all 15 render systems
+    // Initialize all 17 render systems
     this.cameraSystem = new CameraSystem()
     this.environmentSystem = new EnvironmentSystem()
     this.playerRenderSystem = new PlayerRenderSystem()
@@ -430,8 +441,10 @@ class ThreeRenderer {
     this.dataFruitRenderSystem = new DataFruitRenderSystem()
     this.cyberBugRenderSystem = new CyberBugRenderSystem()
     this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem()
-    this.organismProjectileRenderSystem = new OrganismProjectileRenderSystem()
+    this.projectileRenderSystem = new ProjectileRenderSystem()
+    this.trapRenderSystem = new TrapRenderSystem()
     this.effectsSystem = new EffectsSystem()
+    this.auraRenderSystem = new AuraRenderSystem()
     this.auraSystem = new AuraSystem()
     this.trailSystem = new TrailSystem()
 
@@ -464,9 +477,11 @@ class ThreeRenderer {
 | **DataFruitRenderSystem** | Harvestable fruits (ripeness glow) | All datafruit entities |
 | **CyberBugRenderSystem** | Small prey bugs | All cyberbug entities |
 | **JungleCreatureRenderSystem** | Larger fauna (variant models) | All junglecreature entities |
-| **OrganismProjectileRenderSystem** | Stage 3 projectile beams | All projectile entities |
+| **ProjectileRenderSystem** | Ranged spec projectile beams | All projectile entities |
+| **TrapRenderSystem** | Traps spec mine indicators | All trap entities |
 | **EffectsSystem** | Particle effects (death, evolution) | EventBus |
-| **AuraSystem** | Damage/gain auras | Player damage info |
+| **AuraRenderSystem** | Damage/drain visual feedback | Player/swarm damage info |
+| **AuraSystem** | ECS-driven aura state updates | Player/swarm entities |
 | **TrailSystem** | Glowing movement trails | Player positions |
 
 **Pattern**: Each system:
@@ -532,7 +547,7 @@ Players evolve through 5 stages by increasing their `maxEnergy` through nutrient
 |-------|------|-----------|-----------|-------------|
 | 1 | **Single-Cell** | 0 | Basic movement | Top-down |
 | 2 | **Multi-Cell** | 300 | EMP, Pseudopod, Detection | Top-down |
-| 3 | **Cyber-Organism** | 3,000 | Sprint, Organism Projectile | Orbit |
+| 3 | **Cyber-Organism** | 3,000 | Sprint + Combat Specialization | Orbit |
 | 4 | **Humanoid** | 30,000 | First-person controls | First-person |
 | 5 | **Godcell** | 100,000 | 3D flight (Q/E vertical) | First-person |
 
@@ -541,6 +556,28 @@ Players evolve through 5 stages by increasing their `maxEnergy` through nutrient
 - Stage 2→3: Hunt swarms with EMP + pseudopod
 - Stage 3→4: Hunt jungle fauna (fruits, bugs, creatures)
 - Stage 4→5: Full ecosystem mastery
+
+### Stage 3 Combat Specializations
+
+At Stage 3, players choose one of three combat specializations (locked for that life):
+
+| Specialization | Attack | Mechanics |
+|----------------|--------|-----------|
+| **Melee** | Swipe/Thrust | Close-range arc attack with knockback |
+| **Ranged** | Projectile | Homing projectile with damage + capacity steal |
+| **Traps** | Mine | Disguised trap that stuns + damages on proximity |
+
+**Selection Flow:**
+1. Player evolves to Stage 3 → `specializationPrompt` sent to client
+2. Modal appears with 3 choices (timeout: 10s)
+3. Player selects → `selectSpecialization` sent to server
+4. If timeout: `SpecializationSystem` auto-assigns random choice
+5. Choice stored in `CombatSpecializationComponent`
+
+**Combat Inputs:**
+- **Melee**: LMB (swipe) / RMB (thrust)
+- **Ranged**: LMB (fire at cursor)
+- **Traps**: RMB (place at cursor)
 
 ---
 
@@ -638,7 +675,10 @@ Position changes broadcast to all clients
 | `playerSprint` | Toggle sprint (Stage 3+) |
 | `pseudopodFire` | Fire beam at target (Stage 2+) |
 | `empActivate` | Activate EMP pulse (Stage 2+) |
-| `organismProjectileFire` | Fire projectile at target (Stage 3+) |
+| `selectSpecialization` | Choose combat path (melee/ranged/traps) |
+| `projectileFire` | Ranged spec: fire at target (Stage 3+) |
+| `meleeAttack` | Melee spec: swipe/thrust attack (Stage 3+) |
+| `placeTrap` | Traps spec: place mine at position (Stage 3+) |
 | `devCommand` | Dev panel commands |
 
 ### Server → Client
@@ -658,7 +698,12 @@ Position changes broadcast to all clients
 | `dataFruitSpawned`, `dataFruitCollected` | Fruit events |
 | `cyberBugSpawned`, `cyberBugKilled`, `cyberBugMoved` | Bug events |
 | `jungleCreatureSpawned`, `jungleCreatureKilled`, `jungleCreatureMoved` | Creature events |
-| `organismProjectileSpawned`, `organismProjectileHit`, `organismProjectileRetracted` | Projectile events |
+| `specializationPrompt` | Prompt player to choose combat spec |
+| `specializationSelected` | Confirm combat spec choice |
+| `projectileSpawned`, `projectileHit`, `projectileRetracted` | Ranged spec projectile events |
+| `meleeAttackExecuted` | Melee spec attack event |
+| `trapPlaced`, `trapTriggered`, `trapDespawned` | Traps spec events |
+| `knockbackApplied` | Knockback force applied to entity |
 
 ---
 
