@@ -1516,8 +1516,8 @@ export function respawnBotNow(
     const newPos = randomJungleSpawnPosition();
     posComp.x = newPos.x;
     posComp.y = newPos.y;
-    energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY || 15000;
-    energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY || 30000;
+    energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY ?? 15000;
+    energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY ?? 30000;
     stageComp.stage = EvolutionStage.CYBER_ORGANISM;
     stageComp.radius = GAME_CONFIG.CYBER_ORGANISM_RADIUS;
     stageComp.isEvolving = false;

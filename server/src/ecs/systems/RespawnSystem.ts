@@ -8,6 +8,7 @@ import type { World, PendingRespawnComponent } from '@godcell/shared';
 import { Components } from '@godcell/shared';
 import type { System } from './types';
 import { respawnBotNow } from '../../bots';
+import { logger } from '../../logger';
 
 /**
  * RespawnSystem - Processes pending respawn entities
@@ -37,12 +38,18 @@ export class RespawnSystem implements System {
       if (now >= pending.respawnAt) {
         // Process respawn based on entity type
         if (pending.entityType === 'bot') {
-          const botId = pending.metadata?.botId as string;
+          const botId = pending.metadata?.botId;
           const stage = pending.stage ?? 1;
 
-          if (botId) {
-            // Call bot respawn handler
-            respawnBotNow(botId, stage, io, world);
+          if (typeof botId === 'string') {
+            try {
+              respawnBotNow(botId, stage, io, world);
+              logger.debug({ event: 'pending_respawn_processed', entityType: 'bot', botId, stage });
+            } catch (error) {
+              logger.error({ event: 'pending_respawn_failed', entityType: 'bot', botId, stage, error });
+            }
+          } else {
+            logger.warn({ event: 'pending_respawn_invalid_botId', metadata: pending.metadata });
           }
         }
         // Future: handle 'swarm' and 'nutrient' respawns here
