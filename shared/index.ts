@@ -965,7 +965,7 @@ export const GAME_CONFIG = {
   // These drain energy passively - no damage resistance applies
   SINGLE_CELL_ENERGY_DECAY_RATE: 2.66,    // ~37 seconds to starvation from spawn (100 / 2.66 ≈ 37s) - harsh!
   MULTI_CELL_ENERGY_DECAY_RATE: 2.1,      // ~190 seconds (400 / 2.1 ≈ 190s ≈ 3 minutes)
-  CYBER_ORGANISM_ENERGY_DECAY_RATE: 6.0,  // ~167 seconds (1000 / 6.0 ≈ 2.8 minutes) - more urgent
+  CYBER_ORGANISM_ENERGY_DECAY_RATE: 12.0, // ~250 seconds (3000 / 12.0 ≈ 4.2 minutes) - doubled for urgency
   HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~606 seconds (2000 / 3.3 ≈ 10 minutes)
   GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics
 
