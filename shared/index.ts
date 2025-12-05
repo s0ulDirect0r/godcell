@@ -823,6 +823,7 @@ export const DEV_TUNABLE_CONFIGS = [
   'OBSTACLE_GRAVITY_RADIUS',
   'OBSTACLE_EVENT_HORIZON',
   'OBSTACLE_CORE_RADIUS',
+  'OBSTACLE_SPARK_RADIUS',
 
   // Swarms
   'SWARM_SPEED',
@@ -937,7 +938,8 @@ export const GAME_CONFIG = {
   OBSTACLE_COUNT: 12,           // Number of distortions to spawn
   OBSTACLE_GRAVITY_RADIUS: 600, // Full gravity influence zone (escapable with effort)
   OBSTACLE_EVENT_HORIZON: 180,  // Inescapable zone (magenta filled - 30% of gravity radius)
-  OBSTACLE_CORE_RADIUS: 60,     // Instant-death singularity core
+  OBSTACLE_CORE_RADIUS: 60,     // Visual dark void sphere
+  OBSTACLE_SPARK_RADIUS: 18,    // Lethal inner spark (instant death zone)
   OBSTACLE_GRAVITY_STRENGTH: 0.72, // Force multiplier for inverse-square gravity (12x original to compensate for higher speeds + momentum)
   OBSTACLE_DAMAGE_RATE: 10,     // UNUSED - gravity wells are physics-only now
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles

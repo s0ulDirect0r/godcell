@@ -65,6 +65,7 @@ const CONFIG_RANGES: Partial<Record<TunableConfigKey, ConfigValue>> = {
   OBSTACLE_GRAVITY_RADIUS: { value: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS, min: 200, max: 1200, step: 50 },
   OBSTACLE_EVENT_HORIZON: { value: GAME_CONFIG.OBSTACLE_EVENT_HORIZON, min: 50, max: 400, step: 10 },
   OBSTACLE_CORE_RADIUS: { value: GAME_CONFIG.OBSTACLE_CORE_RADIUS, min: 20, max: 150, step: 5 },
+  OBSTACLE_SPARK_RADIUS: { value: GAME_CONFIG.OBSTACLE_SPARK_RADIUS, min: 5, max: 60, step: 2 },
 
   // Swarms
   SWARM_SPEED: { value: GAME_CONFIG.SWARM_SPEED, min: 50, max: 500, step: 10 },
@@ -207,6 +208,7 @@ export class DevPanel {
     this.addConfigControl(obstaclesFolder, 'OBSTACLE_GRAVITY_RADIUS');
     this.addConfigControl(obstaclesFolder, 'OBSTACLE_EVENT_HORIZON');
     this.addConfigControl(obstaclesFolder, 'OBSTACLE_CORE_RADIUS');
+    this.addConfigControl(obstaclesFolder, 'OBSTACLE_SPARK_RADIUS');
     obstaclesFolder.close();
 
     // Swarms subfolder

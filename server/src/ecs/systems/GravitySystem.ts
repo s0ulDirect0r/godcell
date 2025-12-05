@@ -58,8 +58,8 @@ export class GravitySystem implements System {
         const dist = distance(playerPos, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
-        // Instant death at singularity core (energy-only: energy = 0)
-        if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
+        // Instant death at inner spark (energy-only: energy = 0)
+        if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
           logSingularityCrush(playerId, dist);
           // Use ECS setter to persist the change
           setEnergyBySocketId(world, playerId, 0); // Instant energy depletion
@@ -116,7 +116,7 @@ export class GravitySystem implements System {
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Swarms can get destroyed by singularities too
-        if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
+        if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
           // For now, swarms just get pulled through - they're corrupted data
           return;
         }

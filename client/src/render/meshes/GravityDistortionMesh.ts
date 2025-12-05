@@ -49,11 +49,25 @@ const VORTEX = {
 const SINGULARITY_CORE = {
   baseColor: 0x1a0011,  // Very dark magenta-black
   emissive: 0xff00ff,   // Magenta glow
-  emissiveIntensity: 0.0, // Set to 0 for dark void, 3.0 for bright
+  emissiveIntensity: -0.5, // Negative = absorbs light, creates void effect
   roughness: 0.3,
-  // Animation
-  pulseSpeed: 3.5,      // Rapid heartbeat Hz
-  emissiveRange: 0.5,   // Oscillation range (base ± range)
+  // Animation disabled - inner spark provides visual interest
+  pulseSpeed: 0,
+  emissiveRange: 0,
+};
+
+/** Inner spark - burning red light at singularity center (LETHAL ZONE) */
+const INNER_SPARK = {
+  color: 0xff2200,        // Deep red-orange
+  emissive: 0xff4400,     // Bright orange-red glow
+  baseEmissiveIntensity: 2.5,  // Base brightness (very bright)
+  maxEmissiveIntensity: 5.0,   // Peak brightness during flicker
+  // Radius controlled by GAME_CONFIG.OBSTACLE_SPARK_RADIUS (shared with server death check)
+  roughness: 0.1,         // Smooth/shiny for glow
+  // Animation - chaotic flicker like a burning ember
+  flickerSpeed: 8.0,      // Fast flicker Hz
+  flickerSpeed2: 13.0,    // Secondary flicker (creates chaos)
+  flickerSpeed3: 21.0,    // Tertiary flicker (more chaos)
 };
 
 /** Accretion disk - particles spiraling inward */
@@ -109,7 +123,8 @@ export interface GravityDistortionResult {
  * 3. Event horizon sphere - magenta danger zone
  * 4. Vortex particles + line - spinning spiral
  * 5. Singularity core - dark/glowing death zone
- * 6. Accretion disk - particles spiraling inward
+ * 6. Inner spark - burning red light at center
+ * 7. Accretion disk - particles spiraling inward
  *
  * @param position - World position {x, y}
  * @param radius - Outer influence radius
@@ -262,7 +277,26 @@ export function createGravityDistortion(
   coreSphere.userData.isSingularityCore = true;
   group.add(coreSphere);
 
-  // === LAYER 6: ACCRETION DISK PARTICLES ===
+  // === LAYER 6: INNER SPARK (burning red light at center - LETHAL ZONE) ===
+  const sparkGeometry = new THREE.SphereGeometry(
+    GAME_CONFIG.OBSTACLE_SPARK_RADIUS,
+    16,
+    16
+  );
+  const sparkMaterial = new THREE.MeshStandardMaterial({
+    color: INNER_SPARK.color,
+    emissive: INNER_SPARK.emissive,
+    emissiveIntensity: INNER_SPARK.baseEmissiveIntensity,
+    roughness: INNER_SPARK.roughness,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const sparkSphere = new THREE.Mesh(sparkGeometry, sparkMaterial);
+  sparkSphere.position.z = 0.12; // Slightly in front of core
+  sparkSphere.userData.isInnerSpark = true;
+  group.add(sparkSphere);
+
+  // === LAYER 7: ACCRETION DISK PARTICLES ===
   const particleCount = ACCRETION_DISK.particleCount;
   const positions = new Float32Array(particleCount * 3);
   const colors = new Float32Array(particleCount * 3);
@@ -336,6 +370,7 @@ export function createGravityDistortion(
  * - Event horizon breathing
  * - Vortex rotation
  * - Core pulsing
+ * - Inner spark flickering (chaotic red burning light)
  * - Accretion disk particle movement
  *
  * @param group - The gravity distortion THREE.Group
@@ -384,8 +419,23 @@ export function updateGravityDistortionAnimation(
       Math.sin(time * SINGULARITY_CORE.pulseSpeed + pulsePhase) * SINGULARITY_CORE.emissiveRange;
   }
 
+  // === INNER SPARK FLICKERING ===
+  const sparkSphere = group.children[6] as THREE.Mesh;
+  if (sparkSphere?.userData.isInnerSpark) {
+    const sparkMaterial = sparkSphere.material as THREE.MeshStandardMaterial;
+    // Combine multiple sine waves at different frequencies for chaotic flicker
+    const flicker1 = Math.sin(time * INNER_SPARK.flickerSpeed + pulsePhase);
+    const flicker2 = Math.sin(time * INNER_SPARK.flickerSpeed2 + pulsePhase * 1.7);
+    const flicker3 = Math.sin(time * INNER_SPARK.flickerSpeed3 + pulsePhase * 2.3);
+    // Combine and normalize to 0-1 range, then map to intensity range
+    const combinedFlicker = (flicker1 + flicker2 * 0.5 + flicker3 * 0.3) / 1.8;
+    const normalizedFlicker = (combinedFlicker + 1) / 2; // 0-1
+    sparkMaterial.emissiveIntensity = INNER_SPARK.baseEmissiveIntensity +
+      normalizedFlicker * (INNER_SPARK.maxEmissiveIntensity - INNER_SPARK.baseEmissiveIntensity);
+  }
+
   // === ACCRETION DISK PARTICLES ===
-  const particleSystem = group.children[6] as THREE.Points;
+  const particleSystem = group.children[7] as THREE.Points;
   if (particleSystem && particleData) {
     const positions = particleSystem.geometry.attributes.position.array as Float32Array;
     const colors = particleSystem.geometry.attributes.color.array as Float32Array;
@@ -414,8 +464,8 @@ export function updateGravityDistortionAnimation(
       p.y += p.vy * deltaSeconds;
       p.z += p.vz * deltaSeconds;
 
-      // Respawn at edge when reaching core
-      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS || p.life > p.maxLife) {
+      // Respawn at edge when reaching inner spark (lethal center)
+      if (dist < GAME_CONFIG.OBSTACLE_SPARK_RADIUS || p.life > p.maxLife) {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.random() * Math.PI;
         const r = obstacleRadius * 0.7 + Math.random() * obstacleRadius * 0.3;
