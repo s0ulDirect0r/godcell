@@ -12,7 +12,7 @@ import {
   disposeSwarm,
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
-} from '../three/SwarmRenderer';
+} from '../meshes/SwarmMesh';
 import {
   World,
   Tags,
