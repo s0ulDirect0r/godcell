@@ -72,6 +72,7 @@ export interface StageComponent {
   stage: EvolutionStage;
   isEvolving: boolean;    // True during molting animation
   evolvingUntil?: number; // Timestamp when evolution completes (for invulnerability)
+  radius: number;         // Collision/visual radius in pixels (computed from stage)
 }
 
 /**
