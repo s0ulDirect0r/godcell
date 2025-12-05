@@ -414,10 +414,13 @@ export function updateEnergyTransferAnimations(
         let currentY = p.y + dy * easeT;
 
         // Add wobble for gravity pull (erratic spark movement)
+        // Wobble fades at 80% progress to ensure smooth arrival at target
         if (anim.gravityPull && t < 0.8) {
           // Perpendicular wobble that decreases as particle approaches target
-          const wobbleStrength = 8 * (1 - t); // Stronger at start, fades near end
-          const wobbleFreq = 15; // How fast the wobble oscillates
+          // Amplitude: 8px at start → 0 at end (provides erratic motion without excessive deviation)
+          const wobbleStrength = 8 * (1 - t);
+          // Oscillation rate: ~15 cycles over animation (fast enough for erratic feel, not jittery)
+          const wobbleFreq = 15;
           const wobble = Math.sin(t * wobbleFreq + p.wobbleOffset) * wobbleStrength;
           // Perpendicular direction to movement
           const dist = Math.sqrt(dx * dx + dy * dy);

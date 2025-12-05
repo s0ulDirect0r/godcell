@@ -553,7 +553,7 @@ export function spawnEnergyTransferParticles(
     positions[i * 3 + 1] = 0.25; // Height (above entities)
     positions[i * 3 + 2] = -startY;
 
-    sizes[i] = 5 + Math.random() * 2;  // 5-7px (gravity drain sparks)
+    sizes[i] = 5 + Math.random() * 2;  // 5-7px for all energy transfer particles
 
     // Stagger particle speeds for wave effect (faster particles arrive first)
     // Store game coordinates (AnimationUpdater converts to XZ)

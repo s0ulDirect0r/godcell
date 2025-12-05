@@ -546,11 +546,12 @@ export class ThreeRenderer implements Renderer {
           // Only apply shake inside the obstacle's influence radius
           if (dist < obstacle.radius) {
             // Inverse-square gravity: stronger near center
-            // 300000 multiplier tuned for subtle-but-noticeable shake
-            const distSq = Math.max(dist * dist, 100); // Prevent divide-by-zero
+            // Scale factor: 300000 tuned for subtle-but-noticeable shake (yields ~0.1-30 shake units)
+            const distSq = Math.max(dist * dist, 100); // Clamp minimum to prevent extreme forces
             const gravityForce = (obstacle.strength * 300000) / distSq;
 
-            // Boost intensity when very close (inside inner 30% of radius)
+            // Boost intensity when very close to singularity core
+            // Inner 30%: 6x boost for dramatic effect, outer: 2x base boost
             const normalizedDist = dist / obstacle.radius;
             const proximityBoost = normalizedDist < 0.3 ? 6.0 : 2.0;
 
@@ -558,7 +559,7 @@ export class ThreeRenderer implements Renderer {
           }
         });
 
-        // Apply gravity shake (cap at 30 to avoid excessive shake)
+        // Apply gravity shake (cap at 30 to avoid excessive/nauseating camera motion)
         if (totalGravityIntensity > 0.1) {
           const gravityShake = Math.min(totalGravityIntensity, 30);
           this.cameraSystem.addShake(gravityShake);
@@ -570,7 +571,7 @@ export class ThreeRenderer implements Renderer {
     // Shows energy being pulled from each player toward nearby singularities
     if (this.environmentSystem.getMode() === 'soup') {
       const now = performance.now();
-      // Throttle particle spawning: 150ms between spawns
+      // Throttle particle spawning: 150ms between spawns (~6-7 spawns/sec for balance of visual feedback vs performance)
       if (now - this.lastGravityDrainParticleTime > 150) {
         forEachPlayer(this.world, (_entity, _playerId, player) => {
           // Skip players in jungle stages (they've transcended soup obstacles)
@@ -593,7 +594,8 @@ export class ThreeRenderer implements Renderer {
               // Use same proximity² formula as server drain rate
               const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
               const drainIntensity = proximityFactor * proximityFactor; // Squared for steeper curve
-              // Scale particles: 2 at edge, up to 12 near center
+              // Scale particles based on drain intensity: 2 at edge → 12 at center
+              // (matches visual intensity to actual energy drain rate from server)
               const particleCount = Math.floor(2 + drainIntensity * 10);
               const playerColorHex = parseInt(player.color.slice(1), 16);
 
@@ -602,7 +604,7 @@ export class ThreeRenderer implements Renderer {
                 player.position.y,
                 pos.x,
                 pos.y,
-                '',
+                '', // Empty targetId: drain particles don't trigger gain auras (energy lost to singularity)
                 playerColorHex,
                 particleCount
               );
