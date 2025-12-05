@@ -35,6 +35,7 @@ import {
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
+  forEachPlayer,
   type PositionComponent,
   type ObstacleComponent,
 } from '../../ecs';
@@ -108,6 +109,9 @@ export class ThreeRenderer implements Renderer {
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
+
+  // Gravity drain particle spawning throttle (ms since last spawn)
+  private lastGravityDrainParticleTime = 0;
 
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
@@ -522,7 +526,7 @@ export class ThreeRenderer implements Renderer {
       // Update last energy
       this.lastPlayerEnergy = myPlayer.energy;
 
-      // Gravity-based screen shake (soup mode only)
+      // Gravity-based screen shake (soup mode only, local player)
       // Applies continuous subtle shake when near gravity wells
       if (this.environmentSystem.getMode() === 'soup') {
         let totalGravityIntensity = 0;
@@ -559,6 +563,53 @@ export class ThreeRenderer implements Renderer {
           const gravityShake = Math.min(totalGravityIntensity, 30);
           this.cameraSystem.addShake(gravityShake);
         }
+      }
+    }
+
+    // Gravity drain particles for ALL players (including bots) in soup mode
+    // Shows energy being pulled from each player toward nearby singularities
+    if (this.environmentSystem.getMode() === 'soup') {
+      const now = performance.now();
+      // Throttle particle spawning: 150ms between spawns
+      if (now - this.lastGravityDrainParticleTime > 150) {
+        forEachPlayer(this.world, (_entity, _playerId, player) => {
+          // Skip players in jungle stages (they've transcended soup obstacles)
+          // Note: EvolutionStage is a string enum, so use explicit comparison
+          const isSoupPlayer = player.stage === EvolutionStage.SINGLE_CELL ||
+                               player.stage === EvolutionStage.MULTI_CELL;
+          if (!isSoupPlayer) return;
+
+          this.world.forEachWithTag(Tags.Obstacle, (obstacleEntity) => {
+            const pos = this.world.getComponent<PositionComponent>(obstacleEntity, Components.Position);
+            const obstacle = this.world.getComponent<ObstacleComponent>(obstacleEntity, Components.Obstacle);
+            if (!pos || !obstacle) return;
+
+            const dx = pos.x - player.position.x;
+            const dy = pos.y - player.position.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Only spawn particles inside the obstacle's influence radius
+            if (dist < obstacle.radius) {
+              // Use same proximity² formula as server drain rate
+              const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
+              const drainIntensity = proximityFactor * proximityFactor; // Squared for steeper curve
+              // Scale particles: 2 at edge, up to 12 near center
+              const particleCount = Math.floor(2 + drainIntensity * 10);
+              const playerColorHex = parseInt(player.color.slice(1), 16);
+
+              this.effectsSystem.spawnEnergyTransfer(
+                player.position.x,
+                player.position.y,
+                pos.x,
+                pos.y,
+                '',
+                playerColorHex,
+                particleCount
+              );
+            }
+          });
+        });
+        this.lastGravityDrainParticleTime = now;
       }
     }
 
