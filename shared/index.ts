@@ -856,8 +856,6 @@ export type TunableConfigKey = typeof DEV_TUNABLE_CONFIGS[number];
 export const GAME_CONFIG = {
   // Movement (Soup - Stage 1-2)
   PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
-  // @deprecated Use stage-specific *_RADIUS values instead (SINGLE_CELL_RADIUS, MULTI_CELL_RADIUS, etc.)
-  PLAYER_SIZE: 10,   // Legacy base size - no longer used for radius calculations
   MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
 
   // Stage 3 Movement (Cyber-Organism): Grounded hexapod with momentum

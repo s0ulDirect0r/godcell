@@ -2,6 +2,7 @@ import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
 import type { EntropySwarm, Position, SwarmSpawnedMessage } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
+import { isSoupStage } from './helpers/stages';
 import {
   createSwarm,
   destroyEntity,
@@ -19,18 +20,6 @@ import {
   type StageComponent,
   type SwarmComponent,
 } from './ecs';
-
-// ============================================
-// Stage Helpers (soup vs jungle)
-// ============================================
-
-/**
- * Check if player is in soup stage (Stage 1-2)
- * Soup entities only interact with soup-stage players
- */
-function isSoupStage(stage: EvolutionStage): boolean {
-  return stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL;
-}
 
 // ============================================
 // Entropy Swarm System - Virus enemies that hunt players
