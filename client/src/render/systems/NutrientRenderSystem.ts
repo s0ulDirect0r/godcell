@@ -5,7 +5,6 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '@godcell/shared';
 import {
   World,
   Tags,
@@ -15,6 +14,12 @@ import {
   type NutrientComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import {
+  createNutrient,
+  updateNutrientAnimation,
+  disposeNutrient,
+  setNutrientOpacity,
+} from '../meshes/NutrientMesh';
 
 /**
  * NutrientRenderSystem - Manages nutrient entity rendering
@@ -68,7 +73,8 @@ export class NutrientRenderSystem {
       let group = this.nutrientMeshes.get(nutrientId);
 
       if (!group) {
-        group = this.createNutrient3D(nutrient.valueMultiplier);
+        const result = createNutrient(nutrient.valueMultiplier);
+        group = result.group;
         this.scene.add(group);
         this.nutrientMeshes.set(nutrientId, group);
       }
@@ -87,17 +93,7 @@ export class NutrientRenderSystem {
     this.nutrientMeshes.forEach((group, id) => {
       if (!currentNutrientIds.has(id)) {
         this.scene.remove(group);
-        // Dispose geometry and materials from group children
-        group.children.forEach(child => {
-          if (child instanceof THREE.Mesh) {
-            if (child.geometry) {
-              child.geometry.dispose();
-            }
-            if (child.material) {
-              (child.material as THREE.Material).dispose();
-            }
-          }
-        });
+        disposeNutrient(group);
         this.nutrientMeshes.delete(id);
       }
     });
@@ -111,28 +107,9 @@ export class NutrientRenderSystem {
    * @param dt - Delta time in milliseconds
    */
   updateAnimations(dt: number): void {
-    const now = Date.now();
-
     this.nutrientMeshes.forEach((group) => {
-      const { rotationSpeed, bobPhase, baseX, baseZ } = group.userData;
-
-      // Rotate around Y axis (tumbling effect)
-      group.rotation.y += rotationSpeed * dt;
-      // Slight wobble on X axis
-      group.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
-
-      // Gentle bobbing on Y axis (height - floating in digital ocean)
-      const bobAmount = Math.sin(now * 0.002 + bobPhase) * 2;
-      if (baseX !== undefined && baseZ !== undefined) {
-        group.position.set(baseX, bobAmount, baseZ);
-      }
-
-      // Pulse the inner core brightness
-      const core = group.children.find(c => c.name === 'core') as THREE.Mesh | undefined;
-      if (core && core.material instanceof THREE.MeshBasicMaterial) {
-        const pulse = 0.7 + Math.sin(now * 0.004 + bobPhase) * 0.3;
-        core.material.opacity = pulse;
-      }
+      const { baseX, baseZ } = group.userData;
+      updateNutrientAnimation(group, dt, baseX, baseZ);
     });
   }
 
@@ -151,7 +128,7 @@ export class NutrientRenderSystem {
       const opacity = 0.3 + easeOut * 0.7;
 
       group.scale.setScalar(scale);
-      this.setGroupOpacity(group, opacity);
+      setNutrientOpacity(group, opacity);
     });
   }
 
@@ -178,16 +155,7 @@ export class NutrientRenderSystem {
   clearAll(): void {
     this.nutrientMeshes.forEach((group) => {
       this.scene.remove(group);
-      group.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          if (child.geometry) {
-            child.geometry.dispose();
-          }
-          if (child.material) {
-            (child.material as THREE.Material).dispose();
-          }
-        }
-      });
+      disposeNutrient(group);
     });
     this.nutrientMeshes.clear();
     this.nutrientPositionCache.clear();
@@ -198,78 +166,6 @@ export class NutrientRenderSystem {
    */
   getMeshCount(): number {
     return this.nutrientMeshes.size;
-  }
-
-  /**
-   * Create a 3D nutrient with icosahedron crystal + inner glow core
-   * @param valueMultiplier - Nutrient value multiplier (1x, 2x, 3x, 5x)
-   */
-  private createNutrient3D(valueMultiplier: number): THREE.Group {
-    const group = new THREE.Group();
-
-    // Determine color based on value multiplier
-    let color: number;
-    if (valueMultiplier >= 5) {
-      color = GAME_CONFIG.NUTRIENT_5X_COLOR; // Magenta (5x)
-    } else if (valueMultiplier >= 3) {
-      color = GAME_CONFIG.NUTRIENT_3X_COLOR; // Gold (3x)
-    } else if (valueMultiplier >= 2) {
-      color = GAME_CONFIG.NUTRIENT_2X_COLOR; // Cyan (2x)
-    } else {
-      color = GAME_CONFIG.NUTRIENT_COLOR; // Green (1x)
-    }
-
-    // Outer icosahedron crystal (main shape)
-    // Size scales slightly with value: 1x=12, 2x=13, 3x=14, 5x=16
-    const sizeMultiplier = 1 + (valueMultiplier - 1) * 0.1;
-    const crystalSize = GAME_CONFIG.NUTRIENT_SIZE * sizeMultiplier;
-    const outerGeometry = new THREE.IcosahedronGeometry(crystalSize, 0);
-    const outerMaterial = new THREE.MeshStandardMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: 1.2,
-      transparent: true,
-      opacity: 0.85,
-      flatShading: true, // Sharp faceted look
-    });
-    const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
-    group.add(outerMesh);
-
-    // Inner glow core (bright point at center)
-    const coreGeometry = new THREE.SphereGeometry(crystalSize * 0.35, 8, 8);
-    const coreMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
-    coreMesh.name = 'core';
-    group.add(coreMesh);
-
-    // Store animation data
-    group.userData = {
-      color,
-      crystalSize,
-      spawnTime: Date.now(),
-      rotationSpeed: 0.0008 + Math.random() * 0.0004, // Slight variation per nutrient
-      bobPhase: Math.random() * Math.PI * 2, // Random starting phase for bobbing
-    };
-
-    return group;
-  }
-
-  /**
-   * Set opacity for all materials in a group
-   */
-  private setGroupOpacity(group: THREE.Group, opacity: number): void {
-    group.children.forEach(child => {
-      if (child instanceof THREE.Mesh) {
-        const material = child.material as THREE.Material;
-        if ('opacity' in material) {
-          (material as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial).opacity = opacity;
-        }
-      }
-    });
   }
 
   /**
