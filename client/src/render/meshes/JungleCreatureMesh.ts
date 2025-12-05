@@ -180,8 +180,11 @@ export function createJungleCreature(
     createGrazerMesh(group, colors, creatureSize);
   } else if (variant === 'stalker') {
     createStalkerMesh(group, colors, creatureSize);
-  } else {
+  } else if (variant === 'ambusher') {
     createAmbusherMesh(group, colors, creatureSize);
+  } else {
+    // Unknown variant: default to grazer (matches color fallback)
+    createGrazerMesh(group, colors, creatureSize);
   }
 
   return { group };

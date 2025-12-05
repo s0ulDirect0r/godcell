@@ -432,22 +432,25 @@ export function updateGravityDistortionAnimation(
         p.life = 0;
       }
 
-      // Color gradient based on distance
+      // Color gradient based on distance (outer -> middle -> inner)
       const distRatio = dist / obstacleRadius;
       if (distRatio > 0.5) {
+        // Outer band: pure outer color
         colors[i * 3] = ACCRETION_DISK.outerColor.r;
         colors[i * 3 + 1] = ACCRETION_DISK.outerColor.g;
         colors[i * 3 + 2] = ACCRETION_DISK.outerColor.b;
       } else if (distRatio > 0.15) {
+        // Mid band: blend outer -> middle
         const blend = (0.5 - distRatio) / 0.35;
         colors[i * 3] = ACCRETION_DISK.outerColor.r + blend * (ACCRETION_DISK.middleColor.r - ACCRETION_DISK.outerColor.r);
         colors[i * 3 + 1] = ACCRETION_DISK.outerColor.g + blend * (ACCRETION_DISK.middleColor.g - ACCRETION_DISK.outerColor.g);
-        colors[i * 3 + 2] = ACCRETION_DISK.outerColor.b;
+        colors[i * 3 + 2] = ACCRETION_DISK.outerColor.b + blend * (ACCRETION_DISK.middleColor.b - ACCRETION_DISK.outerColor.b);
       } else {
+        // Inner band: blend middle -> inner (white-hot core)
         const blend = (0.15 - distRatio) / 0.15;
-        colors[i * 3] = ACCRETION_DISK.middleColor.r;
-        colors[i * 3 + 1] = blend * ACCRETION_DISK.innerColor.g;
-        colors[i * 3 + 2] = ACCRETION_DISK.middleColor.b;
+        colors[i * 3] = ACCRETION_DISK.middleColor.r + blend * (ACCRETION_DISK.innerColor.r - ACCRETION_DISK.middleColor.r);
+        colors[i * 3 + 1] = ACCRETION_DISK.middleColor.g + blend * (ACCRETION_DISK.innerColor.g - ACCRETION_DISK.middleColor.g);
+        colors[i * 3 + 2] = ACCRETION_DISK.middleColor.b + blend * (ACCRETION_DISK.innerColor.b - ACCRETION_DISK.middleColor.b);
       }
 
       sizes[i] = 2.0 + (1.0 - distRatio) * 3.0;
