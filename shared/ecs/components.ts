@@ -376,6 +376,28 @@ export interface TrapComponent {
 }
 
 // ============================================
+// Server-Only Components (deferred actions, timers)
+// ============================================
+
+/**
+ * PendingRespawn - deferred entity spawning via ECS.
+ * Replaces setTimeout patterns with queryable ECS entities.
+ * System checks respawnAt timestamp and spawns when ready.
+ *
+ * Benefits over setTimeout:
+ * - All pending respawns visible in ECS (queryable, debuggable)
+ * - No orphaned timers on server shutdown
+ * - Consistent with ECS architecture
+ */
+export interface PendingRespawnComponent {
+  respawnAt: number;                    // Server timestamp when to respawn
+  entityType: 'bot' | 'swarm' | 'nutrient';  // What to spawn
+  stage?: number;                       // Evolution stage for bots (1-5)
+  position?: { x: number; y: number };  // Optional spawn position
+  metadata?: Record<string, unknown>;   // Extra data (e.g., nutrient value)
+}
+
+// ============================================
 // Client-Only Components
 // ============================================
 

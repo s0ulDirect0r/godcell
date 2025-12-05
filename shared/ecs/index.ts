@@ -48,4 +48,6 @@ export type {
   // Client-only components
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
+  // Deferred action components
+  PendingRespawnComponent,
 } from './components';
