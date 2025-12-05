@@ -18,22 +18,7 @@ import type {
 import type { System } from './types';
 import { forEachCyberBug, forEachPlayer, getStringIdByEntity } from '../factories';
 import { processCyberBugRespawns } from '../../jungleFauna';
-
-// ============================================
-// Helper Functions
-// ============================================
-
-/**
- * Check if player is in jungle stage (Stage 3+)
- * CyberBugs only flee from jungle-stage players
- */
-function isJungleStage(stage: EvolutionStage): boolean {
-  return (
-    stage === EvolutionStage.CYBER_ORGANISM ||
-    stage === EvolutionStage.HUMANOID ||
-    stage === EvolutionStage.GODCELL
-  );
-}
+import { isJungleStage } from '../../helpers/stages';
 
 /**
  * Generate a random patrol target within territory radius

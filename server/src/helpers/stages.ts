@@ -54,29 +54,6 @@ export function getEnergyDecayRate(stage: EvolutionStage): number {
 }
 
 /**
- * Get player collision radius based on evolution stage
- * Returns radius for hitbox calculations
- *
- * @deprecated This function is currently unused. Radius is stored in StageComponent.radius
- * and flows from server to client via network. All systems should read from stageComp.radius.
- * Kept for potential future use when computing radius from stage is needed.
- */
-export function getPlayerRadius(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.SINGLE_CELL_RADIUS;
-    case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.MULTI_CELL_RADIUS;
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.CYBER_ORGANISM_RADIUS;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.HUMANOID_RADIUS;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.GODCELL_RADIUS;
-  }
-}
-
-/**
  * Get world bounds based on evolution stage
  * Soup players (Stage 1-2) are confined to the soup region
  * Jungle players (Stage 3+) can roam the full jungle
