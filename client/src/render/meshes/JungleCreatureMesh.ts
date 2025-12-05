@@ -282,13 +282,13 @@ function createGrazerMesh(
   body.name = 'body';
   group.add(body);
 
-  // Head: Smaller sphere at front
+  // Head: Smaller sphere at front (shares body material)
   const headGeometry = new THREE.SphereGeometry(
     size * GRAZER.headSizeRatio,
     GRAZER.bodySegments - 4,
     GRAZER.bodySegments - 4
   );
-  const head = new THREE.Mesh(headGeometry, bodyMaterial.clone());
+  const head = new THREE.Mesh(headGeometry, bodyMaterial);
   head.position.set(0, size * GRAZER.headYOffset, size * GRAZER.headZOffset);
   head.name = 'head';
   group.add(head);
@@ -336,14 +336,14 @@ function createStalkerMesh(
   body.name = 'body';
   group.add(body);
 
-  // Spikes/fins on back
+  // Spikes/fins on back (share body material)
   for (let i = 0; i < STALKER.spikeCount; i++) {
     const spikeGeometry = new THREE.ConeGeometry(
       size * STALKER.spikeRadiusRatio,
       size * STALKER.spikeHeightRatio,
       STALKER.spikeSegments
     );
-    const spike = new THREE.Mesh(spikeGeometry, bodyMaterial.clone());
+    const spike = new THREE.Mesh(spikeGeometry, bodyMaterial);
     spike.position.set(
       0,
       size * STALKER.spikeYOffset,
@@ -366,7 +366,7 @@ function createStalkerMesh(
   leftEye.name = 'leftEye';
   group.add(leftEye);
 
-  const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+  const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
   rightEye.position.set(
     size * STALKER.eyeXOffset,
     size * STALKER.eyeYOffset,
@@ -407,7 +407,7 @@ function createAmbusherMesh(
   });
 
   AMBUSHER.legPositions.forEach((pos, i) => {
-    const leg = new THREE.Mesh(legGeometry, legMaterial.clone());
+    const leg = new THREE.Mesh(legGeometry, legMaterial);
     leg.position.set(pos.x * size, size * AMBUSHER.legYOffset, pos.z * size);
     leg.name = `leg_${i}`;
     group.add(leg);
@@ -418,7 +418,7 @@ function createAmbusherMesh(
   const eyeMaterial = new THREE.MeshBasicMaterial({ color: AMBUSHER.eyeColor });
 
   for (let i = -Math.floor(AMBUSHER.eyeCount / 2); i <= Math.floor(AMBUSHER.eyeCount / 2); i++) {
-    const eye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
+    const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
     eye.position.set(
       i * size * AMBUSHER.eyeXSpacing,
       size * AMBUSHER.eyeYOffset,

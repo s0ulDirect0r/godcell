@@ -462,20 +462,20 @@ function updateModels() {
       const bugSpacing = 40;
 
       // Normal state bug
-      const normalBug = createCyberBug(bugSize, 'idle').group;
+      const { group: normalBug } = createCyberBug(bugSize, 'idle');
       normalBug.position.set(-bugSpacing, 0, 0);
       scene.add(normalBug);
       models.push(normalBug);
 
       // Fleeing state bug (orange glow when scared)
-      const fleeingBug = createCyberBug(bugSize, 'flee').group;
+      const { group: fleeingBug } = createCyberBug(bugSize, 'flee');
       fleeingBug.position.set(0, 0, 0);
       scene.add(fleeingBug);
       models.push(fleeingBug);
 
       // Small swarm of bugs for context
       for (let i = 0; i < 4; i++) {
-        const swarmBug = createCyberBug(bugSize, 'patrol').group;
+        const { group: swarmBug } = createCyberBug(bugSize, 'patrol');
         const angle = (i / 4) * Math.PI * 2;
         swarmBug.position.set(
           bugSpacing * 2 + Math.cos(angle) * 20,
@@ -497,19 +497,19 @@ function updateModels() {
       const creatureSpacing = 120;
 
       // Grazer: Green, rounded, passive
-      const grazer = createJungleCreature('grazer', creatureSize).group;
+      const { group: grazer } = createJungleCreature('grazer', creatureSize);
       grazer.position.set(-creatureSpacing, 0, 0);
       scene.add(grazer);
       models.push(grazer);
 
       // Stalker: Red, angular, aggressive
-      const stalker = createJungleCreature('stalker', creatureSize).group;
+      const { group: stalker } = createJungleCreature('stalker', creatureSize);
       stalker.position.set(0, 0, 0);
       scene.add(stalker);
       models.push(stalker);
 
       // Ambusher: Purple, low/wide, spider-like
-      const ambusher = createJungleCreature('ambusher', creatureSize).group;
+      const { group: ambusher } = createJungleCreature('ambusher', creatureSize);
       ambusher.position.set(creatureSpacing, 0, 0);
       scene.add(ambusher);
       models.push(ambusher);

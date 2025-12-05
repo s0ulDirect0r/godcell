@@ -214,11 +214,11 @@ export function updateNutrientAnimation(
 export function disposeNutrient(group: THREE.Group): void {
   group.children.forEach(child => {
     if (child instanceof THREE.Mesh) {
-      if (child.geometry) {
-        child.geometry.dispose();
-      }
-      if (child.material) {
-        (child.material as THREE.Material).dispose();
+      child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        child.material.dispose();
       }
     }
   });

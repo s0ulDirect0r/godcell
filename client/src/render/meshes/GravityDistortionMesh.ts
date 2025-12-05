@@ -395,7 +395,7 @@ export function updateGravityDistortionAnimation(
       const p = particleData[i];
       p.life += deltaSeconds;
 
-      const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+      let dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
 
       // Spiral inward with gravity
       if (dist > 0.001) {
@@ -430,6 +430,8 @@ export function updateGravityDistortionAnimation(
         p.vy = p.x * invR * speed * 0.3;
         p.vz = 0;
         p.life = 0;
+        // Update dist after respawn for correct color
+        dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
       }
 
       // Color gradient based on distance (outer -> middle -> inner)
@@ -474,16 +476,14 @@ export function updateGravityDistortionAnimation(
  * Dispose gravity distortion resources (geometry + materials)
  */
 export function disposeGravityDistortion(group: THREE.Group): void {
-  group.children.forEach(child => {
-    if (child instanceof THREE.Mesh) {
+  group.traverse(child => {
+    if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Line) {
       child.geometry.dispose();
-      (child.material as THREE.Material).dispose();
-    } else if (child instanceof THREE.Points) {
-      child.geometry.dispose();
-      (child.material as THREE.Material).dispose();
-    } else if (child instanceof THREE.Line) {
-      child.geometry.dispose();
-      (child.material as THREE.Material).dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        (child.material as THREE.Material).dispose();
+      }
     }
   });
 }
