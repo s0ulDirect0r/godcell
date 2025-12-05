@@ -394,16 +394,40 @@ export function updateEnergyTransferAnimations(
       }
 
       if (p.progress > 0) {
-        // Ease-in-out interpolation for smooth acceleration/deceleration
         const t = p.progress;
-        const easeT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+        // Choose easing based on animation type
+        let easeT: number;
+        if (anim.gravityPull) {
+          // Gravity pull: accelerating ease-in (starts slow, speeds up toward target)
+          easeT = t * t * t; // Cubic ease-in for strong acceleration
+        } else {
+          // Normal: ease-in-out for smooth motion
+          easeT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        }
 
         // Interpolate position from start (p.x/y) toward target (game coordinates)
         const dx = p.targetX - p.x;
         const dy = p.targetY - p.y;
 
-        const currentX = p.x + dx * easeT;
-        const currentY = p.y + dy * easeT;
+        let currentX = p.x + dx * easeT;
+        let currentY = p.y + dy * easeT;
+
+        // Add wobble for gravity pull (erratic spark movement)
+        if (anim.gravityPull && t < 0.8) {
+          // Perpendicular wobble that decreases as particle approaches target
+          const wobbleStrength = 8 * (1 - t); // Stronger at start, fades near end
+          const wobbleFreq = 15; // How fast the wobble oscillates
+          const wobble = Math.sin(t * wobbleFreq + p.wobbleOffset) * wobbleStrength;
+          // Perpendicular direction to movement
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 0) {
+            const perpX = -dy / dist;
+            const perpY = dx / dist;
+            currentX += perpX * wobble;
+            currentY += perpY * wobble;
+          }
+        }
 
         // Update geometry position (XZ plane: X=game X, Y=height, Z=-game Y)
         positions[i * 3] = currentX;
