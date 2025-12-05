@@ -9,12 +9,17 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
-  GAME_CONFIG,
   type PositionComponent,
   type CyberBugComponent,
   type InterpolationTargetComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import {
+  createCyberBug,
+  updateCyberBugAnimation,
+  updateCyberBugState,
+  disposeCyberBug,
+} from '../meshes/CyberBugMesh';
 
 /**
  * CyberBugRenderSystem - Manages cyber bug rendering
@@ -72,7 +77,8 @@ export class CyberBugRenderSystem {
 
       if (!group) {
         // Create bug visual
-        group = this.createBugMesh();
+        const result = createCyberBug(bug.size, bug.state);
+        group = result.group;
         group.position.set(pos.x, 5, -pos.y); // Y=5 for slight elevation
         this.scene.add(group);
         this.bugMeshes.set(bugId, group);
@@ -87,14 +93,14 @@ export class CyberBugRenderSystem {
       this.bugTargets.set(bugId, { x: targetX, y: targetY });
 
       // Update state-based visuals (color changes when fleeing)
-      this.updateBugState(group, bug.state);
+      updateCyberBugState(group, bug.state);
     });
 
     // Remove bugs that no longer exist in ECS
     this.bugMeshes.forEach((group, id) => {
       if (!currentBugIds.has(id)) {
         this.scene.remove(group);
-        this.disposeGroup(group);
+        disposeCyberBug(group);
         this.bugMeshes.delete(id);
         this.bugTargets.delete(id);
         this.animationPhase.delete(id);
@@ -132,90 +138,11 @@ export class CyberBugRenderSystem {
    * Update bug animations (wing flutter, bobbing)
    * @param dt - Delta time in milliseconds
    */
-  updateAnimations(_dt: number): void {
-    const time = performance.now() / 1000;
-
+  updateAnimations(dt: number): void {
     this.bugMeshes.forEach((group, id) => {
       const phase = this.animationPhase.get(id) || 0;
       const flutter = this.wingFlutter.get(id) || 0;
-
-      // Bobbing height
-      const bobHeight = Math.sin(time * 4 + phase) * 2;
-      group.position.y = 5 + bobHeight;
-
-      // Wing flutter effect - fast oscillation for insect-like movement
-      const scalePulse = 1 + Math.sin(time * 20 + flutter) * 0.05;
-      group.scale.setScalar(scalePulse);
-    });
-  }
-
-  /**
-   * Create a bug mesh (small glowing insect)
-   */
-  private createBugMesh(): THREE.Group {
-    const group = new THREE.Group();
-
-    const size = GAME_CONFIG.CYBERBUG_COLLISION_RADIUS;
-
-    // Body (elongated ellipsoid)
-    const bodyGeometry = new THREE.SphereGeometry(size, 8, 8);
-    bodyGeometry.scale(1, 0.5, 1.5); // Flattened and elongated
-    const bodyMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0x00ff88, // Mint green
-      emissive: 0x00ff88,
-      emissiveIntensity: 0.5,
-      transparent: true,
-      opacity: 0.9,
-      roughness: 0.3,
-      metalness: 0.7,
-    });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    group.add(body);
-
-    // Glow effect
-    const glowGeometry = new THREE.SphereGeometry(size * 1.5, 8, 8);
-    const glowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00ff88,
-      transparent: true,
-      opacity: 0.2,
-      side: THREE.BackSide,
-    });
-    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-    group.add(glow);
-
-    // Small "eyes" (two dots at front) - bright white for visibility
-    const eyeGeometry = new THREE.SphereGeometry(size * 0.2, 4, 4);
-    const eyeMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-    });
-    const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    leftEye.position.set(-size * 0.3, size * 0.2, size * 0.8);
-    group.add(leftEye);
-
-    const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-    rightEye.position.set(size * 0.3, size * 0.2, size * 0.8);
-    group.add(rightEye);
-
-    return group;
-  }
-
-  /**
-   * Update bug visual based on state
-   */
-  private updateBugState(group: THREE.Group, state: string): void {
-    const isFleeing = state === 'flee';
-
-    group.children.forEach((child) => {
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshPhysicalMaterial) {
-        // When fleeing: brighter, more red-shifted color
-        if (isFleeing) {
-          child.material.emissive.set(0xff8800); // Orange when scared
-          child.material.emissiveIntensity = 0.8;
-        } else {
-          child.material.emissive.set(0x00ff88); // Normal mint green
-          child.material.emissiveIntensity = 0.5;
-        }
-      }
+      updateCyberBugAnimation(group, dt, phase, flutter);
     });
   }
 
@@ -225,7 +152,7 @@ export class CyberBugRenderSystem {
   clearAll(): void {
     this.bugMeshes.forEach((group) => {
       this.scene.remove(group);
-      this.disposeGroup(group);
+      disposeCyberBug(group);
     });
     this.bugMeshes.clear();
     this.bugTargets.clear();
@@ -238,22 +165,6 @@ export class CyberBugRenderSystem {
    */
   getMeshCount(): number {
     return this.bugMeshes.size;
-  }
-
-  /**
-   * Dispose group resources
-   */
-  private disposeGroup(group: THREE.Group): void {
-    group.children.forEach((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
   }
 
   /**
