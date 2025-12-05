@@ -54,53 +54,6 @@ export function rayCircleIntersection(
 }
 
 /**
- * Check if a line segment intersects a circle
- * Returns true if line segment intersects circle
- */
-export function lineCircleIntersection(
-  lineStart: Position,
-  lineEnd: Position,
-  circleCenter: Position,
-  circleRadius: number,
-  currentLength: number
-): boolean {
-  // Calculate actual end position based on current extension
-  const dx = lineEnd.x - lineStart.x;
-  const dy = lineEnd.y - lineStart.y;
-  const totalLength = Math.sqrt(dx * dx + dy * dy);
-  if (totalLength === 0) return false;
-
-  const progress = currentLength / totalLength;
-  const actualEndX = lineStart.x + dx * progress;
-  const actualEndY = lineStart.y + dy * progress;
-
-  // Vector from line start to circle center
-  const fx = circleCenter.x - lineStart.x;
-  const fy = circleCenter.y - lineStart.y;
-
-  // Vector from line start to actual end
-  const lx = actualEndX - lineStart.x;
-  const ly = actualEndY - lineStart.y;
-
-  // Project circle center onto line segment
-  const lineLengthSq = lx * lx + ly * ly;
-  if (lineLengthSq === 0) return false;
-
-  const t = Math.max(0, Math.min(1, (fx * lx + fy * ly) / lineLengthSq));
-
-  // Closest point on line to circle center
-  const closestX = lineStart.x + t * lx;
-  const closestY = lineStart.y + t * ly;
-
-  // Distance from closest point to circle center
-  const distX = circleCenter.x - closestX;
-  const distY = circleCenter.y - closestY;
-  const distSq = distX * distX + distY * distY;
-
-  return distSq <= circleRadius * circleRadius;
-}
-
-/**
  * Grid-based distribution with random jitter
  * Guarantees even coverage across the entire area
  * Each cell gets one point with random offset within the cell
