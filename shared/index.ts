@@ -824,6 +824,7 @@ export const DEV_TUNABLE_CONFIGS = [
   'OBSTACLE_EVENT_HORIZON',
   'OBSTACLE_CORE_RADIUS',
   'OBSTACLE_SPARK_RADIUS',
+  'OBSTACLE_ENERGY_DRAIN_RATE',
 
   // Swarms
   'SWARM_SPEED',
@@ -941,6 +942,7 @@ export const GAME_CONFIG = {
   OBSTACLE_CORE_RADIUS: 60,     // Visual dark void sphere
   OBSTACLE_SPARK_RADIUS: 18,    // Lethal inner spark (instant death zone)
   OBSTACLE_GRAVITY_STRENGTH: 1.0, // Force multiplier for inverse-square gravity
+  OBSTACLE_ENERGY_DRAIN_RATE: 7.5,  // Energy/sec drain rate when inside gravity well (scaled by proximity)
   OBSTACLE_DAMAGE_RATE: 10,     // UNUSED - gravity wells are physics-only now
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
