@@ -379,7 +379,7 @@ function updateModels() {
     }
 
     case 'cyber-organism': {
-      // Stage 3 hexapod - use larger radius matching game (144px = CYBER_ORGANISM_SIZE_MULTIPLIER * PLAYER_SIZE)
+      // Stage 3 hexapod - use larger radius for model viewer (game uses CYBER_ORGANISM_RADIUS = 101px)
       const cyberOrg = createCyberOrganism(144, currentColor);
       cyberOrg.position.set(0, 0, 0);
       scene.add(cyberOrg);

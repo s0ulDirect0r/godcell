@@ -59,7 +59,7 @@ export interface AbilityContext {
 
   // Functions from main module
   checkBeamHitscan: (start: Position, end: Position, shooterId: string) => string | null;
-  getPlayerRadius: (stage: EvolutionStage) => number;
+  // Note: getPlayerRadius removed - use stageComp.radius directly from ECS
 }
 
 /**
@@ -230,7 +230,7 @@ export class AbilitySystem {
     const dirY = dy / targetDist;
 
     // Calculate max range
-    const playerRadius = this.ctx.getPlayerRadius(stageComp.stage);
+    const playerRadius = stageComp.radius;
     const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
 
     // Deduct energy (directly to ECS)
@@ -536,7 +536,7 @@ export class AbilitySystem {
       const dist = this.distance(playerPosition, targetPosition);
 
       // Get target's collision radius (cyber-organism is 144px, etc.)
-      const targetRadius = this.ctx.getPlayerRadius(targetStage.stage);
+      const targetRadius = targetStage.radius;
 
       // Check if within range (min 200px to match visual, max = range + target size)
       if (dist < 200 || dist > range + targetRadius) return;

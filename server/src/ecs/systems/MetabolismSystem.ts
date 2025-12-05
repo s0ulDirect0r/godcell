@@ -186,6 +186,7 @@ export class MetabolismSystem implements System {
         playerId: playerId,
         newStage: stageCompNow.stage,
         newMaxEnergy: energyCompNow.max,
+        radius: stageCompNow.radius,
       };
       io.emit('playerEvolved', evolveMessage);
 

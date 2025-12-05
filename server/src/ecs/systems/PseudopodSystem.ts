@@ -29,7 +29,7 @@ import { removeSwarm } from '../../swarms';
 import { distance, rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logger } from '../../logger';
-import { getPlayerRadius, isSoupStage } from '../../helpers';
+import { isSoupStage } from '../../helpers';
 
 // Pre-collected target snapshots for O(1) collision checks per beam
 interface PlayerTargetSnapshot {
@@ -83,7 +83,7 @@ export class PseudopodSystem implements System {
         playerId,
         x: posComp.x,
         y: posComp.y,
-        radius: getPlayerRadius(stageComp.stage),
+        radius: stageComp.radius,
         energyComp,
         isStunned: !!(stunnedComp?.until && Date.now() < stunnedComp.until),
       });
@@ -194,7 +194,7 @@ export class PseudopodSystem implements System {
       if (targetStunned?.until && Date.now() < targetStunned.until) return; // Skip stunned
 
       // Circle-circle collision: beam position vs target position
-      const targetRadius = getPlayerRadius(targetStage.stage);
+      const targetRadius = targetStage.radius;
       const targetPosition = { x: targetPos.x, y: targetPos.y };
       const dist = distance(beamPosition, targetPosition);
       const collisionDist = pseudopodComp.width / 2 + targetRadius;
@@ -452,7 +452,7 @@ export class PseudopodSystem implements System {
       if (stageComp.isEvolving) return;
       if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
-      const targetRadius = getPlayerRadius(stageComp.stage);
+      const targetRadius = stageComp.radius;
       const targetPosition = { x: posComp.x, y: posComp.y };
       const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 

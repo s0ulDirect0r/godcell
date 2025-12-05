@@ -16,7 +16,7 @@ import {
   forEachPlayer,
   recordDamage,
 } from '../factories';
-import { distance, getPlayerRadius, isSoupStage } from '../../helpers';
+import { distance, isSoupStage } from '../../helpers';
 import { removeSwarm } from '../../swarms';
 import { getConfig } from '../../dev';
 
@@ -46,7 +46,7 @@ export class SwarmCollisionSystem implements System {
 
     // Pre-collect soup-stage players (stages 1-2) - these are the only ones that interact with swarms
     // This avoids checking stage inside the nested loop
-    const soupPlayers: { entity: number; playerId: string; energyComp: EnergyComponent; posComp: PositionComponent }[] = [];
+    const soupPlayers: { entity: number; playerId: string; energyComp: EnergyComponent; posComp: PositionComponent; radius: number }[] = [];
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
       const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -54,7 +54,7 @@ export class SwarmCollisionSystem implements System {
       if (!energyComp || !posComp || !stageComp) return;
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
       if (!isSoupStage(stageComp.stage)) return;
-      soupPlayers.push({ entity, playerId, energyComp, posComp });
+      soupPlayers.push({ entity, playerId, energyComp, posComp, radius: stageComp.radius });
     });
 
     // Now check swarms only against soup players
@@ -64,10 +64,12 @@ export class SwarmCollisionSystem implements System {
 
       const swarmX = swarmPos.x;
       const swarmY = swarmPos.y;
-      const collisionDist = swarmComp.size + GAME_CONFIG.PLAYER_SIZE;
-      const collisionDistSq = collisionDist * collisionDist; // Avoid sqrt in hot loop
 
-      for (const { playerId, energyComp, posComp } of soupPlayers) {
+      for (const { playerId, energyComp, posComp, radius } of soupPlayers) {
+        // Collision distance = swarm size + player radius (varies by stage)
+        const collisionDist = swarmComp.size + radius;
+        const collisionDistSq = collisionDist * collisionDist;
+
         // Fast squared distance check (avoid sqrt)
         const dx = swarmX - posComp.x;
         const dy = swarmY - posComp.y;
@@ -144,7 +146,7 @@ export class SwarmCollisionSystem implements System {
         playerId,
         x: posComp.x,
         y: posComp.y,
-        radius: getPlayerRadius(stageComp.stage),
+        radius: stageComp.radius,
         energyComp,
       });
     });

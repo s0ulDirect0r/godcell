@@ -191,7 +191,7 @@ function getStageValues(stage: EvolutionStage): {
       return {
         energy: GAME_CONFIG.SINGLE_CELL_ENERGY,
         maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,
-        radius: GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER,
+        radius: GAME_CONFIG.SINGLE_CELL_RADIUS,
         detectionRadius: null,
         canEMP: false,
         canPseudopod: false,
@@ -202,7 +202,7 @@ function getStageValues(stage: EvolutionStage): {
       return {
         energy: GAME_CONFIG.MULTI_CELL_ENERGY,
         maxEnergy: GAME_CONFIG.MULTI_CELL_MAX_ENERGY,
-        radius: GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER,
+        radius: GAME_CONFIG.MULTI_CELL_RADIUS,
         detectionRadius: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS,
         canEMP: true,
         canPseudopod: true,
@@ -213,7 +213,7 @@ function getStageValues(stage: EvolutionStage): {
       return {
         energy: GAME_CONFIG.CYBER_ORGANISM_ENERGY,
         maxEnergy: GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY,
-        radius: GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER,
+        radius: GAME_CONFIG.CYBER_ORGANISM_RADIUS,
         detectionRadius: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS * 1.5,
         canEMP: true,
         canPseudopod: true,
@@ -224,7 +224,7 @@ function getStageValues(stage: EvolutionStage): {
       return {
         energy: GAME_CONFIG.HUMANOID_ENERGY,
         maxEnergy: GAME_CONFIG.HUMANOID_MAX_ENERGY,
-        radius: GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER,
+        radius: GAME_CONFIG.HUMANOID_RADIUS,
         detectionRadius: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS * 2,
         canEMP: true,
         canPseudopod: true,
@@ -235,7 +235,7 @@ function getStageValues(stage: EvolutionStage): {
       return {
         energy: GAME_CONFIG.GODCELL_ENERGY,
         maxEnergy: GAME_CONFIG.GODCELL_MAX_ENERGY,
-        radius: GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER,
+        radius: GAME_CONFIG.GODCELL_RADIUS,
         detectionRadius: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS * 3,
         canEMP: true,
         canPseudopod: true,
@@ -282,6 +282,7 @@ export function createPlayer(
   world.addComponent<StageComponent>(entity, Components.Stage, {
     stage,
     isEvolving: false,
+    radius: stageValues.radius,
   });
   world.addComponent<InputComponent>(entity, Components.Input, {
     direction: { x: 0, y: 0, z: 0 },
@@ -508,6 +509,7 @@ export function setPlayerStage(world: World, entity: EntityId, newStage: Evoluti
   const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
   if (stageComp) {
     stageComp.stage = newStage;
+    stageComp.radius = stageValues.radius;
   }
 
   // Update energy capacity (keep current ratio)
@@ -539,13 +541,8 @@ export function setPlayerStage(world: World, entity: EntityId, newStage: Evoluti
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
     if (posComp) {
-      const sizeMultiplier =
-        newStage === EvolutionStage.CYBER_ORGANISM ? GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER :
-        newStage === EvolutionStage.HUMANOID ? GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER :
-        GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
-      const radius = GAME_CONFIG.PLAYER_SIZE * sizeMultiplier;
       // Godcell starts airborne, others sit on ground
-      posComp.z = newStage === EvolutionStage.GODCELL ? radius + 100 : radius;
+      posComp.z = newStage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
     }
     if (velComp) {
       velComp.z = 0; // Reset z velocity
@@ -687,6 +684,7 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
     maxEnergy: energy.max,
     stage: stage.stage,
     isEvolving: stage.isEvolving,
+    radius: stage.radius,
     stunnedUntil: stunned?.until,
     lastEMPTime: cooldowns?.lastEMPTime,
   };
@@ -1009,9 +1007,12 @@ export function setStageBySocketId(
   socketId: string,
   stage: EvolutionStage
 ): void {
+  const stageValues = getStageValues(stage);
+
   const stageComp = getStageBySocketId(world, socketId);
   if (stageComp) {
     stageComp.stage = stage;
+    stageComp.radius = stageValues.radius;
   }
 
   // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
@@ -1021,13 +1022,8 @@ export function setStageBySocketId(
     const posComp = getPositionBySocketId(world, socketId);
     const velComp = getVelocityBySocketId(world, socketId);
     if (posComp) {
-      const sizeMultiplier =
-        stage === EvolutionStage.CYBER_ORGANISM ? GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER :
-        stage === EvolutionStage.HUMANOID ? GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER :
-        GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
-      const radius = GAME_CONFIG.PLAYER_SIZE * sizeMultiplier;
       // Godcell starts airborne, others sit on ground
-      posComp.z = stage === EvolutionStage.GODCELL ? radius + 100 : radius;
+      posComp.z = stage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
     }
     if (velComp) {
       velComp.z = 0; // Reset z velocity

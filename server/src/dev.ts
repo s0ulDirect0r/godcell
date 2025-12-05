@@ -119,7 +119,7 @@ interface DevContext {
   removeBotPermanently: (botId: string) => boolean;
   respawnPlayer: (playerId: string) => void;
   getStageEnergy: (stage: EvolutionStage) => { energy: number; maxEnergy: number };
-  getPlayerRadius: (stage: EvolutionStage) => number;
+  // Note: getPlayerRadius removed - use stageComp.radius directly from ECS
 }
 
 let devContext: DevContext | null = null;
@@ -392,7 +392,7 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
     }
   }
 
-  io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy });
+  io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy, radius: stageComp.radius });
   io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: stageStats.energy });
   logger.info({ event: 'dev_set_stage', playerId, oldStage, newStage: stage });
 }

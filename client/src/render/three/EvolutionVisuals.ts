@@ -52,9 +52,10 @@ export function calculateEvolutionProgress(maxEnergy: number, stage: EvolutionSt
  * @param evolutionProgress - Progress value from 0.0-1.0
  */
 export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress: number): void {
-  const radius = cellGroup.userData.radius || 10;
+  const radius = cellGroup.userData.radius as number;
   const colorHex = cellGroup.userData.colorHex || 0x00ff88;
-  const orbitRadius = radius * 3.0; // Particles orbit at 3.0x cell radius (outside the torus)
+  const orbitRadius = radius * (2.5 - evolutionProgress); // Just outside torus (2.5x → 1.5x)
+  const particleSize = radius * 0.15; // Particle size scales with cell (15% of radius)
 
   // Calculate particle count based on progress (5 at 0, 15 at 1.0)
   const targetCount = Math.floor(5 + evolutionProgress * 10);
@@ -72,8 +73,8 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
 
   // Adjust particle count (add particles if needed)
   while (corona.children.length < targetCount) {
-    // Create new particle
-    const particleGeometry = new THREE.SphereGeometry(2, 8, 8);
+    // Create new particle - size scales with cell radius
+    const particleGeometry = new THREE.SphereGeometry(particleSize, 8, 8);
     const particleMaterial = new THREE.MeshBasicMaterial({
       color: colorHex,
       transparent: true,
@@ -115,7 +116,7 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
 
 /**
  * Update or create glowing torus ring for evolving cells
- * Ring shrinks from 2.5x → 1.5x radius, brightens from 0.5 → 3.0 intensity
+ * Ring shrinks from 2.0x → 1.0x radius, brightens from 0.5 → 3.0 intensity
  *
  * @param cellGroup - The cell's THREE.Group to add ring to
  * @param evolutionProgress - Progress value from 0.0-1.0
@@ -124,9 +125,9 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
 export function updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: number, radius: number): void {
   const colorHex = cellGroup.userData.colorHex || 0x00ff88;
 
-  // Calculate ring size (shrinks as evolution approaches)
-  const ringRadius = radius * (2.5 - evolutionProgress * 1.0); // 2.5x → 1.5x
-  const tubeRadius = 2 + evolutionProgress * 2; // 2 → 4 (thickens)
+  // Calculate ring size (shrinks as evolution approaches) - scales with cell radius
+  const ringRadius = radius * (2.0 - evolutionProgress); // 2.0x → 1.0x
+  const tubeRadius = radius * (0.1 + evolutionProgress * 0.1); // 10% → 20% of radius (thickens)
 
   // Calculate emissive intensity (brightens)
   const emissiveIntensity = 0.5 + evolutionProgress * 2.5; // 0.5 → 3.0

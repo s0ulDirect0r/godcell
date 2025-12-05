@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage, DamageSource, GAME_CONFIG } from '@godcell/shared';
+import { EvolutionStage, DamageSource } from '@godcell/shared';
 import {
   createCellAura,
   calculateAuraIntensity,
@@ -53,19 +53,8 @@ export class AuraSystem {
     this.scene = scene;
   }
 
-  // ============================================
-  // Utility
-  // ============================================
-
-  /**
-   * Get player radius based on evolution stage
-   */
-  private getPlayerRadius(stage: string): number {
-    if (stage === 'multi_cell' || stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
-    }
-    return GAME_CONFIG.PLAYER_SIZE;
-  }
+  // Note: Player radius is now stored on the entity and passed via player.radius
+  // The getPlayerRadius() method has been removed - radius flows from server via ECS
 
   // ============================================
   // Drain Aura Management
@@ -88,7 +77,7 @@ export class AuraSystem {
    * Update drain visual feedback (variable-intensity aura around damaged entities)
    */
   updateDrainAuras(
-    players: Map<string, { stage: string }>,
+    players: Map<string, { stage: string; radius: number }>,
     swarms: Map<string, { size: number }>,
     playerMeshes: Map<string, THREE.Object3D>,
     swarmMeshes: Map<string, THREE.Object3D>,
@@ -116,7 +105,7 @@ export class AuraSystem {
           if (player.stage === EvolutionStage.MULTI_CELL) {
             // Multi-cell: aura around each cell in the organism
             // Match the exact proportions from MultiCellRenderer.ts
-            const baseRadius = this.getPlayerRadius(player.stage);
+            const baseRadius = player.radius;
             const cellRadius = baseRadius * 0.35; // Individual cell size (same as multi-cell rendering)
 
             // Create aura for center cell (at origin)
@@ -137,7 +126,7 @@ export class AuraSystem {
             }
           } else {
             // Single-cell: one aura around the whole organism
-            const playerRadius = this.getPlayerRadius(player.stage);
+            const playerRadius = player.radius;
             const singleAura = createCellAura(playerRadius);
             newAuraMesh.add(singleAura);
           }
@@ -267,7 +256,7 @@ export class AuraSystem {
    * @param receivingEnergy - Mutated: players with detected energy gains are added to this set
    */
   updateGainAuras(
-    players: Map<string, { stage: string; energy: number }>,
+    players: Map<string, { stage: string; energy: number; radius: number }>,
     playerMeshes: Map<string, THREE.Object3D>,
     receivingEnergy: Set<string>,
   ): void {
@@ -309,8 +298,7 @@ export class AuraSystem {
 
       if (!gainAura) {
         // Create new gain aura for this player
-        const radius = this.getPlayerRadius(player.stage);
-        gainAura = createGainAura(radius);
+        gainAura = createGainAura(player.radius);
         gainAura.position.y = 0.05; // Slightly above player (Y=height)
         this.scene.add(gainAura);
         this.gainAuraMeshes.set(playerId, gainAura);

@@ -385,7 +385,7 @@ export class SocketManager {
     });
 
     this.socket.on('playerEvolved', (data: PlayerEvolvedMessage) => {
-      updatePlayerEvolved(this.world, data.playerId, data.newStage, data.newMaxEnergy);
+      updatePlayerEvolved(this.world, data.playerId, data.newStage, data.newMaxEnergy, data.radius);
       eventBus.emit(data);
     });
 

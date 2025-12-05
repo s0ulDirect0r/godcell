@@ -871,19 +871,21 @@ export class ThreeRenderer implements Renderer {
   // ============================================
 
   /**
-   * Build player data map for TrailSystem (needs stage, color, energy, maxEnergy)
+   * Build player data map for TrailSystem (needs stage, color, energy, maxEnergy, radius)
    */
   private buildPlayersForTrail(): Map<string, {
     stage: string;
     color: string;
     energy: number;
     maxEnergy: number;
+    radius: number;
   }> {
     const result = new Map<string, {
       stage: string;
       color: string;
       energy: number;
       maxEnergy: number;
+      radius: number;
     }>();
     this.world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getStringIdByEntity(entity);
@@ -895,6 +897,7 @@ export class ThreeRenderer implements Renderer {
           color: player.color,
           energy: player.energy,
           maxEnergy: player.maxEnergy,
+          radius: player.radius,
         });
       }
     });

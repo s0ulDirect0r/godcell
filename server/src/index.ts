@@ -135,7 +135,6 @@ import {
   // Stage helpers
   getStageMaxEnergy,
   getEnergyDecayRate,
-  getPlayerRadius,
   getWorldBoundsForStage,
   isSoupStage,
   isJungleStage,
@@ -202,7 +201,7 @@ function checkBeamHitscan(start: Position, end: Position, shooterId: string): st
     if (stageComp.isEvolving) return;
     if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
-    const targetRadius = getPlayerRadius(stageComp.stage);
+    const targetRadius = stageComp.radius;
     const targetPosition = { x: posComp.x, y: posComp.y };
     const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 
@@ -480,7 +479,6 @@ initDevHandler({
   removeBotPermanently: (botId) => removeBotPermanently(botId, io),
   respawnPlayer,
   getStageEnergy,
-  getPlayerRadius,
 });
 
 // ============================================
@@ -491,7 +489,6 @@ const abilitySystem = new AbilitySystem({
   world,
   io,
   checkBeamHitscan,
-  getPlayerRadius,
 });
 
 // Export for use by bot AI

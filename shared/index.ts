@@ -91,6 +91,7 @@ export interface Player {
   // Evolution
   stage: EvolutionStage;
   isEvolving: boolean; // True during molting animation
+  radius: number;      // Collision/visual radius in pixels (derived from stage)
 
   // EMP Ability (Multi-cell+)
   lastEMPTime?: number;  // Timestamp of last EMP use (for cooldown tracking)
@@ -358,7 +359,7 @@ export interface PlayerEvolvedMessage {
   playerId: string;
   newStage: EvolutionStage;
   newMaxEnergy: number;
-  // newMaxHealth removed - energy-only system
+  radius: number;
 }
 
 export interface NutrientMovedMessage {
@@ -855,7 +856,8 @@ export type TunableConfigKey = typeof DEV_TUNABLE_CONFIGS[number];
 export const GAME_CONFIG = {
   // Movement (Soup - Stage 1-2)
   PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
-  PLAYER_SIZE: 10,   // Radius of single-cell (tiny for order of magnitude evolution jump)
+  // @deprecated Use stage-specific *_RADIUS values instead (SINGLE_CELL_RADIUS, MULTI_CELL_RADIUS, etc.)
+  PLAYER_SIZE: 10,   // Legacy base size - no longer used for radius calculations
   MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
 
   // Stage 3 Movement (Cyber-Organism): Grounded hexapod with momentum
@@ -983,12 +985,12 @@ export const GAME_CONFIG = {
   // Health multipliers removed - energy-only system
   // Stage-specific energy pools defined above
 
-  // Size multipliers (visual presence and intimidation)
-  SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (10px radius)
-  MULTI_CELL_SIZE_MULTIPLIER: 10,       // 10x larger (100px radius) - order of magnitude jump!
-  CYBER_ORGANISM_SIZE_MULTIPLIER: 10.08, // 10.08x larger (~101px radius) - jungle scale, 30% smaller
-  HUMANOID_SIZE_MULTIPLIER: 19.2,       // 19.2x larger (192px radius) - humanoid scale
-  GODCELL_SIZE_MULTIPLIER: 28.8,        // 28.8x larger (288px radius) - transcendent scale
+  // Stage radii (collision/visual size in pixels)
+  SINGLE_CELL_RADIUS: 15,      // Tiny single cell
+  MULTI_CELL_RADIUS: 100,      // Order of magnitude jump - multi-cell organism
+  CYBER_ORGANISM_RADIUS: 101,  // Jungle scale (similar to multi-cell, different world)
+  HUMANOID_RADIUS: 192,        // Humanoid scale
+  GODCELL_RADIUS: 288,         // Transcendent scale
 
   // Multi-cell detection (chemical sensing)
   MULTI_CELL_DETECTION_RADIUS: 1800,    // Can detect entities within 1800px (chemical sensing range)

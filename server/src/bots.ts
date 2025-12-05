@@ -1400,6 +1400,7 @@ export function handleBotDeath(
       energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
       energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
       stageComp.stage = EvolutionStage.SINGLE_CELL;
+      stageComp.radius = GAME_CONFIG.SINGLE_CELL_RADIUS;
       stageComp.isEvolving = false;
 
       // Reset input direction and velocity
@@ -1459,6 +1460,7 @@ export function handleBotDeath(
       energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
       energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
       stageComp.stage = EvolutionStage.MULTI_CELL;
+      stageComp.radius = GAME_CONFIG.MULTI_CELL_RADIUS;
       stageComp.isEvolving = false;
 
       // Reset input direction and velocity
@@ -1518,6 +1520,7 @@ export function handleBotDeath(
       energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY || 15000;
       energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY || 30000;
       stageComp.stage = EvolutionStage.CYBER_ORGANISM;
+      stageComp.radius = GAME_CONFIG.CYBER_ORGANISM_RADIUS;
       stageComp.isEvolving = false;
 
       // Reset input direction and velocity

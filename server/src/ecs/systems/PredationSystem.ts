@@ -25,7 +25,7 @@ import {
   type StunnedComponent,
   type PlayerComponent,
 } from '../index';
-import { distance, getPlayerRadius } from '../../helpers';
+import { distance } from '../../helpers';
 import { getConfig } from '../../dev';
 import { isBot } from '../../bots';
 import { logger } from '../../logger';
@@ -59,7 +59,7 @@ export class PredationSystem implements System {
       if (predatorStage.isEvolving) return;
       if (predatorStunned?.until && Date.now() < predatorStunned.until) return;
 
-      const predatorRadius = getPlayerRadius(predatorStage.stage);
+      const predatorRadius = predatorStage.radius;
       const predatorPosition = { x: predatorPos.x, y: predatorPos.y };
 
       // Check collision with all other players (Stage 1 only)
@@ -75,7 +75,7 @@ export class PredationSystem implements System {
         if (preyEnergy.current <= 0) return; // Skip dead prey
         if (preyStage.isEvolving) return; // Skip evolving prey
 
-        const preyRadius = getPlayerRadius(preyStage.stage);
+        const preyRadius = preyStage.radius;
         const preyPosition = { x: preyPos.x, y: preyPos.y };
         const dist = distance(predatorPosition, preyPosition);
         const collisionDist = predatorRadius + preyRadius;
