@@ -115,9 +115,9 @@ export class GravitySystem implements System {
         const dist = distance(swarmPosition, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
-        // Swarms can get destroyed by singularities too
+        // Swarms are IMMUNE to singularity death spark - they pass through unharmed
+        // (corrupted data has no physical form to crush)
         if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
-          // For now, swarms just get pulled through - they're corrupted data
           return;
         }
 
