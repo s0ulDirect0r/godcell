@@ -30,10 +30,14 @@ import { TrapRenderSystem } from '../systems/TrapRenderSystem';
 import {
   World,
   Tags,
+  Components,
   getStringIdByEntity,
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
+  forEachPlayer,
+  type PositionComponent,
+  type ObstacleComponent,
 } from '../../ecs';
 
 /**
@@ -105,6 +109,9 @@ export class ThreeRenderer implements Renderer {
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
+
+  // Gravity drain particle spawning throttle (ms since last spawn)
+  private lastGravityDrainParticleTime = 0;
 
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
@@ -518,6 +525,94 @@ export class ThreeRenderer implements Renderer {
 
       // Update last energy
       this.lastPlayerEnergy = myPlayer.energy;
+
+      // Gravity-based screen shake (soup mode only, local player)
+      // Applies continuous subtle shake when near gravity wells
+      if (this.environmentSystem.getMode() === 'soup') {
+        let totalGravityIntensity = 0;
+        const playerX = myPlayer.position.x;
+        const playerY = myPlayer.position.y;
+
+        this.world.forEachWithTag(Tags.Obstacle, (entity) => {
+          const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+          const obstacle = this.world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+          if (!pos || !obstacle) return;
+
+          // Calculate distance from player to obstacle
+          const dx = pos.x - playerX;
+          const dy = pos.y - playerY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Only apply shake inside the obstacle's influence radius
+          if (dist < obstacle.radius) {
+            // Inverse-square gravity: stronger near center
+            // Scale factor: 300000 tuned for subtle-but-noticeable shake (yields ~0.1-30 shake units)
+            const distSq = Math.max(dist * dist, 100); // Clamp minimum to prevent extreme forces
+            const gravityForce = (obstacle.strength * 300000) / distSq;
+
+            // Boost intensity when very close to singularity core
+            // Inner 30%: 6x boost for dramatic effect, outer: 2x base boost
+            const normalizedDist = dist / obstacle.radius;
+            const proximityBoost = normalizedDist < 0.3 ? 6.0 : 2.0;
+
+            totalGravityIntensity += gravityForce * proximityBoost;
+          }
+        });
+
+        // Apply gravity shake (cap at 30 to avoid excessive/nauseating camera motion)
+        if (totalGravityIntensity > 0.1) {
+          const gravityShake = Math.min(totalGravityIntensity, 30);
+          this.cameraSystem.addShake(gravityShake);
+        }
+      }
+    }
+
+    // Gravity drain particles for ALL players (including bots) in soup mode
+    // Shows energy being pulled from each player toward nearby singularities
+    if (this.environmentSystem.getMode() === 'soup') {
+      const now = performance.now();
+      // Throttle particle spawning: 150ms between spawns (~6-7 spawns/sec for balance of visual feedback vs performance)
+      if (now - this.lastGravityDrainParticleTime > 150) {
+        forEachPlayer(this.world, (_entity, _playerId, player) => {
+          // Skip players in jungle stages (they've transcended soup obstacles)
+          // Note: EvolutionStage is a string enum, so use explicit comparison
+          const isSoupPlayer = player.stage === EvolutionStage.SINGLE_CELL ||
+                               player.stage === EvolutionStage.MULTI_CELL;
+          if (!isSoupPlayer) return;
+
+          this.world.forEachWithTag(Tags.Obstacle, (obstacleEntity) => {
+            const pos = this.world.getComponent<PositionComponent>(obstacleEntity, Components.Position);
+            const obstacle = this.world.getComponent<ObstacleComponent>(obstacleEntity, Components.Obstacle);
+            if (!pos || !obstacle) return;
+
+            const dx = pos.x - player.position.x;
+            const dy = pos.y - player.position.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Only spawn particles inside the obstacle's influence radius
+            if (dist < obstacle.radius) {
+              // Use same proximity² formula as server drain rate
+              const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
+              const drainIntensity = proximityFactor * proximityFactor; // Squared for steeper curve
+              // Scale particles based on drain intensity: 2 at edge → 12 at center
+              // (matches visual intensity to actual energy drain rate from server)
+              const particleCount = Math.floor(2 + drainIntensity * 10);
+              const playerColorHex = parseInt(player.color.slice(1), 16);
+
+              this.effectsSystem.spawnEnergyTransfer(
+                player.position.x,
+                player.position.y,
+                pos.x,
+                pos.y,
+                '', // Empty targetId: drain particles don't trigger gain auras (energy lost to singularity)
+                playerColorHex,
+                particleCount
+              );
+            }
+          });
+        });
+        this.lastGravityDrainParticleTime = now;
+      }
     }
 
     // Update render mode based on local player stage (soup vs jungle world)

@@ -58,8 +58,8 @@ export class GravitySystem implements System {
         const dist = distance(playerPos, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
-        // Instant death at singularity core (energy-only: energy = 0)
-        if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
+        // Instant death at inner spark (energy-only: energy = 0)
+        if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
           logSingularityCrush(playerId, dist);
           // Use ECS setter to persist the change
           setEnergyBySocketId(world, playerId, 0); // Instant energy depletion
@@ -69,6 +69,22 @@ export class GravitySystem implements System {
             damageTracking.lastDamageSource = 'singularity';
           }
           return;
+        }
+
+        // Light energy drain based on proximity to center
+        // Closer = stronger drain (simulates energy being pulled into the singularity)
+        const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
+        const drainRate = getConfig('OBSTACLE_ENERGY_DRAIN_RATE');
+        const energyDrain = drainRate * proximityFactor * proximityFactor * deltaTime; // Squared for steeper curve near center
+
+        if (energyDrain > 0) {
+          const newEnergy = Math.max(0, energyComponent.current - energyDrain);
+          setEnergyBySocketId(world, playerId, newEnergy);
+          // Track damage source for death cause
+          const damageTracking = getDamageTrackingBySocketId(world, playerId);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'gravity';
+          }
         }
 
         // Inverse-square gravity: F = strength / dist²
@@ -115,9 +131,9 @@ export class GravitySystem implements System {
         const dist = distance(swarmPosition, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
-        // Swarms can get destroyed by singularities too
-        if (dist < getConfig('OBSTACLE_CORE_RADIUS')) {
-          // For now, swarms just get pulled through - they're corrupted data
+        // Swarms are IMMUNE to singularity death spark - they pass through unharmed
+        // (corrupted data has no physical form to crush)
+        if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
           return;
         }
 

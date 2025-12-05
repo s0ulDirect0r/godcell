@@ -499,15 +499,18 @@ export interface EnergyTransferAnimation {
     targetY: number;
     progress: number;
     speed: number;
+    wobbleOffset: number; // Random phase offset for wobble
   }>;
   startTime: number;
   duration: number;
   targetId: string; // Who is receiving energy (for aura trigger)
+  gravityPull: boolean; // If true, use accelerating ease-in + wobble (for gravity drain)
 }
 
 /**
  * Spawn energy transfer particles - fly from source to target
  * Used when collecting nutrients or draining enemies
+ * @param gravityPull - If true, particles accelerate toward target with wobble (for gravity drain)
  * @returns Animation object to track
  */
 export function spawnEnergyTransferParticles(
@@ -520,7 +523,9 @@ export function spawnEnergyTransferParticles(
   // Cyan (0x00ffff) matches the gain aura color for visual consistency
   colorHex: number = 0x00ffff,
   // 15 particles creates visible stream without overwhelming the scene (range: 10-40)
-  particleCount: number = 15
+  particleCount: number = 15,
+  // Gravity pull mode: accelerating ease-in + erratic wobble (for gravity drain effect)
+  gravityPull: boolean = false
 ): EnergyTransferAnimation {
   // 400ms duration: fast enough to feel responsive, slow enough to see the transfer
   const duration = 400;
@@ -548,7 +553,7 @@ export function spawnEnergyTransferParticles(
     positions[i * 3 + 1] = 0.25; // Height (above entities)
     positions[i * 3 + 2] = -startY;
 
-    sizes[i] = 3 + Math.random() * 2;
+    sizes[i] = 5 + Math.random() * 2;  // 5-7px for all energy transfer particles
 
     // Stagger particle speeds for wave effect (faster particles arrive first)
     // Store game coordinates (AnimationUpdater converts to XZ)
@@ -565,6 +570,7 @@ export function spawnEnergyTransferParticles(
       // creating a wave effect where faster particles lead and slower ones follow
       progress: -Math.random() * 0.2,
       speed: baseSpeed * speedVariation,
+      wobbleOffset: Math.random() * Math.PI * 2, // Random phase for wobble
     });
   }
 
@@ -589,6 +595,7 @@ export function spawnEnergyTransferParticles(
     startTime: Date.now(),
     duration,
     targetId,
+    gravityPull,
   };
 }
 

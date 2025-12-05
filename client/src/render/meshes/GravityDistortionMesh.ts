@@ -25,13 +25,37 @@ const MIDDLE_RING = {
   radiusFactor: 0.6,    // Percentage of outer radius
 };
 
-/** Event horizon sphere - visual danger zone */
+/** Event horizon sphere - visual danger zone with distortion shader */
 const EVENT_HORIZON = {
-  color: 0xff0088,      // Magenta
-  opacity: 0.08,        // Very transparent to see core
-  emissive: 0xff0088,
-  emissiveIntensity: 0.4,
-  roughness: 0.8,
+  // Base colors (will cycle through hues)
+  edgeColor: { r: 1.0, g: 0.0, b: 0.53 },    // Magenta edge glow (base)
+  innerColor: { r: 0.1, g: 0.0, b: 0.1 },    // Dark purple center
+  // Fresnel (edge glow)
+  fresnelPower: 3.0,       // Higher = sharper edge falloff
+  fresnelIntensity: 1.5,   // Edge glow brightness
+  // Ripple distortion
+  rippleSpeed: 0.8,        // How fast ripples animate
+  rippleFrequency: 8.0,    // Number of concentric rings
+  rippleAmplitude: 0.15,   // How much ripples distort (0-1)
+  // Color cycling
+  colorCycleSpeed: 0.15,   // How fast colors shift (cycles per second)
+  // Overall
+  baseOpacity: 0.15,        // Base transparency
+  edgeOpacity: 0.4,        // Edge transparency (via fresnel)
+};
+
+/** Swirling energy bands - rotating rings around event horizon */
+const ENERGY_BANDS = {
+  count: 3,                // Number of rings
+  color: 0xff00ff,         // Base color (will also cycle)
+  opacity: 0.6,
+  thickness: 2,            // Tube radius
+  // Each ring has different tilt and speed
+  rings: [
+    { tiltX: 0.3, tiltZ: 0.1, speed: 0.4 },     // Slightly tilted, medium speed
+    { tiltX: -0.2, tiltZ: 0.4, speed: -0.3 },   // Opposite tilt, reverse
+    { tiltX: 0.5, tiltZ: -0.2, speed: 0.25 },   // More tilted, slower
+  ],
 };
 
 /** Vortex spiral - rotating particle effect */
@@ -49,11 +73,25 @@ const VORTEX = {
 const SINGULARITY_CORE = {
   baseColor: 0x1a0011,  // Very dark magenta-black
   emissive: 0xff00ff,   // Magenta glow
-  emissiveIntensity: 0.0, // Set to 0 for dark void, 3.0 for bright
+  emissiveIntensity: -0.5, // Negative = absorbs light, creates void effect
   roughness: 0.3,
-  // Animation
-  pulseSpeed: 3.5,      // Rapid heartbeat Hz
-  emissiveRange: 0.5,   // Oscillation range (base ± range)
+  // Animation disabled - inner spark provides visual interest
+  pulseSpeed: 0,
+  emissiveRange: 0,
+};
+
+/** Inner spark - burning red light at singularity center (LETHAL ZONE) */
+const INNER_SPARK = {
+  color: 0xff2200,        // Deep red-orange
+  emissive: 0xff4400,     // Bright orange-red glow
+  baseEmissiveIntensity: 2.5,  // Base brightness (very bright)
+  maxEmissiveIntensity: 5.0,   // Peak brightness during flicker
+  // Radius controlled by GAME_CONFIG.OBSTACLE_SPARK_RADIUS (shared with server death check)
+  roughness: 0.1,         // Smooth/shiny for glow
+  // Animation - chaotic flicker like a burning ember
+  flickerSpeed: 8.0,      // Fast flicker Hz
+  flickerSpeed2: 13.0,    // Secondary flicker (creates chaos)
+  flickerSpeed3: 21.0,    // Tertiary flicker (more chaos)
 };
 
 /** Accretion disk - particles spiraling inward */
@@ -68,6 +106,100 @@ const ACCRETION_DISK = {
   // Particle lifetime
   maxLife: 5.0,         // Seconds to reach core
 };
+
+// ============================================
+// Shaders
+// ============================================
+
+/** Vertex shader for event horizon distortion effect */
+const EVENT_HORIZON_VERTEX = `
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vViewPosition;
+
+void main() {
+  vUv = uv;
+  vNormal = normalize(normalMatrix * normal);
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vViewPosition = -mvPosition.xyz;
+  gl_Position = projectionMatrix * mvPosition;
+}
+`;
+
+/** Fragment shader for event horizon distortion effect */
+const EVENT_HORIZON_FRAGMENT = `
+uniform float uTime;
+uniform vec3 uEdgeColor;
+uniform vec3 uInnerColor;
+uniform float uFresnelPower;
+uniform float uFresnelIntensity;
+uniform float uRippleSpeed;
+uniform float uRippleFrequency;
+uniform float uRippleAmplitude;
+uniform float uBaseOpacity;
+uniform float uEdgeOpacity;
+uniform float uColorCycleSpeed;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vViewPosition;
+
+// HSV to RGB conversion for smooth color cycling
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+  // Fresnel effect - glow at edges where surface is perpendicular to view
+  vec3 viewDir = normalize(vViewPosition);
+  float fresnel = 1.0 - abs(dot(viewDir, vNormal));
+  fresnel = pow(fresnel, uFresnelPower) * uFresnelIntensity;
+
+  // Radial distance from center (0 at center, 1 at edge)
+  vec2 centered = vUv - 0.5;
+  float dist = length(centered) * 2.0;
+
+  // Animated concentric ripples
+  float ripplePhase = dist * uRippleFrequency - uTime * uRippleSpeed;
+  float ripple = sin(ripplePhase * 3.14159 * 2.0) * 0.5 + 0.5;
+
+  // Secondary ripple at different frequency for complexity
+  float ripple2 = sin(ripplePhase * 3.14159 * 2.0 * 1.7 + 1.0) * 0.5 + 0.5;
+  ripple = mix(ripple, ripple2, 0.3);
+
+  // Distortion effect - shift the color based on ripple
+  float distortion = ripple * uRippleAmplitude;
+
+  // === COLOR CYCLING ===
+  // Shift hue over time (magenta -> cyan -> magenta cycle)
+  float hueShift = uTime * uColorCycleSpeed;
+  // Base hue is ~0.83 (magenta), cycle through cyan (~0.5) and back
+  float baseHue = 0.83 + sin(hueShift * 3.14159 * 2.0) * 0.17;
+  vec3 cycledEdgeColor = hsv2rgb(vec3(baseHue, 0.9, 1.0));
+  vec3 cycledInnerColor = hsv2rgb(vec3(baseHue, 0.8, 0.15));
+
+  // Color gradient from inner to edge, modulated by ripple
+  float colorMix = smoothstep(0.0, 1.0, dist + distortion * 0.5);
+  vec3 baseColor = mix(cycledInnerColor, cycledEdgeColor, colorMix);
+
+  // Add ripple brightness variation
+  vec3 color = baseColor * (1.0 + ripple * 0.3);
+
+  // Add fresnel edge glow (also color-cycled)
+  color += cycledEdgeColor * fresnel;
+
+  // Opacity: more opaque at edges (fresnel) and where ripples are bright
+  float alpha = mix(uBaseOpacity, uEdgeOpacity, fresnel);
+  alpha += ripple * 0.1 * (1.0 - dist); // Subtle ripple in opacity
+
+  // Fade out at very center for the "void" look
+  alpha *= smoothstep(0.0, 0.3, dist);
+
+  gl_FragColor = vec4(color, alpha);
+}
+`;
 
 // ============================================
 // Types
@@ -109,7 +241,8 @@ export interface GravityDistortionResult {
  * 3. Event horizon sphere - magenta danger zone
  * 4. Vortex particles + line - spinning spiral
  * 5. Singularity core - dark/glowing death zone
- * 6. Accretion disk - particles spiraling inward
+ * 6. Inner spark - burning red light at center
+ * 7. Accretion disk - particles spiraling inward
  *
  * @param position - World position {x, y}
  * @param radius - Outer influence radius
@@ -164,27 +297,68 @@ export function createGravityDistortion(
   middleRing.position.z = 0;
   group.add(middleRing);
 
-  // === LAYER 3: EVENT HORIZON SPHERE ===
+  // === LAYER 3: EVENT HORIZON SPHERE (with distortion shader) ===
   const horizonGeometry = new THREE.SphereGeometry(
     GAME_CONFIG.OBSTACLE_EVENT_HORIZON,
-    32,
-    32
+    64, // Higher segments for smoother distortion
+    64
   );
-  const horizonMaterial = new THREE.MeshPhysicalMaterial({
-    color: EVENT_HORIZON.color,
+  const horizonMaterial = new THREE.ShaderMaterial({
+    vertexShader: EVENT_HORIZON_VERTEX,
+    fragmentShader: EVENT_HORIZON_FRAGMENT,
+    uniforms: {
+      uTime: { value: 0.0 },
+      uEdgeColor: { value: new THREE.Vector3(EVENT_HORIZON.edgeColor.r, EVENT_HORIZON.edgeColor.g, EVENT_HORIZON.edgeColor.b) },
+      uInnerColor: { value: new THREE.Vector3(EVENT_HORIZON.innerColor.r, EVENT_HORIZON.innerColor.g, EVENT_HORIZON.innerColor.b) },
+      uFresnelPower: { value: EVENT_HORIZON.fresnelPower },
+      uFresnelIntensity: { value: EVENT_HORIZON.fresnelIntensity },
+      uRippleSpeed: { value: EVENT_HORIZON.rippleSpeed },
+      uRippleFrequency: { value: EVENT_HORIZON.rippleFrequency },
+      uRippleAmplitude: { value: EVENT_HORIZON.rippleAmplitude },
+      uBaseOpacity: { value: EVENT_HORIZON.baseOpacity },
+      uEdgeOpacity: { value: EVENT_HORIZON.edgeOpacity },
+      uColorCycleSpeed: { value: EVENT_HORIZON.colorCycleSpeed },
+    },
     transparent: true,
-    opacity: EVENT_HORIZON.opacity,
-    emissive: EVENT_HORIZON.emissive,
-    emissiveIntensity: EVENT_HORIZON.emissiveIntensity,
-    roughness: EVENT_HORIZON.roughness,
     side: THREE.DoubleSide,
     depthWrite: false,
     depthTest: false,
+    blending: THREE.AdditiveBlending, // Glow effect
   });
   const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);
   horizonSphere.position.z = 0.05;
   horizonSphere.userData.isEventHorizon = true;
   group.add(horizonSphere);
+
+  // === LAYER 3.5: SWIRLING ENERGY BANDS ===
+  // Torus rings at different tilts that rotate around the event horizon
+  const bandRadius = GAME_CONFIG.OBSTACLE_EVENT_HORIZON * 1.1; // Slightly larger than horizon
+  for (let i = 0; i < ENERGY_BANDS.rings.length; i++) {
+    const ringConfig = ENERGY_BANDS.rings[i];
+    const torusGeometry = new THREE.TorusGeometry(
+      bandRadius,               // Ring radius
+      ENERGY_BANDS.thickness,   // Tube radius
+      8,                        // Radial segments (tube cross-section)
+      64                        // Tubular segments (around the ring)
+    );
+    const torusMaterial = new THREE.MeshBasicMaterial({
+      color: ENERGY_BANDS.color,
+      transparent: true,
+      opacity: ENERGY_BANDS.opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const torus = new THREE.Mesh(torusGeometry, torusMaterial);
+    // Apply initial tilt
+    torus.rotation.x = ringConfig.tiltX;
+    torus.rotation.z = ringConfig.tiltZ;
+    torus.position.z = 0.07; // In front of horizon sphere
+    torus.userData.isEnergyBand = true;
+    torus.userData.bandIndex = i;
+    torus.userData.bandSpeed = ringConfig.speed;
+    group.add(torus);
+  }
 
   // === LAYER 4: VORTEX SPIRAL ===
   const vortexGeometry = new THREE.BufferGeometry();
@@ -262,7 +436,26 @@ export function createGravityDistortion(
   coreSphere.userData.isSingularityCore = true;
   group.add(coreSphere);
 
-  // === LAYER 6: ACCRETION DISK PARTICLES ===
+  // === LAYER 6: INNER SPARK (burning red light at center - LETHAL ZONE) ===
+  const sparkGeometry = new THREE.SphereGeometry(
+    GAME_CONFIG.OBSTACLE_SPARK_RADIUS,
+    16,
+    16
+  );
+  const sparkMaterial = new THREE.MeshStandardMaterial({
+    color: INNER_SPARK.color,
+    emissive: INNER_SPARK.emissive,
+    emissiveIntensity: INNER_SPARK.baseEmissiveIntensity,
+    roughness: INNER_SPARK.roughness,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const sparkSphere = new THREE.Mesh(sparkGeometry, sparkMaterial);
+  sparkSphere.position.z = 0.12; // Slightly in front of core
+  sparkSphere.userData.isInnerSpark = true;
+  group.add(sparkSphere);
+
+  // === LAYER 7: ACCRETION DISK PARTICLES ===
   const particleCount = ACCRETION_DISK.particleCount;
   const positions = new Float32Array(particleCount * 3);
   const colors = new Float32Array(particleCount * 3);
@@ -336,6 +529,7 @@ export function createGravityDistortion(
  * - Event horizon breathing
  * - Vortex rotation
  * - Core pulsing
+ * - Inner spark flickering (chaotic red burning light)
  * - Accretion disk particle movement
  *
  * @param group - The gravity distortion THREE.Group
@@ -354,18 +548,58 @@ export function updateGravityDistortionAnimation(
   const deltaSeconds = dt / 1000;
   const time = performance.now() * 0.001;
 
-  // === EVENT HORIZON BREATHING ===
+  // Calculate color cycle hue for syncing energy bands
+  const hueShift = time * EVENT_HORIZON.colorCycleSpeed;
+  const currentHue = 0.83 + Math.sin(hueShift * Math.PI * 2) * 0.17;
+
+  // === EVENT HORIZON DISTORTION SHADER ===
   const horizonSphere = group.children[2] as THREE.Mesh;
   if (horizonSphere?.userData.isEventHorizon) {
-    const pulseSpeed = 2.0;
-    const pulseAmount = 0.02;
-    const scale = 1.0 + Math.sin(time * pulseSpeed + pulsePhase) * pulseAmount;
-    horizonSphere.scale.set(scale, scale, scale);
+    const horizonMaterial = horizonSphere.material as THREE.ShaderMaterial;
+    if (horizonMaterial.uniforms?.uTime) {
+      // Update time uniform for ripple animation (add phase offset for variety)
+      horizonMaterial.uniforms.uTime.value = time + pulsePhase;
+    }
+  }
+
+  // === ENERGY BAND ROTATION & COLOR SYNC ===
+  // Bands are at indices 3, 4, 5 (after horizon sphere)
+  for (let i = 0; i < ENERGY_BANDS.rings.length; i++) {
+    const band = group.children[3 + i] as THREE.Mesh;
+    if (band?.userData.isEnergyBand) {
+      // Rotate around Y axis (which is actually "up" in our rotated coordinate system)
+      const speed = band.userData.bandSpeed || 0.3;
+      band.rotation.y += speed * deltaSeconds;
+
+      // Sync color with the event horizon color cycle
+      const bandMaterial = band.material as THREE.MeshBasicMaterial;
+      // Convert HSV to RGB for the band color
+      const h = currentHue;
+      const s = 0.9;
+      const v = 1.0;
+      // HSV to RGB inline
+      const hi = Math.floor(h * 6) % 6;
+      const f = h * 6 - Math.floor(h * 6);
+      const p = v * (1 - s);
+      const q = v * (1 - f * s);
+      const t = v * (1 - (1 - f) * s);
+      let r = 0, g = 0, b = 0;
+      switch (hi) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        case 5: r = v; g = p; b = q; break;
+      }
+      bandMaterial.color.setRGB(r, g, b);
+    }
   }
 
   // === VORTEX ROTATION ===
-  const vortexParticles = group.children[3] as THREE.Points;
-  const vortexLine = group.children[4] as THREE.Line;
+  // Indices shifted by 3 due to energy bands (now at 6, 7)
+  const vortexParticles = group.children[6] as THREE.Points;
+  const vortexLine = group.children[7] as THREE.Line;
 
   if (vortexParticles?.userData.isVortex) {
     const speed = vortexParticles.userData.vortexSpeed || 0.5;
@@ -377,15 +611,33 @@ export function updateGravityDistortionAnimation(
   }
 
   // === SINGULARITY CORE PULSING ===
-  const coreSphere = group.children[5] as THREE.Mesh;
+  // Index shifted (now at 8)
+  const coreSphere = group.children[8] as THREE.Mesh;
   if (coreSphere?.userData.isSingularityCore) {
     const coreMaterial = coreSphere.material as THREE.MeshStandardMaterial;
     coreMaterial.emissiveIntensity = SINGULARITY_CORE.emissiveIntensity +
       Math.sin(time * SINGULARITY_CORE.pulseSpeed + pulsePhase) * SINGULARITY_CORE.emissiveRange;
   }
 
+  // === INNER SPARK FLICKERING ===
+  // Index shifted (now at 9)
+  const sparkSphere = group.children[9] as THREE.Mesh;
+  if (sparkSphere?.userData.isInnerSpark) {
+    const sparkMaterial = sparkSphere.material as THREE.MeshStandardMaterial;
+    // Combine multiple sine waves at different frequencies for chaotic flicker
+    const flicker1 = Math.sin(time * INNER_SPARK.flickerSpeed + pulsePhase);
+    const flicker2 = Math.sin(time * INNER_SPARK.flickerSpeed2 + pulsePhase * 1.7);
+    const flicker3 = Math.sin(time * INNER_SPARK.flickerSpeed3 + pulsePhase * 2.3);
+    // Combine and normalize to 0-1 range, then map to intensity range
+    const combinedFlicker = (flicker1 + flicker2 * 0.5 + flicker3 * 0.3) / 1.8;
+    const normalizedFlicker = (combinedFlicker + 1) / 2; // 0-1
+    sparkMaterial.emissiveIntensity = INNER_SPARK.baseEmissiveIntensity +
+      normalizedFlicker * (INNER_SPARK.maxEmissiveIntensity - INNER_SPARK.baseEmissiveIntensity);
+  }
+
   // === ACCRETION DISK PARTICLES ===
-  const particleSystem = group.children[6] as THREE.Points;
+  // Index shifted (now at 10)
+  const particleSystem = group.children[10] as THREE.Points;
   if (particleSystem && particleData) {
     const positions = particleSystem.geometry.attributes.position.array as Float32Array;
     const colors = particleSystem.geometry.attributes.color.array as Float32Array;
@@ -414,8 +666,8 @@ export function updateGravityDistortionAnimation(
       p.y += p.vy * deltaSeconds;
       p.z += p.vz * deltaSeconds;
 
-      // Respawn at edge when reaching core
-      if (dist < GAME_CONFIG.OBSTACLE_CORE_RADIUS || p.life > p.maxLife) {
+      // Respawn at edge when reaching inner spark (lethal center)
+      if (dist < GAME_CONFIG.OBSTACLE_SPARK_RADIUS || p.life > p.maxLife) {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.random() * Math.PI;
         const r = obstacleRadius * 0.7 + Math.random() * obstacleRadius * 0.3;

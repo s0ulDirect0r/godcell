@@ -136,6 +136,7 @@ export class EffectsSystem {
 
   /**
    * Spawn energy transfer - particles fly from source to target
+   * @param gravityPull - If true, particles accelerate with wobble (for gravity drain)
    */
   spawnEnergyTransfer(
     sourceX: number,
@@ -144,7 +145,8 @@ export class EffectsSystem {
     targetY: number,
     targetId: string,
     colorHex: number = 0x00ffff,
-    particleCount: number = 15
+    particleCount: number = 15,
+    gravityPull: boolean = false
   ): void {
     this.energyTransferAnimations.push(
       spawnEnergyTransferParticles(
@@ -155,7 +157,8 @@ export class EffectsSystem {
         targetY,
         targetId,
         colorHex,
-        particleCount
+        particleCount,
+        gravityPull
       )
     );
   }
