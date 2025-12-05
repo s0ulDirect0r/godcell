@@ -175,6 +175,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     if (stage) {
       stage.stage = player.stage;
       stage.isEvolving = player.isEvolving || false;
+      stage.radius = player.radius;
     }
 
     // Update interpolation target
@@ -210,6 +211,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
   world.addComponent<StageComponent>(entity, Components.Stage, {
     stage: player.stage,
     isEvolving: player.isEvolving || false,
+    radius: player.radius,
   });
 
   world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
@@ -295,7 +297,7 @@ export function setPlayerEvolving(world: World, playerId: string, isEvolving: bo
 /**
  * Update player after evolution completes.
  */
-export function updatePlayerEvolved(world: World, playerId: string, newStage: EvolutionStage, newMaxEnergy: number): void {
+export function updatePlayerEvolved(world: World, playerId: string, newStage: EvolutionStage, newMaxEnergy: number, newRadius: number): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
@@ -303,6 +305,7 @@ export function updatePlayerEvolved(world: World, playerId: string, newStage: Ev
   if (stage) {
     stage.stage = newStage;
     stage.isEvolving = false;
+    stage.radius = newRadius;
   }
 
   const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -1143,6 +1146,7 @@ export function getPlayer(world: World, playerId: string): Player | null {
     maxEnergy: energy.max,
     stage: stage.stage,
     isEvolving: stage.isEvolving,
+    radius: stage.radius,
   };
 }
 

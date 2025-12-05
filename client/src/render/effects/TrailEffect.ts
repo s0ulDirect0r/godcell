@@ -4,28 +4,10 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import type { EvolutionStage } from '@godcell/shared';
 
-/**
- * Calculate player radius based on evolution stage
- * Duplicated here to avoid circular dependency with ThreeRenderer
- */
-function getPlayerRadius(stage: EvolutionStage): number {
-  switch (stage) {
-    case EvolutionStage.SINGLE_CELL:
-      return GAME_CONFIG.PLAYER_SIZE;
-    case EvolutionStage.MULTI_CELL:
-      return GAME_CONFIG.PLAYER_SIZE * 1.5;
-    case EvolutionStage.CYBER_ORGANISM:
-      return GAME_CONFIG.PLAYER_SIZE * 2.0;
-    case EvolutionStage.HUMANOID:
-      return GAME_CONFIG.PLAYER_SIZE * 2.5;
-    case EvolutionStage.GODCELL:
-      return GAME_CONFIG.PLAYER_SIZE * 3.0;
-    default:
-      return GAME_CONFIG.PLAYER_SIZE;
-  }
-}
+// Note: Player radius is now stored on the entity and passed via TrailPlayerData.radius
+// The getPlayerRadius() function has been removed - radius flows from server via ECS
 
 /**
  * Trail point for position history
@@ -43,6 +25,7 @@ interface TrailPlayerData {
   color: string;
   energy: number;
   maxEnergy: number;
+  radius: number;
 }
 
 /**
@@ -108,7 +91,7 @@ export function updateTrails(
     trailMaterial.opacity = Math.max(0.2, energyRatio * 0.8 + 0.2);
 
     // Calculate trail width based on nucleus size (not full cell size)
-    const cellRadius = getPlayerRadius(player.stage);
+    const cellRadius = player.radius;
     const nucleusRadius = cellRadius * 0.3;
     const maxWidth = nucleusRadius; // Trail width = nucleus radius
 

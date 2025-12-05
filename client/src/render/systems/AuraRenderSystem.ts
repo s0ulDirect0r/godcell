@@ -9,7 +9,6 @@ import {
   World,
   Tags,
   Components,
-  GAME_CONFIG,
   getEntityScale,
   type EntityScale,
   type EntityId,
@@ -62,23 +61,8 @@ export class AuraRenderSystem {
     this.scene = scene;
   }
 
-  /**
-   * Get player radius based on evolution stage
-   */
-  private getPlayerRadius(stage: EvolutionStage): number {
-    switch (stage) {
-      case EvolutionStage.MULTI_CELL:
-        return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
-      case EvolutionStage.CYBER_ORGANISM:
-        return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
-      case EvolutionStage.HUMANOID:
-        return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
-      case EvolutionStage.GODCELL:
-        return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
-      default:
-        return GAME_CONFIG.PLAYER_SIZE;
-    }
-  }
+  // Note: Player radius is now stored in StageComponent.radius and read directly from ECS
+  // The getPlayerRadius() method has been removed - radius flows from server via ECS
 
   /**
    * Sync aura meshes with ECS state
@@ -113,7 +97,7 @@ export class AuraRenderSystem {
       if (entityScale !== viewerScale) return;
 
       if (drainAura) {
-        this.updateDrainAura(entity, entityId, drainAura, stage.stage, playerMeshes, time);
+        this.updateDrainAura(entity, entityId, drainAura, stage, playerMeshes, time);
       }
     });
 
@@ -147,7 +131,7 @@ export class AuraRenderSystem {
       if (entityScale !== viewerScale) return;
 
       if (gainAura) {
-        this.updateGainAura(entity, entityId, gainAura, stage.stage, playerMeshes);
+        this.updateGainAura(entity, entityId, gainAura, stage, playerMeshes);
       }
     });
 
@@ -162,10 +146,11 @@ export class AuraRenderSystem {
     _entity: EntityId,
     entityId: string,
     drainAura: DrainAuraComponent,
-    stage: EvolutionStage,
+    stageComp: StageComponent,
     playerMeshes: Map<string, THREE.Object3D>,
     time: number
   ): void {
+    const stage = stageComp.stage;
     this.activeDrainIds.add(entityId);
 
     const playerMesh = playerMeshes.get(entityId);
@@ -182,7 +167,7 @@ export class AuraRenderSystem {
     }
 
     if (!auraMesh) {
-      auraMesh = this.createPlayerDrainAura(stage);
+      auraMesh = this.createPlayerDrainAura(stageComp);
       auraMesh.userData.stage = stage;
       this.drainAuraMeshes.set(entityId, auraMesh);
       this.scene.add(auraMesh);
@@ -202,12 +187,12 @@ export class AuraRenderSystem {
   /**
    * Create drain aura mesh group for a player
    */
-  private createPlayerDrainAura(stage: EvolutionStage): THREE.Group {
+  private createPlayerDrainAura(stageComp: StageComponent): THREE.Group {
     const auraMesh = new THREE.Group();
 
-    if (stage === EvolutionStage.MULTI_CELL) {
+    if (stageComp.stage === EvolutionStage.MULTI_CELL) {
       // Multi-cell: aura around each cell in the organism
-      const baseRadius = this.getPlayerRadius(stage);
+      const baseRadius = stageComp.radius;
       const cellRadius = baseRadius * 0.35;
 
       // Center cell
@@ -227,7 +212,7 @@ export class AuraRenderSystem {
       }
     } else {
       // Single aura for other stages
-      const playerRadius = this.getPlayerRadius(stage);
+      const playerRadius = stageComp.radius;
       const singleAura = createCellAura(playerRadius);
       auraMesh.add(singleAura);
     }
@@ -290,7 +275,7 @@ export class AuraRenderSystem {
     _entity: EntityId,
     entityId: string,
     gainAura: GainAuraComponent,
-    stage: EvolutionStage,
+    stageComp: StageComponent,
     playerMeshes: Map<string, THREE.Object3D>
   ): void {
     this.activeGainIds.add(entityId);
@@ -301,8 +286,7 @@ export class AuraRenderSystem {
     let auraMesh = this.gainAuraMeshes.get(entityId);
 
     if (!auraMesh) {
-      const radius = this.getPlayerRadius(stage);
-      auraMesh = createGainAura(radius, gainAura.color);
+      auraMesh = createGainAura(stageComp.radius, gainAura.color);
       auraMesh.position.y = 0.05;
       this.gainAuraMeshes.set(entityId, auraMesh);
       this.scene.add(auraMesh);

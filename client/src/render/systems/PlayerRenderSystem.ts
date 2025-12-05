@@ -165,8 +165,8 @@ export class PlayerRenderSystem {
       let cellGroup = this.playerMeshes.get(id);
       const isMyPlayer = id === myPlayerId;
 
-      // Calculate size based on stage (needed for rendering and compass)
-      const radius = this.getPlayerRadius(player.stage);
+      // Use radius from ECS (flows from server)
+      const radius = player.radius;
 
       // Check if stage changed (e.g., via dev panel) - need to recreate mesh
       if (cellGroup && cellGroup.userData.stage !== player.stage) {
@@ -590,21 +590,23 @@ export class PlayerRenderSystem {
 
   /**
    * Calculate player visual size based on evolution stage
+   * @deprecated Use player.radius from ECS instead - radius flows from server.
+   * This method is only kept for backwards compatibility with ThreeRenderer.startEvolution().
    */
   getPlayerRadius(stage: string): number {
     if (stage === 'godcell') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+      return GAME_CONFIG.GODCELL_RADIUS;
     }
     if (stage === 'humanoid') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
+      return GAME_CONFIG.HUMANOID_RADIUS;
     }
     if (stage === 'cyber_organism') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
+      return GAME_CONFIG.CYBER_ORGANISM_RADIUS;
     }
     if (stage === 'multi_cell') {
-      return GAME_CONFIG.PLAYER_SIZE * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
+      return GAME_CONFIG.MULTI_CELL_RADIUS;
     }
-    return GAME_CONFIG.PLAYER_SIZE;
+    return GAME_CONFIG.SINGLE_CELL_RADIUS;
   }
 
   /**
