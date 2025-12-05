@@ -656,6 +656,21 @@ export class DevPanel {
   }
 
   /**
+   * Clean up resources (for consistency with other components)
+   */
+  dispose(): void {
+    // Clean up click spawn handlers
+    this.disableClickSpawn();
+
+    // Remove socket listeners
+    this.socket.off('devConfigUpdated');
+    this.socket.off('devState');
+
+    // Destroy GUI
+    this.gui.destroy();
+  }
+
+  /**
    * Get debug visualization state
    */
   getDebugVizState(): typeof this.debugViz {
