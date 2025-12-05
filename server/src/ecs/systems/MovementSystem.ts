@@ -19,7 +19,7 @@ import type {
 import type { System } from './types';
 import { getConfig } from '../../dev';
 import { getSocketIdByEntity, hasDrainTarget } from '../factories';
-import { getPlayerRadius, getWorldBoundsForStage } from '../../helpers';
+import { getWorldBoundsForStage } from '../../helpers';
 
 /**
  * MovementSystem - Handles all player movement
@@ -247,8 +247,8 @@ export class MovementSystem implements System {
       }
 
       // Clamp to world bounds - write to ECS component directly
-      const playerRadius = getPlayerRadius(stage);
-      const bounds = getWorldBoundsForStage(stage);
+      const playerRadius = stageComponent.radius;
+      const bounds = getWorldBoundsForStage(stageComponent.stage);
       positionComponent.x = Math.max(
         bounds.minX + playerRadius,
         Math.min(bounds.maxX - playerRadius, positionComponent.x)

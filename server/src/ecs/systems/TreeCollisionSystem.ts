@@ -13,7 +13,7 @@ import type {
 } from '@godcell/shared';
 import type { System } from './types';
 import { getSocketIdByEntity, forEachTree } from '../factories';
-import { distance, getPlayerRadius, isJungleStage } from '../../helpers';
+import { distance, isJungleStage } from '../../helpers';
 
 /**
  * TreeCollisionSystem - Handles tree collisions for Stage 3+ players
@@ -49,7 +49,7 @@ export class TreeCollisionSystem implements System {
       if (!isJungleStage(stageComp.stage)) return;
 
       // Get player collision radius based on stage
-      const playerRadius = getPlayerRadius(stageComp.stage);
+      const playerRadius = stageComp.radius;
       const playerPos = { x: posComp.x, y: posComp.y };
 
       // Check collision with each tree

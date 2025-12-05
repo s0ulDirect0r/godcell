@@ -55,21 +55,24 @@ export function getEnergyDecayRate(stage: EvolutionStage): number {
 
 /**
  * Get player collision radius based on evolution stage
- * Returns scaled radius for hitbox calculations
+ * Returns radius for hitbox calculations
+ *
+ * @deprecated For most usages, prefer reading radius from StageComponent.radius instead.
+ * This function is now only used by server/src/ecs/factories.ts when creating entities
+ * or updating stage on evolution. All systems should read from stageComp.radius directly.
  */
 export function getPlayerRadius(stage: EvolutionStage): number {
-  const baseRadius = GAME_CONFIG.PLAYER_SIZE;
   switch (stage) {
     case EvolutionStage.SINGLE_CELL:
-      return baseRadius * GAME_CONFIG.SINGLE_CELL_SIZE_MULTIPLIER;
+      return GAME_CONFIG.SINGLE_CELL_RADIUS;
     case EvolutionStage.MULTI_CELL:
-      return baseRadius * GAME_CONFIG.MULTI_CELL_SIZE_MULTIPLIER;
+      return GAME_CONFIG.MULTI_CELL_RADIUS;
     case EvolutionStage.CYBER_ORGANISM:
-      return baseRadius * GAME_CONFIG.CYBER_ORGANISM_SIZE_MULTIPLIER;
+      return GAME_CONFIG.CYBER_ORGANISM_RADIUS;
     case EvolutionStage.HUMANOID:
-      return baseRadius * GAME_CONFIG.HUMANOID_SIZE_MULTIPLIER;
+      return GAME_CONFIG.HUMANOID_RADIUS;
     case EvolutionStage.GODCELL:
-      return baseRadius * GAME_CONFIG.GODCELL_SIZE_MULTIPLIER;
+      return GAME_CONFIG.GODCELL_RADIUS;
   }
 }
 

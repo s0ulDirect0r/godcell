@@ -29,7 +29,7 @@ import {
   subtractEnergyBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
-import { isJungleStage, getPlayerRadius } from '../../helpers/stages';
+import { isJungleStage } from '../../helpers/stages';
 import { logger } from '../../logger';
 import { isBot } from '../../bots';
 
@@ -290,7 +290,7 @@ export class ProjectileSystem implements System {
       if (!playerPos) continue;
 
       const playerPosition = { x: playerPos.x, y: playerPos.y };
-      const playerRadius = getPlayerRadius(stage.stage);
+      const playerRadius = stage.radius;
       const dist = distance(projectilePos, playerPosition);
       const hitDist = collisionRadius + playerRadius;
 

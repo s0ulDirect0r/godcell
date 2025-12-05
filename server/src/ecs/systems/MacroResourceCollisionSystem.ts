@@ -18,7 +18,7 @@ import {
   destroyEntity,
 } from '../factories';
 import { logger } from '../../logger';
-import { distance, getPlayerRadius, isJungleStage } from '../../helpers';
+import { distance, isJungleStage } from '../../helpers';
 
 /**
  * MacroResourceCollisionSystem - Handles DataFruit collection
@@ -47,7 +47,7 @@ export class MacroResourceCollisionSystem implements System {
       if (!isJungleStage(stageComp.stage)) return;
 
       const playerPosition = { x: playerPos.x, y: playerPos.y };
-      const playerRadius = getPlayerRadius(stageComp.stage);
+      const playerRadius = stageComp.radius;
       const collisionRadius = playerRadius + GAME_CONFIG.DATAFRUIT_COLLISION_RADIUS;
 
       forEachDataFruit(world, (fruitEntity, fruitId, fruitPos, fruitComp) => {

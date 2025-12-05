@@ -16,7 +16,7 @@ import {
   type StageComponent,
   type EnergyComponent,
 } from '../index';
-import { distance, getPlayerRadius, isJungleStage } from '../../helpers';
+import { distance, isJungleStage } from '../../helpers';
 import { recordNutrientCollection } from '../../logger';
 import { respawnNutrient } from '../../nutrients';
 
@@ -56,7 +56,7 @@ export class NutrientCollisionSystem implements System {
       if (isJungleStage(stageComp.stage)) return;
 
       const playerPos = { x: posComp.x, y: posComp.y };
-      const playerRadius = getPlayerRadius(stageComp.stage);
+      const playerRadius = stageComp.radius;
 
       for (const nutrient of nutrientSnapshots) {
         // Skip if already collected this tick
