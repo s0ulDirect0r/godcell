@@ -1,10 +1,23 @@
 // ============================================
-// Swarm Renderer
-// Creates and animates entropy swarm visuals
+// Swarm Mesh - Single source of truth for entropy swarm visuals
+// Creates and animates entropy swarm (virus enemy)
 // Includes outer sphere, internal particle storm, and orbiting particles
+// Used by: SwarmRenderSystem (game), model-viewer.ts (preview)
 // ============================================
 
 import * as THREE from 'three';
+
+// ============================================
+// VISUAL PARAMETERS
+// Note: Currently using hardcoded values below.
+// Future tuning pass can wire these constants into the code.
+// ============================================
+// Outer sphere: color 0xff4400, opacity 0.3, emissive 0.8
+// Internal particles: 200 count, color 0xffaa00, opacity 0.8
+// Orbiting particles: 6 count, color 0xff0088, size 8
+// Chase mode: brighter reds, 1.5x speed
+// Disabled mode: grays, low opacity
+// ============================================
 
 /**
  * Internal particle data for turbulent storm animation
