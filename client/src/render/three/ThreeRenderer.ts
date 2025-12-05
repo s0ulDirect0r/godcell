@@ -30,10 +30,13 @@ import { TrapRenderSystem } from '../systems/TrapRenderSystem';
 import {
   World,
   Tags,
+  Components,
   getStringIdByEntity,
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
+  type PositionComponent,
+  type ObstacleComponent,
 } from '../../ecs';
 
 /**
@@ -518,6 +521,45 @@ export class ThreeRenderer implements Renderer {
 
       // Update last energy
       this.lastPlayerEnergy = myPlayer.energy;
+
+      // Gravity-based screen shake (soup mode only)
+      // Applies continuous subtle shake when near gravity wells
+      if (this.environmentSystem.getMode() === 'soup') {
+        let totalGravityIntensity = 0;
+        const playerX = myPlayer.position.x;
+        const playerY = myPlayer.position.y;
+
+        this.world.forEachWithTag(Tags.Obstacle, (entity) => {
+          const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+          const obstacle = this.world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+          if (!pos || !obstacle) return;
+
+          // Calculate distance from player to obstacle
+          const dx = pos.x - playerX;
+          const dy = pos.y - playerY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Only apply shake inside the obstacle's influence radius
+          if (dist < obstacle.radius) {
+            // Inverse-square gravity: stronger near center
+            // 300000 multiplier tuned for subtle-but-noticeable shake
+            const distSq = Math.max(dist * dist, 100); // Prevent divide-by-zero
+            const gravityForce = (obstacle.strength * 300000) / distSq;
+
+            // Boost intensity when very close (inside inner 30% of radius)
+            const normalizedDist = dist / obstacle.radius;
+            const proximityBoost = normalizedDist < 0.3 ? 6.0 : 2.0;
+
+            totalGravityIntensity += gravityForce * proximityBoost;
+          }
+        });
+
+        // Apply gravity shake (cap at 30 to avoid excessive shake)
+        if (totalGravityIntensity > 0.1) {
+          const gravityShake = Math.min(totalGravityIntensity, 30);
+          this.cameraSystem.addShake(gravityShake);
+        }
+      }
     }
 
     // Update render mode based on local player stage (soup vs jungle world)
