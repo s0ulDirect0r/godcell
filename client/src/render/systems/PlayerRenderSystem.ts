@@ -857,7 +857,7 @@ export class PlayerRenderSystem {
       updateEvolutionCorona(cellGroup, evolutionProgress);
 
       // Glow ring
-      updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius || 10);
+      updateEvolutionRing(cellGroup, evolutionProgress, cellGroup.userData.radius);
     } else {
       cellGroup.scale.set(1, 1, 1);
       removeEvolutionEffects(cellGroup);
