@@ -158,6 +158,7 @@ All component interfaces defined in one place:
 | **JungleCreature** | Larger fauna | `variant, state, value, capacityIncrease` |
 | **Projectile** | Ranged spec attack | `ownerId, damage, speed, maxDistance, state` |
 | **Trap** | Traps spec mine | `ownerId, damage, stunDuration, triggerRadius, lifetime` |
+| **PendingRespawn** | Deferred entity creation | `respawnAt, entityType, stage?, position?, metadata?` |
 
 **Ability Markers** (presence = ability unlocked):
 - `CanFireEMP` (Stage 2+)
@@ -238,6 +239,7 @@ Systems execute in priority order each tick (lower = earlier):
 
 | Priority | System | Responsibility |
 |----------|--------|----------------|
+| 50 | **RespawnSystem** | Process pending respawns (bots, swarms, nutrients) |
 | 100 | **BotAISystem** | Bot decision-making, steering |
 | 105 | **CyberBugAISystem** | Stage 3 prey AI (idle/patrol/flee) |
 | 106 | **JungleCreatureAISystem** | Stage 3 fauna AI (grazer/stalker/ambusher) |
@@ -829,7 +831,141 @@ perfLogger.info({ event: 'tick_stats', fps, entityCount }, 'Tick complete');
 
 ---
 
-## 14. Testing
+## 14. Resource Management
+
+Proper cleanup prevents memory leaks. Follow these patterns consistently.
+
+### Three.js Disposal Pattern
+
+Render systems that create Three.js objects MUST dispose of geometry and materials when removing entities:
+
+```typescript
+class PlayerRenderSystem {
+  private meshes = new Map<string, THREE.Group>()
+
+  // Dispose helper - use when removing entities
+  private disposeGroup(group: THREE.Group): void {
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry?.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          (child.material as THREE.Material)?.dispose();
+        }
+      }
+    });
+  }
+
+  removePlayer(playerId: string): void {
+    const mesh = this.meshes.get(playerId);
+    if (mesh) {
+      this.scene.remove(mesh);
+      this.disposeGroup(mesh);  // ALWAYS dispose geometry + materials
+      this.meshes.delete(playerId);
+    }
+  }
+}
+```
+
+### EventBus Subscription Cleanup
+
+Components that subscribe to EventBus MUST track and clean up subscriptions:
+
+```typescript
+class MyComponent {
+  private subscriptions: Array<() => void> = [];
+
+  init() {
+    // Store unsubscribe functions
+    this.subscriptions.push(eventBus.on('playerDied', this.handleDeath));
+    this.subscriptions.push(eventBus.on('playerEvolved', this.handleEvolution));
+  }
+
+  dispose() {
+    // Clean up all subscriptions
+    this.subscriptions.forEach(unsub => unsub());
+    this.subscriptions = [];
+  }
+}
+```
+
+### Event Listener Cleanup
+
+Classes that add DOM event listeners MUST store handler references and remove them:
+
+```typescript
+class InputState {
+  // Store handlers as class properties (not inline functions)
+  private keydownHandler = (e: KeyboardEvent) => { ... };
+  private mousedownHandler = (e: MouseEvent) => { ... };
+
+  constructor() {
+    window.addEventListener('keydown', this.keydownHandler);
+    window.addEventListener('mousedown', this.mousedownHandler);
+  }
+
+  dispose() {
+    // Remove using the SAME handler references
+    window.removeEventListener('keydown', this.keydownHandler);
+    window.removeEventListener('mousedown', this.mousedownHandler);
+  }
+}
+```
+
+### ECS-Based Timers (Deferred Actions)
+
+Prefer ECS components over setTimeout for game logic timing. This makes pending actions queryable, debuggable, and prevents orphaned timers on shutdown.
+
+**Pattern: PendingRespawn**
+
+Instead of:
+```typescript
+// ❌ Fire-and-forget, not trackable
+setTimeout(() => respawnBot(botId), 5000);
+```
+
+Use:
+```typescript
+// ✅ ECS-native, queryable, no orphans
+const entity = world.createEntity();
+world.addComponent(entity, Components.PendingRespawn, {
+  respawnAt: Date.now() + 5000,
+  entityType: 'bot',
+  stage: 2,
+  metadata: { botId },
+});
+```
+
+**RespawnSystem** processes these entities each tick:
+
+```typescript
+class RespawnSystem {
+  update(world: World, delta: number, io: Server) {
+    const now = Date.now();
+    for (const entity of world.query(Components.PendingRespawn)) {
+      const pending = world.getComponent(entity, Components.PendingRespawn);
+      if (now >= pending.respawnAt) {
+        // Execute the deferred action
+        if (pending.entityType === 'bot') {
+          respawnBotNow(pending.metadata.botId, pending.stage, io, world);
+        }
+        world.destroyEntity(entity);
+      }
+    }
+  }
+}
+```
+
+**Benefits:**
+- All pending actions visible in ECS (queryable, debuggable)
+- No orphaned timers on server shutdown
+- Consistent with ECS architecture
+- Can extend to swarms, nutrients, etc.
+
+---
+
+## 15. Testing
 
 - **Unit tests**: Test systems with mock World instances
 - **Integration**: Run server + client locally, verify sync
