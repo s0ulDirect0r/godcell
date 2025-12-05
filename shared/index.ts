@@ -986,7 +986,7 @@ export const GAME_CONFIG = {
   // Stage-specific energy pools defined above
 
   // Stage radii (collision/visual size in pixels)
-  SINGLE_CELL_RADIUS: 20,      // Tiny single cell
+  SINGLE_CELL_RADIUS: 15,      // Tiny single cell
   MULTI_CELL_RADIUS: 100,      // Order of magnitude jump - multi-cell organism
   CYBER_ORGANISM_RADIUS: 101,  // Jungle scale (similar to multi-cell, different world)
   HUMANOID_RADIUS: 192,        // Humanoid scale
