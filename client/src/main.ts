@@ -38,6 +38,55 @@ let perfMonitor: PerformanceMonitor;
 let gameStarted = false;
 
 // ============================================
+// Cleanup Tracking (prevents memory leaks on restart)
+// ============================================
+
+// Track global event listeners for cleanup
+const trackedListeners: Array<{ target: EventTarget; type: string; handler: EventListener }> = [];
+
+// Track eventBus subscriptions for cleanup
+const eventSubscriptions: Array<() => void> = [];
+
+/**
+ * Add a tracked event listener that can be cleaned up later
+ */
+function addTrackedListener(target: EventTarget, type: string, handler: EventListener): void {
+  target.addEventListener(type, handler);
+  trackedListeners.push({ target, type, handler });
+}
+
+/**
+ * Clean up all tracked event listeners
+ */
+function cleanupTrackedListeners(): void {
+  trackedListeners.forEach(({ target, type, handler }) => {
+    target.removeEventListener(type, handler);
+  });
+  trackedListeners.length = 0;
+}
+
+/**
+ * Clean up all eventBus subscriptions
+ */
+function cleanupEventSubscriptions(): void {
+  eventSubscriptions.forEach(unsubscribe => unsubscribe());
+  eventSubscriptions.length = 0;
+}
+
+/**
+ * Full game cleanup (call before restart)
+ * Exported for use by restart functionality
+ */
+export function cleanupGame(): void {
+  cleanupTrackedListeners();
+  cleanupEventSubscriptions();
+  inputManager?.dispose();
+  renderer?.dispose();
+  hudOverlay?.dispose();
+  devPanel?.dispose();
+}
+
+// ============================================
 // Start Screen
 // ============================================
 
@@ -122,77 +171,77 @@ function initializeGame(settings: PreGameSettings): void {
     });
     console.log('[Dev] Dev panel enabled - press H to toggle');
 
-    // Dev panel toggle (H key)
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'h' || e.key === 'H') {
+    // Dev panel toggle (H key) - tracked for cleanup
+    addTrackedListener(window, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'h' || (e as KeyboardEvent).key === 'H') {
         devPanel?.toggle();
       }
     });
   }
 
-  // Perf debug toggles (always available)
-  window.addEventListener('keydown', (e) => {
+  // Perf debug toggles (always available) - tracked for cleanup
+  addTrackedListener(window, 'keydown', (e) => {
     // B = toggle bloom
-    if (e.key === 'b' || e.key === 'B') {
+    if ((e as KeyboardEvent).key === 'b' || (e as KeyboardEvent).key === 'B') {
       renderer?.toggleBloom();
     }
   });
 
-  // Wire input handlers to network
-  eventBus.on('client:inputMove', (event) => {
+  // Wire input handlers to network (tracked for cleanup)
+  eventSubscriptions.push(eventBus.on('client:inputMove', (event) => {
     socketManager.sendMove(event.direction);
-  });
+  }));
 
-  eventBus.on('client:inputRespawn', () => {
+  eventSubscriptions.push(eventBus.on('client:inputRespawn', () => {
     socketManager.sendRespawn();
-  });
+  }));
 
-  eventBus.on('client:empActivate', () => {
+  eventSubscriptions.push(eventBus.on('client:empActivate', () => {
     socketManager.sendEMPActivate();
-  });
+  }));
 
-  eventBus.on('client:pseudopodFire', (event) => {
+  eventSubscriptions.push(eventBus.on('client:pseudopodFire', (event) => {
     // Stage 1-2 pseudopod beam attack
     socketManager.sendPseudopodFire(event.targetX, event.targetY);
-  });
+  }));
 
-  eventBus.on('client:sprint', (event) => {
+  eventSubscriptions.push(eventBus.on('client:sprint', (event) => {
     socketManager.sendSprint(event.sprinting);
-  });
+  }));
 
   // Stage 3 specialization selection
-  eventBus.on('client:selectSpecialization', (event) => {
+  eventSubscriptions.push(eventBus.on('client:selectSpecialization', (event) => {
     socketManager.sendSelectSpecialization(event.specialization);
-  });
+  }));
 
   // Stage 3 melee attack
-  eventBus.on('client:meleeAttack', (event) => {
+  eventSubscriptions.push(eventBus.on('client:meleeAttack', (event) => {
     socketManager.sendMeleeAttack(event.attackType, event.targetX, event.targetY);
-  });
+  }));
 
   // Stage 3 trap placement
-  eventBus.on('client:placeTrap', () => {
+  eventSubscriptions.push(eventBus.on('client:placeTrap', () => {
     socketManager.sendPlaceTrap();
-  });
+  }));
 
   // Stage 3+ projectile fire (from InputManager when ranged spec or default)
-  eventBus.on('client:projectileFire', (event) => {
+  eventSubscriptions.push(eventBus.on('client:projectileFire', (event) => {
     socketManager.sendProjectileFire(event.targetX, event.targetY);
-  });
+  }));
 
   // Show specialization modal when server prompts
-  eventBus.on('specializationPrompt', (event) => {
+  eventSubscriptions.push(eventBus.on('specializationPrompt', (event) => {
     new SpecializationModal({
       playerId: event.playerId,
       deadline: event.deadline,
     });
-  });
+  }));
 
   // Wire mouse look event to update InputManager's yaw (for movement rotation)
-  eventBus.on('client:mouseLook', () => {
+  eventSubscriptions.push(eventBus.on('client:mouseLook', () => {
     // After renderer processes mouse look, sync yaw back to input manager
     inputManager.setFirstPersonYaw(renderer.getFirstPersonYaw());
-  });
+  }));
 
   // Start game loop
   update();
@@ -253,12 +302,14 @@ function setupLogForwarding(socket: SocketManager): void {
     socket.sendLog('error', args);
   };
 
-  // Also catch unhandled errors
-  window.addEventListener('error', (event) => {
-    socket.sendLog('error', [`[Uncaught] ${event.message} at ${event.filename}:${event.lineno}`]);
+  // Also catch unhandled errors (tracked for cleanup)
+  addTrackedListener(window, 'error', (event) => {
+    const e = event as ErrorEvent;
+    socket.sendLog('error', [`[Uncaught] ${e.message} at ${e.filename}:${e.lineno}`]);
   });
 
-  window.addEventListener('unhandledrejection', (event) => {
-    socket.sendLog('error', [`[UnhandledPromise] ${event.reason}`]);
+  addTrackedListener(window, 'unhandledrejection', (event) => {
+    const e = event as PromiseRejectionEvent;
+    socket.sendLog('error', [`[UnhandledPromise] ${e.reason}`]);
   });
 }

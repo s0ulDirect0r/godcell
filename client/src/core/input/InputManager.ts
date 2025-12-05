@@ -58,8 +58,19 @@ export class InputManager {
   private firstPersonMode = false;
   private _firstPersonYaw = 0; // Camera yaw for rotating movement input (used in Step 4)
 
+  // Handler reference for cleanup (prevents memory leaks)
+  private pointerLockClickHandler: () => void;
+
   constructor() {
     this.inputState = new InputState();
+
+    // Store handler reference so it can be removed in dispose()
+    this.pointerLockClickHandler = () => {
+      if (this.firstPersonMode && !this.inputState.pointerLock.isLocked) {
+        document.body.requestPointerLock();
+      }
+    };
+
     this.setupPointerLockClickHandler();
   }
 
@@ -115,11 +126,7 @@ export class InputManager {
    * Setup click handler to request pointer lock in first-person mode
    */
   private setupPointerLockClickHandler(): void {
-    document.addEventListener('click', () => {
-      if (this.firstPersonMode && !this.inputState.pointerLock.isLocked) {
-        document.body.requestPointerLock();
-      }
-    });
+    document.addEventListener('click', this.pointerLockClickHandler);
   }
 
   /**
@@ -392,9 +399,10 @@ export class InputManager {
   }
 
   /**
-   * Clean up
+   * Clean up (prevents memory leaks on game restart)
    */
   dispose(): void {
+    document.removeEventListener('click', this.pointerLockClickHandler);
     this.inputState.dispose();
   }
 }

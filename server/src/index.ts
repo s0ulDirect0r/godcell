@@ -44,6 +44,7 @@ import {
   maybeLogEvolutionRateStats,
   maybeLogNutrientCollectionStats,
   maybeLogLifetimeStats,
+  maybeLogMemoryUsage,
   recordSpawn,
 } from './logger';
 
@@ -124,6 +125,7 @@ import {
   DeathSystem,
   NetworkBroadcastSystem,
   SpecializationSystem,
+  RespawnSystem,
   type CombatSpecializationComponent,
 } from './ecs';
 import {
@@ -502,6 +504,9 @@ export { abilitySystem };
 const systemRunner = new SystemRunner();
 
 // Register systems in priority order
+// Deferred actions (pending respawns, timers)
+systemRunner.register(new RespawnSystem(), SystemPriority.RESPAWN);
+
 // AI Systems
 systemRunner.register(new BotAISystem(), SystemPriority.BOT_AI);
 systemRunner.register(new CyberBugAISystem(), SystemPriority.CYBER_BUG_AI);
@@ -899,6 +904,11 @@ setInterval(() => {
 // Log lifetime stats every 60 seconds (average rates since server start)
 setInterval(() => {
   maybeLogLifetimeStats();
+}, 10000); // Check every 10s, but only logs every 60s
+
+// Log server memory usage every 60 seconds (heap, RSS, external)
+setInterval(() => {
+  maybeLogMemoryUsage();
 }, 10000); // Check every 10s, but only logs every 60s
 
 // Log full world snapshot every 60 seconds

@@ -192,14 +192,16 @@ export class PlayerRenderSystem {
           this.playerOutlines.delete(id);
         }
 
-        // Clean up any evolution animation state and its meshes
+        // Clean up any evolution animation state and its meshes (dispose to prevent GPU memory leak)
         const evolState = this.playerEvolutionState.get(id);
         if (evolState) {
           if (evolState.sourceMesh) {
             this.scene.remove(evolState.sourceMesh);
+            this.disposeGroup(evolState.sourceMesh);
           }
           if (evolState.targetMesh) {
             this.scene.remove(evolState.targetMesh);
+            this.disposeGroup(evolState.targetMesh);
           }
           this.playerEvolutionState.delete(id);
         }
@@ -442,9 +444,10 @@ export class PlayerRenderSystem {
     const evolState = this.playerEvolutionState.get(playerId);
     if (!evolState) return;
 
-    // Remove source mesh
+    // Remove and dispose source mesh (prevent GPU memory leak)
     if (evolState.sourceMesh) {
       this.scene.remove(evolState.sourceMesh);
+      this.disposeGroup(evolState.sourceMesh);
     }
 
     // Make target mesh fully visible and set as player mesh
@@ -627,9 +630,10 @@ export class PlayerRenderSystem {
     const oldOutline = this.playerOutlines.get(playerId);
     if (!oldOutline) return;
 
-    // Remove old outline
+    // Remove old outline and dispose geometry/material (prevent GPU memory leak)
     this.scene.remove(oldOutline);
-    (oldOutline.material as THREE.Material).dispose();
+    oldOutline.geometry?.dispose();
+    (oldOutline.material as THREE.Material)?.dispose();
 
     // Create new outline with correct size (accounting for visual extent)
     const bodyRadius = this.getPlayerRadius(stage);
@@ -708,31 +712,50 @@ export class PlayerRenderSystem {
   // Private Methods
   // ============================================
 
+  /**
+   * Dispose all geometry and materials in a group (recursive)
+   * Prevents GPU memory leaks when removing entities
+   */
+  private disposeGroup(group: THREE.Group | THREE.Object3D): void {
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry?.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          (child.material as THREE.Material)?.dispose();
+        }
+      }
+    });
+  }
+
   private removePlayerInternal(playerId: string): void {
     const group = this.playerMeshes.get(playerId);
     if (group) {
       this.scene.remove(group);
-      group.children.forEach(child => {
-        if (child instanceof THREE.Mesh) {
-          if ((child.material as THREE.Material).dispose) {
-            (child.material as THREE.Material).dispose();
-          }
-        }
-      });
+      this.disposeGroup(group);
       this.playerMeshes.delete(playerId);
     }
 
     const outline = this.playerOutlines.get(playerId);
     if (outline) {
       this.scene.remove(outline);
+      outline.geometry?.dispose();
+      (outline.material as THREE.Material)?.dispose();
       this.playerOutlines.delete(playerId);
     }
 
-    // Clean up evolution state
+    // Clean up evolution state (dispose meshes to prevent GPU memory leak)
     const evolState = this.playerEvolutionState.get(playerId);
     if (evolState) {
-      if (evolState.sourceMesh) this.scene.remove(evolState.sourceMesh);
-      if (evolState.targetMesh) this.scene.remove(evolState.targetMesh);
+      if (evolState.sourceMesh) {
+        this.scene.remove(evolState.sourceMesh);
+        this.disposeGroup(evolState.sourceMesh);
+      }
+      if (evolState.targetMesh) {
+        this.scene.remove(evolState.targetMesh);
+        this.disposeGroup(evolState.targetMesh);
+      }
       this.playerEvolutionState.delete(playerId);
     }
   }

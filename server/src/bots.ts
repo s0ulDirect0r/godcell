@@ -1382,57 +1382,8 @@ export function handleBotDeath(
     logBotDeath(botId, cause, EvolutionStage.SINGLE_CELL);
     clearSpawnTime(botId); // Clear evolution tracking on death
 
-    // Schedule single-cell bot respawn
-    setTimeout(() => {
-      if (!ecsWorld) return;
-
-      // Get ECS components
-      const posComp = getPositionBySocketId(ecsWorld, botId);
-      const energyComp = getEnergyBySocketId(ecsWorld, botId);
-      const stageComp = getStageBySocketId(ecsWorld, botId);
-
-      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
-
-      // Reset to single-cell at random spawn (energy-only system) via ECS
-      const newPos = randomSpawnPosition();
-      posComp.x = newPos.x;
-      posComp.y = newPos.y;
-      energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
-      energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
-      stageComp.stage = EvolutionStage.SINGLE_CELL;
-      stageComp.radius = GAME_CONFIG.SINGLE_CELL_RADIUS;
-      stageComp.isEvolving = false;
-
-      // Reset input direction and velocity
-      singleCellBot.inputDirection.x = 0;
-      singleCellBot.inputDirection.y = 0;
-      singleCellBot.velocity.x = 0;
-      singleCellBot.velocity.y = 0;
-
-      // Reset AI state
-      singleCellBot.ai.state = 'wander';
-      singleCellBot.ai.targetNutrient = undefined;
-      singleCellBot.ai.nextWanderChange = Date.now();
-
-      // Get fresh Player object from ECS for broadcast
-      const player = getPlayerBySocketId(ecsWorld, botId);
-      if (!player) return;
-
-      // Update BotController's player reference
-      singleCellBot.player = player;
-
-      // Broadcast respawn to all clients
-      const respawnMessage: PlayerRespawnedMessage = {
-        type: 'playerRespawned',
-        player: { ...player },
-      };
-      io.emit('playerRespawned', respawnMessage);
-
-      // Track new spawn time for evolution rate tracking
-      recordSpawn(botId, EvolutionStage.SINGLE_CELL);
-
-      logBotRespawn(botId);
-    }, BOT_CONFIG.RESPAWN_DELAY);
+    // Schedule respawn via ECS (replaces setTimeout)
+    scheduleBotRespawn(botId, 1, ecsWorld);
     return;
   }
 
@@ -1442,57 +1393,8 @@ export function handleBotDeath(
     logBotDeath(botId, cause, EvolutionStage.MULTI_CELL);
     clearSpawnTime(botId); // Clear evolution tracking on death
 
-    // Schedule multi-cell bot respawn (longer delay)
-    setTimeout(() => {
-      if (!ecsWorld) return;
-
-      // Get ECS components
-      const posComp = getPositionBySocketId(ecsWorld, botId);
-      const energyComp = getEnergyBySocketId(ecsWorld, botId);
-      const stageComp = getStageBySocketId(ecsWorld, botId);
-
-      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
-
-      // Respawn as multi-cell (Stage 2) - energy-only system via ECS
-      const newPos = randomSpawnPosition();
-      posComp.x = newPos.x;
-      posComp.y = newPos.y;
-      energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
-      energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
-      stageComp.stage = EvolutionStage.MULTI_CELL;
-      stageComp.radius = GAME_CONFIG.MULTI_CELL_RADIUS;
-      stageComp.isEvolving = false;
-
-      // Reset input direction and velocity
-      multiCellBot.inputDirection.x = 0;
-      multiCellBot.inputDirection.y = 0;
-      multiCellBot.velocity.x = 0;
-      multiCellBot.velocity.y = 0;
-
-      // Reset AI state
-      multiCellBot.ai.state = 'wander';
-      multiCellBot.ai.targetNutrient = undefined;
-      multiCellBot.ai.nextWanderChange = Date.now();
-
-      // Get fresh Player object from ECS for broadcast
-      const player = getPlayerBySocketId(ecsWorld, botId);
-      if (!player) return;
-
-      // Update BotController's player reference
-      multiCellBot.player = player;
-
-      // Broadcast respawn to all clients
-      const respawnMessage: PlayerRespawnedMessage = {
-        type: 'playerRespawned',
-        player: { ...player },
-      };
-      io.emit('playerRespawned', respawnMessage);
-
-      // Track new spawn time for evolution rate tracking
-      recordSpawn(botId, EvolutionStage.MULTI_CELL);
-
-      logBotRespawn(botId);
-    }, BOT_CONFIG.STAGE2_RESPAWN_DELAY);
+    // Schedule respawn via ECS (replaces setTimeout)
+    scheduleBotRespawn(botId, 2, ecsWorld);
     return;
   }
 
@@ -1502,74 +1404,201 @@ export function handleBotDeath(
     logBotDeath(botId, cause, EvolutionStage.CYBER_ORGANISM);
     clearSpawnTime(botId);
 
-    // Schedule cyber-organism bot respawn (longer delay)
-    setTimeout(() => {
-      if (!ecsWorld) return;
-
-      // Get ECS components
-      const posComp = getPositionBySocketId(ecsWorld, botId);
-      const energyComp = getEnergyBySocketId(ecsWorld, botId);
-      const stageComp = getStageBySocketId(ecsWorld, botId);
-
-      if (!posComp || !energyComp || !stageComp) return; // Bot was removed from game
-
-      // Respawn in jungle at Stage 3
-      const newPos = randomJungleSpawnPosition();
-      posComp.x = newPos.x;
-      posComp.y = newPos.y;
-      energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY || 15000;
-      energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY || 30000;
-      stageComp.stage = EvolutionStage.CYBER_ORGANISM;
-      stageComp.radius = GAME_CONFIG.CYBER_ORGANISM_RADIUS;
-      stageComp.isEvolving = false;
-
-      // Reset input direction and velocity
-      cyberBot.inputDirection.x = 0;
-      cyberBot.inputDirection.y = 0;
-      cyberBot.velocity.x = 0;
-      cyberBot.velocity.y = 0;
-
-      // Reset AI state
-      cyberBot.ai.state = 'wander';
-      cyberBot.ai.targetNutrient = undefined;
-      cyberBot.ai.nextWanderChange = Date.now();
-
-      // Re-roll specialization on respawn (fresh start)
-      const entity = ecsWorld.query(Components.Player).find(e => {
-        const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
-        return p?.socketId === botId;
-      });
-      if (entity) {
-        const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
-        const newSpec = specializations[Math.floor(Math.random() * specializations.length)];
-        const specComp = ecsWorld.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(
-          entity,
-          Components.CombatSpecialization
-        );
-        if (specComp) {
-          specComp.specialization = newSpec;
-        }
-      }
-
-      // Get fresh Player object from ECS for broadcast
-      const player = getPlayerBySocketId(ecsWorld, botId);
-      if (!player) return;
-
-      // Update BotController's player reference
-      cyberBot.player = player;
-
-      // Broadcast respawn to all clients
-      const respawnMessage: PlayerRespawnedMessage = {
-        type: 'playerRespawned',
-        player: { ...player },
-      };
-      io.emit('playerRespawned', respawnMessage);
-
-      // Track new spawn time
-      recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
-
-      logBotRespawn(botId);
-    }, BOT_CONFIG.STAGE3_RESPAWN_DELAY);
+    // Schedule respawn via ECS (replaces setTimeout)
+    scheduleBotRespawn(botId, 3, ecsWorld);
     return;
   }
+}
+
+// ============================================
+// Bot Respawn Logic (called by RespawnSystem)
+// ============================================
+
+/**
+ * Respawn a bot immediately.
+ * Called by RespawnSystem when a PendingRespawn timer expires.
+ * Extracts the common respawn logic from handleBotDeath's setTimeout callbacks.
+ *
+ * @param botId - Bot's socket ID
+ * @param stage - Stage to respawn as (1=single-cell, 2=multi-cell, 3=cyber-organism)
+ * @param io - Socket.io server for broadcasting
+ * @param world - ECS world for component access
+ */
+export function respawnBotNow(
+  botId: string,
+  stage: number,
+  io: Server,
+  world: World
+): void {
+  // Get ECS components
+  const posComp = getPositionBySocketId(world, botId);
+  const energyComp = getEnergyBySocketId(world, botId);
+  const stageComp = getStageBySocketId(world, botId);
+
+  if (!posComp || !energyComp || !stageComp) {
+    // Bot was removed from game
+    logger.warn({ event: 'bot_respawn_no_entity', botId, stage });
+    return;
+  }
+
+  // Get the appropriate bot controller
+  const singleCellBot = singleCellBots.get(botId);
+  const multiCellBot = multiCellBots.get(botId);
+  const cyberBot = cyberOrganismBots.get(botId);
+
+  // Determine which bot type and apply respawn logic
+  if (stage === 1 && singleCellBot) {
+    // Respawn as single-cell
+    const newPos = randomSpawnPosition();
+    posComp.x = newPos.x;
+    posComp.y = newPos.y;
+    energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
+    energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
+    stageComp.stage = EvolutionStage.SINGLE_CELL;
+    stageComp.radius = GAME_CONFIG.SINGLE_CELL_RADIUS;
+    stageComp.isEvolving = false;
+
+    // Reset input and velocity
+    singleCellBot.inputDirection.x = 0;
+    singleCellBot.inputDirection.y = 0;
+    singleCellBot.velocity.x = 0;
+    singleCellBot.velocity.y = 0;
+
+    // Reset AI state
+    singleCellBot.ai.state = 'wander';
+    singleCellBot.ai.targetNutrient = undefined;
+    singleCellBot.ai.nextWanderChange = Date.now();
+
+    // Update player reference and broadcast
+    const player = getPlayerBySocketId(world, botId);
+    if (player) {
+      singleCellBot.player = player;
+      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+    }
+
+    recordSpawn(botId, EvolutionStage.SINGLE_CELL);
+    logBotRespawn(botId);
+
+  } else if (stage === 2 && multiCellBot) {
+    // Respawn as multi-cell
+    const newPos = randomSpawnPosition();
+    posComp.x = newPos.x;
+    posComp.y = newPos.y;
+    energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
+    energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
+    stageComp.stage = EvolutionStage.MULTI_CELL;
+    stageComp.radius = GAME_CONFIG.MULTI_CELL_RADIUS;
+    stageComp.isEvolving = false;
+
+    // Reset input and velocity
+    multiCellBot.inputDirection.x = 0;
+    multiCellBot.inputDirection.y = 0;
+    multiCellBot.velocity.x = 0;
+    multiCellBot.velocity.y = 0;
+
+    // Reset AI state
+    multiCellBot.ai.state = 'wander';
+    multiCellBot.ai.targetNutrient = undefined;
+    multiCellBot.ai.nextWanderChange = Date.now();
+
+    // Update player reference and broadcast
+    const player = getPlayerBySocketId(world, botId);
+    if (player) {
+      multiCellBot.player = player;
+      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+    }
+
+    recordSpawn(botId, EvolutionStage.MULTI_CELL);
+    logBotRespawn(botId);
+
+  } else if (stage === 3 && cyberBot) {
+    // Respawn as cyber-organism in jungle
+    const newPos = randomJungleSpawnPosition();
+    posComp.x = newPos.x;
+    posComp.y = newPos.y;
+    energyComp.current = GAME_CONFIG.CYBER_ORGANISM_ENERGY ?? 15000;
+    energyComp.max = GAME_CONFIG.CYBER_ORGANISM_MAX_ENERGY ?? 30000;
+    stageComp.stage = EvolutionStage.CYBER_ORGANISM;
+    stageComp.radius = GAME_CONFIG.CYBER_ORGANISM_RADIUS;
+    stageComp.isEvolving = false;
+
+    // Reset input and velocity
+    cyberBot.inputDirection.x = 0;
+    cyberBot.inputDirection.y = 0;
+    cyberBot.velocity.x = 0;
+    cyberBot.velocity.y = 0;
+
+    // Reset AI state
+    cyberBot.ai.state = 'wander';
+    cyberBot.ai.targetNutrient = undefined;
+    cyberBot.ai.nextWanderChange = Date.now();
+
+    // Re-roll specialization on respawn
+    const entity = world.query(Components.Player).find(e => {
+      const p = world.getComponent<{ socketId: string }>(e, Components.Player);
+      return p?.socketId === botId;
+    });
+    if (entity) {
+      const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
+      const newSpec = specializations[Math.floor(Math.random() * specializations.length)];
+      const specComp = world.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(
+        entity,
+        Components.CombatSpecialization
+      );
+      if (specComp) {
+        specComp.specialization = newSpec;
+      }
+    }
+
+    // Update player reference and broadcast
+    const player = getPlayerBySocketId(world, botId);
+    if (player) {
+      cyberBot.player = player;
+      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+    }
+
+    recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
+    logBotRespawn(botId);
+
+  } else {
+    logger.warn({ event: 'bot_respawn_no_controller', botId, stage });
+  }
+}
+
+/**
+ * Get respawn delay for a bot stage
+ */
+export function getBotRespawnDelay(stage: number): number {
+  switch (stage) {
+    case 1: return BOT_CONFIG.RESPAWN_DELAY;
+    case 2: return BOT_CONFIG.STAGE2_RESPAWN_DELAY;
+    case 3: return BOT_CONFIG.STAGE3_RESPAWN_DELAY;
+    default: return BOT_CONFIG.RESPAWN_DELAY;
+  }
+}
+
+/**
+ * Schedule a bot respawn via ECS PendingRespawn component.
+ * Called by handleBotDeath instead of setTimeout.
+ *
+ * @param botId - Bot's socket ID
+ * @param stage - Stage to respawn as (1, 2, or 3)
+ * @param world - ECS world to create entity in
+ */
+export function scheduleBotRespawn(
+  botId: string,
+  stage: number,
+  world: World
+): void {
+  const delay = getBotRespawnDelay(stage);
+  const respawnAt = Date.now() + delay;
+
+  // Create a pending respawn entity
+  const entity = world.createEntity();
+  world.addComponent(entity, Components.PendingRespawn, {
+    respawnAt,
+    entityType: 'bot',
+    stage,
+    metadata: { botId },
+  });
 }

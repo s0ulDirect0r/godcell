@@ -14,6 +14,9 @@ export class HUDOverlay {
   private deathOverlay?: HTMLElement;
   private world?: World;
 
+  // Event subscriptions for cleanup
+  private eventSubscriptions: Array<() => void> = [];
+
   // Session stats
   private sessionStats = {
     spawnTime: 0,
@@ -144,49 +147,49 @@ export class HUDOverlay {
 
   private setupEventHandlers(): void {
     // Death/respawn events (only for MY player)
-    eventBus.on('playerDied', (event) => {
+    this.eventSubscriptions.push(eventBus.on('playerDied', (event) => {
       const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
       if (myPlayerId && event.playerId === myPlayerId) {
         this.showDeathOverlay(event.cause);
       }
-    });
+    }));
 
-    eventBus.on('playerRespawned', (event) => {
+    this.eventSubscriptions.push(eventBus.on('playerRespawned', (event) => {
       const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
       if (myPlayerId && event.player.id === myPlayerId) {
         this.hideDeathOverlay();
         this.resetSessionStats();
       }
-    });
+    }));
 
     // Track nutrients collected
-    eventBus.on('nutrientCollected', (event) => {
+    this.eventSubscriptions.push(eventBus.on('nutrientCollected', (event) => {
       const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
       if (myPlayerId && event.playerId === myPlayerId) {
         this.sessionStats.nutrientsCollected++;
       }
-    });
+    }));
 
     // Track highest evolution stage
-    eventBus.on('playerEvolved', (event) => {
+    this.eventSubscriptions.push(eventBus.on('playerEvolved', (event) => {
       const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
       if (myPlayerId && event.playerId === myPlayerId) {
         this.sessionStats.highestStage = event.newStage;
       }
-    });
+    }));
 
     // Initialize session stats on first world snapshot
-    eventBus.on('worldSnapshot', () => {
+    this.eventSubscriptions.push(eventBus.on('worldSnapshot', () => {
       this.resetSessionStats();
-    });
+    }));
 
     // Track EMP usage for cooldown display
-    eventBus.on('empActivated', (event) => {
+    this.eventSubscriptions.push(eventBus.on('empActivated', (event) => {
       const myPlayerId = this.world ? getLocalPlayerId(this.world) : null;
       if (myPlayerId && event.playerId === myPlayerId) {
         this.localEMPTime = Date.now();
       }
-    });
+    }));
 
     /* Detection update moved to ThreeRenderer (compass on white circle)
     // Detection updates (chemical sensing for Stage 2+)
@@ -354,6 +357,11 @@ export class HUDOverlay {
    * Clean up
    */
   dispose(): void {
+    // Clean up event subscriptions
+    this.eventSubscriptions.forEach(unsub => unsub());
+    this.eventSubscriptions = [];
+
+    // Remove DOM element
     this.container.remove();
   }
 }

@@ -103,6 +103,9 @@ export class ThreeRenderer implements Renderer {
   private projectileRenderSystem!: ProjectileRenderSystem;
   private trapRenderSystem!: TrapRenderSystem;
 
+  // EventBus subscriptions for cleanup (prevents memory leaks)
+  private eventSubscriptions: Array<() => void> = [];
+
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
     this.world = world;
@@ -199,8 +202,9 @@ export class ThreeRenderer implements Renderer {
 
   private setupEventListeners(): void {
     // Import eventBus for death animations
+    // All subscriptions are tracked for cleanup in dispose()
     import('../../core/events/EventBus').then(({ eventBus }) => {
-      eventBus.on('playerDied', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerDied', (event) => {
         // Get position and color before removal
         const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
         const color = this.playerRenderSystem.getPlayerColor(event.playerId);
@@ -215,10 +219,10 @@ export class ThreeRenderer implements Renderer {
 
         // Remove trail
         this.trailSystem.removeTrail(event.playerId);
-      });
+      }));
 
       // Evolution started - delegate to player render system
-      eventBus.on('playerEvolutionStarted', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerEvolutionStarted', (event) => {
         const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId);
         const targetRadius = this.playerRenderSystem.getPlayerRadius(event.targetStage);
 
@@ -237,10 +241,10 @@ export class ThreeRenderer implements Renderer {
         if (position) {
           this.effectsSystem.spawnEvolution(position.x, position.y, colorHex, event.duration);
         }
-      });
+      }));
 
       // Evolution completed - finalize mesh swap
-      eventBus.on('playerEvolved', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerEvolved', (event) => {
         // Complete evolution in player render system
         this.playerRenderSystem.completeEvolution(event.playerId);
 
@@ -251,32 +255,32 @@ export class ThreeRenderer implements Renderer {
           // Update outline for new stage
           this.playerRenderSystem.updateOutlineForStage(event.playerId, event.newStage);
         }
-      });
+      }));
 
       // Player respawned - reset camera zoom
-      eventBus.on('playerRespawned', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerRespawned', (event) => {
         // Update camera zoom if this is the local player
         if (this.myPlayerId && event.player.id === this.myPlayerId) {
           // Set zoom based on respawn stage (instant, no transition)
           this.cameraSystem.setZoomInstant(CameraSystem.getStageZoom(event.player.stage));
           this.initialZoomSet = false; // Allow re-initialization
         }
-      });
+      }));
 
       // Detection update - chemical sensing for Stage 2+
-      eventBus.on('detectionUpdate', (event) => {
+      this.eventSubscriptions.push(eventBus.on('detectionUpdate', (event) => {
         this.playerRenderSystem.setDetectedEntities(event.detected);
-      });
+      }));
 
       // EMP activation - spawn visual pulse effect (soup-scale ability)
-      eventBus.on('empActivated', (event) => {
+      this.eventSubscriptions.push(eventBus.on('empActivated', (event) => {
         if (this.environmentSystem.getMode() === 'soup') {
           this.effectsSystem.spawnEMP(event.position.x, event.position.y);
         }
-      });
+      }));
 
       // Swarm consumed - spawn death explosion + energy transfer to consumer (soup-scale)
-      eventBus.on('swarmConsumed', (event) => {
+      this.eventSubscriptions.push(eventBus.on('swarmConsumed', (event) => {
         // Only spawn effects in soup mode
         if (this.environmentSystem.getMode() !== 'soup') return;
 
@@ -300,9 +304,9 @@ export class ThreeRenderer implements Renderer {
             );
           }
         }
-      });
+      }));
 
-      eventBus.on('pseudopodHit', (event) => {
+      this.eventSubscriptions.push(eventBus.on('pseudopodHit', (event) => {
         // Only spawn hit effects in soup mode (soup-scale combat)
         if (this.environmentSystem.getMode() !== 'soup') return;
 
@@ -315,26 +319,26 @@ export class ThreeRenderer implements Renderer {
         // Note: No energy transfer particles here - pseudopod hits only damage the target,
         // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
         // continuous energy detection in updateGainAuras).
-      });
+      }));
 
       // === Spawn animations for entity materialization (soup-scale only) ===
 
       // Player joined - trigger spawn animation (soup mode only)
-      eventBus.on('playerJoined', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerJoined', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
         this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
-      });
+      }));
 
       // Player respawned - trigger spawn animation (soup mode only)
-      eventBus.on('playerRespawned', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerRespawned', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         const colorHex = parseInt(event.player.color.replace('#', ''), 16);
         this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
-      });
+      }));
 
       // Nutrient spawned - trigger spawn animation (soup mode only)
-      eventBus.on('nutrientSpawned', (event) => {
+      this.eventSubscriptions.push(eventBus.on('nutrientSpawned', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         // Get color based on value multiplier
         let colorHex = GAME_CONFIG.NUTRIENT_COLOR;
@@ -346,18 +350,18 @@ export class ThreeRenderer implements Renderer {
           colorHex = GAME_CONFIG.NUTRIENT_2X_COLOR;
         }
         this.effectsSystem.spawnMaterialize(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
-      });
+      }));
 
       // Swarm spawned - trigger spawn animation (soup mode only)
-      eventBus.on('swarmSpawned', (event) => {
+      this.eventSubscriptions.push(eventBus.on('swarmSpawned', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         this.effectsSystem.spawnMaterialize(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
-      });
+      }));
 
       // === Energy gain visual feedback (soup-scale only) ===
 
       // Nutrient collected - trigger energy transfer particles (soup mode only)
-      eventBus.on('nutrientCollected', (event) => {
+      this.eventSubscriptions.push(eventBus.on('nutrientCollected', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         // Get nutrient position from cache (before it's removed)
         const nutrientPos = this.nutrientRenderSystem.getNutrientPosition(event.nutrientId);
@@ -377,18 +381,18 @@ export class ThreeRenderer implements Renderer {
 
         // Clean up cached position
         this.nutrientRenderSystem.clearNutrientPosition(event.nutrientId);
-      });
+      }));
 
       // === DataFruit collected - trigger gold gain aura (jungle-scale) ===
-      eventBus.on('dataFruitCollected', (event) => {
+      this.eventSubscriptions.push(eventBus.on('dataFruitCollected', (event) => {
         // Only trigger aura for local player
         if (event.playerId === this.myPlayerId) {
           this.auraStateSystem.triggerFruitCollectionAura(this.world, event.playerId);
         }
-      });
+      }));
 
       // Player engulfed another player - energy transfer (soup mode only)
-      eventBus.on('playerEngulfed', (event) => {
+      this.eventSubscriptions.push(eventBus.on('playerEngulfed', (event) => {
         if (this.environmentSystem.getMode() !== 'soup') return;
         const predatorPos = this.playerRenderSystem.getPlayerPosition(event.predatorId);
 
@@ -404,10 +408,10 @@ export class ThreeRenderer implements Renderer {
             40 // Lots of particles for player kill
           );
         }
-      });
+      }));
 
       // === Melee attack visual feedback (jungle-scale) ===
-      eventBus.on('meleeAttackExecuted', (event) => {
+      this.eventSubscriptions.push(eventBus.on('meleeAttackExecuted', (event) => {
         // Only show effects in jungle mode (Stage 3+ melee attacks)
         if (this.environmentSystem.getMode() !== 'jungle') return;
 
@@ -440,10 +444,10 @@ export class ThreeRenderer implements Renderer {
             this.playerRenderSystem.flashDamage(hitPlayerId);
           }
         }
-      });
+      }));
 
       // === Projectile hit visual feedback (jungle-scale ranged attacks) ===
-      eventBus.on('projectileHit', (event) => {
+      this.eventSubscriptions.push(eventBus.on('projectileHit', (event) => {
         if (this.environmentSystem.getMode() !== 'jungle') return;
 
         // Spawn hit sparks at impact location
@@ -453,10 +457,10 @@ export class ThreeRenderer implements Renderer {
         if (event.targetType === 'player') {
           this.playerRenderSystem.flashDamage(event.targetId);
         }
-      });
+      }));
 
       // === Trap triggered visual feedback (jungle-scale traps) ===
-      eventBus.on('trapTriggered', (event) => {
+      this.eventSubscriptions.push(eventBus.on('trapTriggered', (event) => {
         if (this.environmentSystem.getMode() !== 'jungle') return;
 
         // Spawn hit sparks at trap position
@@ -464,14 +468,14 @@ export class ThreeRenderer implements Renderer {
 
         // Flash the victim's mesh
         this.playerRenderSystem.flashDamage(event.victimId);
-      });
+      }));
 
       // Mouse look event - update first-person camera rotation
-      eventBus.on('client:mouseLook', (event) => {
+      this.eventSubscriptions.push(eventBus.on('client:mouseLook', (event) => {
         if (this.cameraSystem.getMode() === 'firstperson') {
           this.cameraSystem.updateFirstPersonLook(event.deltaX, event.deltaY);
         }
-      });
+      }));
     });
   }
 
@@ -905,6 +909,10 @@ export class ThreeRenderer implements Renderer {
   }
 
   dispose(): void {
+    // Clean up event subscriptions first (prevents stale callbacks)
+    this.eventSubscriptions.forEach(unsub => unsub());
+    this.eventSubscriptions = [];
+
     // Clean up player meshes (humanoids, outlines, compass, etc.)
     this.playerRenderSystem.dispose();
 

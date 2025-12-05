@@ -828,3 +828,61 @@ export function maybeLogLifetimeStats(): boolean {
   );
   return true;
 }
+
+// ============================================
+// Server Memory Usage Tracking
+// ============================================
+
+const MEMORY_REPORT_INTERVAL_MS = 60_000; // Report every 60 seconds
+let lastMemoryReport = Date.now();
+
+/**
+ * Get current server memory usage in MB
+ */
+export function getMemoryUsage(): {
+  heapUsedMB: number;
+  heapTotalMB: number;
+  rssMB: number;
+  externalMB: number;
+  arrayBuffersMB: number;
+} {
+  const mem = process.memoryUsage();
+  const toMB = (bytes: number) => bytes / 1024 / 1024;
+
+  return {
+    heapUsedMB: toMB(mem.heapUsed),
+    heapTotalMB: toMB(mem.heapTotal),
+    rssMB: toMB(mem.rss),
+    externalMB: toMB(mem.external),
+    arrayBuffersMB: toMB(mem.arrayBuffers),
+  };
+}
+
+/**
+ * Maybe log memory usage (throttled to once per minute)
+ * Logs to perfLogger for performance monitoring
+ */
+export function maybeLogMemoryUsage(): boolean {
+  const now = Date.now();
+  if (now - lastMemoryReport < MEMORY_REPORT_INTERVAL_MS) {
+    return false;
+  }
+  lastMemoryReport = now;
+
+  const mem = getMemoryUsage();
+  const uptimeMinutes = (now - serverStartTime) / 60_000;
+
+  perfLogger.info(
+    {
+      event: 'server_memory',
+      uptimeMinutes: Math.round(uptimeMinutes),
+      heapUsedMB: Math.round(mem.heapUsedMB),
+      heapTotalMB: Math.round(mem.heapTotalMB),
+      rssMB: Math.round(mem.rssMB),
+      externalMB: Math.round(mem.externalMB),
+      arrayBuffersMB: Math.round(mem.arrayBuffersMB),
+    },
+    `MEMORY (${Math.round(uptimeMinutes)}min): heap=${Math.round(mem.heapUsedMB)}/${Math.round(mem.heapTotalMB)}MB | rss=${Math.round(mem.rssMB)}MB | external=${Math.round(mem.externalMB)}MB`
+  );
+  return true;
+}

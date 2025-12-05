@@ -46,6 +46,8 @@ import type {
   // Stage 3 combat specialization
   CombatSpecializationComponent,
   KnockbackComponent,
+  // Server-only components
+  PendingRespawnComponent,
 } from '@godcell/shared';
 
 // ============================================
@@ -91,6 +93,9 @@ export function createWorld(): World {
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
   world.registerStore<CanFirePseudopodComponent>(Components.CanFirePseudopod, new ComponentStore());
   world.registerStore<CanSprintComponent>(Components.CanSprint, new ComponentStore());
+
+  // Server-only components (deferred actions, timers)
+  world.registerStore<PendingRespawnComponent>(Components.PendingRespawn, new ComponentStore());
 
   return world;
 }

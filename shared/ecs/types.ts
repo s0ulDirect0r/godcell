@@ -61,6 +61,9 @@ export const Components = {
   // Client-only components (for interpolation and visual feedback)
   InterpolationTarget: 'InterpolationTarget',
   ClientDamageInfo: 'ClientDamageInfo',
+
+  // Server-only components (deferred actions, timers)
+  PendingRespawn: 'PendingRespawn',
 } as const;
 
 /**

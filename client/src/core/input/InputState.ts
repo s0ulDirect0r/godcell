@@ -23,22 +23,27 @@ export class InputState {
     deltaY: 0,
   };
 
+  // Handler references for cleanup (prevents memory leaks)
+  private keydownHandler: (e: KeyboardEvent) => void;
+  private keyupHandler: (e: KeyboardEvent) => void;
+  private mousemoveHandler: (e: MouseEvent) => void;
+  private mousedownHandler: (e: MouseEvent) => void;
+  private mouseupHandler: () => void;
+  private pointerlockHandler: () => void;
+  private spacePreventHandler: (e: KeyboardEvent) => void;
+  private contextmenuHandler: (e: MouseEvent) => void;
+
   constructor() {
-    this.setupListeners();
-  }
-
-  private setupListeners(): void {
-    // Keyboard
-    window.addEventListener('keydown', (e) => {
+    // Store handler references so they can be removed in dispose()
+    this.keydownHandler = (e: KeyboardEvent) => {
       this.keys.add(e.key.toLowerCase());
-    });
+    };
 
-    window.addEventListener('keyup', (e) => {
+    this.keyupHandler = (e: KeyboardEvent) => {
       this.keys.delete(e.key.toLowerCase());
-    });
+    };
 
-    // Mouse movement - accumulate deltas when pointer locked
-    window.addEventListener('mousemove', (e) => {
+    this.mousemoveHandler = (e: MouseEvent) => {
       this.pointer.screenX = e.clientX;
       this.pointer.screenY = e.clientY;
 
@@ -47,41 +52,51 @@ export class InputState {
         this.pointerLock.deltaX += e.movementX;
         this.pointerLock.deltaY += e.movementY;
       }
-    });
+    };
 
-    window.addEventListener('mousedown', (e) => {
+    this.mousedownHandler = (e: MouseEvent) => {
       this.pointer.isDown = true;
       this.pointer.button = e.button;
-    });
+    };
 
-    window.addEventListener('mouseup', () => {
+    this.mouseupHandler = () => {
       this.pointer.isDown = false;
       this.pointer.button = -1;
-    });
+    };
 
-    // Pointer lock change event
-    document.addEventListener('pointerlockchange', () => {
+    this.pointerlockHandler = () => {
       this.pointerLock.isLocked = document.pointerLockElement !== null;
       // Reset deltas when lock state changes
       this.pointerLock.deltaX = 0;
       this.pointerLock.deltaY = 0;
-    });
+    };
 
-    // Prevent default on space (prevents page scroll)
-    window.addEventListener('keydown', (e) => {
+    this.spacePreventHandler = (e: KeyboardEvent) => {
       if (e.key === ' ' && e.target === document.body) {
         e.preventDefault();
       }
-    });
+    };
 
-    // Prevent context menu on right-click (needed for RMB game actions)
-    window.addEventListener('contextmenu', (e) => {
+    this.contextmenuHandler = (e: MouseEvent) => {
       // Only prevent on game canvas, allow on UI elements
       const target = e.target as HTMLElement;
       if (target.tagName === 'CANVAS' || target.closest('canvas')) {
         e.preventDefault();
       }
-    });
+    };
+
+    this.setupListeners();
+  }
+
+  private setupListeners(): void {
+    window.addEventListener('keydown', this.keydownHandler);
+    window.addEventListener('keyup', this.keyupHandler);
+    window.addEventListener('mousemove', this.mousemoveHandler);
+    window.addEventListener('mousedown', this.mousedownHandler);
+    window.addEventListener('mouseup', this.mouseupHandler);
+    document.addEventListener('pointerlockchange', this.pointerlockHandler);
+    window.addEventListener('keydown', this.spacePreventHandler);
+    window.addEventListener('contextmenu', this.contextmenuHandler);
   }
 
   /**
@@ -106,10 +121,16 @@ export class InputState {
   }
 
   /**
-   * Clean up listeners
+   * Clean up listeners (prevents memory leaks on game restart)
    */
   dispose(): void {
-    // Note: Remove all listeners if needed
-    // For now, leaving as-is since GameScene persists
+    window.removeEventListener('keydown', this.keydownHandler);
+    window.removeEventListener('keyup', this.keyupHandler);
+    window.removeEventListener('mousemove', this.mousemoveHandler);
+    window.removeEventListener('mousedown', this.mousedownHandler);
+    window.removeEventListener('mouseup', this.mouseupHandler);
+    document.removeEventListener('pointerlockchange', this.pointerlockHandler);
+    window.removeEventListener('keydown', this.spacePreventHandler);
+    window.removeEventListener('contextmenu', this.contextmenuHandler);
   }
 }
