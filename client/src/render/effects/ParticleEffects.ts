@@ -649,8 +649,8 @@ export function spawnMeleeArc(
   const trailCount = attackType === 'swipe' ? 100 : 50;
   const sparkCount = attackType === 'swipe' ? 40 : 20;
   const duration = 300; // Slightly longer for visual impact
-  const initialRadius = 200;  // Min range (closer to player)
-  const maxRadius = 732;      // Max range (50% larger arc area)
+  const initialRadius = 210;  // Min range (starts outside player edge)
+  const maxRadius = 512;      // Max range (30% smaller)
 
   // Calculate arc parameters
   const arcAngle = attackType === 'swipe' ? (Math.PI / 2) : (Math.PI / 6);

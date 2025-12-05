@@ -860,7 +860,7 @@ export const GAME_CONFIG = {
 
   // Stage 3 Movement (Cyber-Organism): Grounded hexapod with momentum
   CYBER_ORGANISM_ACCELERATION_MULT: 1.5,   // Punchy acceleration (feel the push)
-  CYBER_ORGANISM_MAX_SPEED_MULT: 1.20,     // 90% of soup speed (nimble)
+  CYBER_ORGANISM_MAX_SPEED_MULT: 1.56,     // 30% faster (zippy)
   CYBER_ORGANISM_FRICTION: 0.25,           // Grounded momentum (0.25=quick stop, 0.66=soup, 0.85=heavy glide)
   CYBER_ORGANISM_SPRINT_SPEED_MULT: 1.8,   // Sprint burst multiplier
   CYBER_ORGANISM_SPRINT_ENERGY_COST: 0.5,  // Energy/sec while sprinting
@@ -965,7 +965,7 @@ export const GAME_CONFIG = {
   // These drain energy passively - no damage resistance applies
   SINGLE_CELL_ENERGY_DECAY_RATE: 2.66,    // ~37 seconds to starvation from spawn (100 / 2.66 ≈ 37s) - harsh!
   MULTI_CELL_ENERGY_DECAY_RATE: 2.1,      // ~190 seconds (400 / 2.1 ≈ 190s ≈ 3 minutes)
-  CYBER_ORGANISM_ENERGY_DECAY_RATE: 2.8,  // ~357 seconds (1000 / 2.8 ≈ 6 minutes)
+  CYBER_ORGANISM_ENERGY_DECAY_RATE: 12.0, // ~250 seconds (3000 / 12.0 ≈ 4.2 minutes) - doubled for urgency
   HUMANOID_ENERGY_DECAY_RATE: 3.3,        // ~606 seconds (2000 / 3.3 ≈ 10 minutes)
   GODCELL_ENERGY_DECAY_RATE: 0,           // Godcells transcend thermodynamics
 
@@ -986,7 +986,7 @@ export const GAME_CONFIG = {
   // Size multipliers (visual presence and intimidation)
   SINGLE_CELL_SIZE_MULTIPLIER: 1,       // Base size (10px radius)
   MULTI_CELL_SIZE_MULTIPLIER: 10,       // 10x larger (100px radius) - order of magnitude jump!
-  CYBER_ORGANISM_SIZE_MULTIPLIER: 14.4, // 14.4x larger (144px radius) - jungle scale
+  CYBER_ORGANISM_SIZE_MULTIPLIER: 10.08, // 10.08x larger (~101px radius) - jungle scale, 30% smaller
   HUMANOID_SIZE_MULTIPLIER: 19.2,       // 19.2x larger (192px radius) - humanoid scale
   GODCELL_SIZE_MULTIPLIER: 28.8,        // 28.8x larger (288px radius) - transcendent scale
 
@@ -1089,7 +1089,7 @@ export const GAME_CONFIG = {
   PROJECTILE_COOLDOWN: 333,          // ms between shots (3 shots/sec)
   PROJECTILE_DAMAGE: 150,            // 5% of Stage 3 maxEnergy
   PROJECTILE_CAPACITY_STEAL: 0,      // No capacity steal from fauna (for now)
-  PROJECTILE_COLLISION_RADIUS: 30,   // Hit detection radius
+  PROJECTILE_COLLISION_RADIUS: 21,   // Hit detection radius (30% smaller)
   PROJECTILE_ENERGY_COST: 30,        // 1% of Stage 3 maxEnergy
   PROJECTILE_LIFETIME: 1500,         // ms before despawn
 
@@ -1104,14 +1104,14 @@ export const GAME_CONFIG = {
   // Melee Pathway - close-range swipe and thrust attacks
   // Energy costs: 0.5% of 3000 = 15
   // Damage: 5% of 3000 = 150
-  MELEE_SWIPE_RANGE: 732,             // Max range (50% larger arc area)
+  MELEE_SWIPE_RANGE: 512,             // Max range (30% smaller)
   MELEE_SWIPE_ARC: 90,                // degrees (quarter arc)
   MELEE_SWIPE_DAMAGE: 150,            // 5% of Stage 3 maxEnergy
   MELEE_SWIPE_KNOCKBACK: 200,         // pixels push distance
   MELEE_SWIPE_ENERGY_COST: 15,        // 0.5% of Stage 3 maxEnergy
   MELEE_SWIPE_COOLDOWN: 200,          // ms between attacks (very fast)
 
-  MELEE_THRUST_RANGE: 732,            // Max range (50% larger arc area)
+  MELEE_THRUST_RANGE: 512,            // Max range (30% smaller)
   MELEE_THRUST_ARC: 30,               // degrees (narrow cone)
   MELEE_THRUST_DAMAGE: 150,           // 5% of Stage 3 maxEnergy
   MELEE_THRUST_KNOCKBACK: 200,        // pixels push distance
@@ -1125,7 +1125,7 @@ export const GAME_CONFIG = {
   // Damage: 12.5% of 3000 = 375
   TRAP_MAX_ACTIVE: 5,                 // Max traps per player
   TRAP_LIFETIME: 120000,              // 120 seconds before auto-despawn
-  TRAP_TRIGGER_RADIUS: 144,           // Same as player radius
+  TRAP_TRIGGER_RADIUS: 101,           // 30% smaller trigger radius
   TRAP_DAMAGE: 375,                   // 12.5% of Stage 3 maxEnergy
   TRAP_STUN_DURATION: 1000,           // 1 second stun
   TRAP_ENERGY_COST: 150,              // 5% of Stage 3 maxEnergy
