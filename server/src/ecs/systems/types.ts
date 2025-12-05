@@ -41,6 +41,9 @@ export interface System {
  * 12. Network (broadcast state)
  */
 export const SystemPriority = {
+  // Deferred actions - runs first (pending respawns, timers)
+  RESPAWN: 50,
+
   // AI decisions - before physics
   BOT_AI: 100,
   CYBER_BUG_AI: 105,       // Stage 3 skittish prey AI

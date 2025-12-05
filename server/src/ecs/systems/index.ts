@@ -37,6 +37,7 @@ export { MacroResourceCollisionSystem } from './MacroResourceCollisionSystem';
 export { MetabolismSystem } from './MetabolismSystem';
 export { DeathSystem } from './DeathSystem';
 export { DataFruitSystem } from './DataFruitSystem';
+export { RespawnSystem } from './RespawnSystem';
 
 // Network Systems
 export { NetworkBroadcastSystem } from './NetworkBroadcastSystem';
