@@ -57,9 +57,9 @@ export function getEnergyDecayRate(stage: EvolutionStage): number {
  * Get player collision radius based on evolution stage
  * Returns radius for hitbox calculations
  *
- * @deprecated For most usages, prefer reading radius from StageComponent.radius instead.
- * This function is now only used by server/src/ecs/factories.ts when creating entities
- * or updating stage on evolution. All systems should read from stageComp.radius directly.
+ * @deprecated This function is currently unused. Radius is stored in StageComponent.radius
+ * and flows from server to client via network. All systems should read from stageComp.radius.
+ * Kept for potential future use when computing radius from stage is needed.
  */
 export function getPlayerRadius(stage: EvolutionStage): number {
   switch (stage) {
