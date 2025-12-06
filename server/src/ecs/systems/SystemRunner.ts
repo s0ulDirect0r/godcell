@@ -6,7 +6,7 @@
 import type { Server } from 'socket.io';
 import type { World } from '@godcell/shared';
 import type { System } from './types';
-import { perfLogger } from '../../logger';
+import { logger, perfLogger } from '../../logger';
 
 /**
  * Registered system with its priority
@@ -45,7 +45,17 @@ export class SystemRunner {
 
     for (const { system } of this.systems) {
       const systemStart = performance.now();
-      system.update(world, deltaTime, io);
+      try {
+        system.update(world, deltaTime, io);
+      } catch (error) {
+        logger.error({
+          event: 'system_error',
+          system: system.name,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        }, `System ${system.name} threw an error`);
+        // Continue with next system - don't crash the game loop
+      }
       const systemMs = performance.now() - systemStart;
       timings.push({ name: system.name, ms: systemMs });
     }

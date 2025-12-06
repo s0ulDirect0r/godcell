@@ -13,6 +13,10 @@ import {
   forEachSwarm,
   setEnergy,
   getDamageTracking,
+  requireEnergy,
+  requirePosition,
+  requireStage,
+  requireVelocity,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -38,11 +42,10 @@ export class GravitySystem implements System {
 
     // Apply gravity to players (iterate ECS directly)
     forEachPlayer(world, (entity, playerId) => {
-      const energyComponent = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const stageComponent = world.getComponent<StageComponent>(entity, Components.Stage);
-      const positionComponent = world.getComponent<PositionComponent>(entity, Components.Position);
-      const velocityComponent = world.getComponent<VelocityComponent>(entity, Components.Velocity);
-      if (!energyComponent || !stageComponent || !positionComponent || !velocityComponent) return;
+      const energyComponent = requireEnergy(world, entity);
+      const stageComponent = requireStage(world, entity);
+      const positionComponent = requirePosition(world, entity);
+      const velocityComponent = requireVelocity(world, entity);
 
       if (energyComponent.current <= 0 || stageComponent.isEvolving) return;
 

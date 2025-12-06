@@ -18,7 +18,15 @@ import type {
 } from '@godcell/shared';
 import type { System } from './types';
 import { getConfig } from '../../dev';
-import { getSocketIdByEntity, hasDrainTarget } from '../factories';
+import {
+  getSocketIdByEntity,
+  hasDrainTarget,
+  requireEnergy,
+  requirePosition,
+  requireStage,
+  requireVelocity,
+  requireInput,
+} from '../factories';
 import { getWorldBoundsForStage } from '../../helpers';
 
 /**
@@ -47,13 +55,12 @@ export class MovementSystem implements System {
       const playerId = getSocketIdByEntity(entity);
       if (!playerId) return;
 
-      // Get ECS components directly
-      const energyComponent = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const positionComponent = world.getComponent<PositionComponent>(entity, Components.Position);
-      const stageComponent = world.getComponent<StageComponent>(entity, Components.Stage);
-      const velocityComponent = world.getComponent<VelocityComponent>(entity, Components.Velocity);
-      const inputComponent = world.getComponent<InputComponent>(entity, Components.Input);
-      if (!energyComponent || !positionComponent || !stageComponent || !velocityComponent || !inputComponent) return;
+      // Get ECS components directly (throws if missing - invariant violation)
+      const energyComponent = requireEnergy(world, entity);
+      const positionComponent = requirePosition(world, entity);
+      const stageComponent = requireStage(world, entity);
+      const velocityComponent = requireVelocity(world, entity);
+      const inputComponent = requireInput(world, entity);
 
       // Skip dead players
       if (energyComponent.current <= 0) return;

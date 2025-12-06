@@ -22,6 +22,8 @@ import {
   clearDrainTarget,
   entityToLegacyPlayer,
   destroyEntity,
+  requireEnergy,
+  requireDamageTracking,
   type EnergyComponent,
   type DamageTrackingComponent,
 } from '../index';
@@ -45,8 +47,7 @@ export class DeathSystem implements System {
   update(world: World, _deltaTime: number, io: Server): void {
 
     forEachPlayer(world, (entity, playerId) => {
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      if (!energyComp) return;
+      const energyComp = requireEnergy(world, entity);
 
       // Get damage tracking from ECS (entity-based)
       const damageTracking = getDamageTracking(world, entity);
