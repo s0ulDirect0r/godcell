@@ -20,6 +20,7 @@ import {
   disposeNutrient,
   setNutrientOpacity,
 } from '../meshes/NutrientMesh';
+import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 
 /**
  * NutrientRenderSystem - Manages nutrient entity rendering
@@ -84,6 +85,11 @@ export class NutrientRenderSystem {
       group.userData.baseX = pos.x;
       group.userData.baseZ = -pos.y;
       group.position.set(pos.x, 0, -pos.y);
+
+      // Apply gravity well distortion effect
+      // Creates visual "spaghettification" when nutrients are near gravity wells
+      const warp = calculateEntityWarp(pos.x, pos.y);
+      applyEntityWarp(group, warp);
 
       // Cache position for energy transfer effect (used when nutrient is collected)
       this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y });

@@ -169,12 +169,26 @@ function initializeGame(settings: PreGameSettings): void {
       world,
       renderer,
     });
-    console.log('[Dev] Dev panel enabled - press H to toggle');
+    console.log('[Dev] Dev panel enabled - H: toggle panel, G: evolve, J: devolve');
 
     // Dev panel toggle (H key) - tracked for cleanup
     addTrackedListener(window, 'keydown', (e) => {
       if ((e as KeyboardEvent).key === 'h' || (e as KeyboardEvent).key === 'H') {
         devPanel?.toggle();
+      }
+    });
+
+    // Evolve to next stage (G key) - tracked for cleanup
+    addTrackedListener(window, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'g' || (e as KeyboardEvent).key === 'G') {
+        socketManager.sendEvolveNext();
+      }
+    });
+
+    // Devolve to previous stage (J key) - tracked for cleanup
+    addTrackedListener(window, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'j' || (e as KeyboardEvent).key === 'J') {
+        socketManager.sendDevolvePrev();
       }
     });
   }

@@ -691,6 +691,8 @@ export type DevCommand =
   | DevTeleportPlayerCommand
   | DevSetPlayerEnergyCommand
   | DevSetPlayerStageCommand
+  | DevEvolveNextCommand
+  | DevDevolvePrevCommand
   | DevPauseGameCommand
   | DevStepTickCommand;
 
@@ -764,6 +766,18 @@ export interface DevSetPlayerStageCommand {
   action: 'setPlayerStage';
   playerId: string;
   stage: EvolutionStage;
+}
+
+// Evolve player to next stage (dev shortcut)
+export interface DevEvolveNextCommand {
+  action: 'evolveNext';
+  playerId: string;
+}
+
+// Devolve player to previous stage (dev shortcut)
+export interface DevDevolvePrevCommand {
+  action: 'devolvePrev';
+  playerId: string;
 }
 
 // Pause/unpause game

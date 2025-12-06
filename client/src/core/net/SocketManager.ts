@@ -289,6 +289,26 @@ export class SocketManager {
   }
 
   /**
+   * Send evolve to next stage command (dev mode)
+   */
+  sendEvolveNext(): void {
+    this.socket.emit('devCommand', {
+      type: 'devCommand',
+      command: { action: 'evolveNext', playerId: this.socket.id },
+    });
+  }
+
+  /**
+   * Send devolve to previous stage command (dev mode)
+   */
+  sendDevolvePrev(): void {
+    this.socket.emit('devCommand', {
+      type: 'devCommand',
+      command: { action: 'devolvePrev', playerId: this.socket.id },
+    });
+  }
+
+  /**
    * Send client log to server (for debugging)
    */
   sendLog(level: 'log' | 'warn' | 'error', args: unknown[]): void {

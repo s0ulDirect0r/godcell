@@ -134,7 +134,7 @@ export class ThreeRenderer implements Renderer {
 
     // Create environment system (owns backgrounds, particles, ground plane)
     this.environmentSystem = new EnvironmentSystem();
-    this.environmentSystem.init(this.scene);
+    this.environmentSystem.init(this.scene, this.world);
 
     // Create effects system (owns all particle effects and animations)
     this.effectsSystem = new EffectsSystem();
@@ -691,6 +691,13 @@ export class ThreeRenderer implements Renderer {
     this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw());
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
     this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
+
+    // Refresh gravity well cache after obstacles sync (for grid distortion effect)
+    // Only needed in soup mode where obstacles exist
+    if (this.environmentSystem.getMode() === 'soup') {
+      this.environmentSystem.refreshGravityWellCache();
+    }
+
     this.treeRenderSystem.sync(this.environmentSystem.getMode());
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();

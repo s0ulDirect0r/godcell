@@ -37,6 +37,7 @@ import {
   animateGodcell,
 } from '../meshes/GodcellMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
+import { calculateEntityWarp, applyEntityWarp, resetEntityWarp } from '../utils/GravityDistortionUtils';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -356,6 +357,30 @@ export class PlayerRenderSystem {
         }
       }
 
+      // Apply gravity well distortion to soup-stage players
+      // This creates a visual "spaghettification" effect when near gravity wells
+      const isSoupStage = player.stage === EvolutionStageEnum.SINGLE_CELL ||
+                          player.stage === EvolutionStageEnum.MULTI_CELL;
+      const outline = this.playerOutlines.get(id);
+      if (isSoupStage && !isJungleMode) {
+        // Calculate warp based on game-space position
+        const gameX = cellGroup.position.x;
+        const gameY = -cellGroup.position.z; // Three.js Z = -game Y
+        const warp = calculateEntityWarp(gameX, gameY);
+        applyEntityWarp(cellGroup, warp);
+
+        // Also warp the player outline ring - spaghettify everything!
+        if (outline) {
+          applyEntityWarp(outline, warp);
+        }
+      } else {
+        // Reset any warp when not in soup or in jungle stages
+        resetEntityWarp(cellGroup);
+        if (outline) {
+          resetEntityWarp(outline);
+        }
+      }
+
       // Cross-stage visibility
       const playerIsJungleStage = (
         player.stage === EvolutionStageEnum.CYBER_ORGANISM ||
@@ -365,7 +390,6 @@ export class PlayerRenderSystem {
       const shouldBeVisible = isMyPlayer || (isJungleMode === playerIsJungleStage);
       cellGroup.visible = shouldBeVisible;
 
-      const outline = this.playerOutlines.get(id);
       if (outline) {
         outline.visible = shouldBeVisible;
       }

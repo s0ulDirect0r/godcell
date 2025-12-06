@@ -46,6 +46,7 @@ import {
   Components,
 } from './ecs';
 import { removeSwarm } from './swarms';
+import { getNextEvolutionStage } from './helpers/stages';
 import type { PositionComponent } from '@godcell/shared';
 
 // ============================================
@@ -170,6 +171,14 @@ export function handleDevCommand(socket: Socket, io: Server, command: DevCommand
 
     case 'setPlayerStage':
       handleSetPlayerStage(io, command.playerId, command.stage);
+      break;
+
+    case 'evolveNext':
+      handleEvolveNext(io, command.playerId);
+      break;
+
+    case 'devolvePrev':
+      handleDevolvePrev(io, command.playerId);
       break;
 
     case 'pauseGame':
@@ -403,6 +412,68 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
   io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy, radius: stageComp.radius });
   io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: stageStats.energy });
   logger.info({ event: 'dev_set_stage', playerId, oldStage, newStage: stage });
+}
+
+function handleEvolveNext(io: Server, playerId: string): void {
+  if (!devContext) return;
+
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
+
+  const stageComp = getStage(devContext.world, entity);
+  if (!stageComp) return;
+
+  const currentStage = stageComp.stage;
+  const nextInfo = getNextEvolutionStage(currentStage);
+
+  if (!nextInfo) {
+    logger.info({ event: 'dev_evolve_next_already_max', playerId, currentStage });
+    return;
+  }
+
+  // Delegate to existing stage-setting logic
+  handleSetPlayerStage(io, playerId, nextInfo.stage);
+  logger.info({ event: 'dev_evolve_next', playerId, from: currentStage, to: nextInfo.stage });
+}
+
+function handleDevolvePrev(io: Server, playerId: string): void {
+  if (!devContext) return;
+
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
+
+  const stageComp = getStage(devContext.world, entity);
+  if (!stageComp) return;
+
+  const currentStage = stageComp.stage;
+
+  // Get previous stage (reverse of evolution order)
+  let prevStage: EvolutionStage | null = null;
+  switch (currentStage) {
+    case EvolutionStage.MULTI_CELL:
+      prevStage = EvolutionStage.SINGLE_CELL;
+      break;
+    case EvolutionStage.CYBER_ORGANISM:
+      prevStage = EvolutionStage.MULTI_CELL;
+      break;
+    case EvolutionStage.HUMANOID:
+      prevStage = EvolutionStage.CYBER_ORGANISM;
+      break;
+    case EvolutionStage.GODCELL:
+      prevStage = EvolutionStage.HUMANOID;
+      break;
+    default:
+      // Already at single_cell (min stage)
+      break;
+  }
+
+  if (!prevStage) {
+    logger.info({ event: 'dev_devolve_prev_already_min', playerId, currentStage });
+    return;
+  }
+
+  handleSetPlayerStage(io, playerId, prevStage);
+  logger.info({ event: 'dev_devolve_prev', playerId, from: currentStage, to: prevStage });
 }
 
 function handlePauseGame(io: Server, paused: boolean): void {
