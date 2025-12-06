@@ -3,9 +3,9 @@
 // ============================================
 
 import { eventBus } from '../../core/events/EventBus';
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '@shared';
 import { type World, getLocalPlayerId, getLocalPlayer } from '../../ecs';
-import type { DeathCause } from '@godcell/shared';
+import type { DeathCause } from '@shared';
 
 export class HUDOverlay {
   private container: HTMLDivElement;

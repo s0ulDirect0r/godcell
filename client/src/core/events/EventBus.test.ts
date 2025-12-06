@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EventBus } from './EventBus';
-import type { PlayerMovedMessage, NutrientCollectedMessage } from '@godcell/shared';
+import type { PlayerMovedMessage, NutrientCollectedMessage } from '@shared';
 
 describe('EventBus', () => {
   let bus: EventBus;

@@ -6,7 +6,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage } from '@godcell/shared';
+import { EvolutionStage } from '@shared';
 
 // Note: Player radius is now stored on the entity and passed via TrailPlayerData.radius
 // The getPlayerRadius() function has been removed - radius flows from server via ECS

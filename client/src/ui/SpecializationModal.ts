@@ -2,7 +2,7 @@
 // Specialization Modal - Stage 3 Combat Pathway Selection
 // ============================================
 
-import type { CombatSpecialization } from '@godcell/shared';
+import type { CombatSpecialization } from '@shared';
 import { eventBus } from '../core/events/EventBus';
 
 export interface SpecializationModalOptions {

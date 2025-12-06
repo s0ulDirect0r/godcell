@@ -3,7 +3,7 @@
 // Visual state components not synced to server
 // ============================================
 
-import type { DamageSource, EvolutionStage } from '@godcell/shared';
+import type { DamageSource, EvolutionStage } from '@shared';
 
 /**
  * DrainAuraComponent - Visual feedback for taking damage

@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, Tags, Components, type World } from '@godcell/shared';
+import { EvolutionStage, Tags, Components, type World } from '@shared';
 import type {
   PlayerMovedMessage,
   EnergyComponent,
@@ -15,7 +15,7 @@ import type {
   InputComponent,
   SprintComponent,
   KnockbackComponent,
-} from '@godcell/shared';
+} from '@shared';
 import type { System } from './types';
 import { getConfig } from '../../dev';
 import {

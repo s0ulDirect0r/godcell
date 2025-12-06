@@ -9,7 +9,7 @@ import {
   Components,
   Tags,
   GAME_CONFIG,
-} from '@godcell/shared';
+} from '@shared';
 import { ClientComponents } from './types';
 import type {
   DrainAuraComponent,
@@ -35,7 +35,7 @@ import type {
   TrapComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
-} from '@godcell/shared';
+} from '@shared';
 import type {
   Player,
   Nutrient,
@@ -50,7 +50,7 @@ import type {
   Trap,
   DamageSource,
   EvolutionStage,
-} from '@godcell/shared';
+} from '@shared';
 
 // ============================================
 // World Setup

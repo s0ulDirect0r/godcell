@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { Renderer, CameraCapabilities } from '../Renderer';
-import { GAME_CONFIG, EvolutionStage, getEntityScale } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, getEntityScale } from '@shared';
 import { createComposer } from './postprocessing/composer';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
