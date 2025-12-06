@@ -239,9 +239,10 @@ export class AbilitySystem {
       ? getConfig('PSEUDOPOD_RANGE')
       : playerRadius * getConfig('PSEUDOPOD_RANGE');
 
-    // For strike mode, check range BEFORE deducting energy
+    // For strike mode, clamp target to max range (fire at max range in cursor direction)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike' && targetDist > maxRange) {
-      return false; // Out of range - don't fire
+      targetX = playerPosition.x + dirX * maxRange;
+      targetY = playerPosition.y + dirY * maxRange;
     }
 
     // Deduct energy (directly to ECS)
