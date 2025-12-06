@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG, type World } from '@godcell/shared';
+import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '#shared';
+import { EvolutionStage, GAME_CONFIG, type World } from '#shared';
 import type { System } from './types';
 import {
   forEachPlayer,

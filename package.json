@@ -3,21 +3,48 @@
   "version": "0.1.0",
   "description": "A game of transcendence and evolution",
   "private": true,
-  "workspaces": [
-    "client",
-    "server",
-    "shared"
-  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "imports": {
+    "#shared": "./shared/index.ts",
+    "#shared/*": "./shared/*"
+  },
   "scripts": {
-    "dev": "npm run build --workspace=shared && npm run dev --workspace=shared & npm run dev --workspace=server & npm run dev --workspace=client",
-    "dev:server": "npm run dev --workspace=server",
-    "dev:client": "npm run dev --workspace=client",
-    "playground": "npm run playground --workspace=server & npm run dev --workspace=client",
-    "build": "npm run build --workspaces",
-    "clean": "rm -rf client/dist server/dist node_modules client/node_modules server/node_modules shared/node_modules"
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server/src/index.ts",
+    "dev:client": "vite client",
+    "playground": "concurrently -n server,client -c blue,green \"PORT=3001 PLAYGROUND=true tsx watch server/src/index.ts\" \"npm run dev:client\"",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "node server/build.mjs",
+    "build:client": "vite build client",
+    "start": "node dist/server/index.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
+    "pino-roll": "^4.0.0",
+    "socket.io": "^4.7.2",
+    "socket.io-client": "^4.7.2",
+    "three": "^0.160.0",
+    "three-stdlib": "^2.36.1"
   },
   "devDependencies": {
     "@beads/bd": "^0.24.3",
-    "typescript": "^5.3.3"
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^20.10.6",
+    "@types/three": "^0.160.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.25.0",
+    "happy-dom": "^20.0.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^6.2.0",
+    "vitest": "^4.0.0"
   }
 }

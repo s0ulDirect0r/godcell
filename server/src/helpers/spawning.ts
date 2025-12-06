@@ -4,7 +4,7 @@
 // Query ECS for obstacle data
 // ============================================
 
-import { GAME_CONFIG, type Position } from '@godcell/shared';
+import { GAME_CONFIG, type Position } from '#shared';
 import { getConfig } from '../dev';
 import { distance } from './math';
 import { forEachObstacle, type World } from '../ecs';

@@ -3,8 +3,8 @@
 // Detects conditions and manages aura ECS components
 // ============================================
 
-import type { World, EntityId, ClientDamageInfoComponent, StageComponent, EnergyComponent } from '@godcell/shared';
-import { Components, Tags, GAME_CONFIG } from '@godcell/shared';
+import type { World, EntityId, ClientDamageInfoComponent, StageComponent, EnergyComponent } from '#shared';
+import { Components, Tags, GAME_CONFIG } from '#shared';
 import { ClientComponents } from '../types';
 import type { GainAuraComponent, EvolutionAuraComponent } from '../components';
 import {

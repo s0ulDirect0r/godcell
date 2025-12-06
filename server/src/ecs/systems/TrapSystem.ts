@@ -4,13 +4,13 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Tags, type World, Components } from '@godcell/shared';
+import { GAME_CONFIG, Tags, type World, Components } from '#shared';
 import type {
   PositionComponent,
   TrapComponent,
   StunnedComponent,
   EntityId,
-} from '@godcell/shared';
+} from '#shared';
 import type { System } from './types';
 import {
   getStringIdByEntity,

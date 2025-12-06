@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { type World } from '@godcell/shared';
-import type { VelocityComponent } from '@godcell/shared';
+import { type World } from '#shared';
+import type { VelocityComponent } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,

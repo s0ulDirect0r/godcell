@@ -10,7 +10,7 @@ export {
   Tags,
   GAME_CONFIG,
   getEntityScale,
-} from '@godcell/shared';
+} from '#shared';
 export type {
   EntityId,
   EntityScale,
@@ -32,7 +32,7 @@ export type {
   JungleCreatureComponent,
   ProjectileComponent,
   TrapComponent,
-} from '@godcell/shared';
+} from '#shared';
 
 // Client-only component types and interfaces
 export { ClientComponents, ClientComponentType } from './types';

@@ -1,20 +1,22 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  root: resolve(__dirname),
   server: {
     port: 5173,
-    // Watch for changes in the shared package
-    watch: {
-      ignored: ['!**/node_modules/@godcell/**'],
+  },
+  resolve: {
+    alias: {
+      '#shared': resolve(__dirname, '../shared'),
     },
   },
-  // Don't pre-bundle the shared package so changes are picked up immediately
-  optimizeDeps: {
-    exclude: ['@godcell/shared'],
-  },
   build: {
-    outDir: 'dist',
+    outDir: resolve(__dirname, '../dist/client'),
+    emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
       input: {

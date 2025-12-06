@@ -1,4 +1,4 @@
-import { GAME_CONFIG, EvolutionStage, Components } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage, Components } from '#shared';
 import type {
   Position,
   Pseudopod, // Still needed for local pseudopod object creation
@@ -17,12 +17,12 @@ import type {
   EnergyComponent,
   StageComponent,
   DamageTrackingComponent,
-} from '@godcell/shared';
+} from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
 import { logger } from './logger';
 import { isJungleStage } from './helpers/stages';
-import type { EntityId } from '@godcell/shared';
+import type { EntityId } from '#shared';
 import {
   createPseudopod as ecsCreatePseudopod,
   createProjectile,

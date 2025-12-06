@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { NutrientMovedMessage, NutrientCollectedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Tags, Components, type World, type PositionComponent } from '@godcell/shared';
+import type { NutrientMovedMessage, NutrientCollectedMessage } from '#shared';
+import { GAME_CONFIG, Tags, Components, type World, type PositionComponent } from '#shared';
 import type { System } from './types';
 import { forEachObstacle, getStringIdByEntity, destroyEntity as ecsDestroyEntity } from '../index';
 import { distance } from '../../helpers';

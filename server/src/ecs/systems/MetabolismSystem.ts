@@ -4,13 +4,13 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { World } from '@godcell/shared';
+import type { World } from '#shared';
 import type {
   PlayerEvolutionStartedMessage,
   PlayerEvolvedMessage,
   SpecializationPromptMessage,
-} from '@godcell/shared';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+} from '#shared';
+import { EvolutionStage, GAME_CONFIG } from '#shared';
 import type { System } from './types';
 import {
   Components,

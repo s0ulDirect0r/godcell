@@ -15,7 +15,7 @@ import {
   type StageComponent,
   type SwarmComponent,
   EvolutionStage,
-} from '@godcell/shared';
+} from '#shared';
 import { ClientComponents } from '../../ecs/types';
 import type { DrainAuraComponent, GainAuraComponent } from '../../ecs/components';
 import { getStringIdByEntity } from '../../ecs/factories';

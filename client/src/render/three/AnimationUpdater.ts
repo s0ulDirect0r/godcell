@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG } from '#shared';
 import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation, EnergyWhipAnimation } from '../effects/ParticleEffects';
 
 /**

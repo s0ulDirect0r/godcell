@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage, GAME_CONFIG } from '@godcell/shared';
+import { EvolutionStage, GAME_CONFIG } from '#shared';
 
 /**
  * Calculate evolution progress (0.0-1.0) based on maxEnergy and stage

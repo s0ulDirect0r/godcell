@@ -5,8 +5,8 @@
 // ============================================
 
 import * as THREE from 'three';
-import type { Player, EvolutionStage, DamageSource } from '@godcell/shared';
-import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '@godcell/shared';
+import type { Player, EvolutionStage, DamageSource } from '#shared';
+import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '#shared';
 import {
   World,
   Tags,

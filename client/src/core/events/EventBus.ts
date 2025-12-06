@@ -2,7 +2,7 @@
 // Event Bus - Type-Safe Local Pub/Sub
 // ============================================
 
-import type { ServerMessage, CombatSpecialization, MeleeAttackType } from '@godcell/shared';
+import type { ServerMessage, CombatSpecialization, MeleeAttackType } from '#shared';
 
 // Client-only events (internal state, not from server)
 type ClientEvent =

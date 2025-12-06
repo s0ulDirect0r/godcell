@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '@godcell/shared';
-import { GAME_CONFIG, Tags, type World } from '@godcell/shared';
+import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '#shared';
+import { GAME_CONFIG, Tags, type World } from '#shared';
 import type { System } from './types';
 import {
   getEntityBySocketId,

@@ -3,7 +3,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '@godcell/shared';
+import { GAME_CONFIG } from '#shared';
 
 /**
  * Visual parameters for jungle background

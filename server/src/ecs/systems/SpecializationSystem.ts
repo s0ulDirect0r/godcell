@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { World, SpecializationSelectedMessage, CombatSpecialization } from '@godcell/shared';
-import { Tags } from '@godcell/shared';
+import type { World, SpecializationSelectedMessage, CombatSpecialization } from '#shared';
+import { Tags } from '#shared';
 import type { System } from './types';
 import {
   Components,

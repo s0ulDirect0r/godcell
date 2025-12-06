@@ -4,13 +4,13 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { Tags, Components, type World } from '@godcell/shared';
+import { Tags, Components, type World } from '#shared';
 import type {
   EnergyComponent,
   PositionComponent,
   StageComponent,
   TreeComponent,
-} from '@godcell/shared';
+} from '#shared';
 import type { System } from './types';
 import { getSocketIdByEntity, forEachTree } from '../factories';
 import { distance, isJungleStage } from '../../helpers';

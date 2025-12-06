@@ -3,7 +3,7 @@
 // Convert player entities to network formats
 // ============================================
 
-import { Components, Tags } from '@godcell/shared';
+import { Components, Tags } from '#shared';
 import type {
   World,
   EntityId,
@@ -11,7 +11,7 @@ import type {
   EnergyComponent,
   StageComponent,
   EnergyUpdateMessage,
-} from '@godcell/shared';
+} from '#shared';
 import { getSocketIdByEntity } from '../factories';
 
 /**

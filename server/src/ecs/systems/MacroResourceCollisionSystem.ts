@@ -5,12 +5,12 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Components, type World } from '@godcell/shared';
+import { GAME_CONFIG, Components, type World } from '#shared';
 import type {
   PositionComponent,
   StageComponent,
   EnergyComponent,
-} from '@godcell/shared';
+} from '#shared';
 import type { System } from './types';
 import {
   forEachPlayer,

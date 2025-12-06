@@ -3,7 +3,7 @@
 // Evolution stage configuration and lookups
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage } from '@godcell/shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
 import { getConfig } from '../dev';
 
 /**
