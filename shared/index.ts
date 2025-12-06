@@ -1024,7 +1024,7 @@ export const GAME_CONFIG = {
   PSEUDOPOD_PROJECTILE_SPEED: 3600,      // (legacy) Pixels per second beam travel speed
   PSEUDOPOD_WIDTH: 20,                   // (legacy) Beam collision width in pixels
   PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per strike
-  PSEUDOPOD_DRAIN_RATE: 100,             // Energy drained per hit (attacker absorbs this)
+  PSEUDOPOD_DRAIN_RATE: 200,             // Energy drained per hit (attacker absorbs this)
   PSEUDOPOD_COOLDOWN: 1000,              // Milliseconds between strikes
   MULTICELL_KILL_ABSORPTION: 0.8,        // Gain 80% of victim's maxEnergy when killing another multi-cell
 
