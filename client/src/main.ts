@@ -127,9 +127,9 @@ function initializeGame(settings: PreGameSettings): void {
   inputManager = new InputManager();
 
   // Determine server URL
-  const serverUrl = window.location.hostname === 'localhost'
-    ? 'http://localhost:3000'
-    : window.location.origin;
+  // Priority: VITE_SERVER_URL env var > localhost detection > same origin
+  const serverUrl = import.meta.env.VITE_SERVER_URL
+    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
   // Connect to server - SocketManager writes directly to World
   socketManager = new SocketManager(serverUrl, world, settings.playgroundMode);

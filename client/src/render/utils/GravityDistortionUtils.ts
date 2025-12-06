@@ -4,7 +4,6 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '@godcell/shared';
 import {
   World,
   Tags,

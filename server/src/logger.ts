@@ -8,12 +8,13 @@ import type { DeathCause } from '@godcell/shared';
 const LOG_DIR = process.env.LOG_DIR || 'logs';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const IS_DEV = process.env.NODE_ENV !== 'production';
+const IS_CLOUD = process.env.RAILWAY_ENVIRONMENT || process.env.RENDER || process.env.FLY_APP_NAME;
 
 /**
- * Create a logger with console + rotating file output
- * pino-roll is used as a Pino transport for file rotation
- * @param filename - Log file name (e.g., 'server.log')
- * @param component - Component name for filtering (e.g., 'server', 'perf', 'client')
+ * Create a logger with appropriate output for the environment
+ * - Development: pretty console + rotating file
+ * - Cloud (Railway/Render/Fly): stdout JSON (platform captures logs)
+ * - Production (self-hosted): rotating file only
  */
 function createLogger(filename: string, component: string) {
   const targets: pino.TransportTargetOptions[] = [];
@@ -31,17 +32,26 @@ function createLogger(filename: string, component: string) {
     });
   }
 
-  // Rotating file stream with JSON (always enabled)
-  targets.push({
-    level: 'info',
-    target: 'pino-roll',
-    options: {
-      file: `${LOG_DIR}/${filename}`,
-      size: '10m',         // Rotate at 10MB
-      limit: { count: 5 }, // Keep last 5 rotated files
-      mkdir: true,         // Create logs dir if needed
-    },
-  });
+  // Cloud platforms: log to stdout (JSON format, platform captures it)
+  if (IS_CLOUD) {
+    targets.push({
+      level: LOG_LEVEL,
+      target: 'pino/file',
+      options: { destination: 1 }, // stdout
+    });
+  } else {
+    // Local/self-hosted: rotating file stream with JSON
+    targets.push({
+      level: 'info',
+      target: 'pino-roll',
+      options: {
+        file: `${LOG_DIR}/${filename}`,
+        size: '10m',         // Rotate at 10MB
+        limit: { count: 5 }, // Keep last 5 rotated files
+        mkdir: true,         // Create logs dir if needed
+      },
+    });
+  }
 
   return pino(
     {
