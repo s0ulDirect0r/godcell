@@ -642,6 +642,204 @@ export interface MeleeArcAnimation {
  * Swipe: 90° arc, Thrust: 30° narrow cone
  * Features: solid arc mesh, bright particles, trails, sparks
  */
+/**
+ * Animation data for energy whip strike effect (lightning bolt + AoE impact)
+ * Used for multi-cell pseudopod attack
+ */
+export interface EnergyWhipAnimation {
+  boltLine: THREE.Line;              // Main lightning bolt line
+  impactParticles: THREE.Points;     // AoE explosion particles at target
+  boltParticles: THREE.Points;       // Particles along the bolt
+  particleData: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+  }>;
+  boltData: Array<{
+    baseX: number;                   // Original position on bolt
+    baseY: number;
+    offsetX: number;                 // Current jitter offset
+    offsetY: number;
+  }>;
+  startTime: number;
+  duration: number;
+  strikerX: number;
+  strikerY: number;
+  targetX: number;
+  targetY: number;
+  aoeRadius: number;
+  colorHex: number;
+}
+
+/**
+ * Spawn energy whip strike - lightning bolt from striker to target with AoE impact
+ * Creates dramatic visual: jagged bolt + explosive impact particles
+ * @param totalDrained - Amount of energy drained (scales effect intensity)
+ */
+export function spawnEnergyWhipStrike(
+  scene: THREE.Scene,
+  strikerX: number,
+  strikerY: number,
+  targetX: number,
+  targetY: number,
+  aoeRadius: number,
+  colorHex: number,
+  totalDrained: number
+): EnergyWhipAnimation {
+  // Effect duration: 400ms for quick, punchy feel
+  const duration = 400;
+  // Scale particle count based on energy drained (more dramatic when more energy stolen)
+  const baseParticleCount = 40;
+  const particleCount = Math.min(80, baseParticleCount + Math.floor(totalDrained / 5));
+
+  // Calculate bolt direction
+  const dx = targetX - strikerX;
+  const dy = targetY - strikerY;
+
+  // ============================================
+  // 1. LIGHTNING BOLT LINE - jagged path from striker to target
+  // ============================================
+  const boltSegments = 12; // Number of segments in bolt (more = more jagged)
+  const boltPoints: THREE.Vector3[] = [];
+  const boltData: EnergyWhipAnimation['boltData'] = [];
+
+  for (let i = 0; i <= boltSegments; i++) {
+    const t = i / boltSegments;
+    // Base position along line
+    const baseX = strikerX + dx * t;
+    const baseY = strikerY + dy * t;
+
+    // Perpendicular offset for jaggedness (less at endpoints, more in middle)
+    // Max offset: 20px creates visible zigzag without being chaotic
+    const offsetScale = Math.sin(t * Math.PI) * 20;
+    const offsetX = (i === 0 || i === boltSegments) ? 0 : (Math.random() - 0.5) * offsetScale * 2;
+    const offsetY = (i === 0 || i === boltSegments) ? 0 : (Math.random() - 0.5) * offsetScale * 2;
+
+    // XZ plane: X=game X, Y=height, Z=-game Y
+    boltPoints.push(new THREE.Vector3(
+      baseX + offsetX,
+      0.4, // Height above ground
+      -(baseY + offsetY)
+    ));
+
+    boltData.push({ baseX, baseY, offsetX, offsetY });
+  }
+
+  const boltGeometry = new THREE.BufferGeometry().setFromPoints(boltPoints);
+  const boltMaterial = new THREE.LineBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity: 1.0,
+    linewidth: 3, // Note: linewidth > 1 only works on some systems
+  });
+  const boltLine = new THREE.Line(boltGeometry, boltMaterial);
+  scene.add(boltLine);
+
+  // ============================================
+  // 2. BOLT PARTICLES - sparks along the lightning
+  // ============================================
+  const boltParticleCount = 20;
+  const boltParticleGeometry = new THREE.BufferGeometry();
+  const boltPositions = new Float32Array(boltParticleCount * 3);
+  const boltSizes = new Float32Array(boltParticleCount);
+
+  for (let i = 0; i < boltParticleCount; i++) {
+    // Random position along bolt
+    const t = Math.random();
+    const px = strikerX + dx * t + (Math.random() - 0.5) * 15;
+    const py = strikerY + dy * t + (Math.random() - 0.5) * 15;
+
+    boltPositions[i * 3] = px;
+    boltPositions[i * 3 + 1] = 0.5; // Height
+    boltPositions[i * 3 + 2] = -py;
+
+    boltSizes[i] = 4 + Math.random() * 4;
+  }
+
+  boltParticleGeometry.setAttribute('position', new THREE.BufferAttribute(boltPositions, 3));
+  boltParticleGeometry.setAttribute('size', new THREE.BufferAttribute(boltSizes, 1));
+
+  const boltParticleMaterial = new THREE.PointsMaterial({
+    color: colorHex,
+    size: 5,
+    transparent: true,
+    opacity: 1.0,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const boltParticles = new THREE.Points(boltParticleGeometry, boltParticleMaterial);
+  scene.add(boltParticles);
+
+  // ============================================
+  // 3. IMPACT PARTICLES - explosion at target location
+  // ============================================
+  const impactGeometry = new THREE.BufferGeometry();
+  const impactPositions = new Float32Array(particleCount * 3);
+  const impactSizes = new Float32Array(particleCount);
+  const particleData: EnergyWhipAnimation['particleData'] = [];
+
+  for (let i = 0; i < particleCount; i++) {
+    // Start at impact point
+    impactPositions[i * 3] = targetX;
+    impactPositions[i * 3 + 1] = 0.3; // Height
+    impactPositions[i * 3 + 2] = -targetY;
+
+    impactSizes[i] = 4 + Math.random() * 6;
+
+    // Radial burst velocity - spread within AoE radius
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 100 + Math.random() * 200; // px/sec
+
+    particleData.push({
+      x: targetX,
+      y: targetY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+    });
+  }
+
+  impactGeometry.setAttribute('position', new THREE.BufferAttribute(impactPositions, 3));
+  impactGeometry.setAttribute('size', new THREE.BufferAttribute(impactSizes, 1));
+
+  // Brighter version of color for impact
+  const r = Math.min(255, ((colorHex >> 16) & 0xff) + 50);
+  const g = Math.min(255, ((colorHex >> 8) & 0xff) + 50);
+  const b = Math.min(255, (colorHex & 0xff) + 50);
+  const brightColor = (r << 16) | (g << 8) | b;
+
+  const impactMaterial = new THREE.PointsMaterial({
+    color: brightColor,
+    size: 6,
+    transparent: true,
+    opacity: 1.0,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const impactParticles = new THREE.Points(impactGeometry, impactMaterial);
+  scene.add(impactParticles);
+
+  return {
+    boltLine,
+    impactParticles,
+    boltParticles,
+    particleData,
+    boltData,
+    startTime: Date.now(),
+    duration,
+    strikerX,
+    strikerY,
+    targetX,
+    targetY,
+    aoeRadius,
+    colorHex,
+  };
+}
+
 export function spawnMeleeArc(
   scene: THREE.Scene,
   x: number,

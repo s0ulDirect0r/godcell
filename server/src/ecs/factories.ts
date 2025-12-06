@@ -427,6 +427,10 @@ export function createSwarm(
     homePosition: { x: position.x, y: position.y, z: position.z ?? 0 },
     patrolTarget: patrolTarget ? { x: patrolTarget.x, y: patrolTarget.y, z: patrolTarget.z ?? 0 } : undefined,
   });
+  // DamageTracking for centralized death handling in DeathSystem
+  world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
+    activeDamage: [],
+  });
 
   world.addTag(entity, Tags.Swarm);
   registerStringIdMapping(entity, swarmId);

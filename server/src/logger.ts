@@ -302,6 +302,8 @@ export function getDeathRateStats(): {
     obstacle: 0,
     predation: 0,
     beam: 0,
+    gravity: 0,
+    consumption: 0,
   };
 
   // Count by stage

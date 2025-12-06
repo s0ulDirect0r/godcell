@@ -22,6 +22,7 @@ import type {
   PseudopodMovedMessage,
   PseudopodRetractedMessage,
   PseudopodHitMessage,
+  PseudopodStrikeMessage,
   PlayerEngulfedMessage,
   DetectionUpdateMessage,
   EMPActivatedMessage,
@@ -446,6 +447,12 @@ export class SocketManager {
 
     this.socket.on('pseudopodHit', (data: PseudopodHitMessage) => {
       // Emit to EventBus for visual effects (particle burst, drain aura flash)
+      eventBus.emit(data);
+    });
+
+    // Pseudopod strike (energy whip AoE attack)
+    this.socket.on('pseudopodStrike', (data: PseudopodStrikeMessage) => {
+      // Emit to EventBus for visual effects (lightning + impact explosion)
       eventBus.emit(data);
     });
 

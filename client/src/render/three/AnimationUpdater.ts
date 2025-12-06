@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '@godcell/shared';
-import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation } from '../effects/ParticleEffects';
+import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation, EnergyWhipAnimation } from '../effects/ParticleEffects';
 
 /**
  * Update death particle animations (radial burst that fades)
@@ -606,6 +606,115 @@ export function updateMeleeArcAnimations(
       anim.hitboxMesh.geometry.dispose();
       (anim.hitboxMesh.material as THREE.Material).dispose();
     }
+
+    animations.splice(index, 1);
+  }
+}
+
+/**
+ * Update energy whip strike animations (lightning bolt + impact explosion)
+ * Bolt jitters and fades while impact particles burst outward
+ *
+ * @param scene - Three.js scene (for removing finished particles)
+ * @param animations - Array of energy whip animations (mutated in place)
+ * @param dt - Delta time in milliseconds
+ */
+export function updateEnergyWhipAnimations(
+  scene: THREE.Scene,
+  animations: EnergyWhipAnimation[],
+  dt: number
+): void {
+  const deltaSeconds = dt / 1000;
+  const now = Date.now();
+  const finishedAnimations: number[] = [];
+
+  animations.forEach((anim, index) => {
+    const elapsed = now - anim.startTime;
+    const progress = Math.min(elapsed / anim.duration, 1);
+
+    if (progress >= 1) {
+      finishedAnimations.push(index);
+      return;
+    }
+
+    // ============================================
+    // Update lightning bolt - jitter the midpoints
+    // ============================================
+    const boltPositions = anim.boltLine.geometry.attributes.position.array as Float32Array;
+
+    for (let i = 0; i < anim.boltData.length; i++) {
+      const b = anim.boltData[i];
+
+      // Jitter midpoints (not endpoints)
+      if (i > 0 && i < anim.boltData.length - 1) {
+        // Rapid jitter that decreases as animation progresses
+        const jitterScale = (1 - progress) * 15;
+        b.offsetX = (Math.random() - 0.5) * jitterScale * 2;
+        b.offsetY = (Math.random() - 0.5) * jitterScale * 2;
+      }
+
+      // Update position
+      boltPositions[i * 3] = b.baseX + b.offsetX;
+      boltPositions[i * 3 + 1] = 0.4;
+      boltPositions[i * 3 + 2] = -(b.baseY + b.offsetY);
+    }
+    anim.boltLine.geometry.attributes.position.needsUpdate = true;
+
+    // Fade bolt
+    const boltMaterial = anim.boltLine.material as THREE.LineBasicMaterial;
+    boltMaterial.opacity = 1 - progress;
+
+    // ============================================
+    // Update bolt particles - flicker and fade
+    // ============================================
+    const boltParticleMaterial = anim.boltParticles.material as THREE.PointsMaterial;
+    // Flickering opacity for electric feel
+    boltParticleMaterial.opacity = (1 - progress) * (0.5 + Math.random() * 0.5);
+
+    // ============================================
+    // Update impact particles - burst outward
+    // ============================================
+    const impactPositions = anim.impactParticles.geometry.attributes.position.array as Float32Array;
+
+    for (let i = 0; i < anim.particleData.length; i++) {
+      const p = anim.particleData[i];
+
+      // Move particle outward
+      p.x += p.vx * deltaSeconds;
+      p.y += p.vy * deltaSeconds;
+      p.life = 1 - progress;
+
+      // Update position
+      impactPositions[i * 3] = p.x;
+      impactPositions[i * 3 + 1] = 0.3;
+      impactPositions[i * 3 + 2] = -p.y;
+    }
+    anim.impactParticles.geometry.attributes.position.needsUpdate = true;
+
+    // Fade impact particles
+    const impactMaterial = anim.impactParticles.material as THREE.PointsMaterial;
+    impactMaterial.opacity = 1 - progress;
+  });
+
+  // Clean up finished animations
+  for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+    const index = finishedAnimations[i];
+    const anim = animations[index];
+
+    // Clean up bolt line
+    scene.remove(anim.boltLine);
+    anim.boltLine.geometry.dispose();
+    (anim.boltLine.material as THREE.Material).dispose();
+
+    // Clean up bolt particles
+    scene.remove(anim.boltParticles);
+    anim.boltParticles.geometry.dispose();
+    (anim.boltParticles.material as THREE.Material).dispose();
+
+    // Clean up impact particles
+    scene.remove(anim.impactParticles);
+    anim.impactParticles.geometry.dispose();
+    (anim.impactParticles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
   }

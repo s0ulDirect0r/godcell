@@ -1,15 +1,16 @@
 // ============================================
 // Death System
-// Handles player death checks and processing
+// Handles player and swarm death checks and processing
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause } from '@godcell/shared';
+import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause, SwarmConsumedMessage } from '@godcell/shared';
 import { EvolutionStage, GAME_CONFIG, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   Components,
   forEachPlayer,
+  forEachSwarm,
   getPlayerBySocketId,
   getEnergyBySocketId,
   setEnergyBySocketId,
@@ -18,6 +19,7 @@ import {
   getDrainPredatorId,
   clearDrainTarget,
   getDamageTrackingBySocketId,
+  destroyEntity,
   type EnergyComponent,
   type DamageTrackingComponent,
 } from '../index';
@@ -25,13 +27,14 @@ import { isBot, handleBotDeath } from '../../bots';
 import { logger, recordLifetimeDeath, logPlayerDeath } from '../../logger';
 
 /**
- * DeathSystem - Checks for and processes player deaths
+ * DeathSystem - Checks for and processes player and swarm deaths
  *
  * Handles:
  * - Death detection (energy <= 0 with tracked damage source)
  * - Kill rewards (predation and beam kills award maxEnergy)
  * - Death broadcasts (final energy update, death event)
  * - Bot auto-respawn scheduling
+ * - Swarm death and kill rewards
  * - Marks death as processed (sentinel value) to prevent reprocessing
  */
 export class DeathSystem implements System {
@@ -155,5 +158,76 @@ export class DeathSystem implements System {
         damageTracking.lastDamageSource = undefined;
       }
     });
+
+    // ============================================
+    // Swarm Death Handling
+    // ============================================
+    // Collect dead swarms first to avoid mutation during iteration
+    const deadSwarms: {
+      entity: number;
+      swarmId: string;
+      x: number;
+      y: number;
+      killerId?: string;
+      damageSource?: DeathCause;
+    }[] = [];
+
+    forEachSwarm(world, (entity, swarmId, posComp, _velComp, _swarmComp, energyComp) => {
+      if (energyComp.current <= 0) {
+        // Get damage tracking to find killer
+        const damageTracking = world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
+        deadSwarms.push({
+          entity,
+          swarmId,
+          x: posComp.x,
+          y: posComp.y,
+          killerId: damageTracking?.lastBeamShooter,
+          damageSource: damageTracking?.lastDamageSource,
+        });
+      }
+    });
+
+    // Process swarm deaths
+    for (const swarm of deadSwarms) {
+      // Award kill rewards to killer (different rewards for beam vs consumption)
+      if (swarm.killerId) {
+        // Beam kills award SWARM_BEAM_KILL_MAX_ENERGY_GAIN
+        // Consumption awards SWARM_MAX_ENERGY_GAIN
+        const maxEnergyGain = swarm.damageSource === 'consumption'
+          ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
+          : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+
+        addEnergyBySocketId(world, swarm.killerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
+        const killerEnergy = getEnergyBySocketId(world, swarm.killerId);
+        if (killerEnergy) {
+          setMaxEnergyBySocketId(world, swarm.killerId, killerEnergy.max + maxEnergyGain);
+        }
+
+        logger.info({
+          event: 'swarm_killed',
+          killerId: swarm.killerId,
+          swarmId: swarm.swarmId,
+          damageSource: swarm.damageSource,
+          energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+          maxEnergyGained: maxEnergyGain,
+        });
+      }
+
+      // Emit consumed event for client visual
+      const maxEnergyGained = swarm.damageSource === 'consumption'
+        ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
+        : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+
+      io.emit('swarmConsumed', {
+        type: 'swarmConsumed',
+        consumerId: swarm.killerId || 'unknown',
+        swarmId: swarm.swarmId,
+        energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+        maxEnergyGained,
+      } as SwarmConsumedMessage);
+
+      // Destroy swarm entity
+      destroyEntity(world, swarm.entity);
+    }
   }
 }

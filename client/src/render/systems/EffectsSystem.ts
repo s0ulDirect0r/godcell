@@ -13,6 +13,7 @@ import {
   type SpawnAnimation,
   type EnergyTransferAnimation,
   type MeleeArcAnimation,
+  type EnergyWhipAnimation,
   spawnDeathParticles,
   spawnHitSparks,
   spawnEvolutionParticles,
@@ -21,6 +22,7 @@ import {
   spawnSwarmDeathExplosion,
   spawnEnergyTransferParticles,
   spawnMeleeArc,
+  spawnEnergyWhipStrike,
 } from '../effects/ParticleEffects';
 import {
   updateDeathAnimations,
@@ -30,6 +32,7 @@ import {
   updateSpawnAnimations,
   updateEnergyTransferAnimations,
   updateMeleeArcAnimations,
+  updateEnergyWhipAnimations,
 } from '../three/AnimationUpdater';
 
 /**
@@ -64,6 +67,7 @@ export class EffectsSystem {
   private spawnAnimations: SpawnAnimation[] = [];
   private energyTransferAnimations: EnergyTransferAnimation[] = [];
   private meleeArcAnimations: MeleeArcAnimation[] = [];
+  private energyWhipAnimations: EnergyWhipAnimation[] = [];
 
   // Track entities that are currently spawning
   private spawningEntities: Set<string> = new Set();
@@ -182,6 +186,33 @@ export class EffectsSystem {
     );
   }
 
+  /**
+   * Spawn energy whip strike - lightning bolt from attacker to target with AoE impact
+   * Used for multi-cell pseudopod attack
+   */
+  spawnEnergyWhipStrike(
+    strikerX: number,
+    strikerY: number,
+    targetX: number,
+    targetY: number,
+    aoeRadius: number,
+    colorHex: number,
+    totalDrained: number
+  ): void {
+    this.energyWhipAnimations.push(
+      spawnEnergyWhipStrike(
+        this.scene,
+        strikerX,
+        strikerY,
+        targetX,
+        targetY,
+        aoeRadius,
+        colorHex,
+        totalDrained
+      )
+    );
+  }
+
   // ============================================
   // Query Methods
   // ============================================
@@ -230,6 +261,9 @@ export class EffectsSystem {
 
     // Update melee arc animations
     updateMeleeArcAnimations(this.scene, this.meleeArcAnimations, dt);
+
+    // Update energy whip strike animations
+    updateEnergyWhipAnimations(this.scene, this.energyWhipAnimations, dt);
 
     return { spawnProgress, receivingEnergy };
   }
@@ -283,6 +317,20 @@ export class EffectsSystem {
       (anim.particles.material as THREE.Material).dispose();
     });
     this.empEffects = [];
+
+    // Clear energy whip animations (multi-cell pseudopod attack)
+    this.energyWhipAnimations.forEach(anim => {
+      this.scene.remove(anim.boltLine);
+      anim.boltLine.geometry.dispose();
+      (anim.boltLine.material as THREE.Material).dispose();
+      this.scene.remove(anim.boltParticles);
+      anim.boltParticles.geometry.dispose();
+      (anim.boltParticles.material as THREE.Material).dispose();
+      this.scene.remove(anim.impactParticles);
+      anim.impactParticles.geometry.dispose();
+      (anim.impactParticles.material as THREE.Material).dispose();
+    });
+    this.energyWhipAnimations = [];
 
     this.spawningEntities.clear();
   }
@@ -350,6 +398,20 @@ export class EffectsSystem {
       (anim.particles.material as THREE.Material).dispose();
     });
     this.meleeArcAnimations = [];
+
+    // Clean up energy whip animations
+    this.energyWhipAnimations.forEach(anim => {
+      this.scene.remove(anim.boltLine);
+      anim.boltLine.geometry.dispose();
+      (anim.boltLine.material as THREE.Material).dispose();
+      this.scene.remove(anim.boltParticles);
+      anim.boltParticles.geometry.dispose();
+      (anim.boltParticles.material as THREE.Material).dispose();
+      this.scene.remove(anim.impactParticles);
+      anim.impactParticles.geometry.dispose();
+      (anim.impactParticles.material as THREE.Material).dispose();
+    });
+    this.energyWhipAnimations = [];
 
     this.spawningEntities.clear();
   }
