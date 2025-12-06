@@ -22,6 +22,7 @@ import {
   updateGridLineDistortion,
   updateGravityWellCache,
   clearGravityWellCache,
+  getGravityWellCache,
 } from '../utils/GravityDistortionUtils';
 import { World } from '../../ecs';
 
@@ -222,10 +223,9 @@ export class EnvironmentSystem {
     // We check each frame until we have obstacles, in case they load after init
     if (!this.gravityWellCacheUpdated && this.world) {
       updateGravityWellCache(this.world);
-      // Only mark as updated if we actually found obstacles
+      // Only mark as updated if we actually found obstacles in the cache
       // (they may not be loaded yet on first frames)
-      const hasObstacles = this.gridLines.length > 0; // Proxy: if grid exists, check wells
-      if (hasObstacles) {
+      if (getGravityWellCache().length > 0) {
         this.gravityWellCacheUpdated = true;
       }
     }

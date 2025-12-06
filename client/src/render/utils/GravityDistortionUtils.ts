@@ -316,15 +316,7 @@ export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransfor
   // We want to stretch along the direction toward gravity
   // This means scaling along a rotated axis
 
-  // Simpler approach: just apply scale and let the visual effect emerge
-  // Scale X = stretch, Scale Z = squash, rotated by skewAngle
-
-  // Create rotation matrix for the skew angle (in XZ plane)
-  const cos = Math.cos(-warp.skewAngle);
-  const sin = Math.sin(-warp.skewAngle);
-
-  // Apply rotated scale using matrix composition
-  // For simplicity, we'll apply scale directly with rotation hint
+  // Apply scale directly with rotation hint
   // This creates a "leaning toward gravity" effect
 
   // Apply non-uniform scale
