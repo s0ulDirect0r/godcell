@@ -17,6 +17,9 @@ export class HUDOverlay {
   // Event subscriptions for cleanup
   private eventSubscriptions: Array<() => void> = [];
 
+  // Keyboard handler reference for cleanup
+  private deathSpaceHandler: ((e: KeyboardEvent) => void) | null = null;
+
   // Session stats
   private sessionStats = {
     spawnTime: 0,
@@ -143,6 +146,15 @@ export class HUDOverlay {
         eventBus.emit({ type: 'client:inputRespawn' });
       };
     }
+
+    // Wire up spacebar for respawn (only when death overlay is visible)
+    this.deathSpaceHandler = (e: KeyboardEvent) => {
+      if (this.deathOverlay?.classList.contains('show') && (e.key === ' ' || e.key === 'Space')) {
+        e.preventDefault(); // Prevent page scroll
+        eventBus.emit({ type: 'client:inputRespawn' });
+      }
+    };
+    window.addEventListener('keydown', this.deathSpaceHandler);
   }
 
   private setupEventHandlers(): void {
@@ -360,6 +372,12 @@ export class HUDOverlay {
     // Clean up event subscriptions
     this.eventSubscriptions.forEach(unsub => unsub());
     this.eventSubscriptions = [];
+
+    // Clean up spacebar handler
+    if (this.deathSpaceHandler) {
+      window.removeEventListener('keydown', this.deathSpaceHandler);
+      this.deathSpaceHandler = null;
+    }
 
     // Remove DOM element
     this.container.remove();
