@@ -13,6 +13,7 @@ import {
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
 } from '../meshes/SwarmMesh';
+import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 import {
   World,
   Tags,
@@ -148,6 +149,13 @@ export class SwarmRenderSystem {
         group.position.x += (target.x - group.position.x) * lerpFactor;
         const targetZ = -target.y;
         group.position.z += (targetZ - group.position.z) * lerpFactor;
+
+        // Apply gravity well distortion effect
+        // Creates visual "spaghettification" when swarms are near gravity wells
+        const gameX = group.position.x;
+        const gameY = -group.position.z; // Three.js Z = -game Y
+        const warp = calculateEntityWarp(gameX, gameY);
+        applyEntityWarp(group, warp);
       }
     });
   }
