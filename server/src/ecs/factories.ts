@@ -1600,12 +1600,12 @@ export function buildSwarmsRecord(world: World): Record<string, {
  */
 export function recordDamage(
   world: World,
-  entityId: string,
+  entity: EntityId,
   damageRate: number,
   source: DamageSource,
   proximityFactor?: number
 ): void {
-  const damageTracking = getDamageTrackingBySocketId(world, entityId);
+  const damageTracking = world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
   if (damageTracking) {
     damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
   }

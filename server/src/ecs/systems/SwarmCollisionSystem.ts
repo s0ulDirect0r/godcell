@@ -63,7 +63,7 @@ export class SwarmCollisionSystem implements System {
       const swarmX = swarmPos.x;
       const swarmY = swarmPos.y;
 
-      for (const { playerId, energyComp, posComp, radius } of soupPlayers) {
+      for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
         // Collision distance = swarm size + player radius (varies by stage)
         const collisionDist = swarmComp.size + radius;
         const collisionDistSq = collisionDist * collisionDist;
@@ -81,7 +81,7 @@ export class SwarmCollisionSystem implements System {
           damagedPlayerIds.add(playerId);
 
           // Record damage for drain aura system
-          recordDamage(world, playerId, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
+          recordDamage(world, entity, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
 
           // Apply movement slow debuff
           slowedPlayerIds.add(playerId);

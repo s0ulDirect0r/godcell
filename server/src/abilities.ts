@@ -285,7 +285,7 @@ export class AbilitySystem {
           hitTargetIds.push(targetId);
 
           // Record damage for drain aura visual (persists for 500ms)
-          recordDamage(world, targetId, drainPerHit, 'beam');
+          recordDamage(world, targetEntity, drainPerHit, 'beam');
 
           // Set decay timer for persistent drain aura after hit
           const targetDamageTracking = getDamageTrackingBySocketId(world, targetId);
@@ -324,7 +324,7 @@ export class AbilitySystem {
           }
 
           // Record damage for drain aura visual
-          recordDamage(world, swarmId, drainPerHit, 'beam');
+          recordDamage(world, swarmEntity, drainPerHit, 'beam');
 
           logger.info({
             event: 'strike_hit_swarm',

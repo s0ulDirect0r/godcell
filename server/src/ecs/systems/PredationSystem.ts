@@ -100,7 +100,7 @@ export class PredationSystem implements System {
           }
 
           // Record damage for drain aura system
-          recordDamage(world, preyId, getConfig('CONTACT_DRAIN_RATE'), 'predation');
+          recordDamage(world, preyEntity, getConfig('CONTACT_DRAIN_RATE'), 'predation');
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {

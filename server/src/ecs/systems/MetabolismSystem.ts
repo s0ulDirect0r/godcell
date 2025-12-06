@@ -83,7 +83,7 @@ export class MetabolismSystem implements System {
           damageTrackingForDeath.lastDamageSource = 'starvation';
         }
         // Record for drain aura (shows starvation state)
-        recordDamage(world, playerId, decayRate, 'starvation');
+        recordDamage(world, entity, decayRate, 'starvation');
       }
 
       // Check for evolution (only if still alive)

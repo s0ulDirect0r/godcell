@@ -420,22 +420,6 @@ function respawnPlayer(playerId: string) {
   logPlayerRespawn(playerId);
 }
 
-/**
- * Helper function to record damage for this tick
- * Used by all damage sources to contribute to drain aura intensity
- * Now writes directly to ECS DamageTrackingComponent
- */
-function recordDamage(
-  entityId: string,
-  damageRate: number,
-  source: DamageSource,
-  proximityFactor?: number
-) {
-  const damageTracking = getDamageTrackingBySocketId(world, entityId);
-  if (damageTracking) {
-    damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
-  }
-}
 
 // ============================================
 // Socket.io Server Setup
