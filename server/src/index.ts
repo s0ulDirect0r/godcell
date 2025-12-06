@@ -848,6 +848,11 @@ io.on('connection', (socket) => {
 let lastTickTime = performance.now();
 let tickCount = 0;
 
+// Rolling stats for periodic performance logging
+let tickTimesMs: number[] = [];
+let lastPerfLogTime = performance.now();
+const PERF_LOG_INTERVAL_MS = 10000; // Log performance stats every 10 seconds
+
 setInterval(() => {
   // Check if game is paused (dev tool) - skip tick unless stepping
   if (!shouldRunTick()) return;
@@ -877,6 +882,9 @@ setInterval(() => {
 
   const tickProcessingMs = performance.now() - tickProcessingStart;
 
+  // Track tick times for rolling stats
+  tickTimesMs.push(tickProcessingMs);
+
   // Log if actual tick delta exceeds expected by 50% (> 25ms for 16.67ms tick)
   // Compare actualDelta (time since last tick) vs tickProcessingMs (time spent in tick)
   // If actualDelta >> tickProcessingMs, event loop was blocked (GC, etc.)
@@ -890,6 +898,48 @@ setInterval(() => {
       expectedMs: TICK_INTERVAL.toFixed(1),
       ratio: (actualDelta / TICK_INTERVAL).toFixed(2),
     }, `Tick variance: ${actualDelta.toFixed(1)}ms (processing: ${tickProcessingMs.toFixed(1)}ms)`);
+  }
+
+  // Periodic performance stats logging
+  if (now - lastPerfLogTime >= PERF_LOG_INTERVAL_MS && tickTimesMs.length > 0) {
+    // Calculate stats
+    const sortedTimes = [...tickTimesMs].sort((a, b) => a - b);
+    const avgMs = tickTimesMs.reduce((a, b) => a + b, 0) / tickTimesMs.length;
+    const minMs = sortedTimes[0];
+    const maxMs = sortedTimes[sortedTimes.length - 1];
+    const p50Ms = sortedTimes[Math.floor(sortedTimes.length * 0.5)];
+    const p95Ms = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
+    const p99Ms = sortedTimes[Math.floor(sortedTimes.length * 0.99)];
+
+    // Count entities for context
+    let playerCount = 0;
+    let botCount = 0;
+    forEachPlayer(world, (entity, playerId) => {
+      playerCount++;
+      if (isBot(playerId)) botCount++;
+    });
+    const humanCount = playerCount - botCount;
+
+    perfLogger.info({
+      event: 'tick_stats',
+      intervalSec: ((now - lastPerfLogTime) / 1000).toFixed(1),
+      tickCount: tickTimesMs.length,
+      avgMs: avgMs.toFixed(2),
+      minMs: minMs.toFixed(2),
+      maxMs: maxMs.toFixed(2),
+      p50Ms: p50Ms.toFixed(2),
+      p95Ms: p95Ms.toFixed(2),
+      p99Ms: p99Ms.toFixed(2),
+      budgetMs: TICK_INTERVAL.toFixed(1),
+      budgetUsedPct: ((avgMs / TICK_INTERVAL) * 100).toFixed(1),
+      humanPlayers: humanCount,
+      bots: botCount,
+      totalPlayers: playerCount,
+    }, `Tick stats: avg=${avgMs.toFixed(2)}ms p95=${p95Ms.toFixed(2)}ms (${((avgMs / TICK_INTERVAL) * 100).toFixed(0)}% budget)`);
+
+    // Reset for next interval
+    tickTimesMs = [];
+    lastPerfLogTime = now;
   }
 }, TICK_INTERVAL);
 

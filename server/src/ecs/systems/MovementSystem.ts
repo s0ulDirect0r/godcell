@@ -272,7 +272,7 @@ export class MovementSystem implements System {
         positionComponent.z = Math.max(zMin, Math.min(zMax, positionComponent.z));
       }
 
-      // Broadcast position update (include z for godcell)
+      // Broadcast position update
       const moveMessage: PlayerMovedMessage = {
         type: 'playerMoved',
         playerId,
