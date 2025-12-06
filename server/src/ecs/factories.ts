@@ -1127,6 +1127,119 @@ export function isBot(world: World, entity: EntityId): boolean {
   return world.hasTag(entity, Tags.Bot);
 }
 
+// ============================================
+// Throwing Component Access (for invariant enforcement)
+// Use these in systems where missing components indicate bugs
+// ============================================
+
+/**
+ * Get player's energy component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireEnergy(world: World, entity: EntityId): EnergyComponent {
+  const comp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Energy missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's position component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requirePosition(world: World, entity: EntityId): PositionComponent {
+  const comp = world.getComponent<PositionComponent>(entity, Components.Position);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Position missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's stage component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireStage(world: World, entity: EntityId): StageComponent {
+  const comp = world.getComponent<StageComponent>(entity, Components.Stage);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Stage missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's velocity component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireVelocity(world: World, entity: EntityId): VelocityComponent {
+  const comp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Velocity missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's input component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireInput(world: World, entity: EntityId): InputComponent {
+  const comp = world.getComponent<InputComponent>(entity, Components.Input);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Input missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's cooldowns component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireCooldowns(world: World, entity: EntityId): CooldownsComponent {
+  const comp = world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Cooldowns missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's stunned component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireStunned(world: World, entity: EntityId): StunnedComponent {
+  const comp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Stunned missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's damage tracking component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requireDamageTracking(world: World, entity: EntityId): DamageTrackingComponent {
+  const comp = world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: DamageTracking missing on entity ${entity}`);
+  }
+  return comp;
+}
+
+/**
+ * Get player's player component by entity ID.
+ * Throws if component is missing (invariant violation).
+ */
+export function requirePlayer(world: World, entity: EntityId): PlayerComponent {
+  const comp = world.getComponent<PlayerComponent>(entity, Components.Player);
+  if (!comp) {
+    throw new Error(`EntityMissingComponent: Player missing on entity ${entity}`);
+  }
+  return comp;
+}
+
 /**
  * Set player's velocity by entity ID.
  */

@@ -22,6 +22,8 @@ import {
   hasPlayer,
   getDamageTracking,
   recordDamage,
+  requireEnergy,
+  requireStage,
   type EnergyComponent,
   type StageComponent,
   type CombatSpecializationComponent,
@@ -45,9 +47,8 @@ export class MetabolismSystem implements System {
   update(world: World, deltaTime: number, io: Server): void {
 
     forEachPlayer(world, (entity, playerId) => {
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      if (!energyComp || !stageComp) return;
+      const energyComp = requireEnergy(world, entity);
+      const stageComp = requireStage(world, entity);
 
       // Skip dead players waiting for respawn (energy < 0 means death already processed)
       // Catch-all: if energy is exactly 0 but no death cause tracked (e.g., from movement/ability costs),
@@ -98,9 +99,8 @@ export class MetabolismSystem implements System {
    */
   private checkEvolution(entity: number, playerId: string, world: World, io: Server): void {
 
-    const stageComp = getStage(world, entity);
-    const energyComp = getEnergy(world, entity);
-    if (!stageComp || !energyComp) return;
+    const stageComp = requireStage(world, entity);
+    const energyComp = requireEnergy(world, entity);
 
     if (stageComp.isEvolving) return; // Already evolving
 
@@ -129,69 +129,79 @@ export class MetabolismSystem implements System {
 
     // Schedule evolution completion after molting duration
     setTimeout(() => {
-      // Check if player still exists (they might have disconnected during molting)
-      if (!hasPlayer(world, playerId)) return;
+      try {
+        // Check if player still exists (they might have disconnected during molting)
+        if (!hasPlayer(world, playerId)) return;
 
-      // Re-fetch entity and components (entity may have changed due to respawn)
-      const entityNow = getEntityBySocketId(playerId);
-      if (!entityNow) return;
+        // Re-fetch entity and components (entity may have changed due to respawn)
+        const entityNow = getEntityBySocketId(playerId);
+        if (!entityNow) return;
 
-      const stageCompNow = getStage(world, entityNow);
-      const energyCompNow = getEnergy(world, entityNow);
-      if (!stageCompNow || !energyCompNow) return;
+        const stageCompNow = requireStage(world, entityNow);
+        const energyCompNow = requireEnergy(world, entityNow);
 
-      stageCompNow.stage = targetStage;
-      stageCompNow.isEvolving = false;
+        stageCompNow.stage = targetStage;
+        stageCompNow.isEvolving = false;
 
-      // Update energy pool for new stage
-      // Evolution grants the new stage's max energy pool (fully restored)
-      const newMaxEnergy = getStageMaxEnergy(stageCompNow.stage);
-      energyCompNow.max = Math.max(energyCompNow.max, newMaxEnergy);
-      energyCompNow.current = energyCompNow.max; // Evolution fully restores energy
+        // Update energy pool for new stage
+        // Evolution grants the new stage's max energy pool (fully restored)
+        const newMaxEnergy = getStageMaxEnergy(stageCompNow.stage);
+        energyCompNow.max = Math.max(energyCompNow.max, newMaxEnergy);
+        energyCompNow.current = energyCompNow.max; // Evolution fully restores energy
 
-      // Also update ECS stage abilities via setPlayerStage
-      setPlayerStage(world, entityNow, targetStage);
+        // Also update ECS stage abilities via setPlayerStage
+        setPlayerStage(world, entityNow, targetStage);
 
-      // Stage 3 (Cyber-Organism): Add combat specialization component
-      // Player must choose melee, ranged, or traps pathway
-      if (targetStage === EvolutionStage.CYBER_ORGANISM) {
-        const now = Date.now();
-        const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
+        // Stage 3 (Cyber-Organism): Add combat specialization component
+        // Player must choose melee, ranged, or traps pathway
+        if (targetStage === EvolutionStage.CYBER_ORGANISM) {
+          const now = Date.now();
+          const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
-        // Add the combat specialization component with pending selection
-        world.addComponent<CombatSpecializationComponent>(entityNow, Components.CombatSpecialization, {
-          specialization: null,
-          selectionPending: true,
-          selectionDeadline: deadline,
-        });
+          // Add the combat specialization component with pending selection
+          world.addComponent<CombatSpecializationComponent>(entityNow, Components.CombatSpecialization, {
+            specialization: null,
+            selectionPending: true,
+            selectionDeadline: deadline,
+          });
 
-        // Emit specialization prompt to the evolving player
-        const promptMessage: SpecializationPromptMessage = {
-          type: 'specializationPrompt',
+          // Emit specialization prompt to the evolving player
+          const promptMessage: SpecializationPromptMessage = {
+            type: 'specializationPrompt',
+            playerId: playerId,
+            deadline: deadline,
+          };
+          io.emit('specializationPrompt', promptMessage);
+
+          logger.info({
+            event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
+            playerId,
+            deadline,
+          });
+        }
+
+        // Broadcast evolution event
+        const evolveMessage: PlayerEvolvedMessage = {
+          type: 'playerEvolved',
           playerId: playerId,
-          deadline: deadline,
+          newStage: stageCompNow.stage,
+          newMaxEnergy: energyCompNow.max,
+          radius: stageCompNow.radius,
         };
-        io.emit('specializationPrompt', promptMessage);
+        io.emit('playerEvolved', evolveMessage);
 
-        logger.info({
-          event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
+        // Track evolution for rate tracking (includes survival time calculation)
+        recordEvolution(playerId, fromStage, stageCompNow.stage, isBot(playerId));
+      } catch (error) {
+        logger.error({
+          event: 'evolution_completion_error',
           playerId,
-          deadline,
-        });
+          fromStage,
+          targetStage,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        }, `Evolution completion failed for ${playerId}`);
       }
-
-      // Broadcast evolution event
-      const evolveMessage: PlayerEvolvedMessage = {
-        type: 'playerEvolved',
-        playerId: playerId,
-        newStage: stageCompNow.stage,
-        newMaxEnergy: energyCompNow.max,
-        radius: stageCompNow.radius,
-      };
-      io.emit('playerEvolved', evolveMessage);
-
-      // Track evolution for rate tracking (includes survival time calculation)
-      recordEvolution(playerId, fromStage, stageCompNow.stage, isBot(playerId));
     }, getConfig('EVOLUTION_MOLTING_DURATION'));
   }
 }

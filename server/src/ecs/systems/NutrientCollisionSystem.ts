@@ -12,6 +12,9 @@ import {
   forEachPlayer,
   getAllNutrientSnapshots,
   destroyEntity as ecsDestroyEntity,
+  requireEnergy,
+  requirePosition,
+  requireStage,
   type PositionComponent,
   type StageComponent,
   type EnergyComponent,
@@ -41,10 +44,9 @@ export class NutrientCollisionSystem implements System {
     const collectedThisTick = new Set<string>();
 
     forEachPlayer(world, (entity, playerId) => {
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      if (!posComp || !stageComp || !energyComp) return;
+      const posComp = requirePosition(world, entity);
+      const stageComp = requireStage(world, entity);
+      const energyComp = requireEnergy(world, entity);
 
       // Skip dead players (waiting for manual respawn)
       if (energyComp.current <= 0) return;

@@ -583,20 +583,41 @@ io.on('connection', (socket) => {
   socket.broadcast.emit('playerJoined', joinMessage);
 
   // ============================================
+  // Socket Handler Error Wrapper
+  // ============================================
+  // Wraps socket event handlers in try-catch to prevent crashes from propagating
+  // Logs errors with socket context and continues serving other events
+  const safeHandler = <T>(eventName: string, handler: (message: T) => void) => {
+    return (message: T) => {
+      try {
+        handler(message);
+      } catch (error) {
+        logger.error({
+          event: 'socket_handler_error',
+          socketId: socket.id,
+          eventName,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        }, `Socket handler ${eventName} threw an error`);
+      }
+    };
+  };
+
+  // ============================================
   // Player Movement Input
   // ============================================
 
-  socket.on('playerMove', (message: PlayerMoveMessage) => {
+  socket.on('playerMove', safeHandler('playerMove', (message: PlayerMoveMessage) => {
     // Store player's input direction via ECS (will be combined with gravity in game loop)
     // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
     setInputBySocketId(world, socket.id, message.direction.x, message.direction.y, message.direction.z ?? 0);
-  });
+  }));
 
   // ============================================
   // Player Respawn Request
   // ============================================
 
-  socket.on('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
+  socket.on('playerRespawnRequest', safeHandler('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
     // Check player exists and is dead using ECS
     const energyComp = getEnergyBySocketId(world, socket.id);
     if (!energyComp) return;
@@ -605,46 +626,46 @@ io.on('connection', (socket) => {
     if (energyComp.current <= 0) {
       respawnPlayer(socket.id);
     }
-  });
+  }));
 
   // ============================================
   // Pseudopod Beam Fire (Lightning Projectile)
   // ============================================
 
-  socket.on('pseudopodFire', (message: PseudopodFireMessage) => {
+  socket.on('pseudopodFire', safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
     // Lookup entity at socket boundary, then use entity-based API
     const entity = getEntityBySocketId(socket.id);
     if (entity === undefined) return;
     abilitySystem.firePseudopod(entity, socket.id, message.targetX, message.targetY);
-  });
+  }));
 
   // ============================================
   // Projectile Fire (Stage 3 ranged specialization attack)
   // ============================================
 
-  socket.on('projectileFire', (message: ProjectileFireMessage) => {
+  socket.on('projectileFire', safeHandler('projectileFire', (message: ProjectileFireMessage) => {
     // Lookup entity at socket boundary, then use entity-based API
     const entity = getEntityBySocketId(socket.id);
     if (entity === undefined) return;
     abilitySystem.fireProjectile(entity, socket.id, message.targetX, message.targetY);
-  });
+  }));
 
   // ============================================
   // EMP Activation (Multi-cell AoE stun ability)
   // ============================================
 
-  socket.on('empActivate', (_message: EMPActivateMessage) => {
+  socket.on('empActivate', safeHandler('empActivate', (_message: EMPActivateMessage) => {
     // Lookup entity at socket boundary, then use entity-based API
     const entity = getEntityBySocketId(socket.id);
     if (entity === undefined) return;
     abilitySystem.fireEMP(entity, socket.id);
-  });
+  }));
 
   // ============================================
   // Sprint State (Stage 3+ ability)
   // ============================================
 
-  socket.on('playerSprint', (message: PlayerSprintMessage) => {
+  socket.on('playerSprint', safeHandler('playerSprint', (message: PlayerSprintMessage) => {
     // Get player state from ECS
     const energyComp = getEnergyBySocketId(world, socket.id);
     const stageComp = getStageBySocketId(world, socket.id);
@@ -657,13 +678,13 @@ io.on('connection', (socket) => {
 
     // Update sprint state in ECS
     setSprintBySocketId(world, socket.id, message.sprinting);
-  });
+  }));
 
   // ============================================
   // Combat Specialization Selection (Stage 3)
   // ============================================
 
-  socket.on('selectSpecialization', (message: SelectSpecializationMessage) => {
+  socket.on('selectSpecialization', safeHandler('selectSpecialization', (message: SelectSpecializationMessage) => {
     const entity = getEntityBySocketId(socket.id);
     if (!entity) return;
 
@@ -712,48 +733,50 @@ io.on('connection', (socket) => {
       specialization: specComp.specialization,
       isBot: isBot(socket.id),
     });
-  });
+  }));
 
   // ============================================
   // Melee Attack (Stage 3 Melee specialization)
   // ============================================
 
-  socket.on('meleeAttack', (message: MeleeAttackMessage) => {
+  socket.on('meleeAttack', safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
     // Lookup entity at socket boundary, then use entity-based API
     const entity = getEntityBySocketId(socket.id);
     if (entity === undefined) return;
     abilitySystem.fireMeleeAttack(entity, socket.id, message.attackType, message.targetX, message.targetY);
-  });
+  }));
 
-  socket.on('placeTrap', () => {
+  socket.on('placeTrap', safeHandler('placeTrap', () => {
     logger.debug({ event: 'socket_place_trap', socketId: socket.id });
     // Lookup entity at socket boundary, then use entity-based API
     const entity = getEntityBySocketId(socket.id);
     if (entity === undefined) return;
     abilitySystem.placeTrap(entity, socket.id);
-  });
+  }));
 
   // ============================================
   // Dev Command Handling (development mode only)
   // ============================================
 
-  socket.on('devCommand', (message: DevCommandMessage) => {
+  socket.on('devCommand', safeHandler('devCommand', (message: DevCommandMessage) => {
     // Only allow dev commands in development mode
     if (process.env.NODE_ENV === 'production') {
       logger.warn({ event: 'dev_command_blocked', socketId: socket.id, reason: 'production_mode' });
       return;
     }
     handleDevCommand(socket, io, message.command);
-  });
+  }));
 
   // ============================================
   // Client Log Forwarding (for debugging)
   // ============================================
 
-  socket.on('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
+  socket.on('clientLog', safeHandler('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
     const socketId = socket.id || 'unknown';
     const clientId = socketId.slice(0, 8);
-    const logLine = message.args.join(' ');
+    // Validate input: ensure args is an array and limit size
+    const args = Array.isArray(message.args) ? message.args.slice(0, 20) : [];
+    const logLine = args.join(' ').slice(0, 2000); // Limit log line length
 
     // Route PERF logs to performance.log, others to client.log
     const targetLogger = logLine.includes('[PERF]') ? perfLogger : clientLogger;
@@ -773,13 +796,13 @@ io.on('connection', (socket) => {
     } else {
       targetLogger.info(meta, logLine);
     }
-  });
+  }));
 
   // ============================================
   // Disconnection Handling
   // ============================================
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', safeHandler('disconnect', () => {
     logPlayerDisconnected(socket.id);
 
     // Remove from ECS (source of truth)
@@ -796,7 +819,7 @@ io.on('connection', (socket) => {
       playerId: socket.id,
     };
     socket.broadcast.emit('playerLeft', leftMessage);
-  });
+  }));
 });
 
 // ============================================
@@ -874,39 +897,55 @@ setInterval(() => {
 // Periodic Logging
 // ============================================
 
+// Helper to wrap interval callbacks in try-catch
+const safeInterval = (name: string, callback: () => void, interval: number) => {
+  setInterval(() => {
+    try {
+      callback();
+    } catch (error) {
+      logger.error({
+        event: 'interval_error',
+        intervalName: name,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      }, `Interval ${name} threw an error`);
+    }
+  }, interval);
+};
+
 // Log aggregate stats every 15 seconds
-setInterval(() => {
+safeInterval('aggregate_stats', () => {
   const stats = calculateAggregateStats(world);
   logAggregateStats(stats);
 }, 15000);
 
 // Log bot death rate stats every 30 seconds (tracks deaths by cause in rolling 60s window)
-setInterval(() => {
+safeInterval('death_rate_stats', () => {
   maybeLogDeathRateStats();
 }, 5000); // Check frequently, but only logs every 30s when there are deaths
 
 // Log evolution rate stats every 30 seconds (tracks evolutions by transition type in rolling 60s window)
-setInterval(() => {
+safeInterval('evolution_rate_stats', () => {
   maybeLogEvolutionRateStats();
 }, 5000); // Check frequently, but only logs every 30s when there are evolutions
 
 // Log nutrient collection rate stats every 30 seconds (tracks collections in rolling 60s window)
-setInterval(() => {
+safeInterval('nutrient_collection_stats', () => {
   maybeLogNutrientCollectionStats();
 }, 5000); // Check frequently, but only logs every 30s when there are collections
 
 // Log lifetime stats every 60 seconds (average rates since server start)
-setInterval(() => {
+safeInterval('lifetime_stats', () => {
   maybeLogLifetimeStats();
 }, 10000); // Check every 10s, but only logs every 60s
 
 // Log server memory usage every 60 seconds (heap, RSS, external)
-setInterval(() => {
+safeInterval('memory_usage', () => {
   maybeLogMemoryUsage();
 }, 10000); // Check every 10s, but only logs every 60s
 
 // Log full world snapshot every 60 seconds
-setInterval(() => {
+safeInterval('world_snapshot', () => {
   const snapshot = createWorldSnapshot(world);
   logGameStateSnapshot(snapshot);
 }, 60000);

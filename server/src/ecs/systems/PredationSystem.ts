@@ -19,6 +19,9 @@ import {
   forEachDrainTarget,
   getDamageTracking,
   recordDamage,
+  requireEnergy,
+  requirePosition,
+  requireStage,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -48,11 +51,10 @@ export class PredationSystem implements System {
 
     // Iterate predators via ECS
     forEachPlayer(world, (predatorEntity, predatorId) => {
-      const predatorStage = world.getComponent<StageComponent>(predatorEntity, Components.Stage);
-      const predatorEnergy = world.getComponent<EnergyComponent>(predatorEntity, Components.Energy);
-      const predatorPos = world.getComponent<PositionComponent>(predatorEntity, Components.Position);
+      const predatorStage = requireStage(world, predatorEntity);
+      const predatorEnergy = requireEnergy(world, predatorEntity);
+      const predatorPos = requirePosition(world, predatorEntity);
       const predatorStunned = world.getComponent<StunnedComponent>(predatorEntity, Components.Stunned);
-      if (!predatorStage || !predatorEnergy || !predatorPos) return;
 
       // Only Stage 2 (MULTI_CELL) can drain via contact
       if (predatorStage.stage !== EvolutionStage.MULTI_CELL) return;
@@ -67,10 +69,9 @@ export class PredationSystem implements System {
       forEachPlayer(world, (preyEntity, preyId) => {
         if (preyId === predatorId) return; // Don't drain yourself
 
-        const preyStage = world.getComponent<StageComponent>(preyEntity, Components.Stage);
-        const preyEnergy = world.getComponent<EnergyComponent>(preyEntity, Components.Energy);
-        const preyPos = world.getComponent<PositionComponent>(preyEntity, Components.Position);
-        if (!preyStage || !preyEnergy || !preyPos) return;
+        const preyStage = requireStage(world, preyEntity);
+        const preyEnergy = requireEnergy(world, preyEntity);
+        const preyPos = requirePosition(world, preyEntity);
 
         if (preyStage.stage !== EvolutionStage.SINGLE_CELL) return; // Only drain Stage 1
         if (preyEnergy.current <= 0) return; // Skip dead prey

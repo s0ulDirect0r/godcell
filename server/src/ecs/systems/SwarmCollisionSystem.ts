@@ -14,6 +14,9 @@ import {
   getEntityBySocketId,
   forEachPlayer,
   recordDamage,
+  requireEnergy,
+  requirePosition,
+  requireStage,
 } from '../factories';
 import { isSoupStage } from '../../helpers';
 import { getConfig } from '../../dev';
@@ -46,10 +49,9 @@ export class SwarmCollisionSystem implements System {
     // This avoids checking stage inside the nested loop
     const soupPlayers: { entity: number; playerId: string; energyComp: EnergyComponent; posComp: PositionComponent; radius: number }[] = [];
     forEachPlayer(world, (entity, playerId) => {
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      if (!energyComp || !posComp || !stageComp) return;
+      const energyComp = requireEnergy(world, entity);
+      const posComp = requirePosition(world, entity);
+      const stageComp = requireStage(world, entity);
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
       if (!isSoupStage(stageComp.stage)) return;
       soupPlayers.push({ entity, playerId, energyComp, posComp, radius: stageComp.radius });
@@ -129,10 +131,9 @@ export class SwarmCollisionSystem implements System {
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
       if (!playerId) return;
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      if (!energyComp || !posComp || !stageComp) return;
+      const energyComp = requireEnergy(world, entity);
+      const posComp = requirePosition(world, entity);
+      const stageComp = requireStage(world, entity);
       if (stageComp.stage !== EvolutionStage.MULTI_CELL) return;
       if (energyComp.current <= 0) return;
       multiCellPlayers.push({

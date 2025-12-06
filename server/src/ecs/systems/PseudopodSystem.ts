@@ -14,6 +14,10 @@ import {
   forEachPlayer,
   forEachSwarm,
   getDamageTracking,
+  requireEnergy,
+  requirePosition,
+  requireStage,
+  requireVelocity,
   Components,
   type EntityId,
   type EnergyComponent,
@@ -69,11 +73,10 @@ export class PseudopodSystem implements System {
     // Pre-collect soup-stage players once per tick (avoids O(beams × players))
     const playerTargets: PlayerTargetSnapshot[] = [];
     forEachPlayer(world, (entity, playerId) => {
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = requireStage(world, entity);
+      const energyComp = requireEnergy(world, entity);
+      const posComp = requirePosition(world, entity);
       const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
-      if (!stageComp || !energyComp || !posComp) return;
       if (!isSoupStage(stageComp.stage)) return;
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
       playerTargets.push({
@@ -180,11 +183,10 @@ export class PseudopodSystem implements System {
       if (targetId === pseudopodComp.ownerSocketId) return; // Can't hit yourself
       if (hitEntities.has(targetEntity)) return; // Already hit this target (by entity ID)
 
-      const targetStage = world.getComponent<StageComponent>(targetEntity, Components.Stage);
-      const targetEnergy = world.getComponent<EnergyComponent>(targetEntity, Components.Energy);
-      const targetPos = world.getComponent<PositionComponent>(targetEntity, Components.Position);
+      const targetStage = requireStage(world, targetEntity);
+      const targetEnergy = requireEnergy(world, targetEntity);
+      const targetPos = requirePosition(world, targetEntity);
       const targetStunned = world.getComponent<StunnedComponent>(targetEntity, Components.Stunned);
-      if (!targetStage || !targetEnergy || !targetPos) return;
 
       if (!isSoupStage(targetStage.stage)) return; // Beams only hit soup-stage targets
       if (targetEnergy.current <= 0) return; // Skip dead players
@@ -392,11 +394,10 @@ export class PseudopodSystem implements System {
     forEachPlayer(world, (entity, playerId) => {
       if (playerId === shooterId) return; // Skip shooter
 
-      const stageComp = world.getComponent<StageComponent>(entity, Components.Stage);
-      const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
-      const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
+      const stageComp = requireStage(world, entity);
+      const energyComp = requireEnergy(world, entity);
+      const posComp = requirePosition(world, entity);
       const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
-      if (!stageComp || !energyComp || !posComp) return;
 
       // Skip dead/evolving/stunned players
       if (energyComp.current <= 0) return;
