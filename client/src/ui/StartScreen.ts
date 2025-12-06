@@ -29,6 +29,8 @@ export class StartScreen {
   private createUI(): HTMLDivElement {
     const container = document.createElement('div');
     container.id = 'start-screen';
+    const showAlphaWarning = true;
+
     container.innerHTML = `
       <div class="start-content">
         <h1 class="start-title">GODCELL</h1>
@@ -54,6 +56,13 @@ export class StartScreen {
               <span>Pause on Start</span>
               <span class="toggle-hint">Server paused when you enter</span>
             </label>
+          </div>
+        ` : ''}
+
+        ${showAlphaWarning ? `
+          <div class="alpha-warning">
+            <span class="alpha-badge">ALPHA</span>
+            <span class="alpha-text">Early development — expect bugs and frequent changes</span>
           </div>
         ` : ''}
 
@@ -91,6 +100,33 @@ export class StartScreen {
       .start-content {
         text-align: center;
         padding: 60px;
+      }
+
+      .alpha-warning {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 25px;
+        padding: 10px 20px;
+        background: rgba(255, 0, 102, 0.1);
+        border: 1px solid rgba(255, 0, 102, 0.4);
+        border-radius: 4px;
+      }
+
+      .alpha-badge {
+        background: rgba(255, 0, 102, 0.8);
+        color: #fff;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 4px 10px;
+        border-radius: 3px;
+        letter-spacing: 2px;
+      }
+
+      .alpha-text {
+        color: #cc6688;
+        font-size: 13px;
       }
 
       .start-title {
