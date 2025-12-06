@@ -1019,8 +1019,8 @@ export const GAME_CONFIG = {
 
   // Pseudopod Strike (energy whip - medium range AoE attack)
   PSEUDOPOD_MODE: 'strike' as 'hitscan' | 'projectile' | 'strike', // 'strike' = instant AoE at target location
-  PSEUDOPOD_RANGE: 500,                  // Max range in pixels (medium range energy whip)
-  PSEUDOPOD_AOE_RADIUS: 70,              // Impact zone radius for AoE damage
+  PSEUDOPOD_RANGE: 350,                  // Max range in pixels (medium range energy whip)
+  PSEUDOPOD_AOE_RADIUS: 50,              // Impact zone radius for AoE damage
   PSEUDOPOD_PROJECTILE_SPEED: 3600,      // (legacy) Pixels per second beam travel speed
   PSEUDOPOD_WIDTH: 20,                   // (legacy) Beam collision width in pixels
   PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per strike
