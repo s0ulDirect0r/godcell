@@ -23,6 +23,7 @@ import type {
   InputComponent,
   SprintComponent,
   StunnedComponent,
+  SpawnImmunityComponent,
   CooldownsComponent,
   DamageTrackingComponent,
   DrainTargetComponent,
@@ -69,6 +70,7 @@ export function createWorld(): World {
   world.registerStore<InputComponent>(Components.Input, new ComponentStore());
   world.registerStore<SprintComponent>(Components.Sprint, new ComponentStore());
   world.registerStore<StunnedComponent>(Components.Stunned, new ComponentStore());
+  world.registerStore<SpawnImmunityComponent>(Components.SpawnImmunity, new ComponentStore());
   world.registerStore<CooldownsComponent>(Components.Cooldowns, new ComponentStore());
   world.registerStore<DamageTrackingComponent>(Components.DamageTracking, new ComponentStore());
   world.registerStore<DrainTargetComponent>(Components.DrainTarget, new ComponentStore());
@@ -294,6 +296,9 @@ export function createPlayer(
   });
   world.addComponent<CooldownsComponent>(entity, Components.Cooldowns, {});
   world.addComponent<StunnedComponent>(entity, Components.Stunned, { until: 0 });
+  world.addComponent<SpawnImmunityComponent>(entity, Components.SpawnImmunity, {
+    until: 0, // Disabled - spawn distance of 400px should be enough
+  });
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
     activeDamage: [],
   });

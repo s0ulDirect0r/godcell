@@ -21,6 +21,7 @@ import {
   type EnergyComponent,
   type PositionComponent,
   type StageComponent,
+  type SpawnImmunityComponent,
 } from '../index';
 import { distance, isJungleStage } from '../../helpers';
 import { getConfig } from '../../dev';
@@ -48,6 +49,10 @@ export class GravitySystem implements System {
       const velocityComponent = requireVelocity(world, entity);
 
       if (energyComponent.current <= 0 || stageComponent.isEvolving) return;
+
+      // Check spawn immunity - skip gravity during immunity period
+      const spawnImmunity = world.getComponent<SpawnImmunityComponent>(entity, Components.SpawnImmunity);
+      if (spawnImmunity && Date.now() < spawnImmunity.until) return;
 
       // NOTE: Friction is handled in MovementSystem for all stages
 

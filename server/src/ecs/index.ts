@@ -21,6 +21,7 @@ export type {
   InputComponent,
   SprintComponent,
   StunnedComponent,
+  SpawnImmunityComponent,
   CooldownsComponent,
   DamageTrackingComponent,
   DrainTargetComponent,

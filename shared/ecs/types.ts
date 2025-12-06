@@ -31,6 +31,7 @@ export const Components = {
   Input: 'Input',
   Sprint: 'Sprint',
   Stunned: 'Stunned',
+  SpawnImmunity: 'SpawnImmunity',
   Cooldowns: 'Cooldowns',
   DamageTracking: 'DamageTracking',
   DrainTarget: 'DrainTarget',

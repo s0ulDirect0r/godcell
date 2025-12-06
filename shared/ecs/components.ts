@@ -105,6 +105,14 @@ export interface StunnedComponent {
 }
 
 /**
+ * SpawnImmunity - temporary immunity to gravity after spawning.
+ * Gives players time to orient and escape gravity wells.
+ */
+export interface SpawnImmunityComponent {
+  until: number; // Timestamp when immunity expires
+}
+
+/**
  * CombatSpecialization - Stage 3 combat pathway choice.
  * Chosen at evolution to Stage 3, locked for that life.
  */

@@ -24,7 +24,7 @@ export function randomColor(): string {
  */
 export function randomSpawnPosition(world: World): Position {
   const padding = 100;
-  const MIN_DIST_FROM_OBSTACLE_CORE = 200; // Don't spawn in event horizon
+  const MIN_DIST_FROM_OBSTACLE_CORE = 400; // Stay outside inner gravity well
   const maxAttempts = 20;
 
   // Spawn within soup region (which is centered in the jungle world)
