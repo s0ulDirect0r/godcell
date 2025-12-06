@@ -44,6 +44,8 @@ import {
   setMaxEnergyBySocketId,
   subtractEnergyBySocketId,
   destroyEntity,
+  recordDamage,
+  getDamageTrackingBySocketId,
   type World,
 } from './ecs';
 
@@ -282,6 +284,16 @@ export class AbilitySystem {
           totalDrained += actualDrain;
           hitTargetIds.push(targetId);
 
+          // Record damage for drain aura visual (persists for 500ms)
+          recordDamage(world, targetId, drainPerHit, 'beam');
+
+          // Set decay timer for persistent drain aura after hit
+          const targetDamageTracking = getDamageTrackingBySocketId(world, targetId);
+          if (targetDamageTracking) {
+            targetDamageTracking.pseudopodHitRate = drainPerHit;
+            targetDamageTracking.pseudopodHitExpiresAt = Date.now() + 500;
+          }
+
           logger.info({
             event: 'strike_hit_player',
             striker: playerId,
@@ -310,6 +322,9 @@ export class AbilitySystem {
             damageTracking.lastDamageSource = 'beam';
             damageTracking.lastBeamShooter = playerId;
           }
+
+          // Record damage for drain aura visual
+          recordDamage(world, swarmId, drainPerHit, 'beam');
 
           logger.info({
             event: 'strike_hit_swarm',
