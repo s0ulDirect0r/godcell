@@ -886,8 +886,8 @@ export type TunableConfigKey = typeof DEV_TUNABLE_CONFIGS[number];
 
 export const GAME_CONFIG = {
   // Movement (Soup - Stage 1-2)
-  PLAYER_SPEED: 403, // Pixels per second (20% boost for faster, more responsive feel)
-  MOVEMENT_FRICTION: 0.66, // Velocity decay per second (tighter handling for precise nutrient targeting)
+  PLAYER_SPEED: 403, // Pixels per second
+  MOVEMENT_FRICTION: 0.5, // Velocity decay per second (tighter turns)
 
   // Stage 3 Movement (Cyber-Organism): Grounded hexapod with momentum
   CYBER_ORGANISM_ACCELERATION_MULT: 1.5,   // Punchy acceleration (feel the push)
@@ -952,7 +952,7 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 32,           // Initial spawn count (balanced for stage 1-2)
+  NUTRIENT_COUNT: 38,           // Initial spawn count (balanced for stage 1-2)
   NUTRIENT_RESPAWN_TIME: 10000, // 10 seconds in milliseconds
   NUTRIENT_SIZE: 12,            // Radius (balanced for collection difficulty)
   NUTRIENT_COLOR: 0x00ff00,     // Green data crystals (base 1x)

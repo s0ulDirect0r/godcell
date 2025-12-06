@@ -58,7 +58,7 @@ export interface EntityWarpTransform {
 // *** MASTER INTENSITY CONTROL ***
 // Scale all distortion effects with one value
 // 0.0 = no effect, 1.0 = full effect, >1.0 = exaggerated
-const DISTORTION_INTENSITY = 1.0;
+const DISTORTION_INTENSITY = 0.7;
 
 // Base values (what you get at DISTORTION_INTENSITY = 1.0)
 // These define the "full" effect - intensity scales them proportionally
