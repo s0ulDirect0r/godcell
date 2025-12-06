@@ -81,6 +81,7 @@ function createIndividualCell(radius: number, colorHex: number, intensityMultipl
     roughness: 0.1,
     metalness: 0.05,
     clearcoat: 0.6,
+    depthWrite: false, // Allow nucleus inside to render through membrane
   });
   const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
   cellGroup.add(membrane);
@@ -92,6 +93,8 @@ function createIndividualCell(radius: number, colorHex: number, intensityMultipl
     color: colorHex,
     emissive: colorHex,
     emissiveIntensity: 1.5 * intensityMultiplier,
+    transparent: true, // Required for evolution crossfade animation
+    opacity: 1.0,
   });
   const nucleus = new THREE.Mesh(nucleusGeometry, nucleusMaterial);
   cellGroup.add(nucleus);

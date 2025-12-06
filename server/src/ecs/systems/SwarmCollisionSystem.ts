@@ -5,9 +5,8 @@
 
 import type { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@godcell/shared';
-import type { SwarmConsumedMessage, EnergyComponent, PositionComponent, StageComponent } from '@godcell/shared';
+import type { EnergyComponent, PositionComponent, StageComponent, DamageTrackingComponent } from '@godcell/shared';
 import type { System } from './types';
-import { logger } from '../../logger';
 import {
   getSocketIdByEntity,
   getDamageTrackingBySocketId,
@@ -16,8 +15,7 @@ import {
   forEachPlayer,
   recordDamage,
 } from '../factories';
-import { distance, isSoupStage } from '../../helpers';
-import { removeSwarm } from '../../swarms';
+import { isSoupStage } from '../../helpers';
 import { getConfig } from '../../dev';
 
 /**
@@ -65,7 +63,7 @@ export class SwarmCollisionSystem implements System {
       const swarmX = swarmPos.x;
       const swarmY = swarmPos.y;
 
-      for (const { playerId, energyComp, posComp, radius } of soupPlayers) {
+      for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
         // Collision distance = swarm size + player radius (varies by stage)
         const collisionDist = swarmComp.size + radius;
         const collisionDistSq = collisionDist * collisionDist;
@@ -83,7 +81,7 @@ export class SwarmCollisionSystem implements System {
           damagedPlayerIds.add(playerId);
 
           // Record damage for drain aura system
-          recordDamage(world, playerId, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
+          recordDamage(world, entity, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
 
           // Apply movement slow debuff
           slowedPlayerIds.add(playerId);
@@ -116,15 +114,16 @@ export class SwarmCollisionSystem implements System {
 
     // Handle swarm consumption (multi-cells eating disabled swarms)
     // Optimized: Pre-filter to only multi-cell players and disabled swarms
+    // DeathSystem handles swarm deaths centrally
 
     // Pre-collect disabled swarms (usually very few - only those hit by EMP)
-    const disabledSwarms: { swarmId: string; x: number; y: number; size: number; swarmComp: any; energyComp: EnergyComponent }[] = [];
-    forEachSwarm(world, (_entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
+    const disabledSwarms: { entity: number; swarmId: string; x: number; y: number; size: number; swarmComp: any; energyComp: EnergyComponent }[] = [];
+    forEachSwarm(world, (entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
       // Clear consumption flag
       swarmComp.beingConsumedBy = undefined;
       // Only collect disabled swarms with health remaining
       if (swarmComp.disabledUntil && now < swarmComp.disabledUntil && energyComp.current > 0) {
-        disabledSwarms.push({ swarmId, x: posComp.x, y: posComp.y, size: swarmComp.size, swarmComp, energyComp });
+        disabledSwarms.push({ entity, swarmId, x: posComp.x, y: posComp.y, size: swarmComp.size, swarmComp, energyComp });
       }
     });
 
@@ -152,8 +151,6 @@ export class SwarmCollisionSystem implements System {
     });
 
     // Check collisions between multi-cell players and disabled swarms
-    const swarmsToRemove: string[] = [];
-
     for (const player of multiCellPlayers) {
       for (const swarm of disabledSwarms) {
         // Fast squared distance check
@@ -171,34 +168,14 @@ export class SwarmCollisionSystem implements System {
           const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
           swarm.energyComp.current -= damageDealt;
 
-          if (swarm.energyComp.current <= 0) {
-            // Swarm fully consumed - grant rewards
-            player.energyComp.current = Math.min(player.energyComp.max, player.energyComp.current + GAME_CONFIG.SWARM_ENERGY_GAIN);
-            player.energyComp.max += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
-
-            io.emit('swarmConsumed', {
-              type: 'swarmConsumed',
-              swarmId: swarm.swarmId,
-              consumerId: player.playerId,
-            } as SwarmConsumedMessage);
-
-            logger.info({
-              event: 'swarm_consumed',
-              consumerId: player.playerId,
-              swarmId: swarm.swarmId,
-              energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-              maxEnergyGained: GAME_CONFIG.SWARM_MAX_ENERGY_GAIN,
-            });
-
-            swarmsToRemove.push(swarm.swarmId);
+          // Set damage tracking so DeathSystem knows who killed it
+          const damageTracking = world.getComponent<DamageTrackingComponent>(swarm.entity, Components.DamageTracking);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'consumption';
+            damageTracking.lastBeamShooter = player.playerId;
           }
         }
       }
-    }
-
-    // Remove consumed swarms after iteration
-    for (const swarmId of swarmsToRemove) {
-      removeSwarm(world, swarmId);
     }
   }
 }

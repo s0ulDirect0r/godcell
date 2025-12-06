@@ -11,8 +11,6 @@ import {
   getEntityBySocketId,
   getStringIdByEntity,
   destroyEntity as ecsDestroyEntity,
-  setMaxEnergyBySocketId,
-  addEnergyBySocketId,
   forEachPlayer,
   forEachSwarm,
   getDamageTrackingBySocketId,
@@ -24,8 +22,8 @@ import {
   type StageComponent,
   type StunnedComponent,
   type PseudopodComponent,
+  type DamageTrackingComponent,
 } from '../index';
-import { removeSwarm } from '../../swarms';
 import { distance, rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logger } from '../../logger';
@@ -240,8 +238,7 @@ export class PseudopodSystem implements System {
     });
 
     // Check collision with swarms (active or disabled) - from ECS
-    // Track swarms to remove after iteration
-    const swarmsToRemove: string[] = [];
+    // DeathSystem handles swarm deaths centrally
 
     forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
       // Swarms are now ECS entities, so we can use their entity ID directly
@@ -257,6 +254,13 @@ export class PseudopodSystem implements System {
         hitSomething = true;
         hitEntities.add(swarmEntity);
 
+        // Set damage tracking so DeathSystem knows who killed it
+        const damageTracking = world.getComponent<DamageTrackingComponent>(swarmEntity, Components.DamageTracking);
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'beam';
+          damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+        }
+
         logger.info({
           event: 'beam_hit_swarm',
           shooter: pseudopodComp.ownerSocketId,
@@ -264,39 +268,8 @@ export class PseudopodSystem implements System {
           damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
           swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
         });
-
-        // Check if swarm died
-        if (swarmEnergyComp.current <= 0) {
-          // Award shooter - get current maxEnergy from ECS
-          const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-          setMaxEnergyBySocketId(world, pseudopodComp.ownerSocketId, newMaxEnergy);
-          addEnergyBySocketId(world, pseudopodComp.ownerSocketId, GAME_CONFIG.SWARM_ENERGY_GAIN);
-
-          // Queue swarm for removal
-          swarmsToRemove.push(swarmId);
-
-          io.emit('swarmConsumed', {
-            type: 'swarmConsumed',
-            swarmId,
-            consumerId: pseudopodComp.ownerSocketId,
-            position: swarmPosition,
-          });
-
-          logger.info({
-            event: 'beam_kill_swarm',
-            shooter: pseudopodComp.ownerSocketId,
-            swarmId,
-            maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
-            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-          });
-        }
       }
     });
-
-    // Remove killed swarms after iteration
-    for (const swarmId of swarmsToRemove) {
-      removeSwarm(world, swarmId);
-    }
 
     return hitSomething;
   }
@@ -373,7 +346,7 @@ export class PseudopodSystem implements System {
     }
 
     // Check collision with pre-collected swarms (squared distance)
-    const swarmsToRemove: string[] = [];
+    // DeathSystem handles swarm deaths centrally
 
     for (const swarm of swarmTargets) {
       if (hitEntities.has(swarm.entity)) continue;
@@ -389,6 +362,13 @@ export class PseudopodSystem implements System {
         hitSomething = true;
         hitEntities.add(swarm.entity);
 
+        // Set damage tracking so DeathSystem knows who killed it
+        const damageTracking = world.getComponent<DamageTrackingComponent>(swarm.entity, Components.DamageTracking);
+        if (damageTracking) {
+          damageTracking.lastDamageSource = 'beam';
+          damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+        }
+
         logger.info({
           event: 'beam_hit_swarm',
           shooter: pseudopodComp.ownerSocketId,
@@ -396,33 +376,7 @@ export class PseudopodSystem implements System {
           damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
           swarmEnergyRemaining: swarm.energyComp.current.toFixed(0),
         });
-
-        if (swarm.energyComp.current <= 0) {
-          const newMaxEnergy = shooterEnergy.max + GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-          setMaxEnergyBySocketId(world, pseudopodComp.ownerSocketId, newMaxEnergy);
-          addEnergyBySocketId(world, pseudopodComp.ownerSocketId, GAME_CONFIG.SWARM_ENERGY_GAIN);
-          swarmsToRemove.push(swarm.swarmId);
-
-          io.emit('swarmConsumed', {
-            type: 'swarmConsumed',
-            swarmId: swarm.swarmId,
-            consumerId: pseudopodComp.ownerSocketId,
-            position: { x: swarm.x, y: swarm.y },
-          });
-
-          logger.info({
-            event: 'beam_kill_swarm',
-            shooter: pseudopodComp.ownerSocketId,
-            swarmId: swarm.swarmId,
-            maxEnergyGained: GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN,
-            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-          });
-        }
       }
-    }
-
-    for (const swarmId of swarmsToRemove) {
-      removeSwarm(world, swarmId);
     }
 
     return hitSomething;

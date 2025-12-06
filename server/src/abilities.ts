@@ -9,10 +9,14 @@ import type {
   EMPActivatedMessage,
   PseudopodSpawnedMessage,
   PseudopodRetractedMessage,
+  PseudopodStrikeMessage,
   ProjectileSpawnedMessage,
   TrapPlacedMessage,
   CombatSpecializationComponent,
   KnockbackComponent,
+  EnergyComponent,
+  StageComponent,
+  DamageTrackingComponent,
 } from '@godcell/shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -40,6 +44,8 @@ import {
   setMaxEnergyBySocketId,
   subtractEnergyBySocketId,
   destroyEntity,
+  recordDamage,
+  getDamageTrackingBySocketId,
   type World,
 } from './ecs';
 
@@ -229,14 +235,141 @@ export class AbilitySystem {
     const dirX = dx / targetDist;
     const dirY = dy / targetDist;
 
-    // Calculate max range
+    // Calculate max range (strike mode uses fixed range, legacy modes use radius multiplier)
     const playerRadius = stageComp.radius;
-    const maxRange = playerRadius * GAME_CONFIG.PSEUDOPOD_RANGE;
+    const maxRange = GAME_CONFIG.PSEUDOPOD_MODE === 'strike'
+      ? getConfig('PSEUDOPOD_RANGE')
+      : playerRadius * getConfig('PSEUDOPOD_RANGE');
+
+    // For strike mode, clamp target to max range (fire at max range in cursor direction)
+    if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike' && targetDist > maxRange) {
+      targetX = playerPosition.x + dirX * maxRange;
+      targetY = playerPosition.y + dirY * maxRange;
+    }
 
     // Deduct energy (directly to ECS)
     energyComp.current -= getConfig('PSEUDOPOD_ENERGY_COST');
 
-    if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
+    if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike') {
+      // STRIKE MODE: Instant AoE at target location (energy whip)
+      const aoeRadius = getConfig('PSEUDOPOD_AOE_RADIUS');
+      const drainPerHit = getConfig('PSEUDOPOD_DRAIN_RATE');
+      const hitTargetIds: string[] = [];
+      let totalDrained = 0;
+
+      // Find all soup-stage entities within AoE radius at target position
+      forEachPlayer(world, (targetEntity, targetId) => {
+        if (targetId === playerId) return; // Can't hit yourself
+
+        const targetStage = world.getComponent<StageComponent>(targetEntity, Components.Stage);
+        const targetEnergy = world.getComponent<EnergyComponent>(targetEntity, Components.Energy);
+        const targetPos = world.getComponent(targetEntity, Components.Position) as { x: number; y: number } | undefined;
+        if (!targetStage || !targetEnergy || !targetPos) return;
+
+        // Only hit soup-stage targets (single-cell and multi-cell)
+        if (targetStage.stage !== EvolutionStage.SINGLE_CELL &&
+            targetStage.stage !== EvolutionStage.MULTI_CELL) return;
+        if (targetEnergy.current <= 0) return; // Skip dead players
+        if (targetStage.isEvolving) return; // Skip evolving players
+
+        // Check if target is within AoE radius of strike location
+        const dx = targetPos.x - targetX;
+        const dy = targetPos.y - targetY;
+        const distToTarget = Math.sqrt(dx * dx + dy * dy);
+
+        if (distToTarget <= aoeRadius + targetStage.radius) {
+          // Hit! Drain energy from target
+          const actualDrain = Math.min(drainPerHit, targetEnergy.current);
+          targetEnergy.current -= actualDrain;
+          totalDrained += actualDrain;
+          hitTargetIds.push(targetId);
+
+          // Record damage for drain aura visual (persists for 500ms)
+          recordDamage(world, targetEntity, drainPerHit, 'beam');
+
+          // Set decay timer for persistent drain aura after hit
+          const targetDamageTracking = getDamageTrackingBySocketId(world, targetId);
+          if (targetDamageTracking) {
+            targetDamageTracking.pseudopodHitRate = drainPerHit;
+            targetDamageTracking.pseudopodHitExpiresAt = Date.now() + 500;
+          }
+
+          logger.info({
+            event: 'strike_hit_player',
+            striker: playerId,
+            target: targetId,
+            damage: actualDrain,
+            targetEnergyRemaining: targetEnergy.current.toFixed(0),
+          });
+        }
+      });
+
+      // Also check swarms in AoE - set damage tracking, DeathSystem handles kills
+      forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velComp, swarmComp, swarmEnergyComp) => {
+        const dx = swarmPosComp.x - targetX;
+        const dy = swarmPosComp.y - targetY;
+        const distToSwarm = Math.sqrt(dx * dx + dy * dy);
+
+        if (distToSwarm <= aoeRadius + swarmComp.size) {
+          const actualDrain = Math.min(drainPerHit, swarmEnergyComp.current);
+          swarmEnergyComp.current -= actualDrain;
+          totalDrained += actualDrain;
+          hitTargetIds.push(swarmId);
+
+          // Set damage tracking so DeathSystem knows who killed it
+          const damageTracking = world.getComponent<DamageTrackingComponent>(swarmEntity, Components.DamageTracking);
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'beam';
+            damageTracking.lastBeamShooter = playerId;
+          }
+
+          // Record damage for drain aura visual
+          recordDamage(world, swarmEntity, drainPerHit, 'beam');
+
+          logger.info({
+            event: 'strike_hit_swarm',
+            striker: playerId,
+            swarmId,
+            damage: actualDrain,
+            swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
+          });
+        }
+      });
+
+      // Give drained energy to the attacker (energy absorption)
+      if (totalDrained > 0) {
+        addEnergyBySocketId(world, playerId, totalDrained);
+        logger.info({
+          event: 'strike_energy_absorbed',
+          striker: playerId,
+          energyGained: totalDrained,
+          targetsHit: hitTargetIds.length,
+        });
+      }
+
+      // Broadcast strike to clients for visual effect
+      this.ctx.io.emit('pseudopodStrike', {
+        type: 'pseudopodStrike',
+        strikerId: playerId,
+        strikerPosition: playerPosition,
+        targetPosition: { x: targetX, y: targetY },
+        aoeRadius,
+        hitTargetIds,
+        totalDrained,
+        color: player.color,
+      } as PseudopodStrikeMessage);
+
+      logger.info({
+        event: 'pseudopod_strike',
+        playerId,
+        targetPosition: { x: targetX.toFixed(0), y: targetY.toFixed(0) },
+        range: targetDist.toFixed(0),
+        targetsHit: hitTargetIds.length,
+        totalDrained,
+        isBot: playerId.startsWith('bot-'),
+      });
+
+    } else if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
       // HITSCAN MODE: Instant raycast
       const actualDist = Math.min(targetDist, maxRange);
       const endX = playerPosition.x + dirX * actualDist;

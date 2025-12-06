@@ -133,6 +133,7 @@ export function createNutrient(valueMultiplier: number = 1): NutrientResult {
     transparent: true,
     opacity: OUTER_CRYSTAL.opacity,
     flatShading: true, // Sharp faceted look
+    depthWrite: false, // Allow inner core to show through when viewed from any angle
   });
   const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
   group.add(outerMesh);

@@ -328,6 +328,30 @@ export class ThreeRenderer implements Renderer {
         // continuous energy detection in updateGainAuras).
       }));
 
+      // Pseudopod strike (energy whip AoE attack)
+      this.eventSubscriptions.push(eventBus.on('pseudopodStrike', (event) => {
+        // Only spawn strike effects in soup mode (soup-scale combat)
+        if (this.environmentSystem.getMode() !== 'soup') return;
+
+        const colorHex = parseInt(event.color.replace('#', ''), 16);
+
+        // Spawn lightning bolt from striker to target + AoE impact explosion
+        this.effectsSystem.spawnEnergyWhipStrike(
+          event.strikerPosition.x,
+          event.strikerPosition.y,
+          event.targetPosition.x,
+          event.targetPosition.y,
+          event.aoeRadius,
+          colorHex,
+          event.totalDrained
+        );
+
+        // Flash drain aura on all hit targets
+        for (const targetId of event.hitTargetIds) {
+          this.auraRenderSystem.flashDrainAura(targetId);
+        }
+      }));
+
       // === Spawn animations for entity materialization (soup-scale only) ===
 
       // Player joined - trigger spawn animation (soup mode only)

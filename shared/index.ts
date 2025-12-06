@@ -19,7 +19,7 @@ export interface Position {
 }
 
 // Death causes for players
-export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation' | 'beam';
+export type DeathCause = 'starvation' | 'singularity' | 'swarm' | 'obstacle' | 'predation' | 'beam' | 'gravity' | 'consumption';
 
 // Damage sources for visual feedback (drain auras)
 export type DamageSource =
@@ -456,6 +456,18 @@ export interface PseudopodHitMessage {
   hitPosition: Position; // Where the hit occurred
 }
 
+// Pseudopod Strike (energy whip AoE attack)
+export interface PseudopodStrikeMessage {
+  type: 'pseudopodStrike';
+  strikerId: string;         // Who fired the strike
+  strikerPosition: Position; // Where the attacker is (start of lightning)
+  targetPosition: Position;  // Where the strike landed (end of lightning + AoE center)
+  aoeRadius: number;         // Radius of the impact zone
+  hitTargetIds: string[];    // List of entities hit by the AoE
+  totalDrained: number;      // Total energy drained (for visual intensity)
+  color: string;             // Striker's color for the lightning visual
+}
+
 // ============================================
 // Stage 3+ Macro-Resource Messages
 // ============================================
@@ -630,6 +642,7 @@ export type ServerMessage =
   | SwarmConsumedMessage
   | PlayerDrainStateMessage
   | PseudopodHitMessage
+  | PseudopodStrikeMessage
   // Stage 3+ macro-resource messages
   | DataFruitSpawnedMessage
   | DataFruitCollectedMessage
@@ -834,6 +847,8 @@ export const DEV_TUNABLE_CONFIGS = [
 
   // Combat
   'CONTACT_DRAIN_RATE',
+  'PSEUDOPOD_RANGE',
+  'PSEUDOPOD_AOE_RADIUS',
   'PSEUDOPOD_PROJECTILE_SPEED',
   'PSEUDOPOD_DRAIN_RATE',
   'PSEUDOPOD_COOLDOWN',
@@ -1002,14 +1017,15 @@ export const GAME_CONFIG = {
   CONTACT_MAXENERGY_GAIN: 0.3,           // Gain 30% of victim's maxEnergy on kill
   NUTRIENT_DROP_ON_DEATH: 0.5,           // Victim drops 50% of collected nutrients (maxEnergy → nutrient count)
 
-  // Pseudopod Beam (lightning projectile for PvP)
-  PSEUDOPOD_MODE: 'projectile' as 'hitscan' | 'projectile', // 'hitscan' = instant hit, 'projectile' = travels
-  PSEUDOPOD_RANGE: 9999,                 // Max range in pixels (9999 = unlimited for testing)
-  PSEUDOPOD_PROJECTILE_SPEED: 3600,      // Pixels per second beam travel speed (2x faster)
-  PSEUDOPOD_WIDTH: 20,                   // Beam collision width in pixels
-  PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per shot
-  PSEUDOPOD_DRAIN_RATE: 100,             // Energy drained per hit
-  PSEUDOPOD_COOLDOWN: 1000,              // Milliseconds between beam fires
+  // Pseudopod Strike (energy whip - medium range AoE attack)
+  PSEUDOPOD_MODE: 'strike' as 'hitscan' | 'projectile' | 'strike', // 'strike' = instant AoE at target location
+  PSEUDOPOD_RANGE: 250,                  // Max range in pixels (close quarters energy whip)
+  PSEUDOPOD_AOE_RADIUS: 50,              // Impact zone radius for AoE damage
+  PSEUDOPOD_PROJECTILE_SPEED: 3600,      // (legacy) Pixels per second beam travel speed
+  PSEUDOPOD_WIDTH: 20,                   // (legacy) Beam collision width in pixels
+  PSEUDOPOD_ENERGY_COST: 30,             // Energy cost per strike
+  PSEUDOPOD_DRAIN_RATE: 200,             // Energy drained per hit (attacker absorbs this)
+  PSEUDOPOD_COOLDOWN: 1000,              // Milliseconds between strikes
   MULTICELL_KILL_ABSORPTION: 0.8,        // Gain 80% of victim's maxEnergy when killing another multi-cell
 
   // Digital Jungle Trees (Stage 3+ environment obstacles)
