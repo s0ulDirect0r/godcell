@@ -5,7 +5,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@shared';
+import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
@@ -14,7 +14,7 @@ import type {
   EnergyComponent,
   EntityId,
   CyberBugMovedMessage,
-} from '@shared';
+} from '#shared';
 import type { System } from './types';
 import { forEachCyberBug, forEachPlayer, getStringIdByEntity } from '../factories';
 import { processCyberBugRespawns } from '../../jungleFauna';

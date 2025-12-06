@@ -5,7 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '@shared';
+import { GAME_CONFIG } from '#shared';
 
 // ============================================
 // VISUAL PARAMETERS - Tune these to adjust appearance

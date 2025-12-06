@@ -8,8 +8,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { Nutrient, Position, World, NutrientSpawnedMessage } from '@shared';
-import { GAME_CONFIG } from '@shared';
+import type { Nutrient, Position, World, NutrientSpawnedMessage } from '#shared';
+import { GAME_CONFIG } from '#shared';
 import { createNutrient, getNutrientCount, getAllObstacleSnapshots } from './ecs';
 import { isNutrientSpawnSafe, calculateNutrientValueMultiplier, poissonDiscSampling } from './helpers';
 import { getConfig } from './dev';

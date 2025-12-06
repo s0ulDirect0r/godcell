@@ -3,8 +3,8 @@
 // Pure math functions for geometry and spatial algorithms
 // ============================================
 
-import type { Position } from '@shared';
-import { distance, poissonDiscSampling } from '@shared';
+import type { Position } from '#shared';
+import { distance, poissonDiscSampling } from '#shared';
 
 // Re-export shared math functions
 export { distance, poissonDiscSampling };

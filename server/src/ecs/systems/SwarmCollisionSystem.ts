@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@shared';
-import type { EnergyComponent, PositionComponent, StageComponent, DamageTrackingComponent } from '@shared';
+import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
+import type { EnergyComponent, PositionComponent, StageComponent, DamageTrackingComponent } from '#shared';
 import type { System } from './types';
 import {
   getSocketIdByEntity,

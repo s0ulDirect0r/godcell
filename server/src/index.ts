@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage } from '@shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
 import type {
   Player,
   Position,
@@ -20,7 +20,7 @@ import type {
   SpecializationSelectedMessage,
   CombatSpecialization,
   MeleeAttackMessage,
-} from '@shared';
+} from '#shared';
 import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, updateSwarms, updateSwarmPositions, processSwarmRespawns, spawnSwarmAt } from './swarms';
@@ -28,7 +28,7 @@ import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna
 import { buildSwarmsRecord } from './ecs';
 import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, shouldRunTick, getConfig } from './dev';
-import type { DevCommandMessage } from '@shared';
+import type { DevCommandMessage } from '#shared';
 import {
   logger,
   perfLogger,

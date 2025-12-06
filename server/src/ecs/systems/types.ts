@@ -3,7 +3,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { World } from '@shared';
+import type { World } from '#shared';
 
 /**
  * Base System interface

@@ -11,8 +11,8 @@ import type {
   DetectedEntity,
   DamageSource,
   DamageTrackingComponent,
-} from '@shared';
-import { EvolutionStage, GAME_CONFIG, Components, type World } from '@shared';
+} from '#shared';
+import { EvolutionStage, GAME_CONFIG, Components, type World } from '#shared';
 import type { System } from './types';
 import {
   forEachPlayer,

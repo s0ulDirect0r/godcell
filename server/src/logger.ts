@@ -1,5 +1,5 @@
 import pino from 'pino';
-import type { DeathCause } from '@shared';
+import type { DeathCause } from '#shared';
 
 // ============================================
 // Logger Configuration

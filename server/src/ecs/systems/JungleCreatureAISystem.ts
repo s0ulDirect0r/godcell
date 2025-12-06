@@ -5,7 +5,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '@shared';
+import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
@@ -14,7 +14,7 @@ import type {
   EnergyComponent,
   EntityId,
   JungleCreatureMovedMessage,
-} from '@shared';
+} from '#shared';
 import type { System } from './types';
 import { forEachJungleCreature, forEachPlayer, addEnergy, getDamageTracking, recordDamage } from '../factories';
 import { processCreatureRespawns } from '../../jungleFauna';

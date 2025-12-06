@@ -52,7 +52,7 @@ import type {
   CombatSpecialization,
   SpecializationPromptMessage,
   SpecializationSelectedMessage,
-} from '@shared';
+} from '#shared';
 import {
   World,
   Tags,

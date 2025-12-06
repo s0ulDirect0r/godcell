@@ -19,7 +19,7 @@ import {
   type World,
   type SpecializationPromptMessage,
   type CombatSpecializationComponent,
-} from '@shared';
+} from '#shared';
 import { logger } from './logger';
 import {
   // Entity-based helpers (preferred)
@@ -47,7 +47,7 @@ import {
 } from './ecs';
 import { removeSwarm } from './swarms';
 import { getNextEvolutionStage } from './helpers/stages';
-import type { PositionComponent } from '@shared';
+import type { PositionComponent } from '#shared';
 
 // ============================================
 // Dev State

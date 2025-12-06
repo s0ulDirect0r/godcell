@@ -4,7 +4,7 @@
 
 import { InputState } from './InputState';
 import { eventBus } from '../events/EventBus';
-import type { CombatSpecialization, EvolutionStage } from '@shared';
+import type { CombatSpecialization, EvolutionStage } from '#shared';
 
 export interface CameraProjection {
   screenToWorld(screenX: number, screenY: number): { x: number; y: number };

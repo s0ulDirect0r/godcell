@@ -19,9 +19,9 @@ await esbuild.build({
     'pino-roll',       // File rotation transport
     'thread-stream',   // Pino's thread streaming
   ],
-  // Resolve @shared alias
+  // Resolve #shared alias (Node.js subpath imports)
   alias: {
-    '@shared': resolve(__dirname, '../shared'),
+    '#shared': resolve(__dirname, '../shared'),
   },
   // Banner to handle __dirname in ESM
   banner: {

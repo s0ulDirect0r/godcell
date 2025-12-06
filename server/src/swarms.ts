@@ -1,5 +1,5 @@
-import { GAME_CONFIG, EvolutionStage } from '@shared';
-import type { EntropySwarm, Position, SwarmSpawnedMessage } from '@shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
+import type { EntropySwarm, Position, SwarmSpawnedMessage } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
 import { isSoupStage } from './helpers/stages';

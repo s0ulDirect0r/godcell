@@ -10,7 +10,7 @@ import {
   ComponentStore,
   Components,
   Tags,
-} from '@shared';
+} from '#shared';
 import type {
   Position,
   Player,
@@ -48,7 +48,7 @@ import type {
   KnockbackComponent,
   // Server-only components
   PendingRespawnComponent,
-} from '@shared';
+} from '#shared';
 
 // ============================================
 // World Setup

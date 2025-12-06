@@ -1,5 +1,5 @@
-import { GAME_CONFIG, EvolutionStage } from '@shared';
-import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent, MeleeAttackType } from '@shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
+import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent, MeleeAttackType } from '#shared';
 import type { Server } from 'socket.io';
 import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
 import { getConfig } from './dev';
@@ -22,7 +22,7 @@ import {
   type World,
   type ObstacleSnapshot,
 } from './ecs';
-import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '@shared';
+import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '#shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================

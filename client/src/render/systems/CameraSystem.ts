@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, EvolutionStage } from '@shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
 
 export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson';
 

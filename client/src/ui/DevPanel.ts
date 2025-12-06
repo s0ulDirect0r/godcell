@@ -14,7 +14,7 @@ import {
   type DevStateMessage,
   type Position,
   type TunableConfigKey,
-} from '@shared';
+} from '#shared';
 import type { ThreeRenderer } from '../render/three/ThreeRenderer';
 import { type World, getLocalPlayerId, getPlayer } from '../ecs';
 

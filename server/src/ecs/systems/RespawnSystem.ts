@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { World, PendingRespawnComponent } from '@shared';
-import { Components } from '@shared';
+import type { World, PendingRespawnComponent } from '#shared';
+import { Components } from '#shared';
 import type { System } from './types';
 import { respawnBotNow } from '../../bots';
 import { logger } from '../../logger';

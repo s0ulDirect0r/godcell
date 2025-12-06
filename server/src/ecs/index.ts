@@ -8,7 +8,7 @@ export {
   ComponentStore,
   Components,
   Tags,
-} from '@shared';
+} from '#shared';
 export type {
   EntityId,
   ComponentType,
@@ -43,7 +43,7 @@ export type {
   // Combat specialization components
   CombatSpecializationComponent,
   KnockbackComponent,
-} from '@shared';
+} from '#shared';
 
 // Factories and World Setup
 export {

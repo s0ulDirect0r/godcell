@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage } from '@shared';
+import { EvolutionStage } from '#shared';
 
 /**
  * Detected entity for compass indicator display

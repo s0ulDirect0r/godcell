@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { World } from '@shared';
+import type { World } from '#shared';
 import type { System } from './types';
 import { updateSwarms, updateSwarmPositions, processSwarmRespawns } from '../../swarms';
 

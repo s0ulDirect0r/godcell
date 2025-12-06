@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, type World } from '@shared';
-import type { EntityId } from '@shared';
+import { GAME_CONFIG, type World } from '#shared';
+import type { EntityId } from '#shared';
 import type { System } from './types';
 import { forEachDataFruit, destroyEntity } from '../factories';
 import { logger } from '../../logger';

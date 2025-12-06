@@ -4,8 +4,8 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { NutrientCollectedMessage } from '@shared';
-import { GAME_CONFIG, type World } from '@shared';
+import type { NutrientCollectedMessage } from '#shared';
+import { GAME_CONFIG, type World } from '#shared';
 import type { System } from './types';
 import {
   Components,

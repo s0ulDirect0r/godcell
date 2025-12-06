@@ -5,7 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import type { DamageSource } from '@shared';
+import type { DamageSource } from '#shared';
 
 /**
  * Create a dual-sphere shell aura for a single cell

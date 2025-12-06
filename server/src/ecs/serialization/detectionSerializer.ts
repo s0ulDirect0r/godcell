@@ -7,7 +7,7 @@ import {
   EvolutionStage,
   Components,
   Tags,
-} from '@shared';
+} from '#shared';
 import type {
   World,
   EntityId,
@@ -17,7 +17,7 @@ import type {
   NutrientComponent,
   DetectedEntity,
   DetectionUpdateMessage,
-} from '@shared';
+} from '#shared';
 import { getSocketIdByEntity, getStringIdByEntity } from '../factories';
 
 /**

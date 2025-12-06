@@ -2,7 +2,7 @@
 // Main Entry Point - Bootstrap & Update Loop
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, World } from '@shared';
+import { GAME_CONFIG, EvolutionStage, World } from '#shared';
 import { createClientWorld, getLocalPlayer } from './ecs';
 import { SocketManager } from './core/net/SocketManager';
 import { InputManager } from './core/input/InputManager';

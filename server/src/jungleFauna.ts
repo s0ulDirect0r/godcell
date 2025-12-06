@@ -3,7 +3,7 @@
 // Handles Stage 3+ entity spawning: DataFruits, CyberBugs, JungleCreatures
 // ============================================
 
-import { GAME_CONFIG } from '@shared';
+import { GAME_CONFIG } from '#shared';
 import type { Server } from 'socket.io';
 import {
   type World,
