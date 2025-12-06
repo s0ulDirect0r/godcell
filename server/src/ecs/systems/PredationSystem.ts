@@ -9,14 +9,15 @@ import { EvolutionStage, GAME_CONFIG, type World } from '@godcell/shared';
 import type { System } from './types';
 import {
   forEachPlayer,
-  getEnergyBySocketId,
-  setEnergyBySocketId,
-  addEnergyBySocketId,
+  getEnergy,
+  setEnergy,
+  addEnergy,
   getEntityBySocketId,
+  getSocketIdByEntity,
   setDrainTarget,
   clearDrainTarget,
   forEachDrainTarget,
-  getDamageTrackingBySocketId,
+  getDamageTracking,
   recordDamage,
   Components,
   type EnergyComponent,
@@ -85,16 +86,16 @@ export class PredationSystem implements System {
           const damage = getConfig('CONTACT_DRAIN_RATE') * deltaTime;
           preyEnergy.current -= damage;
 
-          // Transfer drained energy to predator
-          addEnergyBySocketId(world, predatorId, damage);
+          // Transfer drained energy to predator (entity-based)
+          addEnergy(world, predatorEntity, damage);
 
           currentDrains.add(preyId);
 
           // Track which predator is draining this prey (for kill credit)
           setDrainTarget(world, preyId, predatorId);
 
-          // Mark damage source for death tracking in ECS
-          const damageTracking = getDamageTrackingBySocketId(world, preyId);
+          // Mark damage source for death tracking in ECS (entity-based)
+          const damageTracking = getDamageTracking(world, preyEntity);
           if (damageTracking) {
             damageTracking.lastDamageSource = 'predation';
           }
@@ -104,7 +105,7 @@ export class PredationSystem implements System {
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {
-            this.engulfPrey(world, io, predatorId, preyId, preyPosition, preyEnergy.max);
+            this.engulfPrey(world, io, predatorEntity, preyEntity, preyId, preyPosition, preyEnergy.max);
           }
         }
       });
@@ -129,27 +130,28 @@ export class PredationSystem implements System {
   private engulfPrey(
     world: World,
     io: Server,
-    predatorId: string,
+    predatorEntity: number,
+    preyEntity: number,
     preyId: string,
     position: Position,
     preyMaxEnergy: number
   ): void {
 
     // Get prey color from ECS
-    const preyEntity = getEntityBySocketId(preyId);
-    const preyPlayer = preyEntity !== undefined
-      ? world.getComponent<PlayerComponent>(preyEntity, Components.Player)
-      : null;
+    const preyPlayer = world.getComponent<PlayerComponent>(preyEntity, Components.Player);
     const preyColor = preyPlayer?.color ?? '#ffffff';
+
+    // Get predator socket ID for network messages
+    const predatorId = getSocketIdByEntity(predatorEntity) ?? 'unknown';
 
     // Calculate rewards (gain % of victim's maxEnergy)
     const energyGain = preyMaxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN;
-    addEnergyBySocketId(world, predatorId, energyGain);
+    addEnergy(world, predatorEntity, energyGain);
 
     // Kill prey (energy-only: set energy to 0)
-    setEnergyBySocketId(world, preyId, 0);
+    setEnergy(world, preyEntity, 0);
     // Mark damage source in ECS for death cause logging
-    const damageTracking = getDamageTrackingBySocketId(world, preyId);
+    const damageTracking = getDamageTracking(world, preyEntity);
     if (damageTracking) {
       damageTracking.lastDamageSource = 'predation';
     }

@@ -15,12 +15,12 @@ import type { System } from './types';
 import {
   Components,
   forEachPlayer,
-  getStageBySocketId,
-  getEnergyBySocketId,
+  getStage,
+  getEnergy,
   getEntityBySocketId,
   setPlayerStage,
   hasPlayer,
-  getDamageTrackingBySocketId,
+  getDamageTracking,
   recordDamage,
   type EnergyComponent,
   type StageComponent,
@@ -55,7 +55,7 @@ export class MetabolismSystem implements System {
       if (energyComp.current < 0) {
         return; // Already dead, waiting for respawn
       }
-      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      const damageTracking = getDamageTracking(world, entity);
       if (energyComp.current === 0 && !damageTracking?.lastDamageSource) {
         if (damageTracking) {
           damageTracking.lastDamageSource = 'starvation';
@@ -78,7 +78,7 @@ export class MetabolismSystem implements System {
       if (energyComp.current <= 0) {
         energyComp.current = 0;
         // Track damage source in ECS for death cause logging
-        const damageTrackingForDeath = getDamageTrackingBySocketId(world, playerId);
+        const damageTrackingForDeath = getDamageTracking(world, entity);
         if (damageTrackingForDeath) {
           damageTrackingForDeath.lastDamageSource = 'starvation';
         }
@@ -88,7 +88,7 @@ export class MetabolismSystem implements System {
 
       // Check for evolution (only if still alive)
       if (energyComp.current > 0) {
-        this.checkEvolution(playerId, world, io);
+        this.checkEvolution(entity, playerId, world, io);
       }
     });
   }
@@ -96,10 +96,10 @@ export class MetabolismSystem implements System {
   /**
    * Check if player can evolve and trigger evolution if conditions met
    */
-  private checkEvolution(playerId: string, world: World, io: Server): void {
+  private checkEvolution(entity: number, playerId: string, world: World, io: Server): void {
 
-    const stageComp = getStageBySocketId(world, playerId);
-    const energyComp = getEnergyBySocketId(world, playerId);
+    const stageComp = getStage(world, entity);
+    const energyComp = getEnergy(world, entity);
     if (!stageComp || !energyComp) return;
 
     if (stageComp.isEvolving) return; // Already evolving
@@ -132,9 +132,12 @@ export class MetabolismSystem implements System {
       // Check if player still exists (they might have disconnected during molting)
       if (!hasPlayer(world, playerId)) return;
 
-      // Re-fetch components (they're still valid if entity exists)
-      const stageCompNow = getStageBySocketId(world, playerId);
-      const energyCompNow = getEnergyBySocketId(world, playerId);
+      // Re-fetch entity and components (entity may have changed due to respawn)
+      const entityNow = getEntityBySocketId(playerId);
+      if (!entityNow) return;
+
+      const stageCompNow = getStage(world, entityNow);
+      const energyCompNow = getEnergy(world, entityNow);
       if (!stageCompNow || !energyCompNow) return;
 
       stageCompNow.stage = targetStage;
@@ -147,37 +150,34 @@ export class MetabolismSystem implements System {
       energyCompNow.current = energyCompNow.max; // Evolution fully restores energy
 
       // Also update ECS stage abilities via setPlayerStage
-      const entity = getEntityBySocketId(playerId);
-      if (entity) {
-        setPlayerStage(world, entity, targetStage);
+      setPlayerStage(world, entityNow, targetStage);
 
-        // Stage 3 (Cyber-Organism): Add combat specialization component
-        // Player must choose melee, ranged, or traps pathway
-        if (targetStage === EvolutionStage.CYBER_ORGANISM) {
-          const now = Date.now();
-          const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
+      // Stage 3 (Cyber-Organism): Add combat specialization component
+      // Player must choose melee, ranged, or traps pathway
+      if (targetStage === EvolutionStage.CYBER_ORGANISM) {
+        const now = Date.now();
+        const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
-          // Add the combat specialization component with pending selection
-          world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
-            specialization: null,
-            selectionPending: true,
-            selectionDeadline: deadline,
-          });
+        // Add the combat specialization component with pending selection
+        world.addComponent<CombatSpecializationComponent>(entityNow, Components.CombatSpecialization, {
+          specialization: null,
+          selectionPending: true,
+          selectionDeadline: deadline,
+        });
 
-          // Emit specialization prompt to the evolving player
-          const promptMessage: SpecializationPromptMessage = {
-            type: 'specializationPrompt',
-            playerId: playerId,
-            deadline: deadline,
-          };
-          io.emit('specializationPrompt', promptMessage);
+        // Emit specialization prompt to the evolving player
+        const promptMessage: SpecializationPromptMessage = {
+          type: 'specializationPrompt',
+          playerId: playerId,
+          deadline: deadline,
+        };
+        io.emit('specializationPrompt', promptMessage);
 
-          logger.info({
-            event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
-            playerId,
-            deadline,
-          });
-        }
+        logger.info({
+          event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
+          playerId,
+          deadline,
+        });
       }
 
       // Broadcast evolution event

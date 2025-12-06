@@ -13,6 +13,7 @@ import {
   getVelocityBySocketId,
   getInputBySocketId,
   deletePlayerBySocketId,
+  getEntityBySocketId,
   forEachPlayer,
   getStringIdByEntity,
   getAllObstacleSnapshots,
@@ -836,6 +837,10 @@ function updateMultiCellBotAI(
     return;
   }
 
+  // Look up entity at start for ability calls
+  const botEntity = getEntityBySocketId(player.id);
+  if (botEntity === undefined) return;
+
   // Multi-cells hunt single-cells and nutrients
   // Priority: 1. Disabled swarms (easy energy), 2. Single-cells (prey), 3. Nutrients
 
@@ -924,8 +929,8 @@ function updateMultiCellBotAI(
   // ============================================
 
   // EMP: Fire when 2+ active swarms are nearby (disables them for easy consumption)
-  if (nearbyActiveSwarmCount >= 2 && abilitySystem.canFireEMP(player.id)) {
-    const success = abilitySystem.fireEMP(player.id);
+  if (nearbyActiveSwarmCount >= 2 && abilitySystem.canFireEMP(botEntity)) {
+    const success = abilitySystem.fireEMP(botEntity, player.id);
     logger.info({
       event: 'bot_emp_decision',
       botId: player.id,
@@ -940,10 +945,11 @@ function updateMultiCellBotAI(
 
   // Pseudopod: Fire at nearby enemy multi-cells (territorial control)
   // Or at nearby single-cells that are just out of contact range
-  if (abilitySystem.canFirePseudopod(player.id)) {
+  if (abilitySystem.canFirePseudopod(botEntity)) {
     if (nearestEnemyMultiCell) {
       // Attack rival multi-cell
       const success = abilitySystem.firePseudopod(
+        botEntity,
         player.id,
         nearestEnemyMultiCell.position.x,
         nearestEnemyMultiCell.position.y
@@ -969,6 +975,7 @@ function updateMultiCellBotAI(
     ) {
       // Low-priority: snipe escaping single-cell only when conditions are favorable
       const success = abilitySystem.firePseudopod(
+        botEntity,
         player.id,
         nearestPrey.position.x,
         nearestPrey.position.y
@@ -1083,15 +1090,12 @@ function updateCyberOrganismBotAI(
     return;
   }
 
-  // Get bot's specialization from ECS
-  const entity = world.query(Components.Player).find(e => {
-    const p = world.getComponent<{ socketId: string }>(e, Components.Player);
-    return p?.socketId === player.id;
-  });
-  if (!entity) return;
+  // Look up entity at start for ability calls
+  const botEntity = getEntityBySocketId(player.id);
+  if (botEntity === undefined) return;
 
   const specComp = world.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(
-    entity,
+    botEntity,
     Components.CombatSpecialization
   );
   const specialization = specComp?.specialization || 'ranged';
@@ -1117,9 +1121,9 @@ function updateCyberOrganismBotAI(
     const idealDistance = projectileRange * 0.5; // Stay at ~400px
 
     if (nearestTarget) {
-      // Fire if in range and able
-      if (nearestDist < projectileRange * 0.8 && abilitySystem.canFireProjectile(player.id)) {
-        abilitySystem.fireProjectile(player.id, nearestTarget.x, nearestTarget.y);
+      // Fire if in range and able (entity-based ability calls)
+      if (nearestDist < projectileRange * 0.8 && abilitySystem.canFireProjectile(botEntity)) {
+        abilitySystem.fireProjectile(botEntity, player.id, nearestTarget.x, nearestTarget.y);
       }
 
       // Movement: approach if too far, retreat if too close
@@ -1153,10 +1157,10 @@ function updateCyberOrganismBotAI(
     const meleeRange = 120; // Close range for melee attacks
 
     if (nearestTarget) {
-      // Attack if in melee range (fireMeleeAttack handles cooldown internally)
+      // Attack if in melee range (entity-based ability calls)
       if (nearestDist < meleeRange) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        abilitySystem.fireMeleeAttack(player.id, attackType, nearestTarget.x, nearestTarget.y);
+        abilitySystem.fireMeleeAttack(botEntity, player.id, attackType, nearestTarget.x, nearestTarget.y);
       }
 
       // Always chase - melee wants to close distance
@@ -1171,9 +1175,9 @@ function updateCyberOrganismBotAI(
     const trapTriggerRadius = getConfig('TRAP_TRIGGER_RADIUS') || 100;
 
     if (nearestTarget) {
-      // Place trap if enemy is approaching and ability ready
-      if (nearestDist < 300 && nearestDist > trapTriggerRadius && abilitySystem.canPlaceTrap(player.id)) {
-        abilitySystem.placeTrap(player.id);
+      // Place trap if enemy is approaching and ability ready (entity-based)
+      if (nearestDist < 300 && nearestDist > trapTriggerRadius && abilitySystem.canPlaceTrap(botEntity, player.id)) {
+        abilitySystem.placeTrap(botEntity, player.id);
       }
 
       // Kite behavior: retreat while leading enemy through traps

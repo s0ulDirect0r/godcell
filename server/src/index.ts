@@ -612,8 +612,10 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('pseudopodFire', (message: PseudopodFireMessage) => {
-    // Delegate to AbilitySystem (used by both players and bots)
-    abilitySystem.firePseudopod(socket.id, message.targetX, message.targetY);
+    // Lookup entity at socket boundary, then use entity-based API
+    const entity = getEntityBySocketId(socket.id);
+    if (entity === undefined) return;
+    abilitySystem.firePseudopod(entity, socket.id, message.targetX, message.targetY);
   });
 
   // ============================================
@@ -621,8 +623,10 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('projectileFire', (message: ProjectileFireMessage) => {
-    // Delegate to AbilitySystem (ranged spec only)
-    abilitySystem.fireProjectile(socket.id, message.targetX, message.targetY);
+    // Lookup entity at socket boundary, then use entity-based API
+    const entity = getEntityBySocketId(socket.id);
+    if (entity === undefined) return;
+    abilitySystem.fireProjectile(entity, socket.id, message.targetX, message.targetY);
   });
 
   // ============================================
@@ -630,8 +634,10 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('empActivate', (_message: EMPActivateMessage) => {
-    // Delegate to AbilitySystem (used by both players and bots)
-    abilitySystem.fireEMP(socket.id);
+    // Lookup entity at socket boundary, then use entity-based API
+    const entity = getEntityBySocketId(socket.id);
+    if (entity === undefined) return;
+    abilitySystem.fireEMP(entity, socket.id);
   });
 
   // ============================================
@@ -713,14 +719,18 @@ io.on('connection', (socket) => {
   // ============================================
 
   socket.on('meleeAttack', (message: MeleeAttackMessage) => {
-    // Delegate to AbilitySystem (validates specialization, cooldown, energy, etc.)
-    abilitySystem.fireMeleeAttack(socket.id, message.attackType, message.targetX, message.targetY);
+    // Lookup entity at socket boundary, then use entity-based API
+    const entity = getEntityBySocketId(socket.id);
+    if (entity === undefined) return;
+    abilitySystem.fireMeleeAttack(entity, socket.id, message.attackType, message.targetX, message.targetY);
   });
 
   socket.on('placeTrap', () => {
     logger.debug({ event: 'socket_place_trap', socketId: socket.id });
-    // Delegate to AbilitySystem (validates specialization, cooldown, energy, max traps, etc.)
-    abilitySystem.placeTrap(socket.id);
+    // Lookup entity at socket boundary, then use entity-based API
+    const entity = getEntityBySocketId(socket.id);
+    if (entity === undefined) return;
+    abilitySystem.placeTrap(entity, socket.id);
   });
 
   // ============================================
