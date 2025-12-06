@@ -22,6 +22,7 @@ import type { Server } from 'socket.io';
 import { getConfig } from './dev';
 import { logger } from './logger';
 import { isJungleStage } from './helpers/stages';
+import type { EntityId } from '@godcell/shared';
 import {
   createPseudopod as ecsCreatePseudopod,
   createProjectile,
@@ -31,21 +32,22 @@ import {
   getEntityBySocketId,
   getEntityByStringId,
   getPlayerBySocketId,
-  getEnergyBySocketId,
-  getStageBySocketId,
-  getPositionBySocketId,
-  getStunnedBySocketId,
-  getCooldownsBySocketId,
+  // Entity-based component helpers (game layer)
+  getEnergy,
+  getStage,
+  getPosition,
+  getStunned,
+  getCooldowns,
+  addEnergy,
+  setMaxEnergy,
+  subtractEnergy,
+  getDamageTracking,
   forEachPlayer,
   forEachSwarm,
   forEachCyberBug,
   forEachJungleCreature,
-  addEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  subtractEnergyBySocketId,
   destroyEntity,
   recordDamage,
-  getDamageTrackingBySocketId,
   type World,
 } from './ecs';
 
@@ -90,14 +92,14 @@ export class AbilitySystem {
    * Disables nearby swarms and stuns nearby players
    * @returns true if EMP was fired successfully
    */
-  fireEMP(playerId: string): boolean {
+  fireEMP(entity: EntityId, playerId: string): boolean {
     const { world } = this.ctx;
 
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
+    // Get player state from ECS (entity-based)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
+    const stunnedComp = getStunned(world, entity);
     if (!energyComp || !stageComp || !posComp) return false;
 
     // Stage 2 (Multi-Cell) only - not available to other stages
@@ -108,8 +110,8 @@ export class AbilitySystem {
     if (stunnedComp?.until && now < stunnedComp.until) return false;
     if (energyComp.current < getConfig('EMP_ENERGY_COST')) return false;
 
-    // Cooldown check via ECS
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    // Cooldown check via ECS (entity-based)
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastEMPTime || 0;
     if (now - lastUse < getConfig('EMP_COOLDOWN')) return false;
@@ -135,14 +137,14 @@ export class AbilitySystem {
       }
     });
 
-    // Check other players using ECS iteration
-    forEachPlayer(world, (entity, otherPlayerId) => {
+    // Check other players using ECS iteration (entity-based)
+    forEachPlayer(world, (otherEntity, otherPlayerId) => {
       if (otherPlayerId === playerId) return;
 
-      const otherEnergy = getEnergyBySocketId(world, otherPlayerId);
-      const otherStage = getStageBySocketId(world, otherPlayerId);
-      const otherPos = getPositionBySocketId(world, otherPlayerId);
-      const otherStunned = getStunnedBySocketId(world, otherPlayerId);
+      const otherEnergy = getEnergy(world, otherEntity);
+      const otherStage = getStage(world, otherEntity);
+      const otherPos = getPosition(world, otherEntity);
+      const otherStunned = getStunned(world, otherEntity);
       if (!otherEnergy || !otherStage || !otherPos) return;
       if (otherEnergy.current <= 0) return;
 
@@ -160,9 +162,9 @@ export class AbilitySystem {
         // Note: If no stunned component, the shared ECS may need component creation
         // For now, stun tracking happens via the component if present
 
-        // Multi-cells also lose energy when hit
+        // Multi-cells also lose energy when hit (entity-based)
         if (otherStage.stage === EvolutionStage.MULTI_CELL) {
-          subtractEnergyBySocketId(world, otherPlayerId, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
+          subtractEnergy(world, otherEntity, GAME_CONFIG.EMP_MULTI_CELL_ENERGY_DRAIN);
         }
 
         affectedPlayerIds.push(otherPlayerId);
@@ -198,15 +200,15 @@ export class AbilitySystem {
    * Fires a damaging beam toward the target position
    * @returns true if pseudopod was fired successfully
    */
-  firePseudopod(playerId: string, targetX: number, targetY: number): boolean {
+  firePseudopod(entity: EntityId, playerId: string, targetX: number, targetY: number): boolean {
     const { world } = this.ctx;
 
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const player = getPlayerBySocketId(world, playerId); // For color
+    // Get player state from ECS (entity-based)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    const player = getPlayerBySocketId(world, playerId); // For color (still need socket lookup for legacy Player)
     if (!energyComp || !stageComp || !posComp || !player) return false;
 
     // Stage 2 (Multi-Cell) only - not available to other stages
@@ -217,8 +219,8 @@ export class AbilitySystem {
     if (stunnedComp?.until && now < stunnedComp.until) return false;
     if (energyComp.current < getConfig('PSEUDOPOD_ENERGY_COST')) return false;
 
-    // Cooldown check via ECS
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    // Cooldown check via ECS (entity-based)
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastPseudopodTime || 0;
     if (now - lastUse < getConfig('PSEUDOPOD_COOLDOWN')) return false;
@@ -287,8 +289,8 @@ export class AbilitySystem {
           // Record damage for drain aura visual (persists for 500ms)
           recordDamage(world, targetEntity, drainPerHit, 'beam');
 
-          // Set decay timer for persistent drain aura after hit
-          const targetDamageTracking = getDamageTrackingBySocketId(world, targetId);
+          // Set decay timer for persistent drain aura after hit (entity-based)
+          const targetDamageTracking = getDamageTracking(world, targetEntity);
           if (targetDamageTracking) {
             targetDamageTracking.pseudopodHitRate = drainPerHit;
             targetDamageTracking.pseudopodHitExpiresAt = Date.now() + 500;
@@ -336,9 +338,9 @@ export class AbilitySystem {
         }
       });
 
-      // Give drained energy to the attacker (energy absorption)
+      // Give drained energy to the attacker (energy absorption, entity-based)
       if (totalDrained > 0) {
-        addEnergyBySocketId(world, playerId, totalDrained);
+        addEnergy(world, entity, totalDrained);
         logger.info({
           event: 'strike_energy_absorbed',
           striker: playerId,
@@ -390,20 +392,18 @@ export class AbilitySystem {
       };
 
       // Add to ECS (sole source of truth for pseudopods)
-      const ownerEntity = getEntityBySocketId(playerId);
-      if (ownerEntity !== undefined) {
-        ecsCreatePseudopod(
-          world,
-          pseudopod.id,
-          ownerEntity,
-          playerId,
-          pseudopod.position,
-          pseudopod.velocity,
-          pseudopod.width,
-          pseudopod.maxDistance,
-          pseudopod.color
-        );
-      }
+      // Already have entity from function parameter
+      ecsCreatePseudopod(
+        world,
+        pseudopod.id,
+        entity,
+        playerId,
+        pseudopod.position,
+        pseudopod.velocity,
+        pseudopod.width,
+        pseudopod.maxDistance,
+        pseudopod.color
+      );
 
       // Auto-remove after visual duration
       const beamId = pseudopod.id;
@@ -449,20 +449,18 @@ export class AbilitySystem {
       };
 
       // Add to ECS (sole source of truth for pseudopods)
-      const ownerEntity = getEntityBySocketId(playerId);
-      if (ownerEntity !== undefined) {
-        ecsCreatePseudopod(
-          world,
-          pseudopod.id,
-          ownerEntity,
-          playerId,
-          pseudopod.position,
-          pseudopod.velocity,
-          pseudopod.width,
-          pseudopod.maxDistance,
-          pseudopod.color
-        );
-      }
+      // Already have entity from function parameter
+      ecsCreatePseudopod(
+        world,
+        pseudopod.id,
+        entity,
+        playerId,
+        pseudopod.position,
+        pseudopod.velocity,
+        pseudopod.width,
+        pseudopod.maxDistance,
+        pseudopod.color
+      );
 
       this.ctx.io.emit('pseudopodSpawned', {
         type: 'pseudopodSpawned',
@@ -492,16 +490,15 @@ export class AbilitySystem {
    * Fires a hunting projectile toward jungle fauna and other players
    * @returns true if projectile was fired successfully
    */
-  fireProjectile(playerId: string, targetX: number, targetY: number): boolean {
+  fireProjectile(entity: EntityId, playerId: string, targetX: number, targetY: number): boolean {
     const { world } = this.ctx;
 
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const player = getPlayerBySocketId(world, playerId);
-    const entity = getEntityBySocketId(playerId);
+    // Get player state from ECS (entity-based)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    const player = getPlayerBySocketId(world, playerId); // For color
 
     // Debug: log what we received
     logger.debug({
@@ -518,7 +515,7 @@ export class AbilitySystem {
       energy: energyComp?.current,
     });
 
-    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
+    if (!energyComp || !stageComp || !posComp || !player) return false;
 
     // Stage 3+ only (Cyber-Organism and above)
     if (!isJungleStage(stageComp.stage)) return false;
@@ -533,8 +530,8 @@ export class AbilitySystem {
     if (stunnedComp?.until && now < stunnedComp.until) return false;
     if (energyComp.current < GAME_CONFIG.PROJECTILE_ENERGY_COST) return false;
 
-    // Cooldown check via ECS
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    // Cooldown check via ECS (entity-based)
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastOrganismProjectileTime || 0;
     if (now - lastUse < GAME_CONFIG.PROJECTILE_COOLDOWN) return false;
@@ -593,18 +590,17 @@ export class AbilitySystem {
    * @param attackType 'swipe' (90°) or 'thrust' (30°)
    * @returns true if attack was executed successfully
    */
-  fireMeleeAttack(playerId: string, attackType: MeleeAttackType, targetX: number, targetY: number): boolean {
+  fireMeleeAttack(entity: EntityId, playerId: string, attackType: MeleeAttackType, targetX: number, targetY: number): boolean {
     const { world } = this.ctx;
 
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const player = getPlayerBySocketId(world, playerId);
-    const entity = getEntityBySocketId(playerId);
+    // Get player state from ECS (entity-based)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    const player = getPlayerBySocketId(world, playerId); // For color
 
-    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) return false;
+    if (!energyComp || !stageComp || !posComp || !player) return false;
 
     // Stage 3+ only (Cyber-Organism and above)
     if (!isJungleStage(stageComp.stage)) return false;
@@ -629,8 +625,8 @@ export class AbilitySystem {
 
     if (energyComp.current < energyCost) return false;
 
-    // Cooldown check via ECS
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    // Cooldown check via ECS (entity-based)
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = isSwipe ? (cooldowns.lastMeleeSwipeTime || 0) : (cooldowns.lastMeleeThrustTime || 0);
     if (now - lastUse < cooldown) return false;
@@ -652,13 +648,13 @@ export class AbilitySystem {
     const killedBugIds: string[] = [];
     const killedCreatureIds: string[] = [];
 
-    // Check players
+    // Check players (entity-based)
     forEachPlayer(world, (targetEntity, targetPlayerId) => {
       if (targetPlayerId === playerId) return; // Can't hit yourself
 
-      const targetEnergy = getEnergyBySocketId(world, targetPlayerId);
-      const targetStage = getStageBySocketId(world, targetPlayerId);
-      const targetPos = getPositionBySocketId(world, targetPlayerId);
+      const targetEnergy = getEnergy(world, targetEntity);
+      const targetStage = getStage(world, targetEntity);
+      const targetPos = getPosition(world, targetEntity);
       if (!targetEnergy || !targetStage || !targetPos) return;
       if (targetEnergy.current <= 0) return; // Skip dead players
 
@@ -743,11 +739,11 @@ export class AbilitySystem {
 
     // Process bug kills (after iteration to avoid mutation during iteration)
     for (const bug of bugsToKill) {
-      // Award energy and capacity to attacker
-      addEnergyBySocketId(world, playerId, bug.value);
-      const attackerEnergy = getEnergyBySocketId(world, playerId);
+      // Award energy and capacity to attacker (entity-based)
+      addEnergy(world, entity, bug.value);
+      const attackerEnergy = getEnergy(world, entity);
       if (attackerEnergy) {
-        setMaxEnergyBySocketId(world, playerId, attackerEnergy.max + bug.capacityIncrease);
+        setMaxEnergy(world, entity, attackerEnergy.max + bug.capacityIncrease);
       }
 
       // Emit kill event
@@ -799,13 +795,13 @@ export class AbilitySystem {
       }
     });
 
-    // Process creature kills
+    // Process creature kills (entity-based)
     for (const creature of creaturesToKill) {
       // Award energy and capacity to attacker
-      addEnergyBySocketId(world, playerId, creature.value);
-      const attackerEnergy2 = getEnergyBySocketId(world, playerId);
+      addEnergy(world, entity, creature.value);
+      const attackerEnergy2 = getEnergy(world, entity);
       if (attackerEnergy2) {
-        setMaxEnergyBySocketId(world, playerId, attackerEnergy2.max + creature.capacityIncrease);
+        setMaxEnergy(world, entity, attackerEnergy2.max + creature.capacityIncrease);
       }
 
       // Emit kill event
@@ -868,18 +864,17 @@ export class AbilitySystem {
    * Places a disguised mine at the player's current position
    * @returns true if trap was placed successfully
    */
-  placeTrap(playerId: string): boolean {
+  placeTrap(entity: EntityId, playerId: string): boolean {
     const { world } = this.ctx;
 
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const player = getPlayerBySocketId(world, playerId);
-    const entity = getEntityBySocketId(playerId);
+    // Get player state from ECS (entity-based)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    const player = getPlayerBySocketId(world, playerId); // For color
 
-    if (!energyComp || !stageComp || !posComp || !player || entity === undefined) {
+    if (!energyComp || !stageComp || !posComp || !player) {
       logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'missing_components' });
       return false;
     }
@@ -921,8 +916,8 @@ export class AbilitySystem {
       return false;
     }
 
-    // Cooldown check via ECS
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    // Cooldown check via ECS (entity-based)
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) {
       logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_cooldowns_component' });
       return false;
@@ -1005,11 +1000,11 @@ export class AbilitySystem {
   /**
    * Check if a player can use EMP (has the ability and it's off cooldown)
    */
-  canFireEMP(playerId: string): boolean {
+  canFireEMP(entity: EntityId): boolean {
     const { world } = this.ctx;
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const stunnedComp = getStunned(world, entity);
     if (!energyComp || !stageComp) return false;
 
     if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
@@ -1019,7 +1014,7 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastEMPTime || 0;
     return now - lastUse >= getConfig('EMP_COOLDOWN');
@@ -1028,11 +1023,11 @@ export class AbilitySystem {
   /**
    * Check if a player can fire pseudopod (has the ability and it's off cooldown)
    */
-  canFirePseudopod(playerId: string): boolean {
+  canFirePseudopod(entity: EntityId): boolean {
     const { world } = this.ctx;
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const stunnedComp = getStunned(world, entity);
     if (!energyComp || !stageComp) return false;
 
     if (stageComp.stage !== EvolutionStage.MULTI_CELL) return false;
@@ -1042,7 +1037,7 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastPseudopodTime || 0;
     return now - lastUse >= getConfig('PSEUDOPOD_COOLDOWN');
@@ -1051,13 +1046,12 @@ export class AbilitySystem {
   /**
    * Check if a player can fire projectile (ranged specialization and off cooldown)
    */
-  canFireProjectile(playerId: string): boolean {
+  canFireProjectile(entity: EntityId): boolean {
     const { world } = this.ctx;
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const entity = getEntityBySocketId(playerId);
-    if (!energyComp || !stageComp || entity === undefined) return false;
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    if (!energyComp || !stageComp) return false;
 
     if (!isJungleStage(stageComp.stage)) return false;
     if (energyComp.current <= 0) return false;
@@ -1071,7 +1065,7 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastOrganismProjectileTime || 0;
     return now - lastUse >= GAME_CONFIG.PROJECTILE_COOLDOWN;
@@ -1080,13 +1074,12 @@ export class AbilitySystem {
   /**
    * Check if a player can place a trap (traps specialization and off cooldown)
    */
-  canPlaceTrap(playerId: string): boolean {
+  canPlaceTrap(entity: EntityId, playerId: string): boolean {
     const { world } = this.ctx;
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    const entity = getEntityBySocketId(playerId);
-    if (!energyComp || !stageComp || entity === undefined) return false;
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const stunnedComp = getStunned(world, entity);
+    if (!energyComp || !stageComp) return false;
 
     if (!isJungleStage(stageComp.stage)) return false;
     if (energyComp.current <= 0) return false;
@@ -1100,11 +1093,11 @@ export class AbilitySystem {
     const now = Date.now();
     if (stunnedComp?.until && now < stunnedComp.until) return false;
 
-    // Check max active traps
+    // Check max active traps (still uses playerId for ownership query)
     const activeTraps = countTrapsForPlayer(world, playerId);
     if (activeTraps >= GAME_CONFIG.TRAP_MAX_ACTIVE) return false;
 
-    const cooldowns = getCooldownsBySocketId(world, playerId);
+    const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
     const lastUse = cooldowns.lastTrapPlaceTime || 0;
     return now - lastUse >= GAME_CONFIG.TRAP_COOLDOWN;

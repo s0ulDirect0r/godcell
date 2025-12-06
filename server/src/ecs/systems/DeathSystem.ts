@@ -12,13 +12,15 @@ import {
   forEachPlayer,
   forEachSwarm,
   getPlayerBySocketId,
-  getEnergyBySocketId,
-  setEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  addEnergyBySocketId,
+  getEntityBySocketId,
+  getEnergy,
+  setEnergy,
+  setMaxEnergy,
+  addEnergy,
+  getDamageTracking,
   getDrainPredatorId,
   clearDrainTarget,
-  getDamageTrackingBySocketId,
+  entityToLegacyPlayer,
   destroyEntity,
   type EnergyComponent,
   type DamageTrackingComponent,
@@ -46,8 +48,8 @@ export class DeathSystem implements System {
       const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
       if (!energyComp) return;
 
-      // Get damage tracking from ECS
-      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      // Get damage tracking from ECS (entity-based)
+      const damageTracking = getDamageTracking(world, entity);
 
       // Only process if:
       // 1. Energy is at or below 0
@@ -55,16 +57,17 @@ export class DeathSystem implements System {
       if (energyComp.current <= 0 && damageTracking?.lastDamageSource) {
         const cause = damageTracking.lastDamageSource;
 
-        // Get Player object for death handling
-        const player = getPlayerBySocketId(world, playerId);
+        // Get Player object for death handling (legacy format for network messages)
+        const player = entityToLegacyPlayer(world, entity);
         if (!player) return;
 
         // Handle predation kill rewards (contact drain)
         if (cause === 'predation') {
-          const predatorId = getDrainPredatorId(world, player.id);
-          if (predatorId) {
-            const predatorEnergy = getEnergyBySocketId(world, predatorId);
-            if (predatorEnergy) {
+          const predatorSocketId = getDrainPredatorId(world, player.id);
+          if (predatorSocketId) {
+            const predatorEntity = getEntityBySocketId(predatorSocketId);
+            const predatorEnergy = predatorEntity ? getEnergy(world, predatorEntity) : undefined;
+            if (predatorEntity && predatorEnergy) {
               // Calculate reward based on victim stage
               let maxEnergyGain = 0;
               if (player.stage === EvolutionStage.SINGLE_CELL) {
@@ -76,13 +79,13 @@ export class DeathSystem implements System {
               }
 
               // Award maxEnergy increase to predator (write to ECS)
-              setMaxEnergyBySocketId(world, predatorId, predatorEnergy.max + maxEnergyGain);
+              setMaxEnergy(world, predatorEntity, predatorEnergy.max + maxEnergyGain);
               // Clamp current energy to new max (addEnergy with 0 does this)
-              addEnergyBySocketId(world, predatorId, 0);
+              addEnergy(world, predatorEntity, 0);
 
               logger.info({
                 event: 'predation_kill',
-                predatorId,
+                predatorId: predatorSocketId,
                 victimId: player.id,
                 victimStage: player.stage,
                 maxEnergyGained: maxEnergyGain.toFixed(1),
@@ -95,22 +98,23 @@ export class DeathSystem implements System {
 
         // Handle beam kill rewards (pseudopod)
         if (cause === 'beam') {
-          const shooterId = damageTracking.lastBeamShooter;
-          if (shooterId) {
-            const shooterEnergy = getEnergyBySocketId(world, shooterId);
-            if (shooterEnergy) {
+          const shooterSocketId = damageTracking.lastBeamShooter;
+          if (shooterSocketId) {
+            const shooterEntity = getEntityBySocketId(shooterSocketId);
+            const shooterEnergy = shooterEntity ? getEnergy(world, shooterEntity) : undefined;
+            if (shooterEntity && shooterEnergy) {
               // Only multi-cells can be killed by beams, always award 80%
               const maxEnergyGain = player.maxEnergy * GAME_CONFIG.MULTICELL_KILL_ABSORPTION;
 
               // Award maxEnergy increase AND current energy to shooter (write to ECS)
               const newMaxEnergy = shooterEnergy.max + maxEnergyGain;
-              setMaxEnergyBySocketId(world, shooterId, newMaxEnergy);
+              setMaxEnergy(world, shooterEntity, newMaxEnergy);
               const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
-              addEnergyBySocketId(world, shooterId, energyGain);
+              addEnergy(world, shooterEntity, energyGain);
 
               logger.info({
                 event: 'beam_kill',
-                shooterId,
+                shooterId: shooterSocketId,
                 victimId: player.id,
                 victimStage: player.stage,
                 maxEnergyGained: maxEnergyGain.toFixed(1),
@@ -152,7 +156,7 @@ export class DeathSystem implements System {
 
         // Mark as "death processed" - sentinel value prevents catch-all from re-triggering
         // Respawn will set energy back to positive value
-        setEnergyBySocketId(world, playerId, -1);
+        setEnergy(world, entity, -1);
 
         // Clear damage source in ECS to prevent reprocessing same death
         damageTracking.lastDamageSource = undefined;
@@ -191,26 +195,29 @@ export class DeathSystem implements System {
     for (const swarm of deadSwarms) {
       // Award kill rewards to killer (different rewards for beam vs consumption)
       if (swarm.killerId) {
-        // Beam kills award SWARM_BEAM_KILL_MAX_ENERGY_GAIN
-        // Consumption awards SWARM_MAX_ENERGY_GAIN
-        const maxEnergyGain = swarm.damageSource === 'consumption'
-          ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
-          : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
+        const killerEntity = getEntityBySocketId(swarm.killerId);
+        if (killerEntity) {
+          // Beam kills award SWARM_BEAM_KILL_MAX_ENERGY_GAIN
+          // Consumption awards SWARM_MAX_ENERGY_GAIN
+          const maxEnergyGain = swarm.damageSource === 'consumption'
+            ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
+            : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
 
-        addEnergyBySocketId(world, swarm.killerId, GAME_CONFIG.SWARM_ENERGY_GAIN);
-        const killerEnergy = getEnergyBySocketId(world, swarm.killerId);
-        if (killerEnergy) {
-          setMaxEnergyBySocketId(world, swarm.killerId, killerEnergy.max + maxEnergyGain);
+          addEnergy(world, killerEntity, GAME_CONFIG.SWARM_ENERGY_GAIN);
+          const killerEnergy = getEnergy(world, killerEntity);
+          if (killerEnergy) {
+            setMaxEnergy(world, killerEntity, killerEnergy.max + maxEnergyGain);
+          }
+
+          logger.info({
+            event: 'swarm_killed',
+            killerId: swarm.killerId,
+            swarmId: swarm.swarmId,
+            damageSource: swarm.damageSource,
+            energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
+            maxEnergyGained: maxEnergyGain,
+          });
         }
-
-        logger.info({
-          event: 'swarm_killed',
-          killerId: swarm.killerId,
-          swarmId: swarm.swarmId,
-          damageSource: swarm.damageSource,
-          energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-          maxEnergyGained: maxEnergyGain,
-        });
       }
 
       // Emit consumed event for client visual

@@ -22,13 +22,14 @@ import {
 } from '@godcell/shared';
 import { logger } from './logger';
 import {
-  setEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  setStageBySocketId,
-  setPositionBySocketId,
-  getEnergyBySocketId,
-  getStageBySocketId,
-  getPositionBySocketId,
+  // Entity-based helpers (preferred)
+  setEnergy,
+  setMaxEnergy,
+  setStage,
+  setPosition,
+  getEnergy,
+  getStage,
+  getPosition,
   getEntityBySocketId,
   forEachPlayer,
   hasPlayer,
@@ -284,11 +285,12 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
     }
 
     case 'player': {
-      // Check if player exists via ECS
-      if (hasPlayer(devContext.world, entityId)) {
-        const posComp = getPositionBySocketId(devContext.world, entityId);
-        // Use ECS setter to persist the energy change
-        setEnergyBySocketId(devContext.world, entityId, 0);
+      // Check if player exists via ECS and lookup entity
+      const entity = getEntityBySocketId(entityId);
+      if (entity !== undefined) {
+        const posComp = getPosition(devContext.world, entity);
+        // Use entity-based setter to persist the energy change
+        setEnergy(devContext.world, entity, 0);
         io.emit('playerDied', {
           type: 'playerDied',
           playerId: entityId,
@@ -313,13 +315,14 @@ function handleSetTimeScale(io: Server, scale: number): void {
 function handleTeleportPlayer(io: Server, playerId: string, position: Position): void {
   if (!devContext) return;
 
-  // Check if player exists via ECS
-  if (!hasPlayer(devContext.world, playerId)) return;
+  // Lookup entity at boundary
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
 
-  // Clamp to world bounds and update via ECS setter
+  // Clamp to world bounds and update via entity-based setter
   const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
   const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.WORLD_HEIGHT));
-  setPositionBySocketId(devContext.world, playerId, clampedX, clampedY);
+  setPosition(devContext.world, entity, clampedX, clampedY);
 
   io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });
   logger.info({ event: 'dev_teleport', playerId, position: { x: clampedX, y: clampedY } });
@@ -328,17 +331,21 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
 function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, maxEnergy?: number): void {
   if (!devContext) return;
 
+  // Lookup entity at boundary
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
+
   // Get current ECS energy component (source of truth)
-  const energyComp = getEnergyBySocketId(devContext.world, playerId);
+  const energyComp = getEnergy(devContext.world, entity);
   if (!energyComp) return;
 
-  // Update via ECS setters
+  // Update via entity-based setters
   if (maxEnergy !== undefined) {
-    setMaxEnergyBySocketId(devContext.world, playerId, maxEnergy);
+    setMaxEnergy(devContext.world, entity, maxEnergy);
     energyComp.max = maxEnergy; // Update local reference for broadcast
   }
   const newEnergy = Math.min(energy, energyComp.max);
-  setEnergyBySocketId(devContext.world, playerId, newEnergy);
+  setEnergy(devContext.world, entity, newEnergy);
 
   io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: newEnergy });
   logger.info({ event: 'dev_set_energy', playerId, energy: newEnergy, maxEnergy: energyComp.max });
@@ -347,8 +354,12 @@ function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, max
 function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStage): void {
   if (!devContext) return;
 
-  // Read stage directly from ECS (players Map may be stale between ticks)
-  const stageComp = getStageBySocketId(devContext.world, playerId);
+  // Lookup entity at boundary
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
+
+  // Read stage directly from ECS (source of truth)
+  const stageComp = getStage(devContext.world, entity);
   if (!stageComp) return;
 
   const oldStage = stageComp.stage;
@@ -356,40 +367,37 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
   // Set energy pools to match the new stage (dev override, not natural evolution)
   const stageStats = devContext.getStageEnergy(stage);
 
-  // Update via ECS setters - stage, maxEnergy, and energy
-  setStageBySocketId(devContext.world, playerId, stage);
-  setMaxEnergyBySocketId(devContext.world, playerId, stageStats.maxEnergy);
-  setEnergyBySocketId(devContext.world, playerId, stageStats.energy);
+  // Update via entity-based setters - stage, maxEnergy, and energy
+  setStage(devContext.world, entity, stage);
+  setMaxEnergy(devContext.world, entity, stageStats.maxEnergy);
+  setEnergy(devContext.world, entity, stageStats.energy);
 
   // Stage 3 (Cyber-Organism): Add combat specialization component and prompt
   // This mirrors MetabolismSystem behavior for natural evolution
   if (stage === EvolutionStage.CYBER_ORGANISM) {
-    const entity = getEntityBySocketId(playerId);
-    if (entity !== undefined) {
-      const now = Date.now();
-      const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
+    const now = Date.now();
+    const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
-      // Add the combat specialization component with pending selection
-      devContext.world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
-        specialization: null,
-        selectionPending: true,
-        selectionDeadline: deadline,
-      });
+    // Add the combat specialization component with pending selection
+    devContext.world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
+      specialization: null,
+      selectionPending: true,
+      selectionDeadline: deadline,
+    });
 
-      // Emit specialization prompt to trigger the modal
-      const promptMessage: SpecializationPromptMessage = {
-        type: 'specializationPrompt',
-        playerId: playerId,
-        deadline: deadline,
-      };
-      io.emit('specializationPrompt', promptMessage);
+    // Emit specialization prompt to trigger the modal
+    const promptMessage: SpecializationPromptMessage = {
+      type: 'specializationPrompt',
+      playerId: playerId,
+      deadline: deadline,
+    };
+    io.emit('specializationPrompt', promptMessage);
 
-      logger.info({
-        event: 'dev_specialization_prompt_sent',
-        playerId,
-        deadline,
-      });
-    }
+    logger.info({
+      event: 'dev_specialization_prompt_sent',
+      playerId,
+      deadline,
+    });
   }
 
   io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy, radius: stageComp.radius });
@@ -521,8 +529,9 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       // Only consider bots (players with 'bot-' prefix)
       if (!id.startsWith('bot-')) return;
 
-      const stageComp = getStageBySocketId(world, id);
-      const posComp = getPositionBySocketId(world, id);
+      // Use entity-based helpers directly (entity already available from forEachPlayer)
+      const stageComp = getStage(world, entity);
+      const posComp = getPosition(world, entity);
       if (!stageComp || !posComp) return;
 
       // Filter by stage matching the entity type

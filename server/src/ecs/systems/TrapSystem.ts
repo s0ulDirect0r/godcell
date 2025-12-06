@@ -17,10 +17,10 @@ import {
   destroyEntity,
   forEachTrap,
   forEachPlayer,
-  getPositionBySocketId,
-  getStageBySocketId,
-  getEnergyBySocketId,
-  subtractEnergyBySocketId,
+  getPosition,
+  getStage,
+  getEnergy,
+  subtractEnergy,
   getEntityBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
@@ -45,6 +45,7 @@ export class TrapSystem implements System {
       entity: EntityId;
       id: string;
       victimSocketId: string;
+      victimEntity: EntityId;
       pos: { x: number; y: number };
       damage: number;
       stunDuration: number;
@@ -71,12 +72,12 @@ export class TrapSystem implements System {
         // Skip trap owner
         if (playerSocketId === trapComp.ownerSocketId) return;
 
-        // Only trigger on jungle-scale players (Stage 3+)
-        const stage = getStageBySocketId(world, playerSocketId);
+        // Only trigger on jungle-scale players (Stage 3+) - entity-based
+        const stage = getStage(world, playerEntity);
         if (!stage || !isJungleStage(stage.stage)) return;
 
-        // Get player position
-        const playerPos = getPositionBySocketId(world, playerSocketId);
+        // Get player position (entity-based)
+        const playerPos = getPosition(world, playerEntity);
         if (!playerPos) return;
 
         const playerPosition = { x: playerPos.x, y: playerPos.y };
@@ -88,6 +89,7 @@ export class TrapSystem implements System {
             entity,
             id: trapId,
             victimSocketId: playerSocketId,
+            victimEntity: playerEntity,
             pos: trapPos,
             damage: trapComp.damage,
             stunDuration: trapComp.stunDuration,
@@ -104,26 +106,23 @@ export class TrapSystem implements System {
       if (processedTrapIds.has(trap.id)) continue;
       processedTrapIds.add(trap.id);
 
-      // Apply damage to victim
-      subtractEnergyBySocketId(world, trap.victimSocketId, trap.damage);
+      // Apply damage to victim (entity-based)
+      subtractEnergy(world, trap.victimEntity, trap.damage);
 
-      // Apply stun to victim
-      const victimEntity = getEntityBySocketId(trap.victimSocketId);
-      if (victimEntity !== undefined) {
-        const stunned = world.getComponent<StunnedComponent>(victimEntity, Components.Stunned);
-        if (stunned) {
-          // Extend stun if already stunned
-          stunned.until = Math.max(stunned.until || 0, now + trap.stunDuration);
-        } else {
-          // Add stun component
-          world.addComponent<StunnedComponent>(victimEntity, Components.Stunned, {
-            until: now + trap.stunDuration,
-          });
-        }
+      // Apply stun to victim (already have entity)
+      const stunned = world.getComponent<StunnedComponent>(trap.victimEntity, Components.Stunned);
+      if (stunned) {
+        // Extend stun if already stunned
+        stunned.until = Math.max(stunned.until || 0, now + trap.stunDuration);
+      } else {
+        // Add stun component
+        world.addComponent<StunnedComponent>(trap.victimEntity, Components.Stunned, {
+          until: now + trap.stunDuration,
+        });
       }
 
-      // Check if victim died
-      const victimEnergy = getEnergyBySocketId(world, trap.victimSocketId);
+      // Check if victim died (entity-based)
+      const victimEnergy = getEnergy(world, trap.victimEntity);
       const killed = victimEnergy ? victimEnergy.current <= 0 : false;
 
       // Emit trigger event

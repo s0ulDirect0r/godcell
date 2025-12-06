@@ -9,7 +9,7 @@ import type { EnergyComponent, PositionComponent, StageComponent, DamageTracking
 import type { System } from './types';
 import {
   getSocketIdByEntity,
-  getDamageTrackingBySocketId,
+  getDamageTracking,
   forEachSwarm,
   getEntityBySocketId,
   forEachPlayer,
@@ -38,8 +38,8 @@ export class SwarmCollisionSystem implements System {
     // Part 1: Swarm collision detection (damage + slow)
     // Optimized: Pre-filter players by stage to avoid O(S×P) on all players
     // ============================================
-    const damagedPlayerIds = new Set<string>();
-    const slowedPlayerIds = new Set<string>();
+    const damagedEntities = new Set<number>();
+    const slowedEntities = new Set<number>();
     const now = Date.now();
 
     // Pre-collect soup-stage players (stages 1-2) - these are the only ones that interact with swarms
@@ -78,13 +78,13 @@ export class SwarmCollisionSystem implements System {
           const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
           energyComp.current -= damage;
 
-          damagedPlayerIds.add(playerId);
+          damagedEntities.add(entity);
 
           // Record damage for drain aura system
           recordDamage(world, entity, getConfig('SWARM_DAMAGE_RATE'), 'swarm');
 
           // Apply movement slow debuff
-          slowedPlayerIds.add(playerId);
+          slowedEntities.add(entity);
         }
       }
     });
@@ -93,20 +93,14 @@ export class SwarmCollisionSystem implements System {
     // Part 2: Add ECS tags for cross-system communication
     // MovementSystem reads SlowedThisTick to apply speed reduction
     // ============================================
-    for (const playerId of slowedPlayerIds) {
-      const entity = getEntityBySocketId(playerId);
-      if (entity !== undefined) {
-        world.addTag(entity, Tags.SlowedThisTick);
-      }
+    for (const entity of slowedEntities) {
+      world.addTag(entity, Tags.SlowedThisTick);
     }
 
-    for (const playerId of damagedPlayerIds) {
-      const entity = getEntityBySocketId(playerId);
-      if (entity !== undefined) {
-        world.addTag(entity, Tags.DamagedThisTick);
-      }
+    for (const entity of damagedEntities) {
+      world.addTag(entity, Tags.DamagedThisTick);
       // Track damage source in ECS
-      const damageTracking = getDamageTrackingBySocketId(world, playerId);
+      const damageTracking = getDamageTracking(world, entity);
       if (damageTracking) {
         damageTracking.lastDamageSource = 'swarm';
       }

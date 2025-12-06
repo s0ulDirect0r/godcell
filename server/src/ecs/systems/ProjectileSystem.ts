@@ -20,13 +20,14 @@ import type {
 import type { System } from './types';
 import {
   getStringIdByEntity,
+  getEntityBySocketId,
   destroyEntity,
-  addEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  getEnergyBySocketId,
-  getPositionBySocketId,
-  getStageBySocketId,
-  subtractEnergyBySocketId,
+  addEnergy,
+  setMaxEnergy,
+  getEnergy,
+  getPosition,
+  getStage,
+  subtractEnergy,
 } from '../factories';
 import { distance } from '../../helpers';
 import { isJungleStage } from '../../helpers/stages';
@@ -136,12 +137,13 @@ export class ProjectileSystem implements System {
     // Process bug kill
     if (bugToKill) {
       const bugComp = world.getComponent<CyberBugComponent>(bugToKill.entity, Components.CyberBug);
-      if (bugComp) {
-        // Award energy and capacity to shooter
-        addEnergyBySocketId(world, projComp.ownerSocketId, bugComp.value);
-        const shooterEnergy = getEnergyBySocketId(world, projComp.ownerSocketId);
+      const shooterEntity = getEntityBySocketId(projComp.ownerSocketId);
+      if (bugComp && shooterEntity) {
+        // Award energy and capacity to shooter (entity-based)
+        addEnergy(world, shooterEntity, bugComp.value);
+        const shooterEnergy = getEnergy(world, shooterEntity);
         if (shooterEnergy) {
-          setMaxEnergyBySocketId(world, projComp.ownerSocketId, shooterEnergy.max + bugComp.capacityIncrease);
+          setMaxEnergy(world, shooterEntity, shooterEnergy.max + bugComp.capacityIncrease);
         }
 
         // Emit kill event
@@ -203,12 +205,13 @@ export class ProjectileSystem implements System {
     // Process creature kill
     if (creatureToKill) {
       const creatureComp = world.getComponent<JungleCreatureComponent>(creatureToKill.entity, Components.JungleCreature);
-      if (creatureComp) {
-        // Award energy and capacity to shooter
-        addEnergyBySocketId(world, projComp.ownerSocketId, creatureComp.value);
-        const shooterEnergy2 = getEnergyBySocketId(world, projComp.ownerSocketId);
+      const shooterEntity2 = getEntityBySocketId(projComp.ownerSocketId);
+      if (creatureComp && shooterEntity2) {
+        // Award energy and capacity to shooter (entity-based)
+        addEnergy(world, shooterEntity2, creatureComp.value);
+        const shooterEnergy2 = getEnergy(world, shooterEntity2);
         if (shooterEnergy2) {
-          setMaxEnergyBySocketId(world, projComp.ownerSocketId, shooterEnergy2.max + creatureComp.capacityIncrease);
+          setMaxEnergy(world, shooterEntity2, shooterEnergy2.max + creatureComp.capacityIncrease);
         }
 
         // Emit kill event
@@ -281,12 +284,12 @@ export class ProjectileSystem implements System {
       // Skip the projectile owner
       if (socketId === projComp.ownerSocketId) continue;
 
-      // Only hit jungle-scale players (Stage 3+)
-      const stage = getStageBySocketId(world, socketId);
+      // Only hit jungle-scale players (Stage 3+) - use entity-based helpers
+      const stage = getStage(world, playerEntity);
       if (!stage || !isJungleStage(stage.stage)) continue;
 
-      // Get player position
-      const playerPos = getPositionBySocketId(world, socketId);
+      // Get player position (entity-based)
+      const playerPos = getPosition(world, playerEntity);
       if (!playerPos) continue;
 
       const playerPosition = { x: playerPos.x, y: playerPos.y };
@@ -297,11 +300,11 @@ export class ProjectileSystem implements System {
       if (dist < hitDist) {
         projComp.hitEntityId = playerEntity;
 
-        // Apply damage to target player
-        const targetEnergy = getEnergyBySocketId(world, socketId);
+        // Apply damage to target player (entity-based)
+        const targetEnergy = getEnergy(world, playerEntity);
         if (targetEnergy) {
           const newEnergy = Math.max(0, targetEnergy.current - projComp.damage);
-          subtractEnergyBySocketId(world, socketId, projComp.damage);
+          subtractEnergy(world, playerEntity, projComp.damage);
 
           hitPlayerData = {
             socketId,

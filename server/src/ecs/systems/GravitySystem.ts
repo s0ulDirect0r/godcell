@@ -11,8 +11,8 @@ import {
   forEachObstacle,
   forEachPlayer,
   forEachSwarm,
-  setEnergyBySocketId,
-  getDamageTrackingBySocketId,
+  setEnergy,
+  getDamageTracking,
   Components,
   type EnergyComponent,
   type PositionComponent,
@@ -61,10 +61,10 @@ export class GravitySystem implements System {
         // Instant death at inner spark (energy-only: energy = 0)
         if (dist < getConfig('OBSTACLE_SPARK_RADIUS')) {
           logSingularityCrush(playerId, dist);
-          // Use ECS setter to persist the change
-          setEnergyBySocketId(world, playerId, 0); // Instant energy depletion
-          // Track damage source in ECS for death cause logging
-          const damageTracking = getDamageTrackingBySocketId(world, playerId);
+          // Use entity-based setter to persist the change
+          setEnergy(world, entity, 0); // Instant energy depletion
+          // Track damage source in ECS for death cause logging (entity-based)
+          const damageTracking = getDamageTracking(world, entity);
           if (damageTracking) {
             damageTracking.lastDamageSource = 'singularity';
           }
@@ -79,9 +79,9 @@ export class GravitySystem implements System {
 
         if (energyDrain > 0) {
           const newEnergy = Math.max(0, energyComponent.current - energyDrain);
-          setEnergyBySocketId(world, playerId, newEnergy);
-          // Track damage source for death cause
-          const damageTracking = getDamageTrackingBySocketId(world, playerId);
+          setEnergy(world, entity, newEnergy);
+          // Track damage source for death cause (entity-based)
+          const damageTracking = getDamageTracking(world, entity);
           if (damageTracking) {
             damageTracking.lastDamageSource = 'gravity';
           }

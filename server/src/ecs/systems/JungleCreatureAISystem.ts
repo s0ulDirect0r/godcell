@@ -16,7 +16,7 @@ import type {
   JungleCreatureMovedMessage,
 } from '@godcell/shared';
 import type { System } from './types';
-import { forEachJungleCreature, forEachPlayer, addEnergyBySocketId } from '../factories';
+import { forEachJungleCreature, forEachPlayer, addEnergy, getDamageTracking, recordDamage } from '../factories';
 import { processCreatureRespawns } from '../../jungleFauna';
 import { isJungleStage } from '../../helpers/stages';
 
@@ -218,7 +218,7 @@ export class JungleCreatureAISystem implements System {
 
       // Check for melee contact damage
       if (dist < creatureComp.size + GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS) {
-        this.dealContactDamage(world, io, target.socketId, creatureComp, deltaTime);
+        this.dealContactDamage(world, io, target.entityId, target.socketId, creatureComp, deltaTime);
       }
     } else {
       // No target - patrol territory
@@ -282,7 +282,7 @@ export class JungleCreatureAISystem implements System {
 
       // Check for melee contact damage
       if (dist < creatureComp.size + GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS) {
-        this.dealContactDamage(world, io, target.socketId, creatureComp, deltaTime);
+        this.dealContactDamage(world, io, target.entityId, target.socketId, creatureComp, deltaTime);
       }
     } else {
       // No target - wait in ambush position (mostly idle)
@@ -375,6 +375,7 @@ export class JungleCreatureAISystem implements System {
   private dealContactDamage(
     world: World,
     io: Server,
+    targetEntity: EntityId,
     targetSocketId: string,
     creatureComp: JungleCreatureComponent,
     deltaTime: number
@@ -383,8 +384,18 @@ export class JungleCreatureAISystem implements System {
     const damagePerSecond = GAME_CONFIG.JUNGLE_CREATURE_DAMAGE_RATE;
     const damage = damagePerSecond * deltaTime;
 
-    // Use negative energy to drain
-    addEnergyBySocketId(world, targetSocketId, -damage);
+    // Use negative energy to drain (entity-based)
+    addEnergy(world, targetEntity, -damage);
+
+    // Track damage source for death cause (entity-based)
+    // Use 'predation' since it's the closest match for creature contact attacks
+    const damageTracking = getDamageTracking(world, targetEntity);
+    if (damageTracking) {
+      damageTracking.lastDamageSource = 'predation';
+    }
+
+    // Record damage for drain aura system (melee = creature contact)
+    recordDamage(world, targetEntity, damagePerSecond, 'melee');
 
     // Emit damage event for client feedback
     io.emit('jungleCreatureDamage', {

@@ -6,9 +6,9 @@
 
 import {
   forEachPlayer,
-  getEnergyBySocketId,
-  getPositionBySocketId,
-  getStageBySocketId,
+  getEnergy,
+  getPosition,
+  getStage,
   getNutrientCount,
   getDataFruitCount,
   getAllNutrientSnapshots,
@@ -80,8 +80,9 @@ export function calculateAggregateStats(world: World): AggregateStats {
   };
 
   forEachPlayer(world, (entity, id) => {
-    const energyComp = getEnergyBySocketId(world, id);
-    const stageComp = getStageBySocketId(world, id);
+    // Use entity-based helpers directly (entity is already available from forEachPlayer)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
     if (!energyComp || !stageComp) return;
 
     stats.totalPlayers++;
@@ -124,9 +125,10 @@ export function createWorldSnapshot(world: World): WorldSnapshot {
   const playerSnapshots: PlayerSnapshot[] = [];
 
   forEachPlayer(world, (entity, id) => {
-    const energyComp = getEnergyBySocketId(world, id);
-    const stageComp = getStageBySocketId(world, id);
-    const posComp = getPositionBySocketId(world, id);
+    // Use entity-based helpers directly (entity is already available from forEachPlayer)
+    const energyComp = getEnergy(world, entity);
+    const stageComp = getStage(world, entity);
+    const posComp = getPosition(world, entity);
     if (!energyComp || !stageComp || !posComp) return;
 
     playerSnapshots.push({

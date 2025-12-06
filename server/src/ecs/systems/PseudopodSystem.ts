@@ -13,7 +13,7 @@ import {
   destroyEntity as ecsDestroyEntity,
   forEachPlayer,
   forEachSwarm,
-  getDamageTrackingBySocketId,
+  getDamageTracking,
   Components,
   type EntityId,
   type EnergyComponent,
@@ -204,10 +204,13 @@ export class PseudopodSystem implements System {
         hitSomething = true;
 
         // Track damage source and shooter for kill credit in ECS
-        const damageTracking = getDamageTrackingBySocketId(world, targetId);
+        const damageTracking = getDamageTracking(world, targetEntity);
         if (damageTracking) {
           damageTracking.lastDamageSource = 'beam';
           damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+          // Add decay timer for brief drain aura after hit (1.5 seconds)
+          damageTracking.pseudopodHitRate = damage;
+          damageTracking.pseudopodHitExpiresAt = Date.now() + 1500;
         }
 
         // Mark this target as hit by this beam (store entity ID)
@@ -228,12 +231,6 @@ export class PseudopodSystem implements System {
           targetId,
           hitPosition: beamPosition,
         });
-
-        // Add decay timer for brief drain aura after hit (1.5 seconds)
-        if (damageTracking) {
-          damageTracking.pseudopodHitRate = damage;
-          damageTracking.pseudopodHitExpiresAt = Date.now() + 1500;
-        }
       }
     });
 
@@ -320,7 +317,7 @@ export class PseudopodSystem implements System {
         hitSomething = true;
         hitEntities.add(target.entity);
 
-        const damageTracking = getDamageTrackingBySocketId(world, target.playerId);
+        const damageTracking = getDamageTracking(world, target.entity);
         if (damageTracking) {
           damageTracking.lastDamageSource = 'beam';
           damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
@@ -425,7 +422,7 @@ export class PseudopodSystem implements System {
         const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
         targetEnergy.current -= damage;
         // Track damage source and shooter for kill credit in ECS
-        const damageTracking = getDamageTrackingBySocketId(world, hit.playerId);
+        const damageTracking = getDamageTracking(world, hit.entity);
         if (damageTracking) {
           damageTracking.lastDamageSource = 'beam';
           damageTracking.lastBeamShooter = shooterId;
