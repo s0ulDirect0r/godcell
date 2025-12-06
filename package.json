@@ -4,6 +4,9 @@
   "description": "A game of transcendence and evolution",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "imports": {
     "#shared": "./shared/index.ts",
     "#shared/*": "./shared/*"
