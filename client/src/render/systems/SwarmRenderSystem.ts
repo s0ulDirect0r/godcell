@@ -14,6 +14,7 @@ import {
   type SwarmOrbitingParticle,
 } from '../meshes/SwarmMesh';
 import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
+import { frameLerp } from '../../utils/math';
 import {
   World,
   Tags,
@@ -55,6 +56,9 @@ export class SwarmRenderSystem {
 
   // Cache swarm state for animation (avoids re-querying each frame)
   private swarmStates: Map<string, string> = new Map();
+
+  // Delta time for frame-rate independent interpolation (ms)
+  private dt: number = 16.67;
 
   /**
    * Initialize swarm system with scene and world references
@@ -138,9 +142,10 @@ export class SwarmRenderSystem {
 
   /**
    * Interpolate swarm positions for smooth movement
+   * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
-  interpolate(): void {
-    const lerpFactor = 0.3;
+  interpolate(dt: number = 16.67): void {
+    const lerpFactor = frameLerp(0.3, dt);
 
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);

@@ -14,6 +14,7 @@ import {
   type InterpolationTargetComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import { frameLerp } from '../../utils/math';
 import {
   createJungleCreature,
   updateJungleCreatureAnimation,
@@ -113,9 +114,12 @@ export class JungleCreatureRenderSystem {
 
   /**
    * Interpolate creature positions for smooth movement
+   * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
-  interpolate(): void {
-    const lerpFactor = 0.25; // Slower interpolation for larger creatures
+  interpolate(dt: number = 16.67): void {
+    // Creatures use 0.25 (slower than default) because they're larger/heavier
+    const lerpFactor = frameLerp(0.25, dt);
+    const rotLerpFactor = frameLerp(0.1, dt);
 
     this.creatureMeshes.forEach((group, id) => {
       const target = this.creatureTargets.get(id);
@@ -134,7 +138,7 @@ export class JungleCreatureRenderSystem {
           const rotDiff = targetRotation - group.rotation.y;
           // Normalize rotation difference
           const normalizedDiff = Math.atan2(Math.sin(rotDiff), Math.cos(rotDiff));
-          group.rotation.y += normalizedDiff * 0.1;
+          group.rotation.y += normalizedDiff * rotLerpFactor;
         }
       }
     });

@@ -14,6 +14,7 @@ import {
   type InterpolationTargetComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import { frameLerp } from '../../utils/math';
 import {
   createCyberBug,
   updateCyberBugAnimation,
@@ -111,9 +112,11 @@ export class CyberBugRenderSystem {
 
   /**
    * Interpolate bug positions for smooth movement
+   * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
-  interpolate(): void {
-    const lerpFactor = 0.4; // Faster interpolation for bugs (they're quick)
+  interpolate(dt: number = 16.67): void {
+    // Bugs use 0.4 (faster than default 0.3) because they're quick
+    const lerpFactor = frameLerp(0.4, dt);
 
     this.bugMeshes.forEach((group, id) => {
       const target = this.bugTargets.get(id);

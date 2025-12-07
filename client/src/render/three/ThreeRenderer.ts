@@ -688,7 +688,7 @@ export class ThreeRenderer implements Renderer {
     const { spawnProgress } = this.effectsSystem.update(dt);
 
     // Sync all entities (systems query World directly)
-    this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw());
+    this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw(), dt);
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
     this.obstacleRenderSystem.sync(this.environmentSystem.getMode());
 
@@ -716,19 +716,19 @@ export class ThreeRenderer implements Renderer {
     this.nutrientRenderSystem.updateAnimations(dt);
 
     // Interpolate swarm positions
-    this.swarmRenderSystem.interpolate();
+    this.swarmRenderSystem.interpolate(dt);
 
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
 
     // Stage 3+ interpolation and animations
-    this.dataFruitRenderSystem.interpolate();
+    this.dataFruitRenderSystem.interpolate(dt);
     this.dataFruitRenderSystem.updateAnimations(dt);
-    this.cyberBugRenderSystem.interpolate();
+    this.cyberBugRenderSystem.interpolate(dt);
     this.cyberBugRenderSystem.updateAnimations(dt);
-    this.jungleCreatureRenderSystem.interpolate();
+    this.jungleCreatureRenderSystem.interpolate(dt);
     this.jungleCreatureRenderSystem.updateAnimations(dt);
-    this.projectileRenderSystem.interpolate();
+    this.projectileRenderSystem.interpolate(dt);
     this.projectileRenderSystem.updateAnimations(dt);
     this.trapRenderSystem.updateAnimations(dt);
 

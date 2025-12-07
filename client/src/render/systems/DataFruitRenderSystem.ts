@@ -14,6 +14,7 @@ import {
   type InterpolationTargetComponent,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import { frameLerp } from '../../utils/math';
 import {
   createDataFruit,
   updateDataFruitAnimation,
@@ -108,9 +109,10 @@ export class DataFruitRenderSystem {
 
   /**
    * Interpolate fruit positions for smooth movement
+   * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
-  interpolate(): void {
-    const lerpFactor = 0.3;
+  interpolate(dt: number = 16.67): void {
+    const lerpFactor = frameLerp(0.3, dt);
 
     this.fruitMeshes.forEach((group, id) => {
       const target = this.fruitTargets.get(id);

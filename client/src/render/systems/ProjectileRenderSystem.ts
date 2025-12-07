@@ -113,8 +113,9 @@ export class ProjectileRenderSystem {
 
   /**
    * No interpolation needed - projectiles update position directly
+   * @param _dt Delta time (unused, projectiles use velocity-based movement in updateAnimations)
    */
-  interpolate(): void {
+  interpolate(_dt: number = 16.67): void {
     // Projectiles are fast and update position directly in sync
   }
 
