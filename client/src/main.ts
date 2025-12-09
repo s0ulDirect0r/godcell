@@ -265,8 +265,12 @@ function initializeGame(settings: PreGameSettings): void {
 // Main Update Loop
 // ============================================
 
+let lastFrameTime = performance.now();
+
 function update(): void {
-  const dt = 16; // Approx 60fps
+  const now = performance.now();
+  const dt = now - lastFrameTime;
+  lastFrameTime = now;
 
   perfMonitor.tick();
 

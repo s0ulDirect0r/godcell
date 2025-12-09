@@ -38,6 +38,7 @@ import {
 } from '../meshes/GodcellMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
 import { calculateEntityWarp, applyEntityWarp, resetEntityWarp } from '../utils/GravityDistortionUtils';
+import { frameLerp } from '../../utils/math';
 import {
   calculateEvolutionProgress,
   updateEvolutionCorona,
@@ -127,6 +128,9 @@ export class PlayerRenderSystem {
   // Geometry cache (shared from ThreeRenderer)
   private geometryCache!: Map<string, THREE.BufferGeometry>;
 
+  // Delta time for frame-rate independent interpolation (ms)
+  private dt: number = 16.67;
+
   /**
    * Initialize player system with scene, world, and geometry cache
    */
@@ -140,8 +144,12 @@ export class PlayerRenderSystem {
    * Main sync method - called every frame
    * Creates new meshes, updates existing, removes stale
    * Queries ECS World directly for player entities
+   * @param renderMode Current render mode (soup/jungle)
+   * @param cameraYaw Camera yaw for humanoid rotation
+   * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
-  sync(renderMode: RenderMode, cameraYaw: number): void {
+  sync(renderMode: RenderMode, cameraYaw: number, dt: number = 16.67): void {
+    this.dt = dt;
     const isJungleMode = renderMode === 'jungle';
     const myPlayerId = getLocalPlayerId(this.world);
 
@@ -968,7 +976,8 @@ export class PlayerRenderSystem {
     radius: number,
     stage: string
   ): void {
-    const lerpFactor = 0.3;
+    const lerpFactor = frameLerp(0.3, this.dt);
+
     cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
     const targetZ = -target.y;
     cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
