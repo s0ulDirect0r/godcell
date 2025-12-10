@@ -20,6 +20,7 @@ import {
 } from '../factories';
 import { isSoupStage } from '../../helpers';
 import { getConfig } from '../../dev';
+import { logger } from '../../logger';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -81,8 +82,10 @@ export class SwarmCollisionSystem implements System {
         const distSq = dx * dx + dy * dy;
 
         if (distSq < collisionDistSq) {
-          // Apply damage directly (energy pools provide stage durability)
-          const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
+          // Damage scales with swarm energy: bigger swarms drain faster
+          // Base 100 energy = 1x, 500 energy = 5x rate
+          const baseDamage = getConfig('SWARM_DAMAGE_RATE');
+          const damage = baseDamage * energyScale * deltaTime;
           energyComp.current -= damage;
 
           // Swarm absorbs drained energy (capped at 1000)
@@ -174,9 +177,33 @@ export class SwarmCollisionSystem implements System {
           // Mark swarm as being consumed
           swarm.swarmComp.beingConsumedBy = player.playerId;
 
-          // Gradual consumption
-          const damageDealt = GAME_CONFIG.SWARM_CONSUMPTION_RATE * deltaTime;
+          // Gradual consumption - transfer energy from swarm to player
+          // Hybrid drain: base 100/sec + 7% of swarm's max energy
+          // Small swarms = quick snack, fat swarms = 2 EMP commitment
+          const BASE_DRAIN = 100;
+          const PERCENT_DRAIN = 0.07;
+          const drainRate = BASE_DRAIN + swarm.energyComp.max * PERCENT_DRAIN;
+          const damageDealt = Math.min(drainRate * deltaTime, swarm.energyComp.current);
+          const playerEnergyBefore = player.energyComp.current;
+          const playerMaxBefore = player.energyComp.max;
           swarm.energyComp.current -= damageDealt;
+
+          // Drained energy goes into both current AND max energy
+          player.energyComp.current = Math.min(player.energyComp.current + damageDealt, player.energyComp.max + damageDealt);
+          player.energyComp.max += damageDealt;
+
+          logger.info({
+            event: 'swarm_consumption_tick',
+            playerId: player.playerId,
+            swarmId: swarm.swarmId,
+            drainRate: drainRate.toFixed(1),
+            damageDealt: damageDealt.toFixed(1),
+            swarmEnergyRemaining: swarm.energyComp.current.toFixed(1),
+            playerEnergyBefore: playerEnergyBefore.toFixed(1),
+            playerEnergyAfter: player.energyComp.current.toFixed(1),
+            playerMaxBefore: playerMaxBefore.toFixed(1),
+            playerMaxAfter: player.energyComp.max.toFixed(1),
+          });
 
           // Set damage tracking so DeathSystem knows who killed it
           const damageTracking = world.getComponent<DamageTrackingComponent>(swarm.entity, Components.DamageTracking);
