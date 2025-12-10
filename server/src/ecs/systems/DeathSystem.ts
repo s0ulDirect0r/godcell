@@ -175,6 +175,7 @@ export class DeathSystem implements System {
       y: number;
       killerId?: string;
       damageSource?: DeathCause;
+      peakEnergy: number;  // Peak energy swarm reached (for percentage-based rewards)
     }[] = [];
 
     forEachSwarm(world, (entity, swarmId, posComp, _velComp, _swarmComp, energyComp) => {
@@ -188,22 +189,22 @@ export class DeathSystem implements System {
           y: posComp.y,
           killerId: damageTracking?.lastBeamShooter,
           damageSource: damageTracking?.lastDamageSource,
+          peakEnergy: energyComp.max,  // max tracks peak energy absorbed
         });
       }
     });
 
     // Process swarm deaths
     for (const swarm of deadSwarms) {
-      // Award kill rewards to killer (different rewards for beam vs consumption)
+      // Calculate maxEnergy reward as percentage of swarm's peak energy
+      // Consumption: 75% of peak energy, Beam: 50% of peak energy
+      const rewardPct = swarm.damageSource === 'consumption' ? 0.75 : 0.50;
+      const maxEnergyGain = Math.floor(swarm.peakEnergy * rewardPct);
+
+      // Award kill rewards to killer
       if (swarm.killerId) {
         const killerEntity = getEntityBySocketId(swarm.killerId);
         if (killerEntity) {
-          // Beam kills award SWARM_BEAM_KILL_MAX_ENERGY_GAIN
-          // Consumption awards SWARM_MAX_ENERGY_GAIN
-          const maxEnergyGain = swarm.damageSource === 'consumption'
-            ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
-            : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-
           addEnergy(world, killerEntity, GAME_CONFIG.SWARM_ENERGY_GAIN);
           const killerEnergy = getEnergy(world, killerEntity);
           if (killerEnergy) {
@@ -215,23 +216,20 @@ export class DeathSystem implements System {
             killerId: swarm.killerId,
             swarmId: swarm.swarmId,
             damageSource: swarm.damageSource,
+            swarmPeakEnergy: swarm.peakEnergy,
+            rewardPct: rewardPct,
             energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
             maxEnergyGained: maxEnergyGain,
           });
         }
       }
 
-      // Emit consumed event for client visual
-      const maxEnergyGained = swarm.damageSource === 'consumption'
-        ? GAME_CONFIG.SWARM_MAX_ENERGY_GAIN
-        : GAME_CONFIG.SWARM_BEAM_KILL_MAX_ENERGY_GAIN;
-
       io.emit('swarmConsumed', {
         type: 'swarmConsumed',
         consumerId: swarm.killerId || 'unknown',
         swarmId: swarm.swarmId,
         energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
-        maxEnergyGained,
+        maxEnergyGained: maxEnergyGain,
       } as SwarmConsumedMessage);
 
       // Destroy swarm entity

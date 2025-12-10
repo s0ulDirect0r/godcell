@@ -379,6 +379,7 @@ export interface SwarmMovedMessage {
   position: Position;
   state: 'patrol' | 'chase';
   disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
+  energy?: number; // Current energy for visual scaling (swarms grow as they drain)
 }
 
 export interface PseudopodSpawnedMessage {

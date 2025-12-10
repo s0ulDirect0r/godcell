@@ -58,7 +58,7 @@ export class SwarmCollisionSystem implements System {
     });
 
     // Now check swarms only against soup players
-    forEachSwarm(world, (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp) => {
+    forEachSwarm(world, (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp, swarmEnergyComp) => {
       // Skip disabled swarms (hit by EMP)
       if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
 
@@ -66,8 +66,13 @@ export class SwarmCollisionSystem implements System {
       const swarmY = swarmPos.y;
 
       for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
-        // Collision distance = swarm size + player radius (varies by stage)
-        const collisionDist = swarmComp.size + radius;
+        // Collision distance = scaled swarm size + player radius
+        // Swarm hitbox grows at 50% rate: scale = 1 + (energy/100 - 1) * 0.5
+        const BASE_ENERGY = 100;
+        const rawScale = swarmEnergyComp.current / BASE_ENERGY;
+        const energyScale = 1 + (rawScale - 1) * 0.5;
+        const scaledSwarmSize = swarmComp.size * energyScale;
+        const collisionDist = scaledSwarmSize + radius;
         const collisionDistSq = collisionDist * collisionDist;
 
         // Fast squared distance check (avoid sqrt)
@@ -79,6 +84,11 @@ export class SwarmCollisionSystem implements System {
           // Apply damage directly (energy pools provide stage durability)
           const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
           energyComp.current -= damage;
+
+          // Swarm absorbs drained energy (capped at 1000)
+          const MAX_SWARM_ENERGY = 1000;
+          swarmEnergyComp.current = Math.min(swarmEnergyComp.current + damage, MAX_SWARM_ENERGY);
+          swarmEnergyComp.max = Math.max(swarmEnergyComp.max, swarmEnergyComp.current);  // Track peak for kill rewards
 
           damagedEntities.add(entity);
 
@@ -152,7 +162,12 @@ export class SwarmCollisionSystem implements System {
         const dx = player.x - swarm.x;
         const dy = player.y - swarm.y;
         const distSq = dx * dx + dy * dy;
-        const collisionDist = swarm.size + player.radius;
+        // Scale swarm hitbox with energy (50% rate)
+        const BASE_ENERGY = 100;
+        const rawScale = swarm.energyComp.current / BASE_ENERGY;
+        const energyScale = 1 + (rawScale - 1) * 0.5;
+        const scaledSwarmSize = swarm.size * energyScale;
+        const collisionDist = scaledSwarmSize + player.radius;
         const collisionDistSq = collisionDist * collisionDist;
 
         if (distSq < collisionDistSq) {

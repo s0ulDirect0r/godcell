@@ -844,28 +844,41 @@ function updateMultiCellBotAI(
   // Multi-cells hunt single-cells and nutrients
   // Priority: 1. Disabled swarms (easy energy), 2. Single-cells (prey), 3. Nutrients
 
-  // Find nearest disabled swarm (from EMP or other source)
-  let nearestDisabledSwarm: EntropySwarm | null = null;
-  let nearestDisabledSwarmDist = 600; // Detection range
+  // Find best disabled swarm target (prioritize high-energy swarms for max reward)
+  // Swarms with 500+ energy give 375+ maxEnergy when consumed - extremely valuable!
+  let bestDisabledSwarm: EntropySwarm | null = null;
+  let bestDisabledSwarmScore = 0; // Score = energy / distance (fat + close = best)
+  const SWARM_HUNT_RANGE = 900; // Increased range - worth traveling for fat swarms
   for (const swarm of swarms) {
     if (swarm.disabledUntil && swarm.disabledUntil > Date.now()) {
       const dist = distance(player.position, swarm.position);
-      if (dist < nearestDisabledSwarmDist) {
-        nearestDisabledSwarm = swarm;
-        nearestDisabledSwarmDist = dist;
+      if (dist < SWARM_HUNT_RANGE) {
+        // Score: energy matters more than distance (fat swarms are VERY valuable)
+        const score = (swarm.energy || 100) / Math.max(dist, 100);
+        if (score > bestDisabledSwarmScore) {
+          bestDisabledSwarm = swarm;
+          bestDisabledSwarmScore = score;
+        }
       }
     }
   }
 
-  // Count active (non-disabled) swarms nearby for EMP decision
+  // Find nearby active swarms and their total energy for EMP decision
   const empRange = getConfig('EMP_RANGE');
   let nearbyActiveSwarmCount = 0;
+  let nearbyActiveSwarmTotalEnergy = 0;
+  let fatSwarmNearby: EntropySwarm | null = null;
   for (const swarm of swarms) {
     const isDisabled = swarm.disabledUntil && swarm.disabledUntil > Date.now();
     if (!isDisabled) {
       const dist = distance(player.position, swarm.position);
       if (dist < empRange) {
         nearbyActiveSwarmCount++;
+        nearbyActiveSwarmTotalEnergy += swarm.energy || 100;
+        // Track if any single fat swarm is worth an EMP
+        if ((swarm.energy || 100) >= 400 && !fatSwarmNearby) {
+          fatSwarmNearby = swarm;
+        }
       }
     }
   }
@@ -928,8 +941,14 @@ function updateMultiCellBotAI(
   // Ability Usage Decision Logic
   // ============================================
 
-  // EMP: Fire when 2+ active swarms are nearby (disables them for easy consumption)
-  if (nearbyActiveSwarmCount >= 2 && abilitySystem.canFireEMP(botEntity)) {
+  // EMP: More aggressive - fire at fat swarms or clusters
+  // - Fire at 2+ swarms (cluster = good value)
+  // - Fire at single 400+ energy swarm (fat swarm = high value target)
+  // - Fire if total nearby energy > 600 (worth it even for just 2 medium swarms)
+  const shouldEMP = nearbyActiveSwarmCount >= 2 ||
+                    fatSwarmNearby !== null ||
+                    nearbyActiveSwarmTotalEnergy >= 600;
+  if (shouldEMP && abilitySystem.canFireEMP(botEntity)) {
     const success = abilitySystem.fireEMP(botEntity, player.id);
     logger.info({
       event: 'bot_emp_decision',
@@ -937,8 +956,11 @@ function updateMultiCellBotAI(
       triggered: success,
       context: {
         nearbyActiveSwarms: nearbyActiveSwarmCount,
+        nearbySwarmEnergy: nearbyActiveSwarmTotalEnergy,
+        hasFatSwarm: fatSwarmNearby !== null,
+        fatSwarmEnergy: fatSwarmNearby?.energy,
         botEnergy: player.energy,
-        reason: 'swarm_cluster',
+        reason: fatSwarmNearby ? 'fat_swarm_target' : nearbyActiveSwarmTotalEnergy >= 600 ? 'high_value_cluster' : 'swarm_cluster',
       },
     });
   }
@@ -1021,9 +1043,9 @@ function updateMultiCellBotAI(
     bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else {
     // Safe zone - decision tree: disabled swarm > prey > nutrient
-    if (nearestDisabledSwarm) {
-      // Hunt disabled swarm (easy energy)
-      const seekDirection = steerTowards(player.position, nearestDisabledSwarm.position, bot.inputDirection);
+    if (bestDisabledSwarm) {
+      // Hunt disabled swarm (easy energy) - prioritizes high-energy targets
+      const seekDirection = steerTowards(player.position, bestDisabledSwarm.position, bot.inputDirection);
       bot.inputDirection.x = seekDirection.x;
       bot.inputDirection.y = seekDirection.y;
     } else if (nearestPrey) {

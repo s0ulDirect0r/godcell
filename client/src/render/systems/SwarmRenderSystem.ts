@@ -23,6 +23,8 @@ import {
   type PositionComponent,
   type SwarmComponent,
   type InterpolationTargetComponent,
+  type EnergyComponent,
+  GAME_CONFIG,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
 
@@ -57,8 +59,23 @@ export class SwarmRenderSystem {
   // Cache swarm state for animation (avoids re-querying each frame)
   private swarmStates: Map<string, string> = new Map();
 
+  // Aura ring meshes (orange glow around charged swarms)
+  private swarmAuras: Map<string, THREE.Mesh> = new Map();
+
+  // Aura orbiting particles (count grows with energy)
+  private swarmAuraParticles: Map<string, THREE.Points> = new Map();
+
+  // Cache swarm base size for aura scaling
+  private swarmBaseSizes: Map<string, number> = new Map();
+
+  // Cache energy scale for spawn animation integration
+  private swarmEnergyScales: Map<string, number> = new Map();
+
   // Delta time for frame-rate independent interpolation (ms)
   private dt: number = 16.67;
+
+  // Base energy (swarms start at 100)
+  private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
 
   /**
    * Initialize swarm system with scene and world references
@@ -123,6 +140,32 @@ export class SwarmRenderSystem {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       updateSwarmState(group, swarm.state, isDisabled);
+
+      // === Energy-based scaling ===
+      // Swarms grow as they absorb energy, but at 50% rate to stay manageable
+      // bodyScale = 1 + (rawScale - 1) * 0.5
+      // BASE_ENERGY (100) = 1x, 300 energy = 2x, 500 energy = 3x
+      const energyComp = this.world.getComponent<EnergyComponent>(entity, Components.Energy);
+      const energy = energyComp?.current ?? this.BASE_ENERGY;
+      const rawScale = energy / this.BASE_ENERGY;
+      const energyScale = 1 + (rawScale - 1) * 0.5; // Grow at 50% rate
+      group.scale.setScalar(energyScale);
+      this.swarmEnergyScales.set(swarmId, energyScale); // Cache for spawn animation
+
+      // Store base size for aura calculations (from original swarm.size)
+      if (!this.swarmBaseSizes.has(swarmId)) {
+        this.swarmBaseSizes.set(swarmId, swarm.size);
+      }
+
+      // Update internal particle count based on energy
+      // Base: 200 particles, grows by 1 particle per 2 energy absorbed
+      const baseParticleCount = 200;
+      const absorbedEnergy = Math.max(0, energy - this.BASE_ENERGY);
+      const targetParticleCount = baseParticleCount + Math.floor(absorbedEnergy / 2);
+      this.updateInternalParticleCount(swarmId, group, swarm.size, targetParticleCount);
+
+      // Update aura visuals (ring + orbiting particles)
+      this.updateSwarmAura(swarmId, group, energy, energyScale);
     });
 
     // Remove swarms that no longer exist in ECS
@@ -136,6 +179,24 @@ export class SwarmRenderSystem {
         this.swarmInternalParticles.delete(id);
         this.swarmPulsePhase.delete(id);
         this.swarmStates.delete(id);
+        this.swarmBaseSizes.delete(id);
+        this.swarmEnergyScales.delete(id);
+
+        // Clean up aura visuals
+        const aura = this.swarmAuras.get(id);
+        if (aura) {
+          this.scene.remove(aura);
+          aura.geometry.dispose();
+          (aura.material as THREE.Material).dispose();
+          this.swarmAuras.delete(id);
+        }
+        const auraParticles = this.swarmAuraParticles.get(id);
+        if (auraParticles) {
+          this.scene.remove(auraParticles);
+          auraParticles.geometry.dispose();
+          (auraParticles.material as THREE.Material).dispose();
+          this.swarmAuraParticles.delete(id);
+        }
       }
     });
   }
@@ -160,7 +221,9 @@ export class SwarmRenderSystem {
         const gameX = group.position.x;
         const gameY = -group.position.z; // Three.js Z = -game Y
         const warp = calculateEntityWarp(gameX, gameY);
-        applyEntityWarp(group, warp);
+        // Pass energy scale so gravity warp multiplies rather than overwrites
+        const energyScale = this.swarmEnergyScales.get(id) ?? 1.0;
+        applyEntityWarp(group, warp, energyScale);
       }
     });
   }
@@ -193,10 +256,12 @@ export class SwarmRenderSystem {
 
       // Ease-out curve for smoother scale-up
       const easeOut = 1 - Math.pow(1 - progress, 3);
-      const scale = 0.1 + easeOut * 0.9;
+      const spawnScale = 0.1 + easeOut * 0.9;
       const opacity = 0.3 + easeOut * 0.7;
 
-      group.scale.setScalar(scale);
+      // Multiply spawn scale by energy scale (so growing swarms still animate on spawn)
+      const energyScale = this.swarmEnergyScales.get(entityId) ?? 1.0;
+      group.scale.setScalar(spawnScale * energyScale);
       this.setGroupOpacity(group, opacity);
     });
   }
@@ -241,6 +306,23 @@ export class SwarmRenderSystem {
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
     this.swarmStates.clear();
+    this.swarmBaseSizes.clear();
+    this.swarmEnergyScales.clear();
+
+    // Clean up all auras
+    this.swarmAuras.forEach((aura) => {
+      this.scene.remove(aura);
+      aura.geometry.dispose();
+      (aura.material as THREE.Material).dispose();
+    });
+    this.swarmAuras.clear();
+
+    this.swarmAuraParticles.forEach((particles) => {
+      this.scene.remove(particles);
+      particles.geometry.dispose();
+      (particles.material as THREE.Material).dispose();
+    });
+    this.swarmAuraParticles.clear();
   }
 
   /**
@@ -262,6 +344,239 @@ export class SwarmRenderSystem {
         }
       }
     });
+  }
+
+  /**
+   * Update aura visuals (ring + orbiting particles) based on swarm energy
+   * Aura only appears when swarm has absorbed energy (energy > BASE_ENERGY)
+   *
+   * @param swarmId - Swarm entity ID
+   * @param group - Swarm mesh group (for position syncing)
+   * @param energy - Current energy (100 = base, grows as swarm drains players)
+   * @param energyScale - Scale factor (energy / 100)
+   */
+  private updateInternalParticleCount(
+    swarmId: string,
+    group: THREE.Group,
+    swarmSize: number,
+    targetCount: number
+  ): void {
+    const currentParticles = this.swarmInternalParticles.get(swarmId);
+    if (!currentParticles) return;
+
+    const currentCount = currentParticles.length;
+    // Only update if count changed significantly (by 20+ particles)
+    if (Math.abs(targetCount - currentCount) < 20) return;
+
+    // Get the internal storm mesh (second child of group)
+    const internalStorm = group.children[1] as THREE.Points;
+    if (!internalStorm) return;
+
+    // Create new particle data
+    const newParticles: SwarmInternalParticle[] = [];
+    const positions = new Float32Array(targetCount * 3);
+    const sizes = new Float32Array(targetCount);
+
+    // Copy existing particles up to the target count
+    const copyCount = Math.min(currentCount, targetCount);
+    for (let i = 0; i < copyCount; i++) {
+      const p = currentParticles[i];
+      newParticles.push({ ...p });
+      positions[i * 3] = p.x;
+      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 2] = p.z;
+      sizes[i] = 1 + Math.random() * 1.5;
+    }
+
+    // Add new particles if growing
+    for (let i = copyCount; i < targetCount; i++) {
+      // Random point inside sphere (uniform distribution)
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const r = Math.cbrt(Math.random()) * swarmSize * 0.9;
+
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      positions[i * 3 + 2] = z;
+      sizes[i] = 1 + Math.random() * 1.5;
+
+      // Random velocity
+      const speed = 60 + Math.random() * 80;
+      const vTheta = Math.random() * Math.PI * 2;
+      const vPhi = Math.random() * Math.PI;
+
+      newParticles.push({
+        x, y, z,
+        vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
+        vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
+        vz: speed * Math.cos(vPhi),
+      });
+    }
+
+    // Update geometry
+    internalStorm.geometry.dispose();
+    const newGeometry = new THREE.BufferGeometry();
+    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    newGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    internalStorm.geometry = newGeometry;
+
+    // Update particle data
+    this.swarmInternalParticles.set(swarmId, newParticles);
+  }
+
+  /**
+   * Update aura visuals (ring + orbiting particles)
+   *
+   * @param swarmId - Swarm identifier
+   * @param group - Swarm THREE.Group
+   * @param energy - Current energy (100 = base, grows as swarm drains players)
+   * @param energyScale - Scale factor (energy / 100)
+   */
+  private updateSwarmAura(
+    swarmId: string,
+    group: THREE.Group,
+    energy: number,
+    energyScale: number
+  ): void {
+    const baseSize = this.swarmBaseSizes.get(swarmId) ?? 30;
+    const absorbedEnergy = energy - this.BASE_ENERGY;
+
+    // No aura if swarm hasn't absorbed any energy
+    if (absorbedEnergy <= 0) {
+      // Remove aura if it exists
+      const existingAura = this.swarmAuras.get(swarmId);
+      if (existingAura) {
+        this.scene.remove(existingAura);
+        existingAura.geometry.dispose();
+        (existingAura.material as THREE.Material).dispose();
+        this.swarmAuras.delete(swarmId);
+      }
+      const existingParticles = this.swarmAuraParticles.get(swarmId);
+      if (existingParticles) {
+        this.scene.remove(existingParticles);
+        existingParticles.geometry.dispose();
+        (existingParticles.material as THREE.Material).dispose();
+        this.swarmAuraParticles.delete(swarmId);
+      }
+      return;
+    }
+
+    // === AURA INTENSITY ===
+    // Opacity/emissivity increases with absorbed energy
+    // At 100 absorbed: ~0.3 opacity, at 400 absorbed: ~0.7 opacity
+    const intensityFactor = Math.min(absorbedEnergy / 400, 1.0);
+    const auraOpacity = 0.15 + intensityFactor * 0.55; // 0.15 to 0.7
+    const emissiveIntensity = 0.5 + intensityFactor * 1.5; // 0.5 to 2.0
+
+    // === AURA RING ===
+    // Ring sits outside swarm body with some spacing
+    // energyScale already includes 50% growth rate, so aura matches body exactly
+    const scaledBodyRadius = baseSize * energyScale;
+    const ringInnerRadius = scaledBodyRadius * 1.15; // 15% gap between body and ring
+    const ringOuterRadius = scaledBodyRadius * 1.25; // 10% ring thickness
+
+    let auraRing = this.swarmAuras.get(swarmId);
+    if (!auraRing) {
+      // Create new aura ring
+      const ringGeometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
+      const ringMaterial = new THREE.MeshStandardMaterial({
+        color: 0xff6600, // Orange
+        emissive: 0xff6600,
+        emissiveIntensity: emissiveIntensity,
+        transparent: true,
+        opacity: auraOpacity,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      auraRing = new THREE.Mesh(ringGeometry, ringMaterial);
+      // Ring lies in XY plane, rotate to XZ plane (same as swarm group)
+      auraRing.rotation.x = -Math.PI / 2;
+      this.scene.add(auraRing);
+      this.swarmAuras.set(swarmId, auraRing);
+    } else {
+      // Update existing ring geometry (dispose old, create new)
+      auraRing.geometry.dispose();
+      auraRing.geometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
+      // Update material properties
+      const material = auraRing.material as THREE.MeshStandardMaterial;
+      material.opacity = auraOpacity;
+      material.emissiveIntensity = emissiveIntensity;
+    }
+    // Sync position with swarm (slightly elevated)
+    auraRing.position.copy(group.position);
+    auraRing.position.y = 0.25; // Just above swarm
+
+    // === AURA PARTICLES ===
+    // Particle count grows with absorbed energy (1 particle per 50 energy absorbed, min 3)
+    const particleCount = Math.max(3, Math.floor(absorbedEnergy / 50));
+    const orbitRadius = scaledBodyRadius * 1.1; // Just outside the ring
+
+    let auraParticles = this.swarmAuraParticles.get(swarmId);
+    const time = performance.now() * 0.001;
+
+    if (!auraParticles) {
+      // Create new particle system
+      const positions = new Float32Array(particleCount * 3);
+      for (let i = 0; i < particleCount; i++) {
+        const angle = (i / particleCount) * Math.PI * 2 + time;
+        positions[i * 3] = Math.cos(angle) * orbitRadius;
+        positions[i * 3 + 1] = 0;
+        positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xff8800, // Bright orange
+        size: 4 + intensityFactor * 4, // 4-8 based on intensity
+        transparent: true,
+        opacity: auraOpacity,
+        sizeAttenuation: false,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      auraParticles = new THREE.Points(geometry, material);
+      this.scene.add(auraParticles);
+      this.swarmAuraParticles.set(swarmId, auraParticles);
+    } else {
+      // Check if particle count changed significantly (recreate if so)
+      const currentCount = auraParticles.geometry.attributes.position.count;
+      if (Math.abs(currentCount - particleCount) > 2) {
+        // Recreate geometry with new count
+        auraParticles.geometry.dispose();
+        const positions = new Float32Array(particleCount * 3);
+        for (let i = 0; i < particleCount; i++) {
+          const angle = (i / particleCount) * Math.PI * 2 + time;
+          positions[i * 3] = Math.cos(angle) * orbitRadius;
+          positions[i * 3 + 1] = 0;
+          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        auraParticles.geometry = geometry;
+      } else {
+        // Update positions for orbital animation
+        const positions = auraParticles.geometry.attributes.position.array as Float32Array;
+        const count = auraParticles.geometry.attributes.position.count;
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2 + time * 0.5; // Slow orbit
+          positions[i * 3] = Math.cos(angle) * orbitRadius;
+          positions[i * 3 + 1] = 0;
+          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
+        }
+        auraParticles.geometry.attributes.position.needsUpdate = true;
+      }
+      // Update material
+      const material = auraParticles.material as THREE.PointsMaterial;
+      material.opacity = auraOpacity;
+      material.size = 4 + intensityFactor * 4;
+    }
+    // Sync position with swarm
+    auraParticles.position.copy(group.position);
+    auraParticles.position.y = 0.25;
   }
 
   /**

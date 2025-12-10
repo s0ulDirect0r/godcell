@@ -445,7 +445,7 @@ export class SocketManager {
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
-      updateSwarmTarget(this.world, data.swarmId, data.position.x, data.position.y, data.disabledUntil);
+      updateSwarmTarget(this.world, data.swarmId, data.position.x, data.position.y, data.disabledUntil, data.energy);
       eventBus.emit(data);
     });
 

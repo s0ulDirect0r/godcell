@@ -441,6 +441,7 @@ export function upsertTree(world: World, tree: Tree): EntityId {
  */
 export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
   let entity = stringIdToEntity.get(swarm.id);
+  const initialEnergy = swarm.energy ?? GAME_CONFIG.SWARM_ENERGY;
 
   if (entity !== undefined) {
     // Update existing entity
@@ -454,6 +455,13 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
     if (swarmComp) {
       swarmComp.state = swarm.state;
       swarmComp.disabledUntil = swarm.disabledUntil;
+    }
+
+    // Update energy for visual scaling
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    if (energyComp) {
+      energyComp.current = initialEnergy;
+      energyComp.max = initialEnergy;
     }
 
     const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
@@ -481,6 +489,11 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
     disabledUntil: swarm.disabledUntil,
   });
 
+  world.addComponent<EnergyComponent>(entity, Components.Energy, {
+    current: initialEnergy,
+    max: initialEnergy,
+  });
+
   world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
     targetX: swarm.position.x,
     targetY: swarm.position.y,
@@ -494,14 +507,15 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
 }
 
 /**
- * Update swarm position target (for interpolation).
+ * Update swarm position target (for interpolation) and energy.
  */
 export function updateSwarmTarget(
   world: World,
   swarmId: string,
   x: number,
   y: number,
-  disabledUntil?: number
+  disabledUntil?: number,
+  energy?: number
 ): void {
   const entity = stringIdToEntity.get(swarmId);
   if (entity === undefined) return;
@@ -515,6 +529,15 @@ export function updateSwarmTarget(
   const swarmComp = world.getComponent<SwarmComponent>(entity, Components.Swarm);
   if (swarmComp) {
     swarmComp.disabledUntil = disabledUntil;
+  }
+
+  // Update energy for visual scaling (swarms grow as they drain players)
+  if (energy !== undefined) {
+    const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
+    if (energyComp) {
+      energyComp.current = energy;
+      energyComp.max = energy;
+    }
   }
 
   const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);

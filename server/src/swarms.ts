@@ -391,7 +391,7 @@ export function updateSwarmPositions(world: World, deltaTime: number, io: Server
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
   const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp) => {
+  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, energyComp) => {
     // Update position based on velocity (like players)
     posComp.x += velComp.x * deltaTime;
     posComp.y += velComp.y * deltaTime;
@@ -401,13 +401,14 @@ export function updateSwarmPositions(world: World, deltaTime: number, io: Server
     posComp.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, posComp.x));
     posComp.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, posComp.y));
 
-    // Broadcast position update (including disabled state)
+    // Broadcast position update (including disabled state and energy for visual scaling)
     io.emit('swarmMoved', {
       type: 'swarmMoved',
       swarmId,
       position: { x: posComp.x, y: posComp.y },
       state: swarmComp.state,
       disabledUntil: swarmComp.disabledUntil, // Include EMP stun state
+      energy: energyComp.current, // Energy for client-side visual scaling
     });
   });
 }

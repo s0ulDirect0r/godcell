@@ -88,6 +88,7 @@ import {
   isBotBySocketId,
   deletePlayerBySocketId,
   forEachPlayer,
+  forEachSwarm,
   setPlayerStage,
   subtractEnergyBySocketId,
   // ECS setters - update component values directly
@@ -920,6 +921,20 @@ setInterval(() => {
     });
     const humanCount = playerCount - botCount;
 
+    // Collect swarm stats
+    let swarmCount = 0;
+    let totalSwarmEnergy = 0;
+    let maxSwarmEnergy = 0;
+    let minSwarmEnergy = Infinity;
+    forEachSwarm(world, (_entity, _swarmId, _pos, _vel, _swarmComp, energyComp) => {
+      swarmCount++;
+      totalSwarmEnergy += energyComp.current;
+      if (energyComp.current > maxSwarmEnergy) maxSwarmEnergy = energyComp.current;
+      if (energyComp.current < minSwarmEnergy) minSwarmEnergy = energyComp.current;
+    });
+    const avgSwarmEnergy = swarmCount > 0 ? totalSwarmEnergy / swarmCount : 0;
+    if (swarmCount === 0) minSwarmEnergy = 0;
+
     perfLogger.info({
       event: 'tick_stats',
       intervalSec: ((now - lastPerfLogTime) / 1000).toFixed(1),
@@ -935,7 +950,14 @@ setInterval(() => {
       humanPlayers: humanCount,
       bots: botCount,
       totalPlayers: playerCount,
-    }, `Tick stats: avg=${avgMs.toFixed(2)}ms p95=${p95Ms.toFixed(2)}ms (${((avgMs / TICK_INTERVAL) * 100).toFixed(0)}% budget)`);
+      swarmCount,
+      swarmEnergy: {
+        avg: Math.floor(avgSwarmEnergy),
+        min: Math.floor(minSwarmEnergy),
+        max: Math.floor(maxSwarmEnergy),
+        total: Math.floor(totalSwarmEnergy),
+      },
+    }, `Tick stats: avg=${avgMs.toFixed(2)}ms p95=${p95Ms.toFixed(2)}ms (${((avgMs / TICK_INTERVAL) * 100).toFixed(0)}% budget) | Swarms: ${swarmCount} avg=${Math.floor(avgSwarmEnergy)} max=${Math.floor(maxSwarmEnergy)}`);
 
     // Reset for next interval
     tickTimesMs = [];
