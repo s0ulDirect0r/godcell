@@ -79,6 +79,13 @@ export class EntropySerpentAISystem implements System {
         const dy = target.y - pos.y;
         const bodyToTargetDist = Math.sqrt(dx * dx + dy * dy);
 
+        // Guard against division by zero (target exactly on serpent)
+        if (bodyToTargetDist === 0) {
+          vel.x = 0;
+          vel.y = 0;
+          return; // Skip this tick, let next tick reposition
+        }
+
         // Turn gradually toward target (not instant snap)
         const targetHeading = Math.atan2(dy, dx);
         const headingDiff = Math.atan2(
