@@ -12,6 +12,7 @@ import type {
   ProjectileComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  EntropySerpentComponent,
   PlayerComponent,
   StageComponent,
   EnergyComponent,
@@ -245,6 +246,62 @@ export class ProjectileSystem implements System {
 
         // Destroy the creature
         destroyEntity(world, creatureToKill.entity);
+      }
+      return true;
+    }
+
+    // Check EntropySerpents (apex predators - can be damaged but not instantly killed)
+    let serpentHit: { entity: EntityId; id: string; pos: { x: number; y: number } } | null = null;
+
+    const serpentEntities = world.getEntitiesWithTag(Tags.EntropySerpent);
+    for (const serpentEntity of serpentEntities) {
+      const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
+      const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
+      const serpentId = getStringIdByEntity(serpentEntity);
+      if (!serpentPos || !serpentComp || !serpentId) continue;
+
+      const serpentPosition = { x: serpentPos.x, y: serpentPos.y };
+      const dist = distance(projectilePos, serpentPosition);
+      const hitDist = collisionRadius + serpentComp.size;
+
+      if (dist < hitDist) {
+        projComp.hitEntityId = serpentEntity;
+        serpentHit = { entity: serpentEntity, id: serpentId, pos: serpentPosition };
+        break;
+      }
+    }
+
+    // Process serpent hit (damage but don't destroy - AI system handles death)
+    if (serpentHit) {
+      const serpentEnergy = world.getComponent<EnergyComponent>(serpentHit.entity, Components.Energy);
+      if (serpentEnergy) {
+        serpentEnergy.current = Math.max(0, serpentEnergy.current - projComp.damage);
+
+        io.emit('entropySerpentDamaged', {
+          type: 'entropySerpentDamaged',
+          serpentId: serpentHit.id,
+          damage: projComp.damage,
+          currentEnergy: serpentEnergy.current,
+          attackerId: projComp.ownerSocketId,
+        });
+
+        io.emit('projectileHit', {
+          type: 'projectileHit',
+          projectileId,
+          targetId: serpentHit.id,
+          targetType: 'serpent',
+          hitPosition: serpentHit.pos,
+          damage: projComp.damage,
+          killed: serpentEnergy.current <= 0,
+        });
+
+        logger.info({
+          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_hit_serpent' : 'player_projectile_hit_serpent',
+          shooter: projComp.ownerSocketId,
+          serpentId: serpentHit.id,
+          damage: projComp.damage,
+          serpentEnergyRemaining: serpentEnergy.current,
+        });
       }
       return true;
     }

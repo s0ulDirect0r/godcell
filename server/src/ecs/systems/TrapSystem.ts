@@ -9,6 +9,8 @@ import type {
   PositionComponent,
   TrapComponent,
   StunnedComponent,
+  EntropySerpentComponent,
+  EnergyComponent,
   EntityId,
 } from '#shared';
 import type { System } from './types';
@@ -97,6 +99,33 @@ export class TrapSystem implements System {
           });
         }
       });
+
+      // Check collision with EntropySerpents
+      const serpentEntities = world.getEntitiesWithTag(Tags.EntropySerpent);
+      for (const serpentEntity of serpentEntities) {
+        const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
+        const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
+        const serpentId = getStringIdByEntity(serpentEntity);
+        if (!serpentPos || !serpentComp || !serpentId) continue;
+
+        const serpentPosition = { x: serpentPos.x, y: serpentPos.y };
+        const dist = distance(trapPos, serpentPosition);
+
+        if (dist < trapComp.triggerRadius) {
+          // Trap triggered by serpent!
+          triggeredTraps.push({
+            entity,
+            id: trapId,
+            victimSocketId: serpentId, // Use serpent ID as victim ID
+            victimEntity: serpentEntity,
+            pos: trapPos,
+            damage: trapComp.damage,
+            stunDuration: trapComp.stunDuration,
+            ownerSocketId: trapComp.ownerSocketId,
+          });
+          break; // Only one trigger per trap
+        }
+      }
     });
 
     // Process triggered traps (after iteration to avoid mutation during iteration)
@@ -106,45 +135,87 @@ export class TrapSystem implements System {
       if (processedTrapIds.has(trap.id)) continue;
       processedTrapIds.add(trap.id);
 
-      // Apply damage to victim (entity-based)
-      subtractEnergy(world, trap.victimEntity, trap.damage);
+      // Check if victim is a serpent or player
+      const isSerpent = world.hasTag(trap.victimEntity, Tags.EntropySerpent);
 
-      // Apply stun to victim (already have entity)
-      const stunned = world.getComponent<StunnedComponent>(trap.victimEntity, Components.Stunned);
-      if (stunned) {
-        // Extend stun if already stunned
-        stunned.until = Math.max(stunned.until || 0, now + trap.stunDuration);
+      if (isSerpent) {
+        // Serpent victim - damage only, no stun
+        const serpentEnergy = world.getComponent<EnergyComponent>(trap.victimEntity, Components.Energy);
+        if (serpentEnergy) {
+          serpentEnergy.current = Math.max(0, serpentEnergy.current - trap.damage);
+
+          const killed = serpentEnergy.current <= 0;
+
+          io.emit('entropySerpentDamaged', {
+            type: 'entropySerpentDamaged',
+            serpentId: trap.victimSocketId,
+            damage: trap.damage,
+            currentEnergy: serpentEnergy.current,
+            attackerId: trap.ownerSocketId,
+          });
+
+          io.emit('trapTriggered', {
+            type: 'trapTriggered',
+            trapId: trap.id,
+            victimId: trap.victimSocketId,
+            victimType: 'serpent',
+            position: trap.pos,
+            damage: trap.damage,
+            stunDuration: 0, // Serpents don't get stunned
+            killed,
+          });
+
+          logger.info({
+            event: 'trap_triggered_serpent',
+            trapId: trap.id,
+            owner: trap.ownerSocketId,
+            serpentId: trap.victimSocketId,
+            damage: trap.damage,
+            serpentEnergyRemaining: serpentEnergy.current,
+          });
+        }
       } else {
-        // Add stun component
-        world.addComponent<StunnedComponent>(trap.victimEntity, Components.Stunned, {
-          until: now + trap.stunDuration,
+        // Player victim - damage and stun
+        subtractEnergy(world, trap.victimEntity, trap.damage);
+
+        // Apply stun to victim (already have entity)
+        const stunned = world.getComponent<StunnedComponent>(trap.victimEntity, Components.Stunned);
+        if (stunned) {
+          // Extend stun if already stunned
+          stunned.until = Math.max(stunned.until || 0, now + trap.stunDuration);
+        } else {
+          // Add stun component
+          world.addComponent<StunnedComponent>(trap.victimEntity, Components.Stunned, {
+            until: now + trap.stunDuration,
+          });
+        }
+
+        // Check if victim died (entity-based)
+        const victimEnergy = getEnergy(world, trap.victimEntity);
+        const killed = victimEnergy ? victimEnergy.current <= 0 : false;
+
+        // Emit trigger event
+        io.emit('trapTriggered', {
+          type: 'trapTriggered',
+          trapId: trap.id,
+          victimId: trap.victimSocketId,
+          victimType: 'player',
+          position: trap.pos,
+          damage: trap.damage,
+          stunDuration: trap.stunDuration,
+          killed,
+        });
+
+        logger.info({
+          event: 'player_trap_triggered',
+          trapId: trap.id,
+          owner: trap.ownerSocketId,
+          victim: trap.victimSocketId,
+          damage: trap.damage,
+          stunDuration: trap.stunDuration,
+          killed,
         });
       }
-
-      // Check if victim died (entity-based)
-      const victimEnergy = getEnergy(world, trap.victimEntity);
-      const killed = victimEnergy ? victimEnergy.current <= 0 : false;
-
-      // Emit trigger event
-      io.emit('trapTriggered', {
-        type: 'trapTriggered',
-        trapId: trap.id,
-        victimId: trap.victimSocketId,
-        position: trap.pos,
-        damage: trap.damage,
-        stunDuration: trap.stunDuration,
-        killed,
-      });
-
-      logger.info({
-        event: 'player_trap_triggered',
-        trapId: trap.id,
-        owner: trap.ownerSocketId,
-        victim: trap.victimSocketId,
-        damage: trap.damage,
-        stunDuration: trap.stunDuration,
-        killed,
-      });
 
       // Emit despawn event for the triggered trap
       io.emit('trapDespawned', {
