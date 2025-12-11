@@ -643,6 +643,139 @@ export interface MeleeArcAnimation {
  * Features: solid arc mesh, bright particles, trails, sparks
  */
 /**
+ * Animation data for claw slash trail effect
+ * Used for entropy serpent attack visual
+ */
+export interface ClawSlashAnimation {
+  arcLine: THREE.Line;           // Arc-shaped slash trail
+  sparkParticles: THREE.Points;  // Sparks flying off the slash
+  sparkData: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+  }>;
+  startTime: number;
+  duration: number;
+  centerX: number;
+  centerY: number;
+  baseAngle: number;
+}
+
+/**
+ * Spawn claw slash trail effect - arc sweep at attack position
+ * Creates dramatic claw swipe visual with trailing sparks
+ * @param x - Center X position (serpent location)
+ * @param y - Center Y position (serpent location)
+ * @param direction - Attack direction (radians)
+ * @param colorHex - Slash color (default orange-red)
+ */
+export function spawnClawSlash(
+  scene: THREE.Scene,
+  x: number,
+  y: number,
+  direction: number,
+  colorHex: number = 0xff6600
+): ClawSlashAnimation {
+  // Effect duration: 250ms for quick, punchy claw swipe
+  const duration = 250;
+  // Arc parameters: 60° swipe arc, 80px reach (matches serpent arm length)
+  const arcAngle = Math.PI / 3;  // 60 degrees
+  const radius = 80;             // Slash reach
+  const segments = 16;           // Arc smoothness
+
+  // ============================================
+  // 1. ARC LINE - The main slash trail
+  // ============================================
+  const arcPoints: THREE.Vector3[] = [];
+  const halfArc = arcAngle / 2;
+  const startAngle = direction - halfArc;
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const angle = startAngle + t * arcAngle;
+    // XZ plane: X=game X, Y=height, Z=-game Y
+    arcPoints.push(new THREE.Vector3(
+      x + Math.cos(angle) * radius,
+      45,  // Height: at serpent arm level (Y=40 + arm offset)
+      -(y + Math.sin(angle) * radius)
+    ));
+  }
+
+  const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
+  const arcMaterial = new THREE.LineBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity: 1.0,
+    linewidth: 2,
+  });
+  const arcLine = new THREE.Line(arcGeometry, arcMaterial);
+  scene.add(arcLine);
+
+  // ============================================
+  // 2. SPARK PARTICLES - Flying off the slash
+  // ============================================
+  const sparkCount = 12;
+  const sparkGeometry = new THREE.BufferGeometry();
+  const sparkPositions = new Float32Array(sparkCount * 3);
+  const sparkSizes = new Float32Array(sparkCount);
+  const sparkData: ClawSlashAnimation['sparkData'] = [];
+
+  for (let i = 0; i < sparkCount; i++) {
+    // Spawn along the arc
+    const arcT = Math.random();
+    const angle = startAngle + arcT * arcAngle;
+    const sparkX = x + Math.cos(angle) * radius;
+    const sparkY = y + Math.sin(angle) * radius;
+
+    sparkPositions[i * 3] = sparkX;
+    sparkPositions[i * 3 + 1] = 45 + Math.random() * 5;  // Slight height variation
+    sparkPositions[i * 3 + 2] = -sparkY;
+
+    sparkSizes[i] = 4 + Math.random() * 4;
+
+    // Velocity: fly outward from arc with some randomness
+    const speed = 150 + Math.random() * 150;
+    sparkData.push({
+      x: sparkX,
+      y: sparkY,
+      vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 80,
+      vy: Math.sin(angle) * speed + (Math.random() - 0.5) * 80,
+      life: 1.0,
+    });
+  }
+
+  sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPositions, 3));
+  sparkGeometry.setAttribute('size', new THREE.BufferAttribute(sparkSizes, 1));
+
+  // Brighter orange for sparks
+  const brightColor = 0xffaa00;
+  const sparkMaterial = new THREE.PointsMaterial({
+    color: brightColor,
+    size: 5,
+    transparent: true,
+    opacity: 1.0,
+    sizeAttenuation: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  const sparkParticles = new THREE.Points(sparkGeometry, sparkMaterial);
+  scene.add(sparkParticles);
+
+  return {
+    arcLine,
+    sparkParticles,
+    sparkData,
+    startTime: Date.now(),
+    duration,
+    centerX: x,
+    centerY: y,
+    baseAngle: direction,
+  };
+}
+
+/**
  * Animation data for energy whip strike effect (lightning bolt + AoE impact)
  * Used for multi-cell pseudopod attack
  */

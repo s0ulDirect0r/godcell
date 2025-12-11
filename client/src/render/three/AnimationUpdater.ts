@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '#shared';
-import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation, EnergyWhipAnimation } from '../effects/ParticleEffects';
+import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation, EnergyWhipAnimation, ClawSlashAnimation } from '../effects/ParticleEffects';
 
 /**
  * Update death particle animations (radial burst that fades)
@@ -715,6 +715,82 @@ export function updateEnergyWhipAnimations(
     scene.remove(anim.impactParticles);
     anim.impactParticles.geometry.dispose();
     (anim.impactParticles.material as THREE.Material).dispose();
+
+    animations.splice(index, 1);
+  }
+}
+
+/**
+ * Update claw slash trail animations (arc fades, sparks fly outward)
+ * Mutates the animations array in place, removing finished animations
+ *
+ * @param scene - Three.js scene (for removing finished elements)
+ * @param animations - Array of claw slash animations (mutated in place)
+ * @param dt - Delta time in milliseconds
+ */
+export function updateClawSlashAnimations(
+  scene: THREE.Scene,
+  animations: ClawSlashAnimation[],
+  dt: number
+): void {
+  const deltaSeconds = dt / 1000;
+  const now = Date.now();
+  const finishedAnimations: number[] = [];
+
+  animations.forEach((anim, index) => {
+    const elapsed = now - anim.startTime;
+    const progress = Math.min(elapsed / anim.duration, 1);
+
+    if (progress >= 1) {
+      finishedAnimations.push(index);
+      return;
+    }
+
+    // ============================================
+    // Update spark particles - fly outward
+    // ============================================
+    const sparkPositions = anim.sparkParticles.geometry.attributes.position.array as Float32Array;
+
+    for (let i = 0; i < anim.sparkData.length; i++) {
+      const s = anim.sparkData[i];
+      s.x += s.vx * deltaSeconds;
+      s.y += s.vy * deltaSeconds;
+      s.life = 1 - progress;
+
+      sparkPositions[i * 3] = s.x;
+      sparkPositions[i * 3 + 1] = 45 + Math.random() * 2;  // Slight flicker
+      sparkPositions[i * 3 + 2] = -s.y;
+    }
+    anim.sparkParticles.geometry.attributes.position.needsUpdate = true;
+
+    // ============================================
+    // Fade out both elements
+    // ============================================
+    const opacity = 1 - progress;
+
+    // Arc line fade
+    const arcMaterial = anim.arcLine.material as THREE.LineBasicMaterial;
+    arcMaterial.opacity = opacity;
+
+    // Spark particles fade
+    const sparkMaterial = anim.sparkParticles.material as THREE.PointsMaterial;
+    sparkMaterial.opacity = opacity;
+  });
+
+  // Clean up finished animations
+  for (let i = finishedAnimations.length - 1; i >= 0; i--) {
+    const index = finishedAnimations[i];
+    const anim = animations[index];
+
+    // Clean up arc line
+    scene.remove(anim.arcLine);
+    anim.arcLine.geometry.dispose();
+    (anim.arcLine.material as THREE.Material).dispose();
+
+    // Clean up spark particles
+    scene.remove(anim.sparkParticles);
+    anim.sparkParticles.geometry.dispose();
+    (anim.sparkParticles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
   }

@@ -14,6 +14,7 @@ import {
   type EnergyTransferAnimation,
   type MeleeArcAnimation,
   type EnergyWhipAnimation,
+  type ClawSlashAnimation,
   spawnDeathParticles,
   spawnHitSparks,
   spawnEvolutionParticles,
@@ -23,6 +24,7 @@ import {
   spawnEnergyTransferParticles,
   spawnMeleeArc,
   spawnEnergyWhipStrike,
+  spawnClawSlash,
 } from '../effects/ParticleEffects';
 import {
   updateDeathAnimations,
@@ -33,6 +35,7 @@ import {
   updateEnergyTransferAnimations,
   updateMeleeArcAnimations,
   updateEnergyWhipAnimations,
+  updateClawSlashAnimations,
 } from '../three/AnimationUpdater';
 
 /**
@@ -68,6 +71,7 @@ export class EffectsSystem {
   private energyTransferAnimations: EnergyTransferAnimation[] = [];
   private meleeArcAnimations: MeleeArcAnimation[] = [];
   private energyWhipAnimations: EnergyWhipAnimation[] = [];
+  private clawSlashAnimations: ClawSlashAnimation[] = [];
 
   // Track entities that are currently spawning
   private spawningEntities: Set<string> = new Set();
@@ -213,6 +217,18 @@ export class EffectsSystem {
     );
   }
 
+  /**
+   * Spawn claw slash trail - arc sweep effect for entropy serpent attack
+   * @param x - Center X position (serpent location)
+   * @param y - Center Y position (serpent location)
+   * @param direction - Attack direction (radians)
+   */
+  spawnClawSlash(x: number, y: number, direction: number): void {
+    this.clawSlashAnimations.push(
+      spawnClawSlash(this.scene, x, y, direction, 0xff6600)
+    );
+  }
+
   // ============================================
   // Query Methods
   // ============================================
@@ -264,6 +280,9 @@ export class EffectsSystem {
 
     // Update energy whip strike animations
     updateEnergyWhipAnimations(this.scene, this.energyWhipAnimations, dt);
+
+    // Update claw slash trail animations
+    updateClawSlashAnimations(this.scene, this.clawSlashAnimations, dt);
 
     return { spawnProgress, receivingEnergy };
   }
@@ -412,6 +431,17 @@ export class EffectsSystem {
       (anim.impactParticles.material as THREE.Material).dispose();
     });
     this.energyWhipAnimations = [];
+
+    // Clean up claw slash animations
+    this.clawSlashAnimations.forEach(anim => {
+      this.scene.remove(anim.arcLine);
+      anim.arcLine.geometry.dispose();
+      (anim.arcLine.material as THREE.Material).dispose();
+      this.scene.remove(anim.sparkParticles);
+      anim.sparkParticles.geometry.dispose();
+      (anim.sparkParticles.material as THREE.Material).dispose();
+    });
+    this.clawSlashAnimations = [];
 
     this.spawningEntities.clear();
   }
