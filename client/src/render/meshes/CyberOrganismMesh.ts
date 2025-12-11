@@ -73,8 +73,8 @@ function getTripodPhaseOffset(side: string, index: number): number {
  * @param phase - Normalized position in gait cycle (0-1)
  * @param stanceRatio - Fraction of cycle spent in stance (typically 0.5)
  * @param strideAmp - Hip rotation amplitude in radians
- * @param liftAmp - Y-rotation amplitude for foot lift
- * @returns Hip rotation (Z-axis) and lift rotation (Y-axis)
+ * @param liftAmp - X-rotation amplitude for foot lift (pitches leg up)
+ * @returns Hip rotation (Z-axis) and lift rotation (X-axis)
  */
 function calculateLegGait(
   phase: number,
@@ -322,13 +322,17 @@ export function updateCyberOrganismAnimation(
   const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
-  // Initialize walk cycle counter on first call
+  // Initialize walk cycle counter and base Y position on first call
   if (group.userData.walkCycle === undefined) {
     group.userData.walkCycle = 0;
   }
+  if (group.userData.baseY === undefined) {
+    group.userData.baseY = group.position.y;
+  }
 
-  // Float animation (subtle bobbing in world Y)
-  group.position.y += Math.sin(time) * radius * CONFIG.FLOAT_AMPLITUDE * 0.1;
+  // Float animation (subtle bobbing in world Y) - use absolute positioning to prevent drift
+  const floatOffset = Math.sin(time) * radius * CONFIG.FLOAT_AMPLITUDE * 0.1;
+  group.position.y = group.userData.baseY + floatOffset;
 
   // Tail sway (Z direction in local space)
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
@@ -402,7 +406,7 @@ export function updateCyberOrganismAnimation(
     const bodyBob = Math.sin(walkCycle * Math.PI * 2) * radius * CONFIG.BODY_BOB_AMPLITUDE;
     const bodySway = Math.sin(walkCycle * Math.PI) * radius * CONFIG.BODY_SWAY_AMPLITUDE;
     bodyGroup.position.y = bodySway;  // Lateral sway in local space
-    group.position.y += bodyBob;       // Vertical bob added to world position
+    group.position.y = group.userData.baseY + floatOffset + bodyBob;  // Combine float + bob
 
     // Debug logging (only for one leg to avoid spam)
     if (CONFIG.DEBUG_GAIT) {

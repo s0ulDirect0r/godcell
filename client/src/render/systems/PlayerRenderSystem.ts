@@ -815,15 +815,15 @@ export class PlayerRenderSystem {
         : false;
       cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
 
-      // Calculate speed for animation blending
+      // Calculate speed for animation blending (distance / dt = units per second)
       const speed = prevPos
-        ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) * 60
+        ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) / (this.dt / 1000)
         : 0;
 
       // Update humanoid animation
       const animState = cellGroup.userData.animState as HumanoidAnimationState | undefined;
       if (animState) {
-        updateHumanoidAnimation(animState, 1 / 60, isMoving, speed);
+        updateHumanoidAnimation(animState, this.dt / 1000, isMoving, speed);
       }
 
       // Rotation
@@ -861,9 +861,9 @@ export class PlayerRenderSystem {
         : false;
       cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
 
-      // Calculate movement speed (distance per frame * 60 = units per second)
+      // Calculate movement speed (distance / dt = units per second)
       const speed = prevPos
-        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) * 60
+        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) / (this.dt / 1000)
         : 0;
 
       // Update heading
@@ -887,7 +887,7 @@ export class PlayerRenderSystem {
         cellGroup.rotation.z = currentHeading;
       }
 
-      updateCyberOrganismAnimation(cellGroup, isMoving, speed, 1 / 60);
+      updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
 
     } else if (player.stage === 'multi_cell') {
       updateMultiCellEnergy(cellGroup, this.multiCellStyle, player.energy, player.maxEnergy);
