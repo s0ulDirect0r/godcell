@@ -27,6 +27,7 @@ import {
   createCyberOrganism,
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
+  CONFIG as CYBER_CONFIG,
 } from './render/meshes/CyberOrganismMesh';
 import {
   updateEvolutionCorona,
@@ -301,6 +302,137 @@ function initGUI() {
   gravityVfx.close();
 
   vfxFolder.close();
+
+  // Cyber-Organism config folder
+  const cyberFolder = gui.addFolder('Cyber-Organism');
+
+  // Store defaults for reset
+  const CYBER_DEFAULTS = {
+    BODY: { ...CYBER_CONFIG.BODY, orb: { ...CYBER_CONFIG.BODY.orb } },
+    HEAD: { ...CYBER_CONFIG.HEAD, eye: { ...CYBER_CONFIG.HEAD.eye } },
+    TAIL: { ...CYBER_CONFIG.TAIL, spike: { ...CYBER_CONFIG.TAIL.spike }, tip: { ...CYBER_CONFIG.TAIL.tip } },
+    LEGS: { ...CYBER_CONFIG.LEGS, joint: { ...CYBER_CONFIG.LEGS.joint }, tube: { ...CYBER_CONFIG.LEGS.tube }, foot: { ...CYBER_CONFIG.LEGS.foot } },
+    GAIT: { ...CYBER_CONFIG.GAIT },
+  };
+
+  // Helper to rebuild cyber-organism models when config changes
+  const rebuildCyberOrganism = () => {
+    models.forEach((model, i) => {
+      if (model.name === 'cyberOrganism') {
+        const parent = model.parent;
+        if (parent) {
+          parent.remove(model);
+          const newModel = createCyberOrganism(60, currentColor);
+          newModel.position.copy(model.position);
+          parent.add(newModel);
+          models[i] = newModel;
+        }
+      }
+    });
+  };
+
+  // Reset to defaults button
+  cyberFolder.add({
+    reset: () => {
+      // Restore all defaults
+      Object.assign(CYBER_CONFIG.BODY, CYBER_DEFAULTS.BODY);
+      Object.assign(CYBER_CONFIG.BODY.orb, CYBER_DEFAULTS.BODY.orb);
+      Object.assign(CYBER_CONFIG.HEAD, CYBER_DEFAULTS.HEAD);
+      Object.assign(CYBER_CONFIG.HEAD.eye, CYBER_DEFAULTS.HEAD.eye);
+      Object.assign(CYBER_CONFIG.TAIL, CYBER_DEFAULTS.TAIL);
+      Object.assign(CYBER_CONFIG.TAIL.spike, CYBER_DEFAULTS.TAIL.spike);
+      Object.assign(CYBER_CONFIG.TAIL.tip, CYBER_DEFAULTS.TAIL.tip);
+      Object.assign(CYBER_CONFIG.LEGS, CYBER_DEFAULTS.LEGS);
+      Object.assign(CYBER_CONFIG.LEGS.joint, CYBER_DEFAULTS.LEGS.joint);
+      Object.assign(CYBER_CONFIG.LEGS.tube, CYBER_DEFAULTS.LEGS.tube);
+      Object.assign(CYBER_CONFIG.LEGS.foot, CYBER_DEFAULTS.LEGS.foot);
+      Object.assign(CYBER_CONFIG.GAIT, CYBER_DEFAULTS.GAIT);
+      // Update GUI controllers to reflect new values
+      gui.controllersRecursive().forEach(c => c.updateDisplay());
+      rebuildCyberOrganism();
+    }
+  }, 'reset').name('🔄 Reset to Defaults');
+
+  // Body proportions
+  const bodyFolder = cyberFolder.addFolder('Body');
+  bodyFolder.add(CYBER_CONFIG.BODY, 'segmentCount', 1, 6, 1)
+    .name('Segments')
+    .onFinishChange(rebuildCyberOrganism);
+  bodyFolder.add(CYBER_CONFIG.BODY, 'baseRadius', 0.5, 3, 0.1)
+    .name('Segment Radius')
+    .onFinishChange(rebuildCyberOrganism);
+  bodyFolder.add(CYBER_CONFIG.BODY, 'spacing', 1, 4, 0.1)
+    .name('Spacing')
+    .onFinishChange(rebuildCyberOrganism);
+  bodyFolder.add(CYBER_CONFIG.BODY, 'taper', 0, 0.3, 0.01)
+    .name('Taper')
+    .onFinishChange(rebuildCyberOrganism);
+  bodyFolder.add(CYBER_CONFIG.BODY, 'squash', 0.3, 1, 0.05)
+    .name('Squash')
+    .onFinishChange(rebuildCyberOrganism);
+  bodyFolder.close();
+
+  // Head
+  const headFolder = cyberFolder.addFolder('Head');
+  headFolder.add(CYBER_CONFIG.HEAD, 'radius', 0.5, 3, 0.1)
+    .name('Size')
+    .onFinishChange(rebuildCyberOrganism);
+  headFolder.add(CYBER_CONFIG.HEAD, 'position', -6, 0, 0.5)
+    .name('Position')
+    .onFinishChange(rebuildCyberOrganism);
+  headFolder.add(CYBER_CONFIG.HEAD.eye, 'radius', 0.2, 1.5, 0.1)
+    .name('Eye Size')
+    .onFinishChange(rebuildCyberOrganism);
+  headFolder.close();
+
+  // Tail
+  const tailFolder = cyberFolder.addFolder('Tail');
+  tailFolder.add(CYBER_CONFIG.TAIL, 'segmentCount', 1, 8, 1)
+    .name('Segments')
+    .onFinishChange(rebuildCyberOrganism);
+  tailFolder.add(CYBER_CONFIG.TAIL, 'initialSize', 0.3, 1.5, 0.1)
+    .name('Initial Size')
+    .onFinishChange(rebuildCyberOrganism);
+  tailFolder.add(CYBER_CONFIG.TAIL, 'decay', 0.6, 1, 0.02)
+    .name('Decay')
+    .onFinishChange(rebuildCyberOrganism);
+  tailFolder.add(CYBER_CONFIG.TAIL.tip, 'radius', 0.3, 2, 0.1)
+    .name('Tip Size')
+    .onFinishChange(rebuildCyberOrganism);
+  tailFolder.close();
+
+  // Legs
+  const legsFolder = cyberFolder.addFolder('Legs');
+  legsFolder.add(CYBER_CONFIG.LEGS, 'attachmentY', 0.3, 1.5, 0.1)
+    .name('Spread')
+    .onFinishChange(rebuildCyberOrganism);
+  legsFolder.add(CYBER_CONFIG.LEGS, 'angleSpread', 0, 0.5, 0.05)
+    .name('Angle Spread')
+    .onFinishChange(rebuildCyberOrganism);
+  legsFolder.add(CYBER_CONFIG.LEGS.joint, 'radius', 0.2, 1, 0.1)
+    .name('Joint Size')
+    .onFinishChange(rebuildCyberOrganism);
+  legsFolder.add(CYBER_CONFIG.LEGS.tube, 'radius', 0.1, 0.8, 0.05)
+    .name('Tube Radius')
+    .onFinishChange(rebuildCyberOrganism);
+  legsFolder.add(CYBER_CONFIG.LEGS.tube, 'length', 1, 5, 0.2)
+    .name('Length')
+    .onFinishChange(rebuildCyberOrganism);
+  legsFolder.close();
+
+  // Gait animation (live updates, no rebuild needed)
+  const gaitFolder = cyberFolder.addFolder('Gait');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'cycleSpeed', 0.5, 4, 0.1)
+    .name('Cycle Speed');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'strideAmplitude', 0, 0.5, 0.02)
+    .name('Stride Amp');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'liftAmplitude', 0, 0.5, 0.02)
+    .name('Lift Amp');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'stanceRatio', 0.3, 0.7, 0.05)
+    .name('Stance Ratio');
+  gaitFolder.open();
+
+  cyberFolder.close();
 
   // Bloom controls folder
   const bloomFolder = gui.addFolder('Bloom / Glow');
