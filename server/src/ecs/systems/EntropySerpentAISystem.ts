@@ -10,6 +10,7 @@ import {
   Tags,
   GAME_CONFIG,
   EvolutionStage,
+  type Position,
 } from '#shared';
 import type {
   PositionComponent,
@@ -23,9 +24,15 @@ import type { System } from './types';
 import {
   forEachEntropySerpent,
   getSocketIdByEntity,
+  getStringIdByEntity,
   recordDamage,
+  createEntropySerpent,
+  destroyEntity,
 } from '../factories';
 import { logger } from '../../logger';
+
+// Pending respawns (serpentId -> respawnTime)
+const pendingRespawns: Map<string, { respawnAt: number; homePosition: Position }> = new Map();
 
 /**
  * EntropySerpentAISystem - SUPER AGGRESSIVE apex predator
@@ -42,6 +49,24 @@ export class EntropySerpentAISystem implements System {
   update(world: World, deltaTime: number, io: Server): void {
     const now = Date.now();
 
+    // Process pending respawns
+    this.processRespawns(world, now, io);
+
+    // Check for dead serpents and handle death
+    const deadSerpents: Array<{ entity: number; id: string; homePosition: Position }> = [];
+    forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
+      const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
+      if (energy && energy.current <= 0) {
+        deadSerpents.push({ entity, id, homePosition: { ...serpent.homePosition } });
+      }
+    });
+
+    // Handle deaths (separate loop to avoid modifying during iteration)
+    for (const dead of deadSerpents) {
+      this.handleDeath(world, dead.entity, dead.id, dead.homePosition, now, io);
+    }
+
+    // Update living serpents
     forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
       // Find nearest Stage 3+ player (target)
       const target = this.findNearestTarget(world, pos.x, pos.y);
@@ -164,8 +189,10 @@ export class EntropySerpentAISystem implements System {
   ): void {
     const targetEnergy = world.getComponent<EnergyComponent>(target.entity, Components.Energy);
     const targetPos = world.getComponent<PositionComponent>(target.entity, Components.Position);
+    const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
+    const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
 
-    if (!targetEnergy || !targetPos) return;
+    if (!targetEnergy || !targetPos || !serpentPos) return;
 
     const damage = GAME_CONFIG.ENTROPY_SERPENT_DAMAGE;
     targetEnergy.current = Math.max(0, targetEnergy.current - damage);
@@ -173,12 +200,19 @@ export class EntropySerpentAISystem implements System {
     // Record damage for visual feedback
     recordDamage(world, target.entity, damage, 'swarm'); // Use swarm color for now
 
+    // Calculate attack direction (serpent → target)
+    const dx = targetPos.x - serpentPos.x;
+    const dy = targetPos.y - serpentPos.y;
+    const attackDirection = Math.atan2(dy, dx);
+
     // Emit attack event for client visuals
-    io.emit('message', {
+    io.emit('entropySerpentAttack', {
       type: 'entropySerpentAttack',
       serpentId,
       targetId: target.socketId,
       position: { x: targetPos.x, y: targetPos.y },
+      serpentPosition: { x: serpentPos.x, y: serpentPos.y },
+      attackDirection,
       damage,
     });
 
@@ -228,6 +262,69 @@ export class EntropySerpentAISystem implements System {
 
       // Update heading
       serpent.heading = Math.atan2(dy, dx);
+    }
+  }
+
+  /**
+   * Handle serpent death - destroy entity and schedule respawn
+   */
+  private handleDeath(
+    world: World,
+    entity: number,
+    serpentId: string,
+    homePosition: Position,
+    now: number,
+    io: Server
+  ): void {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const position = pos ? { x: pos.x, y: pos.y } : homePosition;
+
+    // Emit death event for client visuals
+    io.emit('entropySerpentKilled', {
+      type: 'entropySerpentKilled',
+      serpentId,
+      position,
+    });
+
+    logger.info({
+      event: 'entropy_serpent_killed',
+      serpentId,
+      position,
+    }, 'Entropy serpent killed');
+
+    // Schedule respawn
+    pendingRespawns.set(serpentId, {
+      respawnAt: now + GAME_CONFIG.ENTROPY_SERPENT_RESPAWN_DELAY,
+      homePosition,
+    });
+
+    // Destroy entity
+    destroyEntity(world, entity);
+  }
+
+  /**
+   * Process pending respawns
+   */
+  private processRespawns(world: World, now: number, io: Server): void {
+    for (const [serpentId, respawn] of pendingRespawns) {
+      if (now >= respawn.respawnAt) {
+        // Respawn serpent at home position
+        createEntropySerpent(world, serpentId, respawn.homePosition, respawn.homePosition);
+        pendingRespawns.delete(serpentId);
+
+        // Emit respawn event
+        io.emit('entropySerpentSpawned', {
+          type: 'entropySerpentSpawned',
+          serpentId,
+          position: respawn.homePosition,
+        });
+
+        logger.info({
+          event: 'entropy_serpent_respawned',
+          serpentId,
+          position: respawn.homePosition,
+        }, 'Entropy serpent respawned');
+      }
     }
   }
 }

@@ -568,8 +568,30 @@ export interface EntropySerpentAttackMessage {
   type: 'entropySerpentAttack';
   serpentId: string;
   targetId: string;
-  position: Position;
+  position: Position;          // Target position (where attack lands)
+  serpentPosition: Position;   // Serpent position (attack origin)
+  attackDirection: number;     // Direction of attack in radians
   damage: number;
+}
+
+export interface EntropySerpentDamagedMessage {
+  type: 'entropySerpentDamaged';
+  serpentId: string;
+  damage: number;
+  currentEnergy: number;
+  attackerId: string;
+}
+
+export interface EntropySerpentKilledMessage {
+  type: 'entropySerpentKilled';
+  serpentId: string;
+  position: Position;
+}
+
+export interface EntropySerpentRespawnedMessage {
+  type: 'entropySerpentSpawned';  // Server emits this type
+  serpentId: string;
+  position: Position;
 }
 
 // Projectile messages (ranged specialization)
@@ -582,7 +604,7 @@ export interface ProjectileHitMessage {
   type: 'projectileHit';
   projectileId: string;
   targetId: string;
-  targetType: 'player' | 'cyberbug' | 'junglecreature';
+  targetType: 'player' | 'cyberbug' | 'junglecreature' | 'serpent';
   hitPosition: Position;
   damage: number;
   killed: boolean;
@@ -692,6 +714,9 @@ export type ServerMessage =
   | EntropySerpentSpawnedMessage
   | EntropySerpentMovedMessage
   | EntropySerpentAttackMessage
+  | EntropySerpentDamagedMessage
+  | EntropySerpentKilledMessage
+  | EntropySerpentRespawnedMessage
   | ProjectileSpawnedMessage
   | ProjectileHitMessage
   | ProjectileRetractedMessage
@@ -1158,13 +1183,15 @@ export const GAME_CONFIG = {
   ENTROPY_SERPENT_COUNT: 4,              // Number of serpents to spawn
   ENTROPY_SERPENT_SIZE: 80,              // Collision radius (big boy)
   ENTROPY_SERPENT_SPEED: 420,            // Base patrol speed (faster than players!)
-  ENTROPY_SERPENT_CHASE_SPEED: 560,      // Speed when hunting (AGGRESSIVE)
+  ENTROPY_SERPENT_CHASE_SPEED: 600,      // Speed when hunting (faster than sprint!)
   ENTROPY_SERPENT_ATTACK_SPEED: 350,     // Speed during attack animation
   ENTROPY_SERPENT_DETECTION_RADIUS: 1200, // How far they can see prey
   ENTROPY_SERPENT_ATTACK_RANGE: 200,     // Claw strike range
-  ENTROPY_SERPENT_DAMAGE: 450,           // 15% of Stage 3 maxEnergy per hit
+  ENTROPY_SERPENT_DAMAGE: 300,           // 10% of Stage 3 maxEnergy per hit (10s TTK)
   ENTROPY_SERPENT_ATTACK_COOLDOWN: 1000, // 1s between attacks (fast!)
   ENTROPY_SERPENT_PATROL_RADIUS: 800,    // How far they wander from home
+  ENTROPY_SERPENT_ENERGY: 2000,          // Serpent health pool (can be killed!)
+  ENTROPY_SERPENT_RESPAWN_DELAY: 60000,  // 60s respawn after killed
 
   // Projectile - Stage 3 ranged specialization attack
   // Values scaled for jungle view (camera frustum ~4800 wide)

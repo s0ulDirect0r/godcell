@@ -2856,6 +2856,10 @@ export function createEntropySerpent(
     lastAttackTime: undefined,
     heading: Math.random() * Math.PI * 2, // Random starting direction
   });
+  world.addComponent<EnergyComponent>(entity, Components.Energy, {
+    current: GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
+    max: GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
+  });
 
   world.addTag(entity, Tags.EntropySerpent);
   registerStringIdMapping(entity, serpentId);
@@ -2878,6 +2882,8 @@ export interface EntropySerpentSnapshot {
   patrolTarget?: Position;
   heading: number;
   lastAttackTime?: number;
+  energy: number;
+  maxEnergy: number;
 }
 
 /**
@@ -2910,6 +2916,7 @@ export function forEachEntropySerpent(
 export function getAllEntropySerpentSnapshots(world: World): EntropySerpentSnapshot[] {
   const snapshots: EntropySerpentSnapshot[] = [];
   forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
     snapshots.push({
       entity,
       id,
@@ -2922,6 +2929,8 @@ export function getAllEntropySerpentSnapshots(world: World): EntropySerpentSnaps
       patrolTarget: serpent.patrolTarget ? { ...serpent.patrolTarget } : undefined,
       heading: serpent.heading,
       lastAttackTime: serpent.lastAttackTime,
+      energy: energy?.current ?? GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
+      maxEnergy: energy?.max ?? GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
     });
   });
   return snapshots;
@@ -2943,6 +2952,8 @@ export function buildEntropySerpentsRecord(world: World): Record<string, {
   state: 'patrol' | 'chase' | 'attack';
   heading: number;
   targetPlayerId?: string;
+  energy: number;
+  maxEnergy: number;
 }> {
   const result: Record<string, {
     id: string;
@@ -2950,14 +2961,18 @@ export function buildEntropySerpentsRecord(world: World): Record<string, {
     state: 'patrol' | 'chase' | 'attack';
     heading: number;
     targetPlayerId?: string;
+    energy: number;
+    maxEnergy: number;
   }> = {};
 
-  forEachEntropySerpent(world, (_entity, id, pos, _vel, serpent) => {
+  forEachEntropySerpent(world, (entity, id, pos, _vel, serpent) => {
     // Convert targetEntityId to targetPlayerId (socket ID)
     let targetPlayerId: string | undefined;
     if (serpent.targetEntityId !== undefined) {
       targetPlayerId = getSocketIdByEntity(serpent.targetEntityId);
     }
+
+    const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
 
     result[id] = {
       id,
@@ -2965,6 +2980,8 @@ export function buildEntropySerpentsRecord(world: World): Record<string, {
       state: serpent.state,
       heading: serpent.heading,
       targetPlayerId,
+      energy: energy?.current ?? GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
+      maxEnergy: energy?.max ?? GAME_CONFIG.ENTROPY_SERPENT_ENERGY,
     };
   });
 
