@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause, SwarmConsumedMessage } from '#shared';
+import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause } from '#shared';
 import { EvolutionStage, GAME_CONFIG, type World } from '#shared';
 import type { System } from './types';
 import {
@@ -232,7 +232,7 @@ export class DeathSystem implements System {
         swarmId: swarm.swarmId,
         energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
         maxEnergyGained: maxEnergyGain,
-      } as SwarmConsumedMessage);
+      });
 
       // Remove swarm and schedule respawn
       removeSwarm(world, swarm.swarmId);

@@ -430,6 +430,8 @@ export interface SwarmConsumedMessage {
   type: 'swarmConsumed';
   swarmId: string;
   consumerId: string;
+  energyGained: number;
+  maxEnergyGained: number;
 }
 
 export interface PlayerDrainStateMessage {
@@ -1074,9 +1076,8 @@ export const GAME_CONFIG = {
   // Swarm Consumption (EMP-enabled swarm hunting)
   SWARM_CONSUMPTION_RATE: 200,      // Energy drained per second during engulfment (0.5 seconds to consume)
   SWARM_ENERGY_GAIN: 150,           // Energy gained per swarm consumed (net +70 after 80 cost)
-  SWARM_MAX_ENERGY_GAIN: 75,        // MaxEnergy capacity increase per swarm consumed (evolution accelerator)
-  SWARM_BEAM_KILL_MAX_ENERGY_GAIN: 50, // MaxEnergy from beam-killing swarm (less than contact - nutrient loss)
   SWARM_ENERGY: 100,                // Swarm energy pool (set when disabled by EMP)
+  // Kill rewards: 25% of swarm peak energy for consumption, 10% for beam (see DeathSystem)
 
   // ============================================
   // Stage 3+ Macro-Resources (Digital Jungle Ecosystem)
