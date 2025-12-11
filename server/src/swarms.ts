@@ -305,6 +305,13 @@ export function updateSwarms(
 
     const swarmPosition = { x: posComp.x, y: posComp.y };
 
+    // Fat swarms are slightly faster - very gentle scaling
+    // At 500 energy = 1.1x speed (10% faster), at 100 = 1x
+    const MAX_SPEED_BONUS = 0.1; // 10% faster at max energy
+    const MAX_ENERGY = 500;
+    const energyRatio = Math.min(energyComp.current / MAX_ENERGY, 1); // 0-1 range, capped at 500
+    const energySpeedScale = 1 + energyRatio * MAX_SPEED_BONUS;
+
     // Check for nearby players
     const nearestPlayer = findNearestPlayer(swarmPosition, world);
 
@@ -323,8 +330,8 @@ export function updateSwarms(
 
       if (dist > 0) {
         // Add AI movement as acceleration (like player input)
-        // Use higher multiplier for responsive movement with momentum
-        const acceleration = getConfig('SWARM_SPEED') * 8;
+        // Acceleration scales with energy - fat swarms accelerate faster
+        const acceleration = getConfig('SWARM_SPEED') * 8 * energySpeedScale;
         velComp.x += (dx / dist) * acceleration * deltaTime;
         velComp.y += (dy / dist) * acceleration * deltaTime;
       }
@@ -351,8 +358,8 @@ export function updateSwarms(
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0) {
-          // Slower acceleration while patrolling (60% of chase speed)
-          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6;
+          // Slower acceleration while patrolling (60% of chase speed), still scales with energy
+          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6 * energySpeedScale;
           velComp.x += (dx / dist) * patrolAcceleration * deltaTime;
           velComp.y += (dy / dist) * patrolAcceleration * deltaTime;
         }
@@ -369,9 +376,9 @@ export function updateSwarms(
     velComp.x += repulsion.x * deltaTime;
     velComp.y += repulsion.y * deltaTime;
 
-    // Clamp to max speed (like players, allow slight overspeed for gravity)
+    // Clamp to max speed - scales with energy so fat swarms are faster
     const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-    const maxSpeed = getConfig('SWARM_SPEED') * 1.2; // 20% overspeed allowance
+    const maxSpeed = getConfig('SWARM_SPEED') * 1.2 * energySpeedScale;
     if (velocityMagnitude > maxSpeed) {
       velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
       velComp.y = (velComp.y / velocityMagnitude) * maxSpeed;
