@@ -41,6 +41,9 @@ import type {
   JungleCreatureMovedMessage,
   EntropySerpentMovedMessage,
   EntropySerpentAttackMessage,
+  EntropySerpentDamagedMessage,
+  EntropySerpentKilledMessage,
+  EntropySerpentRespawnedMessage,
   ProjectileSpawnedMessage,
   ProjectileHitMessage,
   ProjectileRetractedMessage,
@@ -561,6 +564,21 @@ export class SocketManager {
 
     this.socket.on('entropySerpentAttack', (data: EntropySerpentAttackMessage) => {
       // Emit event for visual effects
+      eventBus.emit(data);
+    });
+
+    this.socket.on('entropySerpentDamaged', (data: EntropySerpentDamagedMessage) => {
+      // Emit event for visual effects (damage flash)
+      eventBus.emit(data);
+    });
+
+    this.socket.on('entropySerpentKilled', (data: EntropySerpentKilledMessage) => {
+      // Emit event for visual effects (death animation)
+      eventBus.emit(data);
+    });
+
+    this.socket.on('entropySerpentSpawned', (data: EntropySerpentRespawnedMessage) => {
+      // Emit event for visual effects (respawn animation)
       eventBus.emit(data);
     });
 
