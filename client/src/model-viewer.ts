@@ -27,6 +27,7 @@ import {
   createCyberOrganism,
   updateCyberOrganismAnimation,
   updateCyberOrganismEnergy,
+  disposeCyberOrganism,
   CONFIG as CYBER_CONFIG,
 } from './render/meshes/CyberOrganismMesh';
 import {
@@ -321,6 +322,7 @@ function initGUI() {
       if (model.name === 'cyberOrganism') {
         const parent = model.parent;
         if (parent) {
+          disposeCyberOrganism(model as THREE.Group);
           parent.remove(model);
           const newModel = createCyberOrganism(60, currentColor);
           newModel.position.copy(model.position);
