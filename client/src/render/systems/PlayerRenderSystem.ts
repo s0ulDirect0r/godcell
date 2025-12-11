@@ -251,7 +251,6 @@ export class PlayerRenderSystem {
             }
             // Use cyber-organism as placeholder while humanoid loads
             cellGroup = createCyberOrganism(radius, colorHex);
-            cellGroup.userData.isHumanoidPlaceholder = true;
           }
         } else if (player.stage === 'godcell') {
           // Stage 5: Godcell - glowing sphere for 3D flight
@@ -433,13 +432,16 @@ export class PlayerRenderSystem {
     if (!sourceGroup) return;
 
     // Create target mesh based on new stage
+    // For humanoid: use a temporary mesh for crossfade animation, then let sync()
+    // handle the actual humanoid model loading after evolution completes.
+    // We use cyber_organism as the visual during crossfade (temporary only).
     let targetMesh: THREE.Group;
-    if (targetStage === 'humanoid') {
-      targetMesh = createCyberOrganism(targetRadius, colorHex);
-      targetMesh.userData.isHumanoidPlaceholder = true;
-    } else if (targetStage === 'godcell') {
+    if (targetStage === 'godcell') {
       targetMesh = createGodcell(targetRadius, colorHex);
     } else if (targetStage === 'cyber_organism') {
+      targetMesh = createCyberOrganism(targetRadius, colorHex);
+    } else if (targetStage === 'humanoid') {
+      // Temporary mesh for crossfade - will be replaced by sync() after evolution
       targetMesh = createCyberOrganism(targetRadius, colorHex);
     } else if (targetStage === 'multi_cell') {
       targetMesh = createMultiCell({
@@ -453,7 +455,9 @@ export class PlayerRenderSystem {
 
     // Position target at same location
     targetMesh.position.copy(sourceGroup.position);
-    targetMesh.userData.stage = targetStage;
+    // For humanoid, mark as temporary so sync() will recreate with proper model
+    // For other stages, set actual stage
+    targetMesh.userData.stage = targetStage === 'humanoid' ? 'humanoid_temp' : targetStage;
 
     // Start hidden (will fade in during crossfade)
     this.setGroupOpacity(targetMesh, 0);
