@@ -32,6 +32,7 @@ export type {
   JungleCreatureComponent,
   ProjectileComponent,
   TrapComponent,
+  EntropySerpentComponent,
 } from '#shared';
 
 // Client-only component types and interfaces
@@ -103,6 +104,10 @@ export {
   // Trap operations (Stage 3 traps specialization)
   upsertTrap,
   removeTrap,
+  // Entropy serpent operations (jungle apex predator)
+  upsertEntropySerpent,
+  removeEntropySerpent,
+  updateEntropySerpentPosition,
   // Aura component helpers
   setDrainAura,
   clearDrainAura,

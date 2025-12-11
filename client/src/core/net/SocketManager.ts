@@ -39,6 +39,8 @@ import type {
   JungleCreatureSpawnedMessage,
   JungleCreatureKilledMessage,
   JungleCreatureMovedMessage,
+  EntropySerpentMovedMessage,
+  EntropySerpentAttackMessage,
   ProjectileSpawnedMessage,
   ProjectileHitMessage,
   ProjectileRetractedMessage,
@@ -93,6 +95,8 @@ import {
   removeProjectile,
   upsertTrap,
   removeTrap,
+  upsertEntropySerpent,
+  updateEntropySerpentPosition,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -550,6 +554,16 @@ export class SocketManager {
       updateJungleCreaturePosition(this.world, data.creatureId, data.position.x, data.position.y, data.state);
     });
 
+    // EntropySerpent events (jungle apex predator)
+    this.socket.on('entropySerpentMoved', (data: EntropySerpentMovedMessage) => {
+      updateEntropySerpentPosition(this.world, data.serpentId, data.position.x, data.position.y, data.state, data.heading);
+    });
+
+    this.socket.on('entropySerpentAttack', (data: EntropySerpentAttackMessage) => {
+      // Emit event for visual effects
+      eventBus.emit(data);
+    });
+
     // Projectile events (Stage 3 ranged specialization)
     this.socket.on('projectileSpawned', (data: ProjectileSpawnedMessage) => {
       upsertProjectile(this.world, data.projectile);
@@ -642,6 +656,9 @@ export class SocketManager {
     if (snapshot.jungleCreatures) {
       Object.values(snapshot.jungleCreatures).forEach(c => upsertJungleCreature(this.world, c));
     }
+    if (snapshot.entropySerpents) {
+      Object.values(snapshot.entropySerpents).forEach(s => upsertEntropySerpent(this.world, s));
+    }
     if (snapshot.projectiles) {
       Object.values(snapshot.projectiles).forEach(p => upsertProjectile(this.world, p));
     }
@@ -666,6 +683,7 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.DataFruit, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.CyberBug, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.JungleCreature, (entity) => toDestroy.push(entity));
+    this.world.forEachWithTag(Tags.EntropySerpent, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Projectile, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Trap, (entity) => toDestroy.push(entity));
     toDestroy.forEach(entity => this.world.destroyEntity(entity));

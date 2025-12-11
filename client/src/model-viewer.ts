@@ -41,6 +41,11 @@ import {
 import { createDataFruit } from './render/meshes/DataFruitMesh';
 import { createCyberBug } from './render/meshes/CyberBugMesh';
 import { createJungleCreature } from './render/meshes/JungleCreatureMesh';
+import {
+  createEntropySerpent,
+  updateEntropySerpentAnimation,
+  updateEntropySerpentState,
+} from './render/meshes/EntropySerpentMesh';
 
 // Game's neon color palette (matches shared/index.ts CELL_COLORS)
 const CELL_COLORS = [
@@ -68,8 +73,9 @@ let gui: GUI;
 let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
-let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'tree' | 'data-fruit' | 'cyber-bug' | 'jungle-creature' | 'swarm' | 'distortion' | 'nutrient' | 'all' = 'multi-cell';
+let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'entropy-serpent' | 'tree' | 'data-fruit' | 'cyber-bug' | 'jungle-creature' | 'swarm' | 'distortion' | 'nutrient' | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
+let currentSerpentState: 'patrol' | 'chase' | 'attack' = 'patrol';
 let lastTime = 0;
 let energyDirection = -1; // -1 = draining, 1 = filling
 
@@ -182,7 +188,7 @@ function initGUI() {
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
   entityFolder.add({ type: currentEntityType }, 'type', [
-    'single-cell', 'multi-cell', 'cyber-organism', 'tree', 'data-fruit', 'cyber-bug', 'jungle-creature', 'swarm', 'distortion', 'nutrient', 'all'
+    'single-cell', 'multi-cell', 'cyber-organism', 'entropy-serpent', 'tree', 'data-fruit', 'cyber-bug', 'jungle-creature', 'swarm', 'distortion', 'nutrient', 'all'
   ])
     .name('Entity Type')
     .onChange((value: typeof currentEntityType) => {
@@ -195,6 +201,18 @@ function initGUI() {
     .onChange((value: MultiCellStyle) => {
       currentStyle = value;
       if (currentEntityType === 'multi-cell') updateModels();
+    });
+
+  entityFolder.add({ serpentState: currentSerpentState }, 'serpentState', ['patrol', 'chase', 'attack'])
+    .name('Serpent State')
+    .onChange((value: typeof currentSerpentState) => {
+      currentSerpentState = value;
+      // Update state on existing serpent models
+      models.forEach(model => {
+        if (model instanceof THREE.Group && model.name === 'entropySerpent') {
+          updateEntropySerpentState(model, value);
+        }
+      });
     });
   entityFolder.open();
 
@@ -386,6 +404,16 @@ function updateModels() {
       scene.add(cyberOrg);
       models.push(cyberOrg);
       camera.position.set(0, 0, 400); // Further out for larger model
+      break;
+    }
+
+    case 'entropy-serpent': {
+      // Jungle apex predator - serpentine body with clawed arms
+      const serpent = createEntropySerpent(20);
+      serpent.position.set(0, 0, 0);
+      scene.add(serpent);
+      models.push(serpent);
+      camera.position.set(0, 80, 250);
       break;
     }
 
@@ -704,6 +732,9 @@ function animate(currentTime: number = 0) {
       // Cyber-organism - animate legs and energy glow
       updateCyberOrganismEnergy(model, energy / 100);
       updateCyberOrganismAnimation(model, animState.autoAnimate, deltaTime);
+    } else if (model instanceof THREE.Group && model.name === 'entropySerpent') {
+      // Entropy serpent - slither animation
+      updateEntropySerpentAnimation(model, deltaTime, animState.autoAnimate);
     } else if (model instanceof THREE.Group && model.name === 'dataTree') {
       // Data tree - animate glow pulse and sway
       updateDataTreeAnimation(model, deltaTime * 1000); // Convert to ms
