@@ -29,6 +29,7 @@ import {
 } from '../index';
 import { isBot, handleBotDeath } from '../../bots';
 import { logger, recordLifetimeDeath, logPlayerDeath } from '../../logger';
+import { removeSwarm } from '../../swarms';
 
 /**
  * DeathSystem - Checks for and processes player and swarm deaths
@@ -197,8 +198,9 @@ export class DeathSystem implements System {
     // Process swarm deaths
     for (const swarm of deadSwarms) {
       // Calculate maxEnergy reward as percentage of swarm's peak energy
-      // Consumption: 75% of peak energy, Beam: 50% of peak energy
-      const rewardPct = swarm.damageSource === 'consumption' ? 0.75 : 0.50;
+      // Consumption: 25% bonus (since max is drained during consumption itself)
+      // Beam: 10% bonus (beam doesn't drain max, so smaller bonus)
+      const rewardPct = swarm.damageSource === 'consumption' ? 0.25 : 0.10;
       const maxEnergyGain = Math.floor(swarm.peakEnergy * rewardPct);
 
       // Award kill rewards to killer
@@ -232,8 +234,8 @@ export class DeathSystem implements System {
         maxEnergyGained: maxEnergyGain,
       } as SwarmConsumedMessage);
 
-      // Destroy swarm entity
-      destroyEntity(world, swarm.entity);
+      // Remove swarm and schedule respawn
+      removeSwarm(world, swarm.swarmId);
     }
   }
 }

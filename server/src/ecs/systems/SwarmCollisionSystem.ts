@@ -68,10 +68,12 @@ export class SwarmCollisionSystem implements System {
 
       for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
         // Collision distance = scaled swarm size + player radius
-        // Swarm hitbox grows at 50% rate: scale = 1 + (energy/100 - 1) * 0.5
+        // Linear scaling: 100=1x, 300=1.5x, 500=2x (matches client visuals)
         const BASE_ENERGY = 100;
-        const rawScale = swarmEnergyComp.current / BASE_ENERGY;
-        const energyScale = 1 + (rawScale - 1) * 0.5;
+        const MAX_ENERGY = 500;
+        const MAX_SCALE = 2.0;
+        const energyRatio = Math.min((swarmEnergyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
+        const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
         const scaledSwarmSize = swarmComp.size * energyScale;
         const collisionDist = scaledSwarmSize + radius;
         const collisionDistSq = collisionDist * collisionDist;
@@ -88,8 +90,8 @@ export class SwarmCollisionSystem implements System {
           const damage = baseDamage * energyScale * deltaTime;
           energyComp.current -= damage;
 
-          // Swarm absorbs drained energy (capped at 1000)
-          const MAX_SWARM_ENERGY = 1000;
+          // Swarm absorbs drained energy (capped at 500)
+          const MAX_SWARM_ENERGY = 500;
           swarmEnergyComp.current = Math.min(swarmEnergyComp.current + damage, MAX_SWARM_ENERGY);
           swarmEnergyComp.max = Math.max(swarmEnergyComp.max, swarmEnergyComp.current);  // Track peak for kill rewards
 
@@ -165,10 +167,12 @@ export class SwarmCollisionSystem implements System {
         const dx = player.x - swarm.x;
         const dy = player.y - swarm.y;
         const distSq = dx * dx + dy * dy;
-        // Scale swarm hitbox with energy (50% rate)
+        // Linear scaling: 100=1x, 300=1.5x, 500=2x (matches client visuals)
         const BASE_ENERGY = 100;
-        const rawScale = swarm.energyComp.current / BASE_ENERGY;
-        const energyScale = 1 + (rawScale - 1) * 0.5;
+        const MAX_ENERGY = 500;
+        const MAX_SCALE = 2.0;
+        const energyRatio = Math.min((swarm.energyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
+        const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
         const scaledSwarmSize = swarm.size * energyScale;
         const collisionDist = scaledSwarmSize + player.radius;
         const collisionDistSq = collisionDist * collisionDist;
@@ -178,11 +182,8 @@ export class SwarmCollisionSystem implements System {
           swarm.swarmComp.beingConsumedBy = player.playerId;
 
           // Gradual consumption - transfer energy from swarm to player
-          // Hybrid drain: base 100/sec + 7% of swarm's max energy
-          // Small swarms = quick snack, fat swarms = 2 EMP commitment
-          const BASE_DRAIN = 100;
-          const PERCENT_DRAIN = 0.07;
-          const drainRate = BASE_DRAIN + swarm.energyComp.max * PERCENT_DRAIN;
+          // Flat 200/sec drain rate
+          const drainRate = 200;
           const damageDealt = Math.min(drainRate * deltaTime, swarm.energyComp.current);
           const playerEnergyBefore = player.energyComp.current;
           const playerMaxBefore = player.energyComp.max;
