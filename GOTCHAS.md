@@ -119,6 +119,40 @@ When a player connects, they get a `gameState` message with all current entities
 
 ---
 
+## Debugging Spatial Issues (3D Visualization)
+
+When hitboxes, attack arcs, or positions seem wrong, add **debug markers** to visualize what the code thinks vs what you see:
+
+```typescript
+// In a render system, add a debug toggle:
+private debugMode = false;
+private debugMarkers: Map<string, THREE.Group> = new Map();
+
+toggleDebug(): boolean {
+  this.debugMode = !this.debugMode;
+  if (!this.debugMode) { /* clean up markers */ }
+  return this.debugMode;
+}
+
+// Create colored spheres/lines to show key positions:
+// - Blue sphere: body center (where server tracks entity)
+// - Red sphere: head/attack origin
+// - Yellow line: attack arc/hitbox boundary
+// - Green line: direction/heading vector
+```
+
+Expose via `window` for console access:
+```typescript
+// In main.ts
+(window as any).debugSerpent = () => renderer.toggleSerpentDebug();
+```
+
+**Pattern discovered debugging serpent attacks:** The visual mesh had head at offset 768, but attack code used offset 80. Debug markers made this immediately obvious — red "head" sphere was at body center, not at the visible head.
+
+**When to use:** Any time a spatial relationship (hitbox, range, offset, rotation) doesn't match what you expect visually.
+
+---
+
 ## Common Bugs
 
 ### "Entity has no Position component"

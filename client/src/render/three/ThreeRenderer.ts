@@ -506,6 +506,56 @@ export class ThreeRenderer implements Renderer {
         this.playerRenderSystem.flashDamage(event.victimId);
       }));
 
+      // === EntropySerpent attack visual feedback ===
+      this.eventSubscriptions.push(eventBus.on('entropySerpentAttack', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // DEBUG: Log attack position data
+        console.log('[SerpentAttack] Event received:', {
+          serpentPosition: event.serpentPosition,
+          attackDirection: (event.attackDirection * 180 / Math.PI).toFixed(1) + '°',
+          position: event.position,
+        });
+
+        // Trigger claw swipe animation on the serpent mesh
+        this.entropySerpentRenderSystem.triggerAttack(event.serpentId);
+
+        // Spawn claw slash trail effect at serpent position
+        this.effectsSystem.spawnClawSlash(
+          event.serpentPosition.x,
+          event.serpentPosition.y,
+          event.attackDirection
+        );
+        console.log('[SerpentAttack] Spawned slash at:', event.serpentPosition.x, event.serpentPosition.y);
+
+        // Spawn hit burst at attack position (where claws connect)
+        this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
+
+        // Flash the victim's mesh
+        this.playerRenderSystem.flashDamage(event.targetId);
+
+        // Camera shake if it's the local player being attacked
+        if (event.targetId === this.myPlayerId) {
+          this.cameraSystem.triggerShake(0.3);
+        }
+      }));
+
+      // === EntropySerpent damaged visual feedback ===
+      this.eventSubscriptions.push(eventBus.on('entropySerpentDamaged', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Flash the serpent mesh to show it took damage
+        this.entropySerpentRenderSystem.flashDamage(event.serpentId);
+      }));
+
+      // === EntropySerpent killed visual feedback ===
+      this.eventSubscriptions.push(eventBus.on('entropySerpentKilled', (event) => {
+        if (this.environmentSystem.getMode() !== 'jungle') return;
+
+        // Spawn death burst at serpent position
+        this.effectsSystem.spawnDeathBurst(event.position.x, event.position.y, 0xff6600);
+      }));
+
       // Mouse look event - update first-person camera rotation
       this.eventSubscriptions.push(eventBus.on('client:mouseLook', (event) => {
         if (this.cameraSystem.getMode() === 'firstperson') {
@@ -910,6 +960,14 @@ export class ThreeRenderer implements Renderer {
 
   isBloomEnabled(): boolean {
     return this._bloomEnabled;
+  }
+
+  /**
+   * Toggle serpent debug visualization
+   * Shows body center (blue), head position (red), attack arc (yellow)
+   */
+  toggleSerpentDebug(): boolean {
+    return this.entropySerpentRenderSystem.toggleDebug();
   }
 
   getCameraProjection() {

@@ -445,7 +445,8 @@ Use these as templates for how to apply changes.
 2. Add targeted logs in the relevant system (MovementSystem, GravitySystem, etc.).
 3. Verify that components have expected values after each system runs.
 4. Use client debug overlays / query params if available (e.g., `?debug`).
-5. Avoid "fixing" issues only on the client; ensure server simulation is correct.
+5. **For spatial issues (hitboxes, offsets, attack ranges):** Add 3D debug markers (colored spheres/lines) to visualize server positions vs rendered positions. See GOTCHAS.md "Debugging Spatial Issues" for the pattern.
+6. Avoid "fixing" issues only on the client; ensure server simulation is correct.
 
 ### Tuning Balance / Metabolism / Difficulty
 

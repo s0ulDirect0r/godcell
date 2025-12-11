@@ -8,6 +8,7 @@ import type {
   EnergyUpdateMessage,
   DetectionUpdateMessage,
   PlayerDrainStateMessage,
+  SwarmMovedMessage,
   DetectedEntity,
   DamageSource,
   DamageTrackingComponent,
@@ -37,6 +38,7 @@ const DETECTION_UPDATE_INTERVAL = 15; // ~4 times/sec at 60fps
  * - Energy updates (throttled)
  * - Detection updates (throttled)
  * - Drain state updates
+ * - Swarm position updates (throttled)
  *
  * This system runs last (highest priority number).
  */
@@ -51,6 +53,7 @@ export class NetworkBroadcastSystem implements System {
     this.broadcastEnergyUpdates(world, io);
     this.broadcastDrainState(world, io);
     this.broadcastDetectionUpdates(world, io);
+    this.broadcastSwarmPositionUpdates(world, io);
   }
 
   /**
@@ -234,5 +237,23 @@ export class NetworkBroadcastSystem implements System {
         }
       });
     }
+  }
+
+  /**
+   * Broadcast swarm position updates to clients (every tick for smooth movement)
+   * Sends position, state, and energy for interpolation and visual scaling
+   */
+  private broadcastSwarmPositionUpdates(world: World, io: Server): void {
+    forEachSwarm(world, (_entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
+      const moveMessage: SwarmMovedMessage = {
+        type: 'swarmMoved',
+        swarmId,
+        position: { x: posComp.x, y: posComp.y },
+        state: swarmComp.state,
+        disabledUntil: swarmComp.disabledUntil,
+        energy: energyComp?.current,
+      };
+      io.emit('swarmMoved', moveMessage);
+    });
   }
 }
