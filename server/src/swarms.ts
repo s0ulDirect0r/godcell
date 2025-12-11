@@ -408,8 +408,7 @@ export function updateSwarmPositions(world: World, deltaTime: number, _io: Serve
     posComp.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, posComp.x));
     posComp.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, posComp.y));
 
-    // NOTE: Position updates are broadcast via the regular snapshot system (buildSwarmsRecord)
-    // Removed per-tick io.emit('swarmMoved') that was causing ~1000+ emissions/sec with 17+ swarms
+    // Position updates are broadcast via NetworkBroadcastSystem (every tick)
   });
 }
 
