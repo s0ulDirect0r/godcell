@@ -59,6 +59,9 @@ export class SwarmRenderSystem {
   // Cache swarm state for animation (avoids re-querying each frame)
   private swarmStates: Map<string, string> = new Map();
 
+  // Cache disabled state for animation freeze
+  private swarmDisabled: Map<string, boolean> = new Map();
+
   // Aura ring meshes (orange glow around charged swarms)
   private swarmAuras: Map<string, THREE.Mesh> = new Map();
 
@@ -70,6 +73,9 @@ export class SwarmRenderSystem {
 
   // Cache energy scale for spawn animation integration
   private swarmEnergyScales: Map<string, number> = new Map();
+
+  // Cache energy ratio (0-1) for animation intensity
+  private swarmEnergyRatios: Map<string, number> = new Map();
 
   // Delta time for frame-rate independent interpolation (ms)
   private dt: number = 16.67;
@@ -139,18 +145,21 @@ export class SwarmRenderSystem {
       // Update colors and intensity based on state
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
+      this.swarmDisabled.set(swarmId, isDisabled); // Cache for animation freeze
       updateSwarmState(group, swarm.state, isDisabled);
 
       // === Energy-based scaling ===
-      // Swarms grow as they absorb energy, but at 50% rate to stay manageable
-      // bodyScale = 1 + (rawScale - 1) * 0.5
-      // BASE_ENERGY (100) = 1x, 300 energy = 2x, 500 energy = 3x
+      // Swarms grow as they absorb energy - linear scaling
+      // 100=1x, 300=1.5x, 500=2x (steady growth, satisfying to drain)
       const energyComp = this.world.getComponent<EnergyComponent>(entity, Components.Energy);
       const energy = energyComp?.current ?? this.BASE_ENERGY;
-      const rawScale = energy / this.BASE_ENERGY;
-      const energyScale = 1 + (rawScale - 1) * 0.5; // Grow at 50% rate
+      const MAX_SCALE = 2.0; // 2x size at 500 energy
+      const MAX_ENERGY = 500;
+      const energyRatio = Math.min((energy - this.BASE_ENERGY) / (MAX_ENERGY - this.BASE_ENERGY), 1);
+      const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
       group.scale.setScalar(energyScale);
       this.swarmEnergyScales.set(swarmId, energyScale); // Cache for spawn animation
+      this.swarmEnergyRatios.set(swarmId, energyRatio); // Cache for animation intensity
 
       // Store base size for aura calculations (from original swarm.size)
       if (!this.swarmBaseSizes.has(swarmId)) {
@@ -179,8 +188,10 @@ export class SwarmRenderSystem {
         this.swarmInternalParticles.delete(id);
         this.swarmPulsePhase.delete(id);
         this.swarmStates.delete(id);
+        this.swarmDisabled.delete(id);
         this.swarmBaseSizes.delete(id);
         this.swarmEnergyScales.delete(id);
+        this.swarmEnergyRatios.delete(id);
 
         // Clean up aura visuals
         const aura = this.swarmAuras.get(id);
@@ -207,6 +218,7 @@ export class SwarmRenderSystem {
    */
   interpolate(dt: number = 16.67): void {
     const lerpFactor = frameLerp(0.3, dt);
+    const time = performance.now() * 0.001;
 
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
@@ -238,9 +250,11 @@ export class SwarmRenderSystem {
       const pulsePhase = this.swarmPulsePhase.get(id) || 0;
       const internalParticles = this.swarmInternalParticles.get(id);
       const orbitingParticles = this.swarmParticleData.get(id);
+      const energyRatio = this.swarmEnergyRatios.get(id) ?? 0;
+      const isDisabled = this.swarmDisabled.get(id) ?? false;
 
       if (internalParticles && orbitingParticles) {
-        updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt);
+        updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt, energyRatio, isDisabled);
       }
     });
   }
@@ -306,8 +320,10 @@ export class SwarmRenderSystem {
     this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
     this.swarmStates.clear();
+    this.swarmDisabled.clear();
     this.swarmBaseSizes.clear();
     this.swarmEnergyScales.clear();
+    this.swarmEnergyRatios.clear();
 
     // Clean up all auras
     this.swarmAuras.forEach((aura) => {
@@ -476,8 +492,22 @@ export class SwarmRenderSystem {
     // Ring sits outside swarm body with some spacing
     // energyScale already includes 50% growth rate, so aura matches body exactly
     const scaledBodyRadius = baseSize * energyScale;
+    const time = performance.now() * 0.001;
+
+    // Pulsing ring thickness: base 10% of body, pulses gently at max energy (dialed back)
+    // Pulse frequency increases with energy (1.5Hz base, up to 2.5Hz at max)
+    const basePulseFreq = 1.5;
+    const pulseFreq = basePulseFreq * (1 + intensityFactor * 0.6); // 1.5-2.4 Hz (was 2-4 Hz)
+    const pulsePhase = this.swarmPulsePhase.get(swarmId) ?? 0;
+    const pulseWave = Math.sin(time * pulseFreq * Math.PI * 2 + pulsePhase);
+
+    // Ring thickness oscillates: 10% base, +3% pulse at max energy (was +5%)
+    const baseThickness = 0.10; // 10% of body radius
+    const pulseAmplitude = 0.03 * intensityFactor; // Up to 3% extra at max energy
+    const ringThickness = baseThickness + pulseWave * pulseAmplitude;
+
     const ringInnerRadius = scaledBodyRadius * 1.15; // 15% gap between body and ring
-    const ringOuterRadius = scaledBodyRadius * 1.25; // 10% ring thickness
+    const ringOuterRadius = ringInnerRadius + scaledBodyRadius * ringThickness;
 
     let auraRing = this.swarmAuras.get(swarmId);
     if (!auraRing) {
@@ -516,7 +546,7 @@ export class SwarmRenderSystem {
     const orbitRadius = scaledBodyRadius * 1.1; // Just outside the ring
 
     let auraParticles = this.swarmAuraParticles.get(swarmId);
-    const time = performance.now() * 0.001;
+    // Note: 'time' already declared above for ring pulsing
 
     if (!auraParticles) {
       // Create new particle system
