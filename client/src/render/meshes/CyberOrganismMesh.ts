@@ -22,7 +22,83 @@ const CONFIG = {
   TAIL_SWAY_AMPLITUDE: 0.03,
   GLOW_PULSE_MIN: 4,
   GLOW_PULSE_RANGE: 1,
+
+  // Hexapod gait parameters
+  WALK_CYCLE_SPEED: 1.5,      // Base cycles per second
+  STRIDE_AMPLITUDE: 0.15,     // Hip rotation amplitude (radians) - controls forward/back swing
+  LIFT_AMPLITUDE: 0.15,       // X-rotation for foot lift during swing phase
+  STANCE_RATIO: 0.5,          // Fraction of cycle spent in stance (foot on ground)
+  BODY_BOB_AMPLITUDE: 0.02,   // Vertical body oscillation during walk
+  BODY_SWAY_AMPLITUDE: 0.01,  // Lateral body sway toward planted tripod
+
+  // Debug visualization (enabled via ?gaitDebug URL param)
+  DEBUG_GAIT: false,
+  DEBUG_STANCE_COLOR: 0x00ff00,   // Green = foot planted (stance phase)
+  DEBUG_SWING_COLOR: 0xff0000,    // Red = foot in air (swing phase)
+  DEBUG_SPHERE_SIZE: 0.3,         // Debug marker radius multiplier
 };
+
+// Enable gait debug in dev mode, or via ?gaitDebug URL param
+if (typeof window !== 'undefined') {
+  const params = new URLSearchParams(window.location.search);
+  CONFIG.DEBUG_GAIT = import.meta.env.DEV || params.has('gaitDebug');
+}
+
+/**
+ * Determine which tripod a leg belongs to for alternating gait.
+ * Hexapods walk with two tripods alternating: while one tripod supports,
+ * the other swings forward.
+ *
+ * Tripod A (phase 0): Left-front, Right-middle, Left-back → L0, R1, L2
+ * Tripod B (phase 0.5): Right-front, Left-middle, Right-back → R0, L1, R2
+ *
+ * @param side - 'left' or 'right'
+ * @param index - 0 (front), 1 (middle), 2 (back)
+ * @returns Phase offset: 0 for Tripod A, 0.5 for Tripod B
+ */
+function getTripodPhaseOffset(side: string, index: number): number {
+  // Tripod A: left legs with index 0 or 2, OR right leg with index 1
+  const isTripodA = (side === 'left' && index !== 1) ||
+                   (side === 'right' && index === 1);
+  return isTripodA ? 0 : 0.5;
+}
+
+/**
+ * Calculate leg rotation for a given phase in the gait cycle.
+ *
+ * The gait cycle has two phases:
+ * - STANCE (0 to stanceRatio): Foot on ground, hip rotates backward (pushes body forward)
+ * - SWING (stanceRatio to 1): Foot in air, hip rotates forward, foot lifts in parabolic arc
+ *
+ * @param phase - Normalized position in gait cycle (0-1)
+ * @param stanceRatio - Fraction of cycle spent in stance (typically 0.5)
+ * @param strideAmp - Hip rotation amplitude in radians
+ * @param liftAmp - Y-rotation amplitude for foot lift
+ * @returns Hip rotation (Z-axis) and lift rotation (Y-axis)
+ */
+function calculateLegGait(
+  phase: number,
+  stanceRatio: number,
+  strideAmp: number,
+  liftAmp: number
+): { hipRotation: number; liftRotation: number } {
+
+  if (phase < stanceRatio) {
+    // STANCE PHASE: foot planted, pushing body forward
+    // Hip rotates from +strideAmp (leg forward) to -strideAmp (leg backward)
+    const stanceProgress = phase / stanceRatio; // 0→1 during stance
+    const hipRotation = strideAmp * (1 - 2 * stanceProgress);
+    return { hipRotation, liftRotation: 0 };
+  } else {
+    // SWING PHASE: foot in air, swinging forward
+    const swingProgress = (phase - stanceRatio) / (1 - stanceRatio); // 0→1 during swing
+    // Hip rotates from -strideAmp back to +strideAmp
+    const hipRotation = strideAmp * (-1 + 2 * swingProgress);
+    // Foot lifts in smooth parabolic arc (sin curve)
+    const liftRotation = liftAmp * Math.sin(swingProgress * Math.PI);
+    return { hipRotation, liftRotation };
+  }
+}
 
 /**
  * Create the cyber-organism
@@ -211,48 +287,137 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   const foot = new THREE.Mesh(footGeo, mat);
   foot.position.set(0, side * 1.3 * tubeLength, -0.7 * tubeLength);
   foot.name = 'legFoot';
+
+  // Debug marker for gait visualization (green = stance, red = swing)
+  if (CONFIG.DEBUG_GAIT) {
+    const debugGeo = new THREE.SphereGeometry(CONFIG.DEBUG_SPHERE_SIZE * s, 8, 8);
+    const debugMat = new THREE.MeshBasicMaterial({
+      color: CONFIG.DEBUG_STANCE_COLOR,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const debugSphere = new THREE.Mesh(debugGeo, debugMat);
+    debugSphere.name = 'gaitDebug';
+    foot.add(debugSphere);
+  }
   leg.add(foot);
 
   return leg;
 }
 
 /**
- * Update animation
+ * Update animation with proper hexapod alternating tripod gait.
+ *
+ * @param group - The cyber-organism mesh group
+ * @param isMoving - Whether the creature is currently moving
+ * @param speed - Movement speed (units per second) for gait timing
+ * @param dt - Delta time in seconds
  */
 export function updateCyberOrganismAnimation(
   group: THREE.Group,
   isMoving: boolean,
-  _dt: number
+  speed: number,
+  dt: number
 ): void {
   const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
-  // Float animation (now in Y since that's height after rotation)
-  // Actually this is applied to group.position which is in world space, so use Y
+  // Initialize walk cycle counter on first call
+  if (group.userData.walkCycle === undefined) {
+    group.userData.walkCycle = 0;
+  }
+
+  // Float animation (subtle bobbing in world Y)
   group.position.y += Math.sin(time) * radius * CONFIG.FLOAT_AMPLITUDE * 0.1;
 
-  // Tail sway (Z direction in local space = Y direction in world after rotation)
+  // Tail sway (Z direction in local space)
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
   if (tip) {
     if (tip.userData.baseZ === undefined) tip.userData.baseZ = tip.position.z;
     tip.position.z = tip.userData.baseZ + Math.sin(time * 2) * radius * CONFIG.TAIL_SWAY_AMPLITUDE;
   }
 
-  // Legs walking animation
-  if (isMoving) {
-    const phase = time * 4;
-    const bodyGroup = group.userData.bodyGroup as THREE.Group | undefined;
-    (bodyGroup ?? group).children.forEach(child => {
+  // Hexapod walking animation with alternating tripod gait
+  const bodyGroup = group.userData.bodyGroup as THREE.Group | undefined;
+  if (!bodyGroup) return;
+
+  if (isMoving && speed > 0.1) {
+    // Accumulate walk cycle based on movement speed
+    // Speed scales cycle rate: faster movement = faster leg cycling
+    const cycleSpeed = CONFIG.WALK_CYCLE_SPEED * Math.min(speed / 100, 2);
+    group.userData.walkCycle += dt * cycleSpeed;
+
+    const walkCycle = group.userData.walkCycle;
+
+    // Scale stride and lift amplitude with speed (faster = longer strides, higher lift)
+    const speedFactor = Math.min(speed / 100, 1.5);
+    const strideAmp = CONFIG.STRIDE_AMPLITUDE * speedFactor;
+    const liftAmp = CONFIG.LIFT_AMPLITUDE * speedFactor;
+
+    // Animate each leg with proper tripod phasing
+    bodyGroup.children.forEach(child => {
       if (child.name.startsWith('leg-')) {
         const { side, index } = child.userData;
-        const offset = (index === 1 ? Math.PI : 0) + (side === 'right' ? Math.PI : 0);
-        if (child.userData.baseRotZ === undefined) child.userData.baseRotZ = child.rotation.z;
-        child.rotation.z = child.userData.baseRotZ + Math.sin(phase + offset) * 0.2;
+
+        // Store base rotations on first animation frame
+        if (child.userData.baseRotZ === undefined) {
+          child.userData.baseRotZ = child.rotation.z;
+        }
+        if (child.userData.baseRotX === undefined) {
+          child.userData.baseRotX = child.rotation.x;
+        }
+
+        // Calculate this leg's phase in the gait cycle
+        const tripodOffset = getTripodPhaseOffset(side, index);
+        const legPhase = (walkCycle + tripodOffset) % 1;
+
+        // Get rotation values from gait calculator
+        const { hipRotation, liftRotation } = calculateLegGait(
+          legPhase,
+          CONFIG.STANCE_RATIO,
+          strideAmp,
+          liftAmp
+        );
+
+        // Apply hip rotation (Z-axis: forward/backward swing)
+        child.rotation.z = child.userData.baseRotZ + hipRotation;
+        // Apply lift rotation (X-axis: pitches leg up during swing)
+        child.rotation.x = child.userData.baseRotX + liftRotation;
+
+        // Update debug marker color if present
+        if (CONFIG.DEBUG_GAIT) {
+          const foot = child.children.find(c => c.name === 'legFoot') as THREE.Mesh | undefined;
+          const debugMarker = foot?.children.find(c => c.name === 'gaitDebug') as THREE.Mesh | undefined;
+          if (debugMarker) {
+            const inStance = legPhase < CONFIG.STANCE_RATIO;
+            (debugMarker.material as THREE.MeshBasicMaterial).color.setHex(
+              inStance ? CONFIG.DEBUG_STANCE_COLOR : CONFIG.DEBUG_SWING_COLOR
+            );
+          }
+        }
       }
     });
+
+    // Body secondary motion: subtle bob and sway synced to gait
+    const bodyBob = Math.sin(walkCycle * Math.PI * 2) * radius * CONFIG.BODY_BOB_AMPLITUDE;
+    const bodySway = Math.sin(walkCycle * Math.PI) * radius * CONFIG.BODY_SWAY_AMPLITUDE;
+    bodyGroup.position.y = bodySway;  // Lateral sway in local space
+    group.position.y += bodyBob;       // Vertical bob added to world position
+
+    // Debug logging (only for one leg to avoid spam)
+    if (CONFIG.DEBUG_GAIT) {
+      const firstLeg = bodyGroup.children.find(c => c.name === 'leg-L-0');
+      if (firstLeg) {
+        const legPhase = (walkCycle + getTripodPhaseOffset('left', 0)) % 1;
+        // Log every ~60 frames (once per second at 60fps)
+        if (Math.floor(walkCycle * 60) % 60 === 0) {
+          console.log(`[Gait] cycle: ${walkCycle.toFixed(2)}, L0 phase: ${legPhase.toFixed(2)}, stance: ${legPhase < CONFIG.STANCE_RATIO}`);
+        }
+      }
+    }
   }
 
-  // Glow pulse
+  // Glow pulse (always active)
   const intensity = CONFIG.GLOW_PULSE_MIN + Math.sin(time * 2) * CONFIG.GLOW_PULSE_RANGE;
   group.traverse(child => {
     if (child instanceof THREE.PointLight) {

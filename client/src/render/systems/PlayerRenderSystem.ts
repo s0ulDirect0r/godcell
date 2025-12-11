@@ -861,6 +861,11 @@ export class PlayerRenderSystem {
         : false;
       cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
 
+      // Calculate movement speed (distance per frame * 60 = units per second)
+      const speed = prevPos
+        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) * 60
+        : 0;
+
       // Update heading
       if (prevPos && isMoving) {
         const dx = currPos.x - prevPos.x;
@@ -882,7 +887,7 @@ export class PlayerRenderSystem {
         cellGroup.rotation.z = currentHeading;
       }
 
-      updateCyberOrganismAnimation(cellGroup, isMoving, 1 / 60);
+      updateCyberOrganismAnimation(cellGroup, isMoving, speed, 1 / 60);
 
     } else if (player.stage === 'multi_cell') {
       updateMultiCellEnergy(cellGroup, this.multiCellStyle, player.energy, player.maxEnergy);

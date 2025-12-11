@@ -731,7 +731,9 @@ function animate(currentTime: number = 0) {
     } else if (model instanceof THREE.Group && model.name === 'cyberOrganism') {
       // Cyber-organism - animate legs and energy glow
       updateCyberOrganismEnergy(model, energy / 100);
-      updateCyberOrganismAnimation(model, animState.autoAnimate, deltaTime);
+      // Pass simulated speed (100 units/sec) when auto-animating to show gait
+      const simulatedSpeed = animState.autoAnimate ? 100 : 0;
+      updateCyberOrganismAnimation(model, animState.autoAnimate, simulatedSpeed, deltaTime);
     } else if (model instanceof THREE.Group && model.name === 'entropySerpent') {
       // Entropy serpent - slither animation
       updateEntropySerpentAnimation(model, deltaTime, animState.autoAnimate);
