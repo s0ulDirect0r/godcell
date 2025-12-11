@@ -46,12 +46,24 @@ const CONFIG = {
   CHASE_GLOW_COLOR: 0xff0000,
 
   // Animation
-  SLITHER_SPEED: 2.0,
-  SLITHER_AMPLITUDE: 0.15,
-  BREATHE_SPEED: 1.5,
-  BREATHE_AMOUNT: 0.04,
-  ARM_SWAY_SPEED: 1.2,
-  ARM_SWAY_AMOUNT: 0.1,
+  SLITHER_SPEED: 0,
+  SLITHER_AMPLITUDE: 0,
+  BREATHE_SPEED: 0,
+  BREATHE_AMOUNT: 0,
+  ARM_SWAY_SPEED: 0,
+  ARM_SWAY_AMOUNT: 0,
+};
+
+/**
+ * Configuration for slash trail effect
+ */
+const SLASH_CONFIG = {
+  TRAIL_WIDTH: 50.0,          // Width of the slash ribbon (world units) - needs to be visible at jungle scale
+  MIN_POINTS: 4,              // Minimum trajectory points needed to create trail
+  TRAIL_COLOR: 0xff6600,      // Orange to match serpent
+  TRAIL_OPACITY: 0.9,         // Starting opacity
+  FADEOUT_DURATION: 300,      // ms to fully fade
+  EMISSIVE_INTENSITY: 3.0,    // Glow strength for bloom pickup
 };
 
 /**
@@ -70,6 +82,8 @@ interface ClawSwipeState {
   startTime: number;
   duration: number;  // ms
   armIndex: number;  // Which arm is swiping (0 = left, 1 = right)
+  trajectoryPoints: THREE.Vector3[];  // World positions of claw during swipe
+  trailCreated: boolean;  // Whether trail mesh has been spawned
 }
 
 /**
@@ -255,6 +269,8 @@ export function createEntropySerpent(radius: number, colorHex?: number): THREE.G
       startTime: 0,
       duration: 300, // ms
       armIndex: 0,
+      trajectoryPoints: [],
+      trailCreated: false,
     },
   };
   group.userData.animState = animState;
@@ -454,6 +470,22 @@ export function updateEntropySerpentAnimation(
         const swipeAngle = Math.sin(progress * Math.PI) * (-Math.PI / 2);
         arm.rotation.x = swipeAngle;
 
+        // Collect trajectory points during the forward swing (first half)
+        // Sample every ~25ms worth of progress for smooth trail
+        if (progress < 0.5 && !animState.clawSwipe.trailCreated) {
+          // Find the hand mesh to get its world position
+          const hand = arm.children.find(c => c.name === 'hand') as THREE.Mesh | undefined;
+          if (hand) {
+            // Force world matrix update after rotation change
+            group.updateMatrixWorld(true);
+            const worldPos = new THREE.Vector3();
+            hand.getWorldPosition(worldPos);
+            animState.clawSwipe.trajectoryPoints.push(worldPos);
+          } else {
+            console.warn('[ClawSwipe] Could not find hand in arm children:', arm.children.map(c => c.name));
+          }
+        }
+
         // Deactivate when done
         if (progress >= 1) {
           animState.clawSwipe.active = false;
@@ -556,18 +588,181 @@ export function disposeEntropySerpent(group: THREE.Group): void {
  */
 export function triggerClawSwipe(group: THREE.Group, armIndex?: number): void {
   const animState = group.userData.animState as EntropySerpentAnimState;
-  if (!animState) return;
+  if (!animState) {
+    console.warn('[ClawSwipe] No animState on group');
+    return;
+  }
 
   // Don't interrupt an active swipe
-  if (animState.clawSwipe.active) return;
+  if (animState.clawSwipe.active) {
+    console.log('[ClawSwipe] Already active, skipping');
+    return;
+  }
 
   // Alternate arms if not specified
   const arm = armIndex ?? (Math.random() < 0.5 ? 0 : 1);
+
+  console.log('[ClawSwipe] Starting swipe on arm', arm);
 
   animState.clawSwipe = {
     active: true,
     startTime: Date.now(),
     duration: 300,
     armIndex: arm,
+    trajectoryPoints: [],  // Reset trajectory for new swipe
+    trailCreated: false,
   };
+}
+
+/**
+ * Check if a serpent has trajectory points ready for trail creation
+ * Returns the points and marks the trail as created to prevent duplicates
+ */
+export function consumeTrajectoryPoints(group: THREE.Group): THREE.Vector3[] | null {
+  const animState = group.userData.animState as EntropySerpentAnimState;
+  if (!animState) return null;
+
+  const swipe = animState.clawSwipe;
+
+  // Debug: log state when swipe is active
+  if (swipe.active && !swipe.trailCreated) {
+    const now = Date.now();
+    const elapsed = now - swipe.startTime;
+    const progress = elapsed / swipe.duration;
+    console.log('[ConsumeTrajectory] active, points:', swipe.trajectoryPoints.length, 'progress:', progress.toFixed(2));
+  }
+
+  // Only create trail once, after forward swing (progress > 0.5) with enough points
+  if (
+    swipe.active &&
+    !swipe.trailCreated &&
+    swipe.trajectoryPoints.length >= SLASH_CONFIG.MIN_POINTS
+  ) {
+    const now = Date.now();
+    const elapsed = now - swipe.startTime;
+    const progress = elapsed / swipe.duration;
+
+    // Create trail at the peak of the swing (halfway through)
+    if (progress >= 0.5) {
+      const points = swipe.trajectoryPoints;
+      const first = points[0];
+      const last = points[points.length - 1];
+      console.log('[ConsumeTrajectory] Creating trail with', points.length, 'points');
+      console.log('[ConsumeTrajectory] First point:', first?.x.toFixed(1), first?.y.toFixed(1), first?.z.toFixed(1));
+      console.log('[ConsumeTrajectory] Last point:', last?.x.toFixed(1), last?.y.toFixed(1), last?.z.toFixed(1));
+      swipe.trailCreated = true;
+      return [...swipe.trajectoryPoints];  // Return copy
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Create a slash arc mesh at a given position and heading
+ * Creates a fixed arc shape for melee attack visualization
+ * @param position - World position of the serpent
+ * @param heading - Direction serpent is facing (radians)
+ * @param radius - Size of the slash arc
+ */
+export function createSlashArc(position: THREE.Vector3, heading: number, radius: number = 80): THREE.Mesh {
+  const arcAngle = Math.PI * 0.6;  // 108 degree arc (matches 120° attack but slightly smaller for visual)
+  const segments = 12;
+  const halfWidth = SLASH_CONFIG.TRAIL_WIDTH / 2;
+
+  const vertices: number[] = [];
+  const indices: number[] = [];
+  const uvs: number[] = [];
+
+  // Generate arc in LOCAL space (centered at origin, facing +X direction)
+  // The mesh will be positioned and rotated to match the serpent
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    // Arc sweeps from -arcAngle/2 to +arcAngle/2 (centered on +X axis in local space)
+    const localAngle = (t - 0.5) * arcAngle;
+
+    // Width tapers at ends for a more natural slash look
+    const widthFactor = Math.sin(t * Math.PI);
+    const width = halfWidth * (0.2 + 0.8 * widthFactor);
+
+    // Inner and outer edge of the arc ribbon (in XZ plane, Y=0)
+    const innerRadius = radius - width;
+    const outerRadius = radius + width;
+
+    // Local coordinates (arc in front, along +X)
+    const innerX = Math.cos(localAngle) * innerRadius;
+    const innerZ = Math.sin(localAngle) * innerRadius;
+    const outerX = Math.cos(localAngle) * outerRadius;
+    const outerZ = Math.sin(localAngle) * outerRadius;
+
+    vertices.push(innerX, 0, innerZ);
+    vertices.push(outerX, 0, outerZ);
+
+    uvs.push(0, t);
+    uvs.push(1, t);
+
+    if (i > 0) {
+      const baseIndex = (i - 1) * 2;
+      indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+      indices.push(baseIndex + 1, baseIndex + 3, baseIndex + 2);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshBasicMaterial({
+    color: SLASH_CONFIG.TRAIL_COLOR,
+    transparent: true,
+    opacity: SLASH_CONFIG.TRAIL_OPACITY,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'slashArc';
+
+  // Position at serpent location and rotate to face heading
+  // Heading is in 2D (atan2(dy, dx)), need to convert to 3D rotation
+  // In Three.js XZ plane: rotation around Y axis, but our world uses Z-up convention
+  // The arc is built facing +X, so rotate by heading around Y axis
+  mesh.position.copy(position);
+  mesh.rotation.y = -heading;  // Negative because Three.js Y rotation is opposite to 2D atan2
+
+  mesh.userData.creationTime = Date.now();
+  mesh.userData.fadeoutDuration = SLASH_CONFIG.FADEOUT_DURATION;
+  mesh.userData.baseOpacity = SLASH_CONFIG.TRAIL_OPACITY;
+
+  return mesh;
+}
+
+/**
+ * Update a slash trail mesh (fade out over time)
+ * Returns false when the trail should be removed
+ */
+export function updateSlashTrail(mesh: THREE.Mesh): boolean {
+  const creationTime = mesh.userData.creationTime as number;
+  const fadeoutDuration = mesh.userData.fadeoutDuration as number;
+  const baseOpacity = mesh.userData.baseOpacity as number;
+
+  const age = Date.now() - creationTime;
+  const progress = age / fadeoutDuration;
+
+  if (progress >= 1) {
+    return false;  // Trail should be removed
+  }
+
+  // Fade opacity
+  const material = mesh.material as THREE.MeshBasicMaterial;
+  material.opacity = baseOpacity * (1 - progress);
+
+  // Optional: scale down slightly as it fades
+  const scale = 1 - progress * 0.3;
+  mesh.scale.setScalar(scale);
+
+  return true;  // Trail still active
 }

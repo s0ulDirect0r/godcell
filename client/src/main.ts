@@ -150,6 +150,10 @@ function initializeGame(settings: PreGameSettings): void {
   const container = document.getElementById('game-container')!;
   renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT, world);
 
+  // Expose debug toggles to window for console access
+  // Usage: window.debugSerpent() - toggles serpent head/body/attack visualization
+  (window as unknown as { debugSerpent: () => boolean }).debugSerpent = () => renderer!.toggleSerpentDebug();
+
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());
 

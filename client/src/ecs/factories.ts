@@ -1066,7 +1066,7 @@ export function upsertEntropySerpent(world: World, serpent: EntropySerpent): Ent
   });
 
   world.addComponent<EntropySerpentComponent>(entity, Components.EntropySerpent, {
-    size: GAME_CONFIG.ENTROPY_SERPENT_SIZE,
+    size: GAME_CONFIG.ENTROPY_SERPENT_BODY_SPHERE_SIZE,
     state: serpent.state,
     homePosition: { x: serpent.position.x, y: serpent.position.y },
     heading: serpent.heading,

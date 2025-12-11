@@ -510,6 +510,13 @@ export class ThreeRenderer implements Renderer {
       this.eventSubscriptions.push(eventBus.on('entropySerpentAttack', (event) => {
         if (this.environmentSystem.getMode() !== 'jungle') return;
 
+        // DEBUG: Log attack position data
+        console.log('[SerpentAttack] Event received:', {
+          serpentPosition: event.serpentPosition,
+          attackDirection: (event.attackDirection * 180 / Math.PI).toFixed(1) + '°',
+          position: event.position,
+        });
+
         // Trigger claw swipe animation on the serpent mesh
         this.entropySerpentRenderSystem.triggerAttack(event.serpentId);
 
@@ -519,6 +526,7 @@ export class ThreeRenderer implements Renderer {
           event.serpentPosition.y,
           event.attackDirection
         );
+        console.log('[SerpentAttack] Spawned slash at:', event.serpentPosition.x, event.serpentPosition.y);
 
         // Spawn hit burst at attack position (where claws connect)
         this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
@@ -952,6 +960,14 @@ export class ThreeRenderer implements Renderer {
 
   isBloomEnabled(): boolean {
     return this._bloomEnabled;
+  }
+
+  /**
+   * Toggle serpent debug visualization
+   * Shows body center (blue), head position (red), attack arc (yellow)
+   */
+  toggleSerpentDebug(): boolean {
+    return this.entropySerpentRenderSystem.toggleDebug();
   }
 
   getCameraProjection() {
