@@ -63,12 +63,23 @@ interface ParticleData {
 }
 
 /**
+ * Claw swipe animation state
+ */
+interface ClawSwipeState {
+  active: boolean;
+  startTime: number;
+  duration: number;  // ms
+  armIndex: number;  // Which arm is swiping (0 = left, 1 = right)
+}
+
+/**
  * Animation state stored in userData
  */
 export interface EntropySerpentAnimState {
   basePositions: THREE.Vector3[];
   time: number;
   segmentParticles: ParticleData[][];  // Particles for each body segment
+  clawSwipe: ClawSwipeState;
 }
 
 /**
@@ -239,6 +250,12 @@ export function createEntropySerpent(radius: number, colorHex?: number): THREE.G
     basePositions,
     time: 0,
     segmentParticles,
+    clawSwipe: {
+      active: false,
+      startTime: 0,
+      duration: 300, // ms
+      armIndex: 0,
+    },
   };
   group.userData.animState = animState;
 
@@ -418,17 +435,37 @@ export function updateEntropySerpentAnimation(
     particles.geometry.attributes.position.needsUpdate = true;
   });
 
-  // === ARM SWAY ===
+  // === ARM SWAY & CLAW SWIPE ===
   const arms = group.userData.arms as THREE.Group[];
+  const now = Date.now();
+
   if (arms) {
     arms.forEach((arm, i) => {
       const side = arm.userData.side as number;
       const swayPhase = i * Math.PI;
-      if (state === 'attack') {
+
+      // Check for active claw swipe animation
+      if (animState.clawSwipe.active && animState.clawSwipe.armIndex === i) {
+        const elapsed = now - animState.clawSwipe.startTime;
+        const progress = Math.min(elapsed / animState.clawSwipe.duration, 1);
+
+        // Swing arc: 0 -> -90° -> 0 (attack and return)
+        // Use sine curve for smooth motion
+        const swipeAngle = Math.sin(progress * Math.PI) * (-Math.PI / 2);
+        arm.rotation.x = swipeAngle;
+
+        // Deactivate when done
+        if (progress >= 1) {
+          animState.clawSwipe.active = false;
+        }
+      } else if (state === 'attack') {
+        // Attack stance when in attack mode but not mid-swipe
         arm.rotation.x = -0.3;
       } else {
+        // Normal sway
         const sway = Math.sin(time * CONFIG.ARM_SWAY_SPEED + swayPhase) * CONFIG.ARM_SWAY_AMOUNT;
         arm.rotation.z = sway * side;
+        arm.rotation.x = 0;
       }
     });
   }
@@ -510,4 +547,27 @@ export function disposeEntropySerpent(group: THREE.Group): void {
       }
     }
   });
+}
+
+/**
+ * Trigger claw swipe animation on a specific arm
+ * @param group - The serpent mesh group
+ * @param armIndex - Which arm to swipe (0 = left, 1 = right). Alternates if not specified.
+ */
+export function triggerClawSwipe(group: THREE.Group, armIndex?: number): void {
+  const animState = group.userData.animState as EntropySerpentAnimState;
+  if (!animState) return;
+
+  // Don't interrupt an active swipe
+  if (animState.clawSwipe.active) return;
+
+  // Alternate arms if not specified
+  const arm = armIndex ?? (Math.random() < 0.5 ? 0 : 1);
+
+  animState.clawSwipe = {
+    active: true,
+    startTime: Date.now(),
+    duration: 300,
+    armIndex: arm,
+  };
 }
