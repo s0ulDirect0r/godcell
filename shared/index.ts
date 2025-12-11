@@ -1181,12 +1181,13 @@ export const GAME_CONFIG = {
 
   // EntropySerpent - apex jungle predator (SUPER AGGRESSIVE)
   ENTROPY_SERPENT_COUNT: 4,              // Number of serpents to spawn
-  ENTROPY_SERPENT_SIZE: 80,              // Collision radius (big boy)
+  ENTROPY_SERPENT_BODY_SPHERE_SIZE: 80,  // Radius of each body segment sphere
+  ENTROPY_SERPENT_HEAD_OFFSET: 768,      // Distance from body center to head (6 * 80 * 1.6)
   ENTROPY_SERPENT_SPEED: 420,            // Base patrol speed (faster than players!)
   ENTROPY_SERPENT_CHASE_SPEED: 600,      // Speed when hunting (faster than sprint!)
   ENTROPY_SERPENT_ATTACK_SPEED: 350,     // Speed during attack animation
   ENTROPY_SERPENT_DETECTION_RADIUS: 1200, // How far they can see prey
-  ENTROPY_SERPENT_ATTACK_RANGE: 200,     // Claw strike range
+  ENTROPY_SERPENT_ATTACK_RANGE: 540,     // Claw strike range from HEAD (6x original)
   ENTROPY_SERPENT_DAMAGE: 300,           // 10% of Stage 3 maxEnergy per hit (10s TTK)
   ENTROPY_SERPENT_ATTACK_COOLDOWN: 1000, // 1s between attacks (fast!)
   ENTROPY_SERPENT_PATROL_RADIUS: 800,    // How far they wander from home
