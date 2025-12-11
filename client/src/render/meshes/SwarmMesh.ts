@@ -238,6 +238,8 @@ export function updateSwarmState(
  * @param swarmState - 'patrol' | 'chase'
  * @param pulsePhase - Random phase offset for pulsing
  * @param dt - Delta time in milliseconds
+ * @param energyRatio - 0-1 ratio of absorbed energy (0 = base, 1 = max 500)
+ * @param isDisabled - Whether swarm is disabled (hit by EMP) - freezes all animations
  */
 export function updateSwarmAnimation(
   group: THREE.Group,
@@ -245,25 +247,52 @@ export function updateSwarmAnimation(
   orbitingParticles: SwarmOrbitingParticle[],
   swarmState: string,
   pulsePhase: number,
-  dt: number
+  dt: number,
+  energyRatio: number = 0,
+  isDisabled: boolean = false
 ): void {
+  // === DISABLED STATE: FREEZE ALL ANIMATIONS ===
+  // When hit by EMP, swarm becomes completely frozen (gray colors set by updateSwarmState)
+  if (isDisabled) {
+    return; // Skip all animation updates - particles stay where they are
+  }
+
   const deltaSeconds = dt / 1000;
   const time = performance.now() * 0.001; // Time in seconds
+
+  // === ENERGY-BASED MODIFIERS ===
+  // Fat swarms have faster, more chaotic animations (dialed back 40%)
+  const energySpeedBoost = 1 + energyRatio * 0.9; // 1x to 1.9x speed at max energy (was 2.5x)
+  const energyTurbulenceBoost = 1 + energyRatio * 1.2; // 1x to 2.2x turbulence (was 3x)
+
+  // === COLOR SHIFT ===
+  // Gradual shift from orange toward red-orange as energy grows (dialed back)
+  // Base orange: 0xff4400, Max: 0xff2200 (not pure red)
+  const redShift = Math.floor(0x44 * (1 - energyRatio * 0.5)); // Only shift halfway to red
+  const energyColor = 0xff0000 + (redShift << 8); // Shift green channel
 
   // === PULSING ANIMATION (Outer Sphere) ===
   const outerSphere = group.children[0] as THREE.Mesh;
   const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
 
-  // Breathing effect: scale oscillates between 0.95 and 1.05
-  const pulseSpeed = swarmState === 'chase' ? 3.0 : 2.0; // Faster pulse in chase mode
-  const pulseAmount = 0.05;
+  // Breathing effect: scale oscillates, faster and more intense with energy (dialed back)
+  const basePulseSpeed = swarmState === 'chase' ? 3.0 : 2.0;
+  const pulseSpeed = basePulseSpeed * (1 + energyRatio * 0.5); // Gentler speed increase (was energySpeedBoost)
+  const pulseAmount = 0.05 + energyRatio * 0.02; // 0.05 to 0.07 (was 0.08)
   const scale = 1.0 + Math.sin(time * pulseSpeed + pulsePhase) * pulseAmount;
   outerSphere.scale.set(scale, scale, scale);
 
-  // Flicker emissive intensity for unstable energy feel
+  // Apply color shift (only when not disabled)
+  if (swarmState !== 'disabled') {
+    outerMaterial.color.setHex(energyColor);
+    outerMaterial.emissive.setHex(energyColor);
+  }
+
+  // Flicker emissive intensity for unstable energy feel (dialed back 40%)
   const baseIntensity = swarmState === 'chase' ? 1.2 : 0.8;
-  const flickerAmount = 0.2;
-  outerMaterial.emissiveIntensity = baseIntensity + Math.sin(time * 5 + pulsePhase) * flickerAmount;
+  const intensityBoost = energyRatio * 0.3; // Extra glow with energy (was 0.5)
+  const flickerAmount = 0.15 + energyRatio * 0.15; // 0.15 to 0.3 (was 0.2 to 0.5)
+  outerMaterial.emissiveIntensity = baseIntensity + intensityBoost + Math.sin(time * 4 * (1 + energyRatio * 0.5) + pulsePhase) * flickerAmount;
 
   // === INTERNAL PARTICLE STORM ===
   const internalStorm = group.children[1] as THREE.Points;
@@ -272,13 +301,15 @@ export function updateSwarmAnimation(
 
     // Get swarm size from outer sphere geometry
     const swarmSize = (outerSphere.geometry as THREE.SphereGeometry).parameters.radius;
-    const speedMultiplier = swarmState === 'chase' ? 1.5 : 1.0;
+    const baseSpeedMultiplier = swarmState === 'chase' ? 1.5 : 1.0;
+    // Energy boost stacks with chase mode for increasingly frantic particle storm
+    const speedMultiplier = baseSpeedMultiplier * energySpeedBoost;
 
     // Update each internal particle with turbulent motion
     for (let i = 0; i < internalParticles.length; i++) {
       const p = internalParticles[i];
 
-      // Apply velocity
+      // Apply velocity (boosted by energy)
       p.x += p.vx * deltaSeconds * speedMultiplier;
       p.y += p.vy * deltaSeconds * speedMultiplier;
       p.z += p.vz * deltaSeconds * speedMultiplier;
@@ -309,7 +340,8 @@ export function updateSwarmAnimation(
       }
 
       // Add turbulence (random acceleration for chaotic motion)
-      const turbulence = 150 * speedMultiplier;
+      // Energy turbulence boost makes fat swarms more erratic and chaotic
+      const turbulence = 150 * speedMultiplier * energyTurbulenceBoost;
       p.vx += (Math.random() - 0.5) * turbulence * deltaSeconds;
       p.vy += (Math.random() - 0.5) * turbulence * deltaSeconds;
       p.vz += (Math.random() - 0.5) * turbulence * deltaSeconds;
@@ -342,7 +374,9 @@ export function updateSwarmAnimation(
       const data = orbitingParticles[i];
 
       // Rotate the particle around the swarm center
-      const rotationSpeed = swarmState === 'chase' ? 1.5 : 1.0;
+      // Fat swarms spin their orbiting particles faster
+      const baseRotationSpeed = swarmState === 'chase' ? 1.5 : 1.0;
+      const rotationSpeed = baseRotationSpeed * energySpeedBoost;
       data.angle += data.speed * deltaSeconds * rotationSpeed;
 
       // Update position based on new angle

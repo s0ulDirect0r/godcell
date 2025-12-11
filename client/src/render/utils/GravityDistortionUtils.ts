@@ -282,11 +282,12 @@ export function calculateEntityWarp(gameX: number, gameY: number): EntityWarpTra
  *
  * @param object - Three.js object to warp
  * @param warp - Warp transform from calculateEntityWarp
+ * @param baseScale - Optional base scale to preserve (e.g., energy-based scaling). Default 1.
  */
-export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransform): void {
+export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransform, baseScale: number = 1): void {
   if (warp.intensity < 0.01) {
-    // Reset to no warp
-    object.scale.set(1, 1, 1);
+    // Reset to no warp, but preserve base scale
+    object.scale.set(baseScale, baseScale, baseScale);
     object.rotation.z = object.userData.baseRotationZ ?? 0;
     return;
   }
@@ -318,11 +319,11 @@ export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransfor
   // Apply scale directly with rotation hint
   // This creates a "leaning toward gravity" effect
 
-  // Apply non-uniform scale
+  // Apply non-uniform scale, multiplied by base scale
   object.scale.set(
-    warp.scaleX,  // Stretch along X (will be rotated)
-    1,            // Y (height) unchanged
-    warp.scaleY   // Squash along Z (perpendicular)
+    warp.scaleX * baseScale,  // Stretch along X (will be rotated)
+    baseScale,                // Y (height) uses base scale
+    warp.scaleY * baseScale   // Squash along Z (perpendicular)
   );
 
   // Apply rotation to align stretch with gravity direction

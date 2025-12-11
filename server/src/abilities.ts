@@ -126,13 +126,12 @@ export class AbilitySystem {
     const affectedPlayerIds: string[] = [];
 
     // Check swarms (from ECS)
-    forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+    forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, _swarmEnergyComp) => {
       const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
       const dist = this.distance(playerPosition, swarmPosition);
       if (dist <= getConfig('EMP_RANGE')) {
-        // Disable swarm and reset energy via ECS components
+        // Disable swarm (stun only, don't reset energy)
         swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
-        swarmEnergyComp.current = swarmEnergyComp.max; // Reset to full health
         affectedSwarmIds.push(swarmId);
       }
     });
