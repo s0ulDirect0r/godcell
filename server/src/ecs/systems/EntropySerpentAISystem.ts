@@ -11,6 +11,7 @@ import {
   GAME_CONFIG,
   EvolutionStage,
   type Position,
+  type EntropySerpentMovedMessage,
 } from '#shared';
 import type {
   PositionComponent,
@@ -28,6 +29,7 @@ import {
   recordDamage,
   createEntropySerpent,
   destroyEntity,
+  getSerpentHeadPosition,
 } from '../factories';
 import { logger } from '../../logger';
 
@@ -72,15 +74,33 @@ export class EntropySerpentAISystem implements System {
       const target = this.findNearestTarget(world, pos.x, pos.y);
 
       if (target) {
+        // Distance from BODY CENTER to target (for reachability check)
         const dx = target.x - pos.x;
         const dy = target.y - pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const bodyToTargetDist = Math.sqrt(dx * dx + dy * dy);
 
-        // Update heading to face target
-        serpent.heading = Math.atan2(dy, dx);
+        // Turn gradually toward target (not instant snap)
+        const targetHeading = Math.atan2(dy, dx);
+        const headingDiff = Math.atan2(
+          Math.sin(targetHeading - serpent.heading),
+          Math.cos(targetHeading - serpent.heading)
+        );
+        // Turn rate: ~180° per second
+        const maxTurn = Math.PI * deltaTime;
+        if (Math.abs(headingDiff) <= maxTurn) {
+          serpent.heading = targetHeading;
+        } else {
+          serpent.heading += Math.sign(headingDiff) * maxTurn;
+        }
 
-        if (dist <= GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE) {
-          // ATTACK MODE - in range, strike!
+        // Attack mode entry: target is REACHABLE if body is close enough
+        // that the head CAN reach (body distance <= attack range + head offset)
+        // Head offset matches mesh geometry (precomputed constant)
+        const headOffset = GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET;
+        const attackReachDist = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE + headOffset;
+
+        if (bodyToTargetDist <= attackReachDist) {
+          // ATTACK MODE - target is reachable, try to strike!
           serpent.state = 'attack';
           serpent.targetEntityId = target.entity;
 
@@ -88,16 +108,40 @@ export class EntropySerpentAISystem implements System {
           const canAttack = !serpent.lastAttackTime ||
             (now - serpent.lastAttackTime) >= GAME_CONFIG.ENTROPY_SERPENT_ATTACK_COOLDOWN;
 
-          if (canAttack) {
-            // Deal damage!
-            this.performAttack(world, io, entity, id, target, now);
+          // Recalculate facing after heading update
+          const currentHeadingDiff = Math.atan2(
+            Math.sin(targetHeading - serpent.heading),
+            Math.cos(targetHeading - serpent.heading)
+          );
+
+          // Only attack if facing the target (within 30° of target direction)
+          const facingThreshold = Math.PI / 6; // 30°
+          const isFacingTarget = Math.abs(currentHeadingDiff) <= facingThreshold;
+
+          if (canAttack && isFacingTarget) {
+            // Facing target - strike!
+            this.performAttack(world, io, entity, id, serpent, now);
             serpent.lastAttackTime = now;
           }
 
-          // Slow down during attack
+          // Maintain attack distance - stop when in good position
+          // Ideal distance: attack range from head (which is headOffset from body)
+          const idealDist = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE + headOffset * 0.5;
           const attackSpeed = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_SPEED;
-          vel.x = (dx / dist) * attackSpeed;
-          vel.y = (dy / dist) * attackSpeed;
+
+          if (bodyToTargetDist < idealDist * 0.7) {
+            // Too close - back away slightly
+            vel.x = -(dx / bodyToTargetDist) * attackSpeed * 0.3;
+            vel.y = -(dy / bodyToTargetDist) * attackSpeed * 0.3;
+          } else if (bodyToTargetDist > idealDist) {
+            // Too far - close in slowly
+            vel.x = (dx / bodyToTargetDist) * attackSpeed * 0.5;
+            vel.y = (dy / bodyToTargetDist) * attackSpeed * 0.5;
+          } else {
+            // Good distance - stop moving, just attack
+            vel.x = 0;
+            vel.y = 0;
+          }
 
         } else {
           // CHASE MODE - pursue relentlessly
@@ -105,8 +149,8 @@ export class EntropySerpentAISystem implements System {
           serpent.targetEntityId = target.entity;
 
           const chaseSpeed = GAME_CONFIG.ENTROPY_SERPENT_CHASE_SPEED;
-          vel.x = (dx / dist) * chaseSpeed;
-          vel.y = (dy / dist) * chaseSpeed;
+          vel.x = (dx / bodyToTargetDist) * chaseSpeed;
+          vel.y = (dy / bodyToTargetDist) * chaseSpeed;
         }
       } else {
         // PATROL MODE - wander around home
@@ -124,8 +168,22 @@ export class EntropySerpentAISystem implements System {
       pos.x = Math.max(0, Math.min(GAME_CONFIG.JUNGLE_WIDTH, pos.x));
       pos.y = Math.max(0, Math.min(GAME_CONFIG.JUNGLE_HEIGHT, pos.y));
 
-      // NOTE: Position updates are broadcast via the regular snapshot system (buildEntropySerpentsRecord)
-      // No need to emit individual movement events - that caused major performance overhead
+      // Get target player ID for client (if chasing)
+      let targetPlayerId: string | undefined;
+      if (serpent.targetEntityId !== undefined) {
+        targetPlayerId = getSocketIdByEntity(serpent.targetEntityId);
+      }
+
+      // Broadcast position update to all clients
+      const movedMessage: EntropySerpentMovedMessage = {
+        type: 'entropySerpentMoved',
+        serpentId: id,
+        position: { x: pos.x, y: pos.y },
+        state: serpent.state,
+        heading: serpent.heading,
+        targetPlayerId,
+      };
+      io.emit('entropySerpentMoved', movedMessage);
     });
   }
 
@@ -177,52 +235,160 @@ export class EntropySerpentAISystem implements System {
   }
 
   /**
-   * Perform attack on target
+   * Perform area attack - damages all players in the 120° frontal arc.
+   *
+   * Attack hitbox:
+   * - ORIGIN: Head position (body center + heading * SERPENT_SIZE)
+   * - RANGE: ENTROPY_SERPENT_ATTACK_RANGE (90px) from head
+   * - ARC: 120° cone (60° each side of heading)
    */
   private performAttack(
     world: World,
     io: Server,
     serpentEntity: number,
     serpentId: string,
-    target: { entity: number; x: number; y: number; socketId: string },
+    serpent: EntropySerpentComponent,
     now: number
   ): void {
-    const targetEnergy = world.getComponent<EnergyComponent>(target.entity, Components.Energy);
-    const targetPos = world.getComponent<PositionComponent>(target.entity, Components.Position);
     const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
-    const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
+    if (!serpentPos) return;
 
-    if (!targetEnergy || !targetPos || !serpentPos) return;
+    // Get head position using helper
+    const headPos = getSerpentHeadPosition(serpentPos.x, serpentPos.y, serpent.heading);
 
+    // Attack parameters
+    const attackRange = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE;
+    const halfArc = Math.PI / 3; // 60° each side = 120° total
     const damage = GAME_CONFIG.ENTROPY_SERPENT_DAMAGE;
-    targetEnergy.current = Math.max(0, targetEnergy.current - damage);
+    const hitPlayerIds: string[] = [];
 
-    // Record damage for visual feedback
-    recordDamage(world, target.entity, damage, 'swarm'); // Use swarm color for now
-
-    // Calculate attack direction (serpent → target)
-    const dx = targetPos.x - serpentPos.x;
-    const dy = targetPos.y - serpentPos.y;
-    const attackDirection = Math.atan2(dy, dx);
-
-    // Emit attack event for client visuals
-    io.emit('entropySerpentAttack', {
-      type: 'entropySerpentAttack',
+    // Debug: Log attack origin (server console)
+    const actualHeadOffset = GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET;
+    console.log('[SerpentAttack SERVER] Attack initiated:', {
+      bodyPos: { x: serpentPos.x.toFixed(1), y: serpentPos.y.toFixed(1) },
+      headPos: { x: headPos.x.toFixed(1), y: headPos.y.toFixed(1) },
+      headingDeg: (serpent.heading * 180 / Math.PI).toFixed(1) + '°',
+      headOffset: actualHeadOffset,
+    });
+    logger.info({
+      event: 'serpent_attack_debug',
       serpentId,
-      targetId: target.socketId,
-      position: { x: targetPos.x, y: targetPos.y },
-      serpentPosition: { x: serpentPos.x, y: serpentPos.y },
-      attackDirection,
-      damage,
+      bodyPos: { x: serpentPos.x, y: serpentPos.y },
+      headPos,
+      heading: serpent.heading,
+      headingDeg: (serpent.heading * 180 / Math.PI).toFixed(1),
+      attackRange,
+    }, 'Serpent attack initiated');
+
+    // Check all players for hits
+    world.forEachWithTag(Tags.Player, (playerEntity) => {
+      const playerPos = world.getComponent<PositionComponent>(playerEntity, Components.Position);
+      const playerEnergy = world.getComponent<EnergyComponent>(playerEntity, Components.Energy);
+      const playerStage = world.getComponent<StageComponent>(playerEntity, Components.Stage);
+
+      if (!playerPos || !playerEnergy || !playerStage) return;
+      if (playerEnergy.current <= 0) return;
+      if (playerStage.isEvolving) return;
+
+      // Distance from HEAD to player
+      const dx = playerPos.x - headPos.x;
+      const dy = playerPos.y - headPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      const playerId = getSocketIdByEntity(playerEntity);
+
+      // Debug: Log every player check
+      logger.info({
+        event: 'serpent_attack_check',
+        serpentId,
+        playerId,
+        playerPos: { x: playerPos.x, y: playerPos.y },
+        headPos,
+        distFromHead: dist.toFixed(1),
+        attackRange,
+        inRange: dist <= attackRange,
+      }, 'Checking player for attack hit');
+
+      // Must be within attack range of HEAD
+      if (dist > attackRange) return;
+
+      // Must be within 120° frontal arc
+      const angleToPlayer = Math.atan2(dy, dx);
+      const angleDiff = Math.atan2(
+        Math.sin(angleToPlayer - serpent.heading),
+        Math.cos(angleToPlayer - serpent.heading)
+      );
+
+      // Debug: Log arc check
+      logger.info({
+        event: 'serpent_attack_arc_check',
+        serpentId,
+        playerId,
+        angleToPlayer: (angleToPlayer * 180 / Math.PI).toFixed(1),
+        serpentHeading: (serpent.heading * 180 / Math.PI).toFixed(1),
+        angleDiff: (angleDiff * 180 / Math.PI).toFixed(1),
+        halfArcDeg: (halfArc * 180 / Math.PI).toFixed(1),
+        inArc: Math.abs(angleDiff) <= halfArc,
+      }, 'Arc check');
+
+      if (Math.abs(angleDiff) <= halfArc) {
+        // HIT! Deal damage
+        playerEnergy.current = Math.max(0, playerEnergy.current - damage);
+        recordDamage(world, playerEntity, damage, 'swarm');
+
+        const playerId = getSocketIdByEntity(playerEntity);
+        if (playerId) hitPlayerIds.push(playerId);
+      }
     });
 
-    logger.info({
-      event: 'entropy_serpent_attack',
-      serpentId,
-      targetId: target.socketId,
-      damage,
-      targetEnergyAfter: targetEnergy.current,
-    }, 'Entropy serpent attacked player');
+    // Emit attack event for each hit player (for visuals)
+    // Always emit at least one event for the slash animation, even if no hits
+    if (hitPlayerIds.length === 0) {
+      // No hits - emit attack event with no target for slash visual only
+      io.emit('entropySerpentAttack', {
+        type: 'entropySerpentAttack',
+        serpentId,
+        targetId: '',
+        position: { x: headPos.x, y: headPos.y }, // Attack position (head)
+        serpentPosition: { x: headPos.x, y: headPos.y },
+        attackDirection: serpent.heading,
+        damage,
+      });
+    } else {
+      // Emit one event per hit player
+      for (const playerId of hitPlayerIds) {
+        const playerEntity = world.forEachWithTag(Tags.Player, (entity) => {
+          if (getSocketIdByEntity(entity) === playerId) return entity;
+        });
+
+        // Get player position for hit effect
+        let hitPos = { x: headPos.x, y: headPos.y };
+        world.forEachWithTag(Tags.Player, (entity) => {
+          if (getSocketIdByEntity(entity) === playerId) {
+            const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+            if (pos) hitPos = { x: pos.x, y: pos.y };
+          }
+        });
+
+        io.emit('entropySerpentAttack', {
+          type: 'entropySerpentAttack',
+          serpentId,
+          targetId: playerId,
+          position: hitPos, // Where the hit landed (player position)
+          serpentPosition: { x: headPos.x, y: headPos.y },
+          attackDirection: serpent.heading,
+          damage,
+        });
+      }
+
+      logger.info({
+        event: 'entropy_serpent_attack',
+        serpentId,
+        hitPlayerIds,
+        damage,
+        headPos,
+      }, 'Entropy serpent melee attack');
+    }
   }
 
   /**
