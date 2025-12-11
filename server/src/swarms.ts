@@ -391,7 +391,7 @@ export function updateSwarms(
  * Swarms are clamped to soup region bounds
  * Iterates ECS swarm entities directly.
  */
-export function updateSwarmPositions(world: World, deltaTime: number, io: Server) {
+export function updateSwarmPositions(world: World, deltaTime: number, _io: Server) {
   // Swarms live in the soup region
   const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
   const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
@@ -408,15 +408,8 @@ export function updateSwarmPositions(world: World, deltaTime: number, io: Server
     posComp.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, posComp.x));
     posComp.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, posComp.y));
 
-    // Broadcast position update (including disabled state and energy for visual scaling)
-    io.emit('swarmMoved', {
-      type: 'swarmMoved',
-      swarmId,
-      position: { x: posComp.x, y: posComp.y },
-      state: swarmComp.state,
-      disabledUntil: swarmComp.disabledUntil, // Include EMP stun state
-      energy: energyComp.current, // Energy for client-side visual scaling
-    });
+    // NOTE: Position updates are broadcast via the regular snapshot system (buildSwarmsRecord)
+    // Removed per-tick io.emit('swarmMoved') that was causing ~1000+ emissions/sec with 17+ swarms
   });
 }
 
