@@ -403,8 +403,9 @@ export function updateEntropySerpentAnimation(
       p.vy += (Math.random() - 0.5) * turb * dt;
       p.vz += (Math.random() - 0.5) * turb * dt;
 
-      // Damping
-      const damping = Math.pow(0.6, dt);
+      // Frame-rate independent damping using exponential decay
+      // Particles lose ~40% velocity per second regardless of frame rate
+      const damping = Math.exp(-0.5 * dt);
       p.vx *= damping;
       p.vy *= damping;
       p.vz *= damping;
