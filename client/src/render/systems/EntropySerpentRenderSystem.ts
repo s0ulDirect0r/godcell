@@ -21,6 +21,7 @@ import {
   updateEntropySerpentAnimation,
   updateEntropySerpentState,
   disposeEntropySerpent,
+  triggerClawSwipe,
 } from '../meshes/EntropySerpentMesh';
 
 /**
@@ -179,6 +180,50 @@ export class EntropySerpentRenderSystem {
    */
   getMeshCount(): number {
     return this.serpentMeshes.size;
+  }
+
+  /**
+   * Trigger claw swipe animation when serpent attacks
+   */
+  triggerAttack(serpentId: string): void {
+    const group = this.serpentMeshes.get(serpentId);
+    if (group) {
+      triggerClawSwipe(group);
+    }
+  }
+
+  /**
+   * Flash serpent mesh to indicate damage taken
+   * Uses emissive flash on materials
+   */
+  flashDamage(serpentId: string): void {
+    const group = this.serpentMeshes.get(serpentId);
+    if (!group) return;
+
+    // Flash all mesh materials to white briefly
+    const flashColor = new THREE.Color(0xffffff);
+    const originalColors = new Map<THREE.Mesh, THREE.Color>();
+
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        originalColors.set(child, child.material.emissive.clone());
+        child.material.emissive.copy(flashColor);
+        child.material.emissiveIntensity = 2;
+      }
+    });
+
+    // Restore original colors after flash duration
+    setTimeout(() => {
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+          const original = originalColors.get(child);
+          if (original) {
+            child.material.emissive.copy(original);
+            child.material.emissiveIntensity = 1;
+          }
+        }
+      });
+    }, 100);
   }
 
   /**
