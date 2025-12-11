@@ -187,6 +187,12 @@ export {
   countTrapsForPlayer,
   getAllTrapSnapshots,
   buildTrapsRecord,
+  // EntropySerpent query helpers (jungle apex predator)
+  createEntropySerpent,
+  forEachEntropySerpent,
+  getAllEntropySerpentSnapshots,
+  getEntropySerpentCount,
+  buildEntropySerpentsRecord,
 } from './factories';
 export type {
   PlayerSnapshot,
