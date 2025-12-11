@@ -133,13 +133,14 @@ export class EntropySerpentRenderSystem {
         group.position.z += (targetZ - group.position.z) * lerpFactor;
 
         // Smooth rotation toward heading
-        // heading is in radians from server (atan2 of dy, dx)
-        // Convert to Three.js rotation (Y-axis rotation in XZ plane)
-        const targetRotation = -targetHeading + Math.PI / 2;
-        const rotDiff = targetRotation - group.rotation.y;
-        // Normalize rotation difference
+        // Server heading = atan2(dy, dx) in 2D
+        // Mesh uses XZY rotation order with -90° X tilt, so rotation.z controls heading
+        // Add PI offset to match cyber-organism facing direction
+        const targetRotation = targetHeading + Math.PI;
+        const rotDiff = targetRotation - group.rotation.z;
+        // Normalize rotation difference to [-PI, PI]
         const normalizedDiff = Math.atan2(Math.sin(rotDiff), Math.cos(rotDiff));
-        group.rotation.y += normalizedDiff * rotLerpFactor;
+        group.rotation.z += normalizedDiff * rotLerpFactor;
       }
     });
   }
