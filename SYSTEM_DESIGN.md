@@ -801,9 +801,9 @@ Server uses Pino with 3 separate rotating log files (10MB max, 5 old files):
 
 | Logger | File | Purpose |
 |--------|------|---------|
-| `logger` | `server/logs/server.log` | Game events (deaths, evolutions, spawns) |
-| `perfLogger` | `server/logs/performance.log` | Performance metrics (FPS, entity counts) |
-| `clientLogger` | `server/logs/client.log` | Forwarded client debug info |
+| `logger` | `logs/server.log` | Game events (deaths, evolutions, spawns) |
+| `perfLogger` | `logs/performance.log` | Performance metrics (FPS, entity counts) |
+| `clientLogger` | `logs/client.log` | Forwarded client debug info |
 
 **Usage:**
 ```typescript
@@ -971,4 +971,4 @@ class RespawnSystem {
 - **Integration**: Run server + client locally, verify sync
 - **Debug overlay**: `?debug` query param enables performance overlay
 - **Dev panel**: Spawn entities, teleport, set energy, pause game
-- **Logs**: Check `server/logs/` for structured event logs
+- **Logs**: Check `logs/` for structured event logs

@@ -42,6 +42,7 @@ import type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  EntropySerpentComponent,
   ProjectileComponent,
   TrapComponent,
   // Stage 3 combat specialization
@@ -84,6 +85,7 @@ export function createWorld(): World {
   world.registerStore<DataFruitComponent>(Components.DataFruit, new ComponentStore());
   world.registerStore<CyberBugComponent>(Components.CyberBug, new ComponentStore());
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
+  world.registerStore<EntropySerpentComponent>(Components.EntropySerpent, new ComponentStore());
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
   world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
 
@@ -2812,6 +2814,157 @@ export function buildTrapsRecord(world: World): Record<string, {
       placedAt: trap.placedAt,
       lifetime: trap.lifetime,
       color: trap.color,
+    };
+  });
+
+  return result;
+}
+
+// ============================================
+// EntropySerpent Factory & Query Helpers
+// Apex predator of the digital jungle
+// ============================================
+
+/**
+ * Create an EntropySerpent entity (apex jungle predator).
+ * Super aggressive hunter that terrorizes Stage 3+ players.
+ */
+export function createEntropySerpent(
+  world: World,
+  serpentId: string,
+  position: Position,
+  homePosition: Position
+): EntityId {
+  const entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: position.x,
+    y: position.y,
+    z: GAME_CONFIG.ENTROPY_SERPENT_SIZE, // Float above ground
+  });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  world.addComponent<EntropySerpentComponent>(entity, Components.EntropySerpent, {
+    size: GAME_CONFIG.ENTROPY_SERPENT_SIZE,
+    state: 'patrol',
+    targetEntityId: undefined,
+    homePosition: { x: homePosition.x, y: homePosition.y },
+    patrolTarget: undefined,
+    lastAttackTime: undefined,
+    heading: Math.random() * Math.PI * 2, // Random starting direction
+  });
+
+  world.addTag(entity, Tags.EntropySerpent);
+  registerStringIdMapping(entity, serpentId);
+
+  return entity;
+}
+
+/**
+ * EntropySerpent snapshot for collision detection and AI.
+ */
+export interface EntropySerpentSnapshot {
+  entity: EntityId;
+  id: string;
+  position: Position;
+  velocity: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase' | 'attack';
+  targetEntityId?: number;
+  homePosition: Position;
+  patrolTarget?: Position;
+  heading: number;
+  lastAttackTime?: number;
+}
+
+/**
+ * Iterate over all EntropySerpent entities.
+ */
+export function forEachEntropySerpent(
+  world: World,
+  callback: (
+    entity: EntityId,
+    id: string,
+    position: PositionComponent,
+    velocity: VelocityComponent,
+    serpent: EntropySerpentComponent
+  ) => void
+): void {
+  world.forEachWithTag(Tags.EntropySerpent, (entity) => {
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    const serpent = world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
+    const id = getStringIdByEntity(entity);
+    if (pos && vel && serpent && id) {
+      callback(entity, id, pos, vel, serpent);
+    }
+  });
+}
+
+/**
+ * Get all EntropySerpents as snapshots.
+ */
+export function getAllEntropySerpentSnapshots(world: World): EntropySerpentSnapshot[] {
+  const snapshots: EntropySerpentSnapshot[] = [];
+  forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
+    snapshots.push({
+      entity,
+      id,
+      position: { x: pos.x, y: pos.y },
+      velocity: { x: vel.x, y: vel.y },
+      size: serpent.size,
+      state: serpent.state,
+      targetEntityId: serpent.targetEntityId,
+      homePosition: { ...serpent.homePosition },
+      patrolTarget: serpent.patrolTarget ? { ...serpent.patrolTarget } : undefined,
+      heading: serpent.heading,
+      lastAttackTime: serpent.lastAttackTime,
+    });
+  });
+  return snapshots;
+}
+
+/**
+ * Get serpent count.
+ */
+export function getEntropySerpentCount(world: World): number {
+  return world.getEntitiesWithTag(Tags.EntropySerpent).length;
+}
+
+/**
+ * Convert ECS EntropySerpents to network format.
+ */
+export function buildEntropySerpentsRecord(world: World): Record<string, {
+  id: string;
+  position: Position;
+  state: 'patrol' | 'chase' | 'attack';
+  heading: number;
+  targetPlayerId?: string;
+}> {
+  const result: Record<string, {
+    id: string;
+    position: Position;
+    state: 'patrol' | 'chase' | 'attack';
+    heading: number;
+    targetPlayerId?: string;
+  }> = {};
+
+  forEachEntropySerpent(world, (_entity, id, pos, _vel, serpent) => {
+    // Convert targetEntityId to targetPlayerId (socket ID)
+    let targetPlayerId: string | undefined;
+    if (serpent.targetEntityId !== undefined) {
+      targetPlayerId = getSocketIdByEntity(serpent.targetEntityId);
+    }
+
+    result[id] = {
+      id,
+      position: { x: pos.x, y: pos.y },
+      state: serpent.state,
+      heading: serpent.heading,
+      targetPlayerId,
     };
   });
 

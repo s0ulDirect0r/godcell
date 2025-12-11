@@ -48,6 +48,7 @@ export const SystemPriority = {
   BOT_AI: 100,
   CYBER_BUG_AI: 105,       // Stage 3 skittish prey AI
   JUNGLE_CREATURE_AI: 106, // Stage 3 predator/grazer AI
+  ENTROPY_SERPENT_AI: 107, // Stage 3 apex predator AI (SUPER AGGRESSIVE)
   SWARM_AI: 110,
   SPECIALIZATION: 120,     // Stage 3 combat specialization timeout check
 

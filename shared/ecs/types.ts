@@ -49,6 +49,7 @@ export const Components = {
   DataFruit: 'DataFruit',
   CyberBug: 'CyberBug',
   JungleCreature: 'JungleCreature',
+  EntropySerpent: 'EntropySerpent',
   Projectile: 'Projectile',
   Trap: 'Trap',
 
@@ -84,6 +85,7 @@ export const Tags = {
   DataFruit: 'datafruit',
   CyberBug: 'cyberbug',
   JungleCreature: 'junglecreature',
+  EntropySerpent: 'entropyserpent',
   Projectile: 'projectile',
   Trap: 'trap',
 

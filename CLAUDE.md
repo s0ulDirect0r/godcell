@@ -271,9 +271,9 @@ Server uses Pino with 3 separate log files, each with rotation (10MB max, 5 old 
 
 | Logger | File | Purpose |
 |--------|------|---------|
-| `logger` | `server/logs/server.log` | Game events (deaths, evolutions, spawns, game state) |
-| `perfLogger` | `server/logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
-| `clientLogger` | `server/logs/client.log` | Forwarded client debug info (camera, errors) |
+| `logger` | `logs/server.log` | Game events (deaths, evolutions, spawns, game state) |
+| `perfLogger` | `logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
+| `clientLogger` | `logs/client.log` | Forwarded client debug info (camera, errors) |
 
 All loggers output to rotating JSON file. In development, also outputs to console via pino-pretty.
 
@@ -441,7 +441,7 @@ Use these as templates for how to apply changes.
 
 ### Debug Physics / Movement Issues
 
-1. Check `server/logs/server.log` for game events, `performance.log` for perf, `client.log` for client issues.
+1. Check `logs/server.log` for game events, `performance.log` for perf, `client.log` for client issues.
 2. Add targeted logs in the relevant system (MovementSystem, GravitySystem, etc.).
 3. Verify that components have expected values after each system runs.
 4. Use client debug overlays / query params if available (e.g., `?debug`).

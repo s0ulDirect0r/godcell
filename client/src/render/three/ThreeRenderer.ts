@@ -25,6 +25,7 @@ import { EnvironmentSystem, type RenderMode } from '../systems/EnvironmentSystem
 import { DataFruitRenderSystem } from '../systems/DataFruitRenderSystem';
 import { CyberBugRenderSystem } from '../systems/CyberBugRenderSystem';
 import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSystem';
+import { EntropySerpentRenderSystem } from '../systems/EntropySerpentRenderSystem';
 import { ProjectileRenderSystem } from '../systems/ProjectileRenderSystem';
 import { TrapRenderSystem } from '../systems/TrapRenderSystem';
 import {
@@ -104,6 +105,7 @@ export class ThreeRenderer implements Renderer {
   private dataFruitRenderSystem!: DataFruitRenderSystem;
   private cyberBugRenderSystem!: CyberBugRenderSystem;
   private jungleCreatureRenderSystem!: JungleCreatureRenderSystem;
+  private entropySerpentRenderSystem!: EntropySerpentRenderSystem;
   private projectileRenderSystem!: ProjectileRenderSystem;
   private trapRenderSystem!: TrapRenderSystem;
 
@@ -182,6 +184,9 @@ export class ThreeRenderer implements Renderer {
 
     this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem();
     this.jungleCreatureRenderSystem.init(this.scene, this.world);
+
+    this.entropySerpentRenderSystem = new EntropySerpentRenderSystem();
+    this.entropySerpentRenderSystem.init(this.scene, this.world);
 
     this.projectileRenderSystem = new ProjectileRenderSystem();
     this.projectileRenderSystem.init(this.scene, this.world);
@@ -706,6 +711,7 @@ export class ThreeRenderer implements Renderer {
     this.dataFruitRenderSystem.sync(this.environmentSystem.getMode());
     this.cyberBugRenderSystem.sync(this.environmentSystem.getMode());
     this.jungleCreatureRenderSystem.sync(this.environmentSystem.getMode());
+    this.entropySerpentRenderSystem.sync(this.environmentSystem.getMode());
     this.projectileRenderSystem.sync(this.environmentSystem.getMode());
     this.trapRenderSystem.sync(this.environmentSystem.getMode());
 
@@ -728,6 +734,8 @@ export class ThreeRenderer implements Renderer {
     this.cyberBugRenderSystem.updateAnimations(dt);
     this.jungleCreatureRenderSystem.interpolate(dt);
     this.jungleCreatureRenderSystem.updateAnimations(dt);
+    this.entropySerpentRenderSystem.interpolate(dt);
+    this.entropySerpentRenderSystem.updateAnimations(dt);
     this.projectileRenderSystem.interpolate(dt);
     this.projectileRenderSystem.updateAnimations(dt);
     this.trapRenderSystem.updateAnimations(dt);

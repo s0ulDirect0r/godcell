@@ -346,6 +346,22 @@ export interface JungleCreatureComponent {
 }
 
 /**
+ * EntropySerpent - apex predator of the digital jungle.
+ * Snake-like creature made of entropy-swarm spheres with clawed arms.
+ * Super aggressive hunter that makes Stage 3+ feel ALIVE with threat.
+ * Hunts cyber-organisms and humanoids relentlessly.
+ */
+export interface EntropySerpentComponent {
+  size: number;                              // Collision radius (body segments)
+  state: 'patrol' | 'chase' | 'attack';      // AI state
+  targetEntityId?: number;                   // EntityId being hunted
+  homePosition: Position;                    // Spawn territory center
+  patrolTarget?: Position;                   // Current patrol destination
+  lastAttackTime?: number;                   // Timestamp of last claw attack
+  heading: number;                           // Current facing direction (radians)
+}
+
+/**
  * Projectile - Stage 3 ranged specialization attack.
  * Used by ranged spec to hunt fauna and attack other players.
  */

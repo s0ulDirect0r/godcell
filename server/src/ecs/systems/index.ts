@@ -14,6 +14,7 @@ export { BotAISystem } from './BotAISystem';
 export { SwarmAISystem } from './SwarmAISystem';
 export { CyberBugAISystem } from './CyberBugAISystem';
 export { JungleCreatureAISystem } from './JungleCreatureAISystem';
+export { EntropySerpentAISystem } from './EntropySerpentAISystem';
 export { SpecializationSystem } from './SpecializationSystem';
 
 // Physics Systems

@@ -72,6 +72,8 @@ import {
   buildDataFruitsRecord,
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
+  buildEntropySerpentsRecord,
+  createEntropySerpent,
   buildProjectilesRecord,
   buildTrapsRecord,
   // Direct component access helpers
@@ -111,6 +113,7 @@ import {
   SwarmAISystem,
   CyberBugAISystem,
   JungleCreatureAISystem,
+  EntropySerpentAISystem,
   PseudopodSystem,
   ProjectileSystem,
   TrapSystem,
@@ -375,6 +378,42 @@ function initializeTrees() {
 }
 
 /**
+ * Initialize entropy serpents - apex predators of the digital jungle.
+ * SUPER AGGRESSIVE hunters that terrorize Stage 3+ players.
+ * Spawns 4 serpents spread across the jungle.
+ */
+function initializeEntropySerpents() {
+  const serpentCount = GAME_CONFIG.ENTROPY_SERPENT_COUNT;
+
+  // Spawn serpents spread across jungle quadrants for maximum coverage
+  const quadrants = [
+    { x: GAME_CONFIG.JUNGLE_WIDTH * 0.25, y: GAME_CONFIG.JUNGLE_HEIGHT * 0.25 },
+    { x: GAME_CONFIG.JUNGLE_WIDTH * 0.75, y: GAME_CONFIG.JUNGLE_HEIGHT * 0.25 },
+    { x: GAME_CONFIG.JUNGLE_WIDTH * 0.25, y: GAME_CONFIG.JUNGLE_HEIGHT * 0.75 },
+    { x: GAME_CONFIG.JUNGLE_WIDTH * 0.75, y: GAME_CONFIG.JUNGLE_HEIGHT * 0.75 },
+  ];
+
+  for (let i = 0; i < serpentCount; i++) {
+    const serpentId = `entropy-serpent-${i}`;
+    const basePos = quadrants[i % quadrants.length];
+
+    // Add some randomness to exact position
+    const position = {
+      x: basePos.x + (Math.random() - 0.5) * 1000,
+      y: basePos.y + (Math.random() - 0.5) * 1000,
+    };
+
+    createEntropySerpent(world, serpentId, position, position);
+  }
+
+  logger.info({
+    event: 'entropy_serpents_spawned',
+    count: serpentCount,
+    message: 'APEX PREDATORS RELEASED INTO JUNGLE',
+  });
+}
+
+/**
  * Respawn a dead player - reset to single-cell at random location
  * Uses ECS as source of truth.
  */
@@ -448,6 +487,7 @@ if (isPlayground) {
   initializeObstacles();
   initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
   initializeJungleFauna(world, io); // Stage 3+ fauna: DataFruits, CyberBugs, JungleCreatures
+  initializeEntropySerpents(); // APEX PREDATORS - hunt Stage 3+ players relentlessly
   initializeNutrients();
   // Set ECS world for bots before initializing
   setBotEcsWorld(world);
@@ -496,6 +536,7 @@ systemRunner.register(new RespawnSystem(), SystemPriority.RESPAWN);
 systemRunner.register(new BotAISystem(), SystemPriority.BOT_AI);
 systemRunner.register(new CyberBugAISystem(), SystemPriority.CYBER_BUG_AI);
 systemRunner.register(new JungleCreatureAISystem(), SystemPriority.JUNGLE_CREATURE_AI);
+systemRunner.register(new EntropySerpentAISystem(), SystemPriority.ENTROPY_SERPENT_AI);
 systemRunner.register(new SwarmAISystem(), SystemPriority.SWARM_AI);
 systemRunner.register(new SpecializationSystem(), SystemPriority.SPECIALIZATION);
 
@@ -571,6 +612,7 @@ io.on('connection', (socket) => {
     dataFruits: buildDataFruitsRecord(world),
     cyberBugs: buildCyberBugsRecord(world),
     jungleCreatures: buildJungleCreaturesRecord(world),
+    entropySerpents: buildEntropySerpentsRecord(world),
     projectiles: buildProjectilesRecord(world),
     traps: buildTrapsRecord(world),
   };

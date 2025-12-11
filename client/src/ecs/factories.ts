@@ -33,6 +33,7 @@ import type {
   JungleCreatureComponent,
   ProjectileComponent,
   TrapComponent,
+  EntropySerpentComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
 } from '#shared';
@@ -48,6 +49,7 @@ import type {
   JungleCreature,
   Projectile,
   Trap,
+  EntropySerpent,
   DamageSource,
   EvolutionStage,
 } from '#shared';
@@ -85,6 +87,7 @@ export function createClientWorld(): World {
   world.registerStore<JungleCreatureComponent>(Components.JungleCreature, new ComponentStore());
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
   world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
+  world.registerStore<EntropySerpentComponent>(Components.EntropySerpent, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
@@ -1018,6 +1021,108 @@ export function removeTrap(world: World, trapId: string): void {
 
   unregisterEntity(entity);
   world.destroyEntity(entity);
+}
+
+// ============================================
+// Entropy Serpent (Jungle Apex Predator)
+// ============================================
+
+/**
+ * Create or update an EntropySerpent entity from network data.
+ */
+export function upsertEntropySerpent(world: World, serpent: EntropySerpent): EntityId {
+  let entity = stringIdToEntity.get(serpent.id);
+
+  if (entity !== undefined) {
+    // Update existing entity
+    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+    if (pos) {
+      pos.x = serpent.position.x;
+      pos.y = serpent.position.y;
+    }
+
+    const serpentComp = world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
+    if (serpentComp) {
+      serpentComp.state = serpent.state;
+      serpentComp.heading = serpent.heading;
+    }
+
+    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    if (interp) {
+      interp.targetX = serpent.position.x;
+      interp.targetY = serpent.position.y;
+      interp.timestamp = Date.now();
+    }
+
+    return entity;
+  }
+
+  // Create new entity
+  entity = world.createEntity();
+
+  world.addComponent<PositionComponent>(entity, Components.Position, {
+    x: serpent.position.x,
+    y: serpent.position.y,
+  });
+
+  world.addComponent<EntropySerpentComponent>(entity, Components.EntropySerpent, {
+    size: GAME_CONFIG.ENTROPY_SERPENT_SIZE,
+    state: serpent.state,
+    homePosition: { x: serpent.position.x, y: serpent.position.y },
+    heading: serpent.heading,
+  });
+
+  world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
+    targetX: serpent.position.x,
+    targetY: serpent.position.y,
+    timestamp: Date.now(),
+  });
+
+  world.addTag(entity, Tags.EntropySerpent);
+  registerMapping(entity, serpent.id);
+
+  return entity;
+}
+
+/**
+ * Remove an EntropySerpent entity.
+ */
+export function removeEntropySerpent(world: World, serpentId: string): void {
+  const entity = stringIdToEntity.get(serpentId);
+  if (entity === undefined) return;
+
+  unregisterEntity(entity);
+  world.destroyEntity(entity);
+}
+
+/**
+ * Update an EntropySerpent's position and state from a movement message.
+ */
+export function updateEntropySerpentPosition(
+  world: World,
+  serpentId: string,
+  x: number,
+  y: number,
+  state: string,
+  heading: number
+): void {
+  const entity = stringIdToEntity.get(serpentId);
+  if (entity === undefined) return;
+
+  // Update interpolation target
+  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  if (interp) {
+    interp.targetX = x;
+    interp.targetY = y;
+    interp.timestamp = Date.now();
+  }
+
+  // Update state and heading for visual changes
+  const serpentComp = world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
+  if (serpentComp) {
+    serpentComp.state = state as 'patrol' | 'chase' | 'attack';
+    serpentComp.heading = heading;
+  }
 }
 
 // ============================================

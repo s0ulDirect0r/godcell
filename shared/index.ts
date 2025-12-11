@@ -187,6 +187,15 @@ export interface JungleCreature {
   capacityIncrease: number;   // maxEnergy increase on kill
 }
 
+// EntropySerpent - apex predator of the jungle
+export interface EntropySerpent {
+  id: string;
+  position: Position;
+  state: 'patrol' | 'chase' | 'attack';
+  heading: number;            // Facing direction in radians
+  targetPlayerId?: string;    // Player being hunted (if chasing/attacking)
+}
+
 // Projectile - Stage 3 ranged specialization attack
 export interface Projectile {
   id: string;
@@ -290,6 +299,7 @@ export interface WorldSnapshotMessage {
   dataFruits?: Record<string, DataFruit>;
   cyberBugs?: Record<string, CyberBug>;
   jungleCreatures?: Record<string, JungleCreature>;
+  entropySerpents?: Record<string, EntropySerpent>;
   projectiles?: Record<string, Projectile>;
   traps?: Record<string, Trap>;
 }
@@ -539,6 +549,29 @@ export interface JungleCreatureMovedMessage {
   variant: string;  // 'grazer' | 'stalker' | 'ambusher'
 }
 
+// EntropySerpent spawn/move messages
+export interface EntropySerpentSpawnedMessage {
+  type: 'entropySerpentSpawned';
+  serpent: EntropySerpent;
+}
+
+export interface EntropySerpentMovedMessage {
+  type: 'entropySerpentMoved';
+  serpentId: string;
+  position: Position;
+  state: 'patrol' | 'chase' | 'attack';
+  heading: number;
+  targetPlayerId?: string;
+}
+
+export interface EntropySerpentAttackMessage {
+  type: 'entropySerpentAttack';
+  serpentId: string;
+  targetId: string;
+  position: Position;
+  damage: number;
+}
+
 // Projectile messages (ranged specialization)
 export interface ProjectileSpawnedMessage {
   type: 'projectileSpawned';
@@ -656,6 +689,9 @@ export type ServerMessage =
   | JungleCreatureSpawnedMessage
   | JungleCreatureKilledMessage
   | JungleCreatureMovedMessage
+  | EntropySerpentSpawnedMessage
+  | EntropySerpentMovedMessage
+  | EntropySerpentAttackMessage
   | ProjectileSpawnedMessage
   | ProjectileHitMessage
   | ProjectileRetractedMessage
@@ -1117,6 +1153,18 @@ export const GAME_CONFIG = {
   JUNGLE_CREATURE_CHASE_SPEED: 280,  // Speed when hunting (stalker/ambusher)
   JUNGLE_CREATURE_DAMAGE_RATE: 80,   // Energy drain per second on player contact (stalker/ambusher)
   JUNGLE_CREATURE_RESPAWN_DELAY: 45000, // 45s before creature respawns after killed
+
+  // EntropySerpent - apex jungle predator (SUPER AGGRESSIVE)
+  ENTROPY_SERPENT_COUNT: 4,              // Number of serpents to spawn
+  ENTROPY_SERPENT_SIZE: 80,              // Collision radius (big boy)
+  ENTROPY_SERPENT_SPEED: 420,            // Base patrol speed (faster than players!)
+  ENTROPY_SERPENT_CHASE_SPEED: 560,      // Speed when hunting (AGGRESSIVE)
+  ENTROPY_SERPENT_ATTACK_SPEED: 350,     // Speed during attack animation
+  ENTROPY_SERPENT_DETECTION_RADIUS: 1200, // How far they can see prey
+  ENTROPY_SERPENT_ATTACK_RANGE: 200,     // Claw strike range
+  ENTROPY_SERPENT_DAMAGE: 450,           // 15% of Stage 3 maxEnergy per hit
+  ENTROPY_SERPENT_ATTACK_COOLDOWN: 1000, // 1s between attacks (fast!)
+  ENTROPY_SERPENT_PATROL_RADIUS: 800,    // How far they wander from home
 
   // Projectile - Stage 3 ranged specialization attack
   // Values scaled for jungle view (camera frustum ~4800 wide)
