@@ -249,9 +249,16 @@ export class PseudopodSystem implements System {
 
       if (dist < collisionDist) {
         // Hit! Deal damage to swarm via ECS component
-        swarmEnergyComp.current -= getConfig('PSEUDOPOD_DRAIN_RATE');
+        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+        swarmEnergyComp.current -= damage;
         hitSomething = true;
         hitEntities.add(swarmEntity);
+
+        // Also drain/transfer max energy (75% of current drain rate)
+        const maxDrain = damage * 0.75;
+        const actualMaxDrain = Math.min(maxDrain, swarmEnergyComp.max);
+        swarmEnergyComp.max -= actualMaxDrain;
+        shooterEnergy.max += actualMaxDrain;
 
         // Set damage tracking so DeathSystem knows who killed it
         const damageTracking = world.getComponent<DamageTrackingComponent>(swarmEntity, Components.DamageTracking);
@@ -264,7 +271,8 @@ export class PseudopodSystem implements System {
           event: 'beam_hit_swarm',
           shooter: pseudopodComp.ownerSocketId,
           swarmId,
-          damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+          damage,
+          maxDrained: actualMaxDrain.toFixed(1),
           swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
         });
       }
@@ -357,9 +365,16 @@ export class PseudopodSystem implements System {
       const collisionDistSq = collisionDist * collisionDist;
 
       if (distSq < collisionDistSq) {
-        swarm.energyComp.current -= getConfig('PSEUDOPOD_DRAIN_RATE');
+        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+        swarm.energyComp.current -= damage;
         hitSomething = true;
         hitEntities.add(swarm.entity);
+
+        // Also drain/transfer max energy (75% of current drain rate)
+        const maxDrain = damage * 0.75;
+        const actualMaxDrain = Math.min(maxDrain, swarm.energyComp.max);
+        swarm.energyComp.max -= actualMaxDrain;
+        shooterEnergy.max += actualMaxDrain;
 
         // Set damage tracking so DeathSystem knows who killed it
         const damageTracking = world.getComponent<DamageTrackingComponent>(swarm.entity, Components.DamageTracking);
@@ -372,7 +387,8 @@ export class PseudopodSystem implements System {
           event: 'beam_hit_swarm',
           shooter: pseudopodComp.ownerSocketId,
           swarmId: swarm.swarmId,
-          damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
+          damage,
+          maxDrained: actualMaxDrain.toFixed(1),
           swarmEnergyRemaining: swarm.energyComp.current.toFixed(0),
         });
       }
