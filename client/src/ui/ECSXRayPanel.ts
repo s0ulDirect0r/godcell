@@ -287,7 +287,6 @@ const COMPONENT_FORMATTERS: Record<string, ComponentFormatter> = {
 
 export interface ECSXRayPanelOptions {
   world: World;
-  onHighlight?: (stringId: string | null) => void; // Callback for visual highlight sync
 }
 
 // Panel size presets (optimized for projector demos)
@@ -337,7 +336,6 @@ export class ECSXRayPanel {
   private selectedStringId: string | null = null;
   private currentSize: PanelSize = 'compact';
   private currentTheme: Theme = 'dark';
-  private onHighlight?: (stringId: string | null) => void;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   // Entity list for arrow key cycling
@@ -346,7 +344,6 @@ export class ECSXRayPanel {
 
   constructor(options: ECSXRayPanelOptions) {
     this.world = options.world;
-    this.onHighlight = options.onHighlight;
     this.container = this.createContainer();
     this.toolbarEl = this.createToolbar();
     this.quickSelectEl = this.createQuickSelect();
@@ -508,7 +505,6 @@ export class ECSXRayPanel {
         this.cycleEntity(-1);
       } else if (e.key === 'Escape') {
         this.clearSelection();
-        this.onHighlight?.(null);
       }
     };
     window.addEventListener('keydown', this.keyHandler);
@@ -557,7 +553,6 @@ export class ECSXRayPanel {
 
     const entity = this.entityList[this.entityListIndex];
     this.selectEntity(entity.entityId);
-    this.onHighlight?.(entity.stringId);
   }
 
   private selectLocalPlayer(): void {
@@ -566,7 +561,6 @@ export class ECSXRayPanel {
       // Local player doesn't have 'bot-' prefix
       if (stringId && !stringId.startsWith('bot-')) {
         this.selectEntity(entity);
-        this.onHighlight?.(stringId);
       }
     });
   }
@@ -602,7 +596,6 @@ export class ECSXRayPanel {
 
     if (nearest) {
       this.selectEntity(nearest.entity);
-      this.onHighlight?.(nearest.stringId);
     }
   }
 
