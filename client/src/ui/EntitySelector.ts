@@ -12,7 +12,6 @@ import {
   type StageComponent,
   type SwarmComponent,
   type ObstacleComponent,
-  type NutrientComponent,
 } from '#shared';
 import { getStringIdByEntity } from '../ecs';
 import type { ThreeRenderer } from '../render/three/ThreeRenderer';

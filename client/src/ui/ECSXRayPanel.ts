@@ -8,6 +8,7 @@ import {
   type EntityId,
   Components,
   Tags,
+  GAME_CONFIG,
   type PositionComponent,
   type VelocityComponent,
   type EnergyComponent,
@@ -194,11 +195,11 @@ const COMPONENT_FORMATTERS: Record<string, ComponentFormatter> = {
     const now = Date.now();
     const lines: string[] = [];
     if (cd.lastEMPTime) {
-      const remaining = Math.max(0, (cd.lastEMPTime + 10000 - now) / 1000);
+      const remaining = Math.max(0, (cd.lastEMPTime + GAME_CONFIG.EMP_COOLDOWN - now) / 1000);
       lines.push(`EMP: ${remaining > 0 ? remaining.toFixed(1) + 's' : 'ready'}`);
     }
     if (cd.lastPseudopodTime) {
-      const remaining = Math.max(0, (cd.lastPseudopodTime + 500 - now) / 1000);
+      const remaining = Math.max(0, (cd.lastPseudopodTime + GAME_CONFIG.PSEUDOPOD_COOLDOWN - now) / 1000);
       lines.push(`Beam: ${remaining > 0 ? remaining.toFixed(1) + 's' : 'ready'}`);
     }
     return lines.length ? lines : ['(no cooldowns)'];
@@ -838,7 +839,7 @@ export class ECSXRayPanel {
 
   show(): void {
     this.isVisible = true;
-    this.container.style.display = 'block';
+    this.container.style.display = 'flex';
   }
 
   hide(): void {
