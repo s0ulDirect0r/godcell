@@ -269,6 +269,10 @@ const COMPONENT_FORMATTERS: Record<string, ComponentFormatter> = {
     const t = c as TreeComponent;
     return [`radius: ${t.radius}`, `height: ${t.height}`];
   },
+  [Components.InterpolationTarget]: (c) => {
+    const t = c as { targetX: number; targetY: number; timestamp: number };
+    return [`target: (${t.targetX.toFixed(0)}, ${t.targetY.toFixed(0)})`];
+  },
   // Marker components (no data)
   [Components.CanFireEMP]: () => ['(enabled)'],
   [Components.CanFirePseudopod]: () => ['(enabled)'],
@@ -287,11 +291,11 @@ export interface ECSXRayPanelOptions {
 }
 
 // Panel size presets (optimized for projector demos)
+// 'super' uses special 'fullscreen' marker - actual size calculated dynamically
 const PANEL_SIZES = {
-  compact: { width: 320, fontSize: 12, titleSize: 14, padding: 12 },
-  large: { width: 520, fontSize: 16, titleSize: 20, padding: 16 },
-  xlarge: { width: 700, fontSize: 22, titleSize: 28, padding: 20 },
-  super: { width: 1200, fontSize: 32, titleSize: 42, padding: 30 },
+  compact: { width: 320, fontSize: 12, titleSize: 14, padding: 12, sectionGap: 12 },
+  large: { width: 520, fontSize: 16, titleSize: 20, padding: 16, sectionGap: 16 },
+  super: { width: 'fullscreen' as const, fontSize: 30, titleSize: 40, padding: 28, sectionGap: 22 },
 };
 type PanelSize = keyof typeof PANEL_SIZES;
 
@@ -350,11 +354,17 @@ export class ECSXRayPanel {
     this.componentsEl = this.createSection('components');
     this.systemsEl = this.createSection('systems');
 
+    // Create main content area with flex layout for columns
+    const mainContent = document.createElement('div');
+    mainContent.id = 'ecs-xray-main';
+    mainContent.style.cssText = 'display: flex; gap: 20px; flex: 1; overflow: hidden;';
+    mainContent.appendChild(this.componentsEl);
+    mainContent.appendChild(this.systemsEl);
+
     this.container.appendChild(this.toolbarEl);
     this.container.appendChild(this.quickSelectEl);
     this.container.appendChild(this.headerEl);
-    this.container.appendChild(this.componentsEl);
-    this.container.appendChild(this.systemsEl);
+    this.container.appendChild(mainContent);
 
     document.body.appendChild(this.container);
     this.setupKeyboardNavigation();
@@ -381,6 +391,8 @@ export class ECSXRayPanel {
       z-index: 10000;
       pointer-events: auto;
       box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+      display: flex;
+      flex-direction: column;
     `;
     return container;
   }
@@ -622,7 +634,7 @@ export class ECSXRayPanel {
   }
 
   private cycleSize(): void {
-    const sizes: PanelSize[] = ['compact', 'large', 'xlarge', 'super'];
+    const sizes: PanelSize[] = ['compact', 'large', 'super'];
     const currentIndex = sizes.indexOf(this.currentSize);
     this.currentSize = sizes[(currentIndex + 1) % sizes.length];
     this.applySize();
@@ -632,14 +644,56 @@ export class ECSXRayPanel {
     const size = PANEL_SIZES[this.currentSize];
     const theme = THEMES[this.currentTheme];
 
-    this.container.style.width = `${size.width}px`;
-    this.container.style.fontSize = `${size.fontSize}px`;
-    this.container.style.padding = `${size.padding}px`;
+    // Responsive font sizing for SUPER mode
+    let fontSize = size.fontSize;
+    let titleSize = size.titleSize;
+    let padding = size.padding;
+    let sectionGap = size.sectionGap;
+
+    // Handle fullscreen mode for 'super' size - matches game canvas
+    if (size.width === 'fullscreen') {
+      const gameContainer = document.getElementById('game-container');
+      if (gameContainer) {
+        const rect = gameContainer.getBoundingClientRect();
+        this.container.style.width = `${rect.width}px`;
+        this.container.style.height = `${rect.height}px`;
+        this.container.style.maxHeight = `${rect.height}px`;
+        this.container.style.top = `${rect.top}px`;
+        this.container.style.left = `${rect.left}px`;
+
+        // Responsive sizing: scale based on canvas height
+        // Base: ~2.6% of height for body text
+        const baseUnit = rect.height * 0.026;
+        fontSize = Math.round(baseUnit);
+        titleSize = Math.round(baseUnit * 1.5);
+        padding = Math.round(baseUnit * 1.2);
+        sectionGap = Math.round(baseUnit * 1.0);
+      } else {
+        // Fallback to viewport if game container not found
+        this.container.style.width = '100vw';
+        this.container.style.height = '100vh';
+        this.container.style.maxHeight = '100vh';
+        this.container.style.top = '0';
+        this.container.style.left = '0';
+      }
+      this.container.style.borderRadius = '0';
+      this.container.style.overflow = 'hidden'; // Let children scroll instead
+    } else {
+      this.container.style.width = `${size.width}px`;
+      this.container.style.height = 'auto';
+      this.container.style.maxHeight = 'calc(100vh - 100px)';
+      this.container.style.top = '80px';
+      this.container.style.left = '10px';
+      this.container.style.borderRadius = '4px';
+      this.container.style.overflow = 'auto';
+    }
+    this.container.style.fontSize = `${fontSize}px`;
+    this.container.style.padding = `${padding}px`;
 
     // Update title sizes and colors
     const titles = this.container.querySelectorAll('[data-title]');
     titles.forEach((el) => {
-      (el as HTMLElement).style.fontSize = `${size.titleSize}px`;
+      (el as HTMLElement).style.fontSize = `${titleSize}px`;
       (el as HTMLElement).style.color = theme.title;
     });
 
@@ -675,15 +729,21 @@ export class ECSXRayPanel {
       (el as HTMLElement).style.borderBottomColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
     });
 
-    // Update component wrapper borders
+    // Update component wrapper borders and padding
     const componentWrappers = this.container.querySelectorAll('[data-component-wrapper]');
+    const isSuper = size.width === 'fullscreen';
     componentWrappers.forEach((el) => {
-      (el as HTMLElement).style.borderLeftColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
+      const wrapper = el as HTMLElement;
+      wrapper.style.borderLeftColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
+      wrapper.style.paddingLeft = `${padding * 0.6}px`;
+      // More spacing between components in SUPER mode to fill space
+      wrapper.style.marginBottom = `${sectionGap * (isSuper ? 1.2 : 0.6)}px`;
+      wrapper.style.borderLeftWidth = `${Math.max(2, padding * 0.15)}px`;
     });
 
     // Scale toolbar buttons with panel size
-    const btnFontSize = Math.max(12, size.fontSize - 4);
-    const btnPadding = Math.max(4, size.padding / 3);
+    const btnFontSize = Math.max(12, fontSize - 4);
+    const btnPadding = Math.max(4, padding / 3);
     const buttons = this.toolbarEl.querySelectorAll('.xray-toolbar-btn');
     buttons.forEach((btn) => {
       const btnEl = btn as HTMLElement;
@@ -692,17 +752,52 @@ export class ECSXRayPanel {
     });
 
     // Scale quick select buttons with panel size
-    const quickBtnFontSize = Math.max(10, size.fontSize - 6);
+    const quickBtnFontSize = Math.max(10, fontSize * 0.7);
+    const quickBtnPadding = Math.max(3, padding * 0.4);
     const quickBtns = this.quickSelectEl.querySelectorAll('.xray-quick-btn');
     quickBtns.forEach((btn) => {
       const btnEl = btn as HTMLElement;
       btnEl.style.fontSize = `${quickBtnFontSize}px`;
-      btnEl.style.padding = `${Math.max(3, btnPadding - 2)}px ${Math.max(6, btnPadding)}px`;
+      btnEl.style.padding = `${quickBtnPadding}px ${quickBtnPadding * 1.5}px`;
     });
 
     // Scale quick select border and gap
-    this.quickSelectEl.style.gap = `${Math.max(4, size.padding / 3)}px`;
+    this.quickSelectEl.style.gap = `${Math.max(4, padding / 3)}px`;
     this.quickSelectEl.style.borderBottomColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
+    this.quickSelectEl.style.marginBottom = `${sectionGap}px`;
+    this.quickSelectEl.style.paddingBottom = `${sectionGap}px`;
+    this.quickSelectEl.style.flex = 'none'; // Don't grow
+
+    // Scale section margins and flex behavior
+    this.headerEl.style.marginBottom = `${sectionGap}px`;
+    this.headerEl.style.flex = 'none'; // Header doesn't grow
+
+    // In SUPER mode, components/systems become side-by-side columns
+    if (size.width === 'fullscreen') {
+      this.componentsEl.style.flex = '1';
+      this.componentsEl.style.marginBottom = '0';
+
+      this.systemsEl.style.flex = '1';
+      this.systemsEl.style.marginBottom = '0';
+    } else {
+      this.componentsEl.style.flex = 'none';
+      this.componentsEl.style.marginBottom = `${sectionGap}px`;
+
+      this.systemsEl.style.flex = 'none';
+      this.systemsEl.style.marginBottom = `${sectionGap}px`;
+    }
+
+    // Scale main content flex container
+    const mainContent = document.getElementById('ecs-xray-main');
+    if (mainContent) {
+      const gap = size.width === 'fullscreen' ? sectionGap * 2 : sectionGap;
+      mainContent.style.gap = `${gap}px`;
+    }
+
+    // Scale toolbar margin
+    this.toolbarEl.style.marginBottom = `${sectionGap / 2}px`;
+    this.toolbarEl.style.paddingBottom = `${sectionGap / 2}px`;
+    this.toolbarEl.style.flex = 'none'; // Don't grow
 
     // Apply theme to container
     this.applyTheme();
@@ -865,7 +960,7 @@ export class ECSXRayPanel {
       strLabel.setAttribute('data-muted', 'true');
       strLabel.textContent = 'ID: ';
       const strValue = document.createElement('span');
-      strValue.setAttribute('data-title', 'true'); // Use title color (cyan/blue)
+      strValue.setAttribute('data-title', 'true');
       strValue.textContent = this.escapeHtml(stringId);
       stringIdLine.appendChild(strLabel);
       stringIdLine.appendChild(strValue);
