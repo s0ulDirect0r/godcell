@@ -115,6 +115,12 @@ export class ThreeRenderer implements Renderer {
   // Gravity drain particle spawning throttle (ms since last spawn)
   private lastGravityDrainParticleTime = 0;
 
+  // Entity highlight for ECS X-Ray panel (Phase 5)
+  private highlightedEntityId: string | null = null;
+  private highlightRing: THREE.Mesh | null = null;
+  private highlightRingInner: THREE.Mesh | null = null;
+  private highlightTime = 0;
+
   init(container: HTMLElement, width: number, height: number, world: World): void {
     this.container = container;
     this.world = world;
@@ -201,6 +207,9 @@ export class ThreeRenderer implements Renderer {
     const keyLight = new THREE.DirectionalLight(0xffffff, 0.4);
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
+
+    // Create highlight ring for ECS X-Ray entity selection
+    this.createHighlightRing();
 
     // Create postprocessing composer (store passes for camera switching and debug toggles)
     const composerResult = createComposer(this.renderer, this.scene, this.cameraSystem.getOrthoCamera(), width, height);
@@ -790,6 +799,9 @@ export class ThreeRenderer implements Renderer {
     this.projectileRenderSystem.updateAnimations(dt);
     this.trapRenderSystem.updateAnimations(dt);
 
+    // Update entity highlight ring (ECS X-Ray panel selection)
+    this.updateHighlightRing(dt);
+
     // Build data maps for TrailSystem by querying World
     const playersForTrail = this.buildPlayersForTrail();
 
@@ -1003,6 +1015,149 @@ export class ThreeRenderer implements Renderer {
   }
 
   // ============================================
+  // Entity Highlight for ECS X-Ray (Phase 5)
+  // ============================================
+
+  /**
+   * Create the highlight ring meshes (called once during init)
+   */
+  private createHighlightRing(): void {
+    // Outer ring - cyan, pulsing
+    const outerGeometry = new THREE.RingGeometry(1, 1.15, 32);
+    const outerMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    this.highlightRing = new THREE.Mesh(outerGeometry, outerMaterial);
+    this.highlightRing.rotation.x = -Math.PI / 2; // Lay flat on XZ plane
+    this.highlightRing.visible = false;
+    this.scene.add(this.highlightRing);
+
+    // Inner ring - white, counter-rotating
+    const innerGeometry = new THREE.RingGeometry(0.7, 0.85, 32);
+    const innerMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+    });
+    this.highlightRingInner = new THREE.Mesh(innerGeometry, innerMaterial);
+    this.highlightRingInner.rotation.x = -Math.PI / 2;
+    this.highlightRingInner.visible = false;
+    this.scene.add(this.highlightRingInner);
+  }
+
+  /**
+   * Highlight an entity by its string ID (for ECS X-Ray panel)
+   * Pass null to clear the highlight
+   */
+  highlightEntity(stringId: string | null): void {
+    this.highlightedEntityId = stringId;
+    if (!stringId) {
+      if (this.highlightRing) this.highlightRing.visible = false;
+      if (this.highlightRingInner) this.highlightRingInner.visible = false;
+    }
+  }
+
+  /**
+   * Get the currently highlighted entity ID
+   */
+  getHighlightedEntityId(): string | null {
+    return this.highlightedEntityId;
+  }
+
+  /**
+   * Update highlight ring position and animation (called each frame in render)
+   */
+  private updateHighlightRing(dt: number): void {
+    if (!this.highlightedEntityId || !this.highlightRing || !this.highlightRingInner) {
+      return;
+    }
+
+    // Find the entity position by checking all render systems
+    let pos: { x: number; y: number } | null = null;
+    let radius = 30; // Default radius
+
+    // Try to find entity position from various sources
+    // Players (including bots)
+    const playerPos = this.playerRenderSystem.getPlayerPosition(this.highlightedEntityId);
+    if (playerPos) {
+      pos = playerPos;
+      radius = this.playerRenderSystem.getPlayerRadius(
+        this.playerRenderSystem.getPlayerStage(this.highlightedEntityId) ?? 1
+      );
+    }
+
+    // If not a player, search other entity types via ECS
+    if (!pos) {
+      // Search all entities for matching string ID
+      const allTags = Object.values(Tags);
+      for (const tag of allTags) {
+        this.world.forEachWithTag(tag, (entity) => {
+          if (pos) return; // Already found
+          const entityStringId = getStringIdByEntity(entity);
+          if (entityStringId === this.highlightedEntityId) {
+            const posComp = this.world.getComponent<PositionComponent>(entity, Components.Position);
+            if (posComp) {
+              pos = { x: posComp.x, y: posComp.y };
+              // Get radius from various component types
+              const obstacle = this.world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
+              if (obstacle) radius = obstacle.radius;
+              else if (tag === Tags.Swarm) radius = 20;
+              else if (tag === Tags.Nutrient) radius = 15;
+              else if (tag === Tags.Tree) radius = 50;
+              else if (tag === Tags.DataFruit) radius = 20;
+              else if (tag === Tags.CyberBug) radius = 15;
+              else if (tag === Tags.JungleCreature) radius = 40;
+              else if (tag === Tags.EntropySerpent) radius = 60;
+              else if (tag === Tags.Projectile) radius = 15;
+              else if (tag === Tags.Trap) radius = 25;
+            }
+          }
+        });
+        if (pos) break;
+      }
+    }
+
+    if (!pos) {
+      // Entity not found, hide highlight
+      this.highlightRing.visible = false;
+      this.highlightRingInner.visible = false;
+      return;
+    }
+
+    // Update animation time
+    this.highlightTime += dt;
+
+    // Position rings (Three.js: X = game X, Z = -game Y)
+    const yHeight = 2; // Slightly above ground
+    this.highlightRing.position.set(pos.x, yHeight, -pos.y);
+    this.highlightRingInner.position.set(pos.x, yHeight, -pos.y);
+
+    // Scale based on entity radius with pulsing effect
+    const pulseScale = 1 + Math.sin(this.highlightTime * 0.003) * 0.1;
+    const baseScale = radius * 1.5;
+    this.highlightRing.scale.setScalar(baseScale * pulseScale);
+    this.highlightRingInner.scale.setScalar(baseScale * pulseScale);
+
+    // Rotate rings for visual interest
+    this.highlightRing.rotation.z = this.highlightTime * 0.001;
+    this.highlightRingInner.rotation.z = -this.highlightTime * 0.0015;
+
+    // Pulse opacity
+    const outerMat = this.highlightRing.material as THREE.MeshBasicMaterial;
+    const innerMat = this.highlightRingInner.material as THREE.MeshBasicMaterial;
+    outerMat.opacity = 0.6 + Math.sin(this.highlightTime * 0.004) * 0.2;
+    innerMat.opacity = 0.4 + Math.sin(this.highlightTime * 0.005 + 1) * 0.15;
+
+    // Make visible
+    this.highlightRing.visible = true;
+    this.highlightRingInner.visible = true;
+  }
+
+  // ============================================
   // First-Person Camera Controls (Stage 4+)
   // ============================================
 
@@ -1138,6 +1293,18 @@ export class ThreeRenderer implements Renderer {
     this.jungleCreatureRenderSystem.dispose();
     this.projectileRenderSystem.dispose();
     this.trapRenderSystem.dispose();
+
+    // Clean up highlight ring
+    if (this.highlightRing) {
+      this.highlightRing.geometry.dispose();
+      (this.highlightRing.material as THREE.Material).dispose();
+      this.scene.remove(this.highlightRing);
+    }
+    if (this.highlightRingInner) {
+      this.highlightRingInner.geometry.dispose();
+      (this.highlightRingInner.material as THREE.Material).dispose();
+      this.scene.remove(this.highlightRingInner);
+    }
 
     // Dispose cached geometries
     this.geometryCache.forEach(geo => geo.dispose());
