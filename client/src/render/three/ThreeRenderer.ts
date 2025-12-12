@@ -1085,9 +1085,11 @@ export class ThreeRenderer implements Renderer {
     const playerPos = this.playerRenderSystem.getPlayerPosition(this.highlightedEntityId);
     if (playerPos) {
       pos = playerPos;
-      radius = this.playerRenderSystem.getPlayerRadius(
-        this.playerRenderSystem.getPlayerStage(this.highlightedEntityId) ?? 1
-      );
+      // Get player stage from ECS world
+      const player = getPlayer(this.world, this.highlightedEntityId);
+      if (player) {
+        radius = this.playerRenderSystem.getPlayerRadius(player.stage);
+      }
     }
 
     // If not a player, search other entity types via ECS

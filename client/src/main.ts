@@ -203,7 +203,10 @@ function initializeGame(settings: PreGameSettings): void {
     });
 
     // ECS X-Ray Panel - entity inspector for demos
-    ecsXRayPanel = new ECSXRayPanel({ world });
+    ecsXRayPanel = new ECSXRayPanel({
+      world,
+      onHighlight: (stringId) => renderer.highlightEntity(stringId),
+    });
 
     // Entity selector - click to inspect entities
     entitySelector = new EntitySelector({
@@ -211,6 +214,7 @@ function initializeGame(settings: PreGameSettings): void {
       renderer,
       onSelect: (entityId, stringId) => {
         ecsXRayPanel?.selectEntity(entityId);
+        renderer.highlightEntity(stringId); // Visual highlight ring
       },
     });
     entitySelector.enable();
