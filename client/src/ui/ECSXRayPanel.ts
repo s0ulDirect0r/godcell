@@ -283,6 +283,7 @@ const COMPONENT_FORMATTERS: Record<string, ComponentFormatter> = {
 
 export interface ECSXRayPanelOptions {
   world: World;
+  onHighlight?: (stringId: string | null) => void; // Callback for visual highlight sync
 }
 
 // Panel size presets (optimized for projector demos)
@@ -323,6 +324,7 @@ export class ECSXRayPanel {
   private world: World;
   private container: HTMLDivElement;
   private toolbarEl: HTMLDivElement;
+  private quickSelectEl: HTMLDivElement;
   private headerEl: HTMLDivElement;
   private componentsEl: HTMLDivElement;
   private systemsEl: HTMLDivElement;
@@ -331,21 +333,31 @@ export class ECSXRayPanel {
   private selectedStringId: string | null = null;
   private currentSize: PanelSize = 'compact';
   private currentTheme: Theme = 'dark';
+  private onHighlight?: (stringId: string | null) => void;
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  // Entity list for arrow key cycling
+  private entityList: Array<{ entityId: EntityId; stringId: string; tag: string }> = [];
+  private entityListIndex = -1;
 
   constructor(options: ECSXRayPanelOptions) {
     this.world = options.world;
+    this.onHighlight = options.onHighlight;
     this.container = this.createContainer();
     this.toolbarEl = this.createToolbar();
+    this.quickSelectEl = this.createQuickSelect();
     this.headerEl = this.createSection('header');
     this.componentsEl = this.createSection('components');
     this.systemsEl = this.createSection('systems');
 
     this.container.appendChild(this.toolbarEl);
+    this.container.appendChild(this.quickSelectEl);
     this.container.appendChild(this.headerEl);
     this.container.appendChild(this.componentsEl);
     this.container.appendChild(this.systemsEl);
 
     document.body.appendChild(this.container);
+    this.setupKeyboardNavigation();
     this.hide(); // Start hidden
   }
 
@@ -421,6 +433,165 @@ export class ECSXRayPanel {
     toolbar.appendChild(sizeBtn);
 
     return toolbar;
+  }
+
+  private createQuickSelect(): HTMLDivElement {
+    const container = document.createElement('div');
+    container.style.cssText = `
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    `;
+
+    const createBtn = (text: string, title: string, onClick: () => void) => {
+      const btn = document.createElement('button');
+      btn.textContent = text;
+      btn.title = title;
+      btn.className = 'xray-quick-btn';
+      btn.style.cssText = `
+        background: #111;
+        color: #0ff;
+        border: 1px solid #333;
+        padding: 3px 8px;
+        font-family: monospace;
+        font-size: 10px;
+        cursor: pointer;
+        border-radius: 3px;
+      `;
+      btn.addEventListener('click', onClick);
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = '#0ff'; });
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = '#333'; });
+      return btn;
+    };
+
+    // Quick select buttons
+    container.appendChild(createBtn('🎮 Me', 'Select local player', () => this.selectLocalPlayer()));
+    container.appendChild(createBtn('👾 Swarm', 'Select nearest swarm', () => this.selectNearestOfType(Tags.Swarm)));
+    container.appendChild(createBtn('🤖 Bot', 'Select nearest bot', () => this.selectNearestOfType(Tags.Bot)));
+    container.appendChild(createBtn('🌳 Tree', 'Select nearest tree', () => this.selectNearestOfType(Tags.Tree)));
+    container.appendChild(createBtn('🐍 Serpent', 'Select nearest serpent', () => this.selectNearestOfType(Tags.EntropySerpent)));
+
+    // Navigation hint
+    const hint = document.createElement('span');
+    hint.setAttribute('data-muted', 'true');
+    hint.style.cssText = 'font-size: 9px; margin-left: auto; align-self: center;';
+    hint.textContent = '← → cycle';
+    container.appendChild(hint);
+
+    return container;
+  }
+
+  private setupKeyboardNavigation(): void {
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (!this.isVisible) return;
+
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.cycleEntity(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.cycleEntity(-1);
+      } else if (e.key === 'Escape') {
+        this.clearSelection();
+        this.onHighlight?.(null);
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler);
+  }
+
+  private buildEntityList(): void {
+    this.entityList = [];
+
+    // Collect all entities with positions
+    const addEntities = (tag: string) => {
+      this.world.forEachWithTag(tag, (entity) => {
+        const stringId = getStringIdByEntity(entity);
+        if (stringId) {
+          this.entityList.push({ entityId: entity, stringId, tag });
+        }
+      });
+    };
+
+    // Add entities in a logical order for cycling
+    addEntities(Tags.Player);
+    addEntities(Tags.Swarm);
+    addEntities(Tags.EntropySerpent);
+    addEntities(Tags.JungleCreature);
+    addEntities(Tags.CyberBug);
+    addEntities(Tags.Nutrient);
+    addEntities(Tags.DataFruit);
+    addEntities(Tags.Tree);
+    addEntities(Tags.Obstacle);
+    addEntities(Tags.Projectile);
+    addEntities(Tags.Trap);
+  }
+
+  private cycleEntity(direction: number): void {
+    this.buildEntityList();
+    if (this.entityList.length === 0) return;
+
+    // Find current index
+    if (this.selectedStringId) {
+      this.entityListIndex = this.entityList.findIndex(e => e.stringId === this.selectedStringId);
+    }
+
+    // Move to next/prev
+    this.entityListIndex += direction;
+    if (this.entityListIndex < 0) this.entityListIndex = this.entityList.length - 1;
+    if (this.entityListIndex >= this.entityList.length) this.entityListIndex = 0;
+
+    const entity = this.entityList[this.entityListIndex];
+    this.selectEntity(entity.entityId);
+    this.onHighlight?.(entity.stringId);
+  }
+
+  private selectLocalPlayer(): void {
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const stringId = getStringIdByEntity(entity);
+      // Local player doesn't have 'bot-' prefix
+      if (stringId && !stringId.startsWith('bot-')) {
+        this.selectEntity(entity);
+        this.onHighlight?.(stringId);
+      }
+    });
+  }
+
+  private selectNearestOfType(tag: string): void {
+    // Get local player position for distance calculation
+    let playerPos: { x: number; y: number } | null = null;
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      const stringId = getStringIdByEntity(entity);
+      if (stringId && !stringId.startsWith('bot-')) {
+        const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+        if (pos) playerPos = { x: pos.x, y: pos.y };
+      }
+    });
+
+    if (!playerPos) return;
+
+    // Find nearest entity of type
+    let nearest: { entity: EntityId; stringId: string; dist: number } | null = null;
+    this.world.forEachWithTag(tag, (entity) => {
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
+      const stringId = getStringIdByEntity(entity);
+      if (!pos || !stringId) return;
+
+      const dx = pos.x - playerPos!.x;
+      const dy = pos.y - playerPos!.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (!nearest || dist < nearest.dist) {
+        nearest = { entity, stringId, dist };
+      }
+    });
+
+    if (nearest) {
+      this.selectEntity(nearest.entity);
+      this.onHighlight?.(nearest.stringId);
+    }
   }
 
   private styleToolbarButton(btn: HTMLElement): void {
@@ -520,6 +691,19 @@ export class ECSXRayPanel {
       btnEl.style.padding = `${btnPadding}px ${btnPadding * 2}px`;
     });
 
+    // Scale quick select buttons with panel size
+    const quickBtnFontSize = Math.max(10, size.fontSize - 6);
+    const quickBtns = this.quickSelectEl.querySelectorAll('.xray-quick-btn');
+    quickBtns.forEach((btn) => {
+      const btnEl = btn as HTMLElement;
+      btnEl.style.fontSize = `${quickBtnFontSize}px`;
+      btnEl.style.padding = `${Math.max(3, btnPadding - 2)}px ${Math.max(6, btnPadding)}px`;
+    });
+
+    // Scale quick select border and gap
+    this.quickSelectEl.style.gap = `${Math.max(4, size.padding / 3)}px`;
+    this.quickSelectEl.style.borderBottomColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
+
     // Apply theme to container
     this.applyTheme();
   }
@@ -601,6 +785,10 @@ export class ECSXRayPanel {
   }
 
   dispose(): void {
+    if (this.keyHandler) {
+      window.removeEventListener('keydown', this.keyHandler);
+      this.keyHandler = null;
+    }
     this.container.remove();
   }
 
