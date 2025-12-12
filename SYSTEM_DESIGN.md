@@ -1,6 +1,6 @@
 # SYSTEM_DESIGN.md
 
-Technical architecture documentation for the GODCELL game. Last updated: Dec 2025.
+Technical architecture documentation for the GODCELL game. Last updated: Dec 12, 2025.
 
 ---
 
@@ -19,7 +19,7 @@ GODCELL is a real-time multiplayer evolution game built on an **Entity-Component
 │  │  ECS World  │   GameStateMessage          │  ECS World          │    │
 │  │  (60fps)    │ ─────────────────────────►  │  (render state)     │    │
 │  │             │                             │                     │    │
-│  │  20 Systems │   PlayerMoveMessage         │  17 Render Systems  │    │
+│  │  22 Systems │   PlayerMoveMessage         │  18 Render Systems  │    │
 │  │  (gameplay) │ ◄─────────────────────────  │  (Three.js)         │    │
 │  └─────────────┘                             └─────────────────────┘    │
 │                                                                         │
@@ -38,37 +38,41 @@ godcell/
 │   │   ├── Component.ts        # ComponentStore class
 │   │   ├── components.ts       # All component interfaces
 │   │   └── types.ts            # Tags, ComponentType enum
-│   ├── math/                   # Geometry, spatial algorithms
+│   ├── math.ts                 # Geometry, spatial algorithms
 │   └── index.ts                # Network messages, constants, shared types
 │
 ├── server/                     # Game server
 │   └── src/
 │       ├── index.ts            # Main loop, socket handlers
+│       ├── abilities.ts        # AbilitySystem (EMP, Pseudopod, Projectile, Melee, Trap)
+│       ├── bots.ts             # Bot AI decisions
+│       ├── jungleFauna.ts      # Stage 3 fauna spawning
+│       ├── logger.ts           # Pino logging (3 log files)
+│       ├── nutrients.ts        # Nutrient spawning, respawning
+│       ├── swarms.ts           # Swarm spawning, respawns
 │       ├── ecs/
 │       │   ├── factories.ts    # Entity creation, lookups
 │       │   ├── serialization/  # ECS → network format
-│       │   └── systems/        # 20 gameplay systems
-│       └── helpers/            # Math, spawning, logging, abilities
-│           ├── abilities.ts    # AbilitySystem (EMP, Pseudopod, Projectile, Melee, Trap)
-│           ├── bots.ts         # Bot AI decisions
-│           ├── jungleFauna.ts  # Stage 3 fauna spawning
-│           ├── logger.ts       # Pino logging (3 log files)
-│           ├── nutrients.ts    # Nutrient spawning, respawning
-│           └── swarms.ts       # Swarm spawning, respawns
+│       │   └── systems/        # 22 gameplay systems
+│       └── helpers/            # Math, spawning, stage utilities
+│           ├── math.ts         # Vector math, distance calculations
+│           ├── spawning.ts     # Spawn position utilities
+│           └── stages.ts       # Stage threshold lookups
 │
 └── client/                     # Game client
     └── src/
         ├── main.ts             # Bootstrap, event wiring
-        ├── ecs/                # Client ECS (factories)
+        ├── ecs/                # Client ECS (factories, AuraStateSystem)
         ├── core/
         │   ├── events/         # EventBus
         │   ├── input/          # InputManager
         │   └── net/            # SocketManager
         ├── render/
         │   ├── systems/        # 17 render systems
+        │   ├── hud/            # HUDOverlay
         │   ├── three/          # ThreeRenderer, postprocessing
         │   └── meshes/         # Stage-specific mesh factories
-        └── ui/                 # HUD, debug overlay, start screen, dev panel
+        └── ui/                 # Debug overlay, start screen, dev panel, specialization modal
 ```
 
 ---
@@ -156,6 +160,7 @@ All component interfaces defined in one place:
 | **DataFruit** | Harvestable fruit | `treeEntityId, value, capacityIncrease, ripeness, fallenAt?` |
 | **CyberBug** | Skittish prey | `swarmId, state, value, capacityIncrease` |
 | **JungleCreature** | Larger fauna | `variant, state, value, capacityIncrease` |
+| **EntropySerpent** | Apex predator | `size, state, targetEntityId?, homePosition, heading` |
 | **Projectile** | Ranged spec attack | `ownerId, damage, speed, maxDistance, state` |
 | **Trap** | Traps spec mine | `ownerId, damage, stunDuration, triggerRadius, lifetime` |
 | **PendingRespawn** | Deferred entity creation | `respawnAt, entityType, stage?, position?, metadata?` |
@@ -190,6 +195,7 @@ const Tags = {
   DataFruit: 'datafruit',
   CyberBug: 'cyberbug',
   JungleCreature: 'junglecreature',
+  EntropySerpent: 'entropyserpent',
   Projectile: 'projectile',
   Trap: 'trap',
 
@@ -243,6 +249,7 @@ Systems execute in priority order each tick (lower = earlier):
 | 100 | **BotAISystem** | Bot decision-making, steering |
 | 105 | **CyberBugAISystem** | Stage 3 prey AI (idle/patrol/flee) |
 | 106 | **JungleCreatureAISystem** | Stage 3 fauna AI (grazer/stalker/ambusher) |
+| 107 | **EntropySerpentAISystem** | Stage 3 apex predator AI (patrol/chase/attack) |
 | 110 | **SwarmAISystem** | Swarm movement, patrol/chase, respawns |
 | 120 | **SpecializationSystem** | Stage 3 combat spec timeout auto-assign |
 | 150 | **DataFruitSystem** | Fruit ripening, ripeness decay |
@@ -265,6 +272,7 @@ Systems execute in priority order each tick (lower = earlier):
 - SwarmCollision (410) sets `SlowedThisTick` → Movement (500) reads it
 - TreeCollision (480) runs after swarm but before movement
 - MacroResourceCollision (615) handles Stage 3+ pickups
+- EntropySerpentAI (107) hunts players, runs after other fauna AI
 
 ### Entity Factories (`ecs/factories.ts`)
 
@@ -286,6 +294,7 @@ createTree(world, position, radius, height, variant): EntityId
 createDataFruit(world, position, treeEntityId): EntityId
 createCyberBug(world, position, swarmId): EntityId
 createJungleCreature(world, position, variant): EntityId
+createEntropySerpent(world, position): EntityId
 
 // Stage 3+ combat specialization entities
 createProjectile(world, ownerId, start, target, color): EntityId
@@ -317,6 +326,7 @@ treeSerializer(entity, world): Tree
 dataFruitSerializer(entity, world): DataFruit
 cyberBugSerializer(entity, world): CyberBug
 jungleCreatureSerializer(entity, world): JungleCreature
+entropySerpentSerializer(entity, world): EntropySerpent
 projectileSerializer(entity, world): Projectile
 trapSerializer(entity, world): Trap
 ```
@@ -336,7 +346,7 @@ function initializeGame(settings) {
   const socketManager = new SocketManager(world)
   const renderer = new ThreeRenderer()
   const inputManager = new InputManager()
-  const hudOverlay = new HUDOverlay(world)
+  const hudOverlay = new HUDOverlay(world)  // In render/hud/
 
   // Event wiring
   eventBus.on('client:inputMove', (e) => socketManager.sendMove(e.direction))
@@ -365,6 +375,7 @@ class SocketManager {
       state.nutrients.forEach(n => upsertNutrient(world, n))
       state.trees?.forEach(t => upsertTree(world, t))
       state.dataFruits?.forEach(f => upsertDataFruit(world, f))
+      state.entropySerpents?.forEach(s => upsertEntropySerpent(world, s))
       // ...
     })
   }
@@ -403,6 +414,7 @@ Type-safe pub/sub for internal communication:
 // Server events (from SocketManager)
 'playerJoined' | 'playerDied' | 'playerMoved' | 'playerEvolutionStarted'
 'nutrientCollected' | 'dataFruitCollected' | 'cyberBugKilled' | 'jungleCreatureKilled'
+'entropySerpentAttack' | 'entropySerpentKilled'
 
 // Client events (from InputManager)
 'client:inputMove' | 'client:sprint' | 'client:empActivate'
@@ -431,7 +443,7 @@ class ThreeRenderer {
     this.scene = new THREE.Scene()
     this.world = world
 
-    // Initialize all 17 render systems
+    // Initialize render systems + AuraStateSystem (18 total)
     this.cameraSystem = new CameraSystem()
     this.environmentSystem = new EnvironmentSystem()
     this.playerRenderSystem = new PlayerRenderSystem()
@@ -443,11 +455,12 @@ class ThreeRenderer {
     this.dataFruitRenderSystem = new DataFruitRenderSystem()
     this.cyberBugRenderSystem = new CyberBugRenderSystem()
     this.jungleCreatureRenderSystem = new JungleCreatureRenderSystem()
+    this.entropySerpentRenderSystem = new EntropySerpentRenderSystem()
     this.projectileRenderSystem = new ProjectileRenderSystem()
     this.trapRenderSystem = new TrapRenderSystem()
     this.effectsSystem = new EffectsSystem()
+    this.auraStateSystem = new AuraStateSystem()  // In client/src/ecs/systems/
     this.auraRenderSystem = new AuraRenderSystem()
-    this.auraSystem = new AuraSystem()
     this.trailSystem = new TrailSystem()
 
     // Each system.init(scene, world, ...)
@@ -479,12 +492,15 @@ class ThreeRenderer {
 | **DataFruitRenderSystem** | Harvestable fruits (ripeness glow) | All datafruit entities |
 | **CyberBugRenderSystem** | Small prey bugs | All cyberbug entities |
 | **JungleCreatureRenderSystem** | Larger fauna (variant models) | All junglecreature entities |
+| **EntropySerpentRenderSystem** | Apex predator (segmented body, clawed arms) | All entropyserpent entities |
 | **ProjectileRenderSystem** | Ranged spec projectile beams | All projectile entities |
 | **TrapRenderSystem** | Traps spec mine indicators | All trap entities |
 | **EffectsSystem** | Particle effects (death, evolution) | EventBus |
+| **AuraStateSystem**† | ECS-driven damage state tracking | Player/swarm entities |
 | **AuraRenderSystem** | Damage/drain visual feedback | Player/swarm damage info |
-| **AuraSystem** | ECS-driven aura state updates | Player/swarm entities |
 | **TrailSystem** | Glowing movement trails | Player positions |
+
+†AuraStateSystem is in `client/src/ecs/systems/`, not `render/systems/`
 
 **Pattern**: Each system:
 1. Gets `scene` and `world` on init
@@ -518,14 +534,23 @@ class PlayerRenderSystem {
 
 ### Mesh Factories (`render/meshes/`)
 
-Create stage-specific geometry:
+Create stage-specific geometry (in separate mesh files):
 
 ```typescript
-createSingleCell(color)     // Stage 1: Glowing orb (10px radius)
-createMultiCell(color)      // Stage 2: Pulsing segments (100px radius)
-createCyberOrganism(color)  // Stage 3: Neon hexapod (144px radius)
-createHumanoid(color)       // Stage 4: First-person humanoid (192px radius)
-createGodcell(color)        // Stage 5: Transcendent form (288px radius)
+// SingleCellMesh.ts
+createSingleCell(radius, colorHex)     // Stage 1: Glowing orb
+
+// MultiCellMesh.ts
+createMultiCell(params: MultiCellParams)  // Stage 2: Pulsing segments
+
+// CyberOrganismMesh.ts
+createCyberOrganism(radius, colorHex)  // Stage 3: Neon hexapod
+
+// HumanoidMesh.ts
+createHumanoid(...)                    // Stage 4: First-person humanoid
+
+// GodcellMesh.ts
+createGodcell(...)                     // Stage 5: Transcendent form
 ```
 
 ### PostProcessing (`three/postprocessing/composer.ts`)
@@ -556,7 +581,7 @@ Players evolve through 5 stages by increasing their `maxEnergy` through nutrient
 **Stage Progression:**
 - Stage 1→2: Collect ~20 nutrients in soup
 - Stage 2→3: Hunt swarms with EMP + pseudopod
-- Stage 3→4: Hunt jungle fauna (fruits, bugs, creatures)
+- Stage 3→4: Hunt jungle fauna (fruits, bugs, creatures), avoid entropy serpents
 - Stage 4→5: Full ecosystem mastery
 
 ### Stage 3 Combat Specializations
@@ -589,7 +614,7 @@ At Stage 3, players choose one of three combat specializations (locked for that 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    JUNGLE (19,200 x 12,800)                         │
 │                                                                     │
-│   Trees, DataFruits, CyberBugs, JungleCreatures                    │
+│   Trees, DataFruits, CyberBugs, JungleCreatures, EntropySerpents   │
 │                                                                     │
 │                    ┌───────────────────────┐                        │
 │                    │    SOUP (4,800 x      │                        │
@@ -625,7 +650,8 @@ NetworkBroadcastSystem serializes entities
     │
     ▼
 Socket.emit('gameState', { players, nutrients, obstacles, swarms,
-                           trees, dataFruits, cyberBugs, jungleCreatures })
+                           trees, dataFruits, cyberBugs, jungleCreatures,
+                           entropySerpents })
     │
     ▼
 Client SocketManager receives
@@ -700,6 +726,8 @@ Position changes broadcast to all clients
 | `dataFruitSpawned`, `dataFruitCollected` | Fruit events |
 | `cyberBugSpawned`, `cyberBugKilled`, `cyberBugMoved` | Bug events |
 | `jungleCreatureSpawned`, `jungleCreatureKilled`, `jungleCreatureMoved` | Creature events |
+| `entropySerpentSpawned`, `entropySerpentMoved`, `entropySerpentAttack` | Serpent movement/attack |
+| `entropySerpentDamaged`, `entropySerpentKilled` | Serpent damage/death |
 | `specializationPrompt` | Prompt player to choose combat spec |
 | `specializationSelected` | Confirm combat spec choice |
 | `projectileSpawned`, `projectileHit`, `projectileRetracted` | Ranged spec projectile events |
