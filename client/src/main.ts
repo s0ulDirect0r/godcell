@@ -12,6 +12,8 @@ import { PerformanceMonitor } from './utils/performance';
 import { DebugOverlay } from './ui/DebugOverlay';
 import { HUDOverlay } from './render/hud/HUDOverlay';
 import { DevPanel } from './ui/DevPanel';
+import { ECSXRayPanel } from './ui/ECSXRayPanel';
+import { EntitySelector } from './ui/EntitySelector';
 import { StartScreen, type PreGameSettings } from './ui/StartScreen';
 import { SpecializationModal } from './ui/SpecializationModal';
 
@@ -34,6 +36,8 @@ let renderer: ThreeRenderer;
 let hudOverlay: HUDOverlay;
 let devPanel: DevPanel | null = null;
 let debugOverlay: DebugOverlay | null = null;
+let ecsXRayPanel: ECSXRayPanel | null = null;
+let entitySelector: EntitySelector | null = null;
 let perfMonitor: PerformanceMonitor;
 let gameStarted = false;
 
@@ -84,6 +88,8 @@ export function cleanupGame(): void {
   renderer?.dispose();
   hudOverlay?.dispose();
   devPanel?.dispose();
+  ecsXRayPanel?.dispose();
+  entitySelector?.dispose();
 }
 
 // ============================================
@@ -195,6 +201,41 @@ function initializeGame(settings: PreGameSettings): void {
         socketManager.sendDevolvePrev();
       }
     });
+
+    // ECS X-Ray Panel - entity inspector for demos
+    ecsXRayPanel = new ECSXRayPanel({ world });
+
+    // Entity selector - click to inspect entities
+    entitySelector = new EntitySelector({
+      world,
+      renderer,
+      onSelect: (entityId, stringId) => {
+        ecsXRayPanel?.selectEntity(entityId);
+      },
+    });
+    entitySelector.enable();
+
+    // X-Ray panel toggle (X key) - tracked for cleanup
+    addTrackedListener(window, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'x' || (e as KeyboardEvent).key === 'X') {
+        ecsXRayPanel?.toggle();
+      }
+    });
+
+    // Pause toggle (P key) - tracked for cleanup
+    let isPaused = false;
+    addTrackedListener(window, 'keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'p' || (e as KeyboardEvent).key === 'P') {
+        isPaused = !isPaused;
+        socketManager.getSocket().emit('devCommand', {
+          type: 'devCommand',
+          command: { action: 'pauseGame', paused: isPaused },
+        });
+        console.log(`[Dev] Game ${isPaused ? 'PAUSED' : 'RESUMED'}`);
+      }
+    });
+
+    console.log('[Dev] ECS X-Ray enabled - X: toggle panel, P: pause, click entities to inspect');
   }
 
   // Perf debug toggles (always available) - tracked for cleanup
@@ -295,6 +336,11 @@ function update(): void {
   // Debug overlay
   if (debugOverlay) {
     debugOverlay.update(perfMonitor.getMetrics(), 'three-only');
+  }
+
+  // ECS X-Ray panel (live component values)
+  if (ecsXRayPanel) {
+    ecsXRayPanel.update();
   }
 
   requestAnimationFrame(update);
