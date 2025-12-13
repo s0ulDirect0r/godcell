@@ -148,17 +148,17 @@ export class SwarmRenderSystem {
       this.swarmDisabled.set(swarmId, isDisabled); // Cache for animation freeze
       updateSwarmState(group, swarm.state, isDisabled);
 
-      // === Energy-based scaling ===
-      // Swarms grow as they absorb energy - linear scaling
-      // 100=1x, 500=1.5x (steady growth, satisfying to drain)
+      // === Energy-based effects (size stays constant) ===
+      // Swarms no longer grow in size when absorbing energy
+      // Energy still affects: aura intensity, particle count, animation speed
       const energyComp = this.world.getComponent<EnergyComponent>(entity, Components.Energy);
       const energy = energyComp?.current ?? this.BASE_ENERGY;
-      const MAX_SCALE = 1.5; // 1.5x size at 500 energy
+      const MAX_SCALE = 1.5; // For aura/particle calculations only
       const MAX_ENERGY = 500;
       const energyRatio = Math.min((energy - this.BASE_ENERGY) / (MAX_ENERGY - this.BASE_ENERGY), 1);
-      const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
-      group.scale.setScalar(energyScale);
-      this.swarmEnergyScales.set(swarmId, energyScale); // Cache for spawn animation
+      const energyScale = 1 + energyRatio * (MAX_SCALE - 1); // Used for aura calculations
+      // No size scaling: group.scale stays at 1
+      this.swarmEnergyScales.set(swarmId, 1.0); // Fixed scale for spawn animation
       this.swarmEnergyRatios.set(swarmId, energyRatio); // Cache for animation intensity
 
       // Store base size for aura calculations (from original swarm.size)
@@ -490,8 +490,8 @@ export class SwarmRenderSystem {
 
     // === AURA RING ===
     // Ring sits outside swarm body with some spacing
-    // energyScale already includes 50% growth rate, so aura matches body exactly
-    const scaledBodyRadius = baseSize * energyScale;
+    // Body no longer scales with energy, so aura uses base size
+    const scaledBodyRadius = baseSize;
     const time = performance.now() * 0.001;
 
     // Pulsing ring thickness: base 10% of body, pulses gently at max energy (dialed back)

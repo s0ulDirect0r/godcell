@@ -67,15 +67,13 @@ export class SwarmCollisionSystem implements System {
       const swarmY = swarmPos.y;
 
       for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
-        // Collision distance = scaled swarm size + player radius
-        // Linear scaling: 100=1x, 500=1.5x (matches client visuals)
+        // Collision distance = swarm size + player radius (no energy-based scaling)
         const BASE_ENERGY = 100;
         const MAX_ENERGY = 500;
         const MAX_SCALE = 1.5;
         const energyRatio = Math.min((swarmEnergyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
-        const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
-        const scaledSwarmSize = swarmComp.size * energyScale;
-        const collisionDist = scaledSwarmSize + radius;
+        const energyScale = 1 + energyRatio * (MAX_SCALE - 1); // Used for damage scaling only
+        const collisionDist = swarmComp.size + radius;
         const collisionDistSq = collisionDist * collisionDist;
 
         // Fast squared distance check (avoid sqrt)
@@ -167,14 +165,8 @@ export class SwarmCollisionSystem implements System {
         const dx = player.x - swarm.x;
         const dy = player.y - swarm.y;
         const distSq = dx * dx + dy * dy;
-        // Linear scaling: 100=1x, 500=1.5x (matches client visuals)
-        const BASE_ENERGY = 100;
-        const MAX_ENERGY = 500;
-        const MAX_SCALE = 1.5;
-        const energyRatio = Math.min((swarm.energyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
-        const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
-        const scaledSwarmSize = swarm.size * energyScale;
-        const collisionDist = scaledSwarmSize + player.radius;
+        // Collision uses base size (no energy-based scaling)
+        const collisionDist = swarm.size + player.radius;
         const collisionDistSq = collisionDist * collisionDist;
 
         if (distSq < collisionDistSq) {
