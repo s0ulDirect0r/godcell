@@ -150,10 +150,10 @@ export class SwarmRenderSystem {
 
       // === Energy-based scaling ===
       // Swarms grow as they absorb energy - linear scaling
-      // 100=1x, 300=1.5x, 500=2x (steady growth, satisfying to drain)
+      // 100=1x, 500=1.5x (steady growth, satisfying to drain)
       const energyComp = this.world.getComponent<EnergyComponent>(entity, Components.Energy);
       const energy = energyComp?.current ?? this.BASE_ENERGY;
-      const MAX_SCALE = 2.0; // 2x size at 500 energy
+      const MAX_SCALE = 1.5; // 1.5x size at 500 energy
       const MAX_ENERGY = 500;
       const energyRatio = Math.min((energy - this.BASE_ENERGY) / (MAX_ENERGY - this.BASE_ENERGY), 1);
       const energyScale = 1 + energyRatio * (MAX_SCALE - 1);

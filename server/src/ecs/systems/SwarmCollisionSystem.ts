@@ -68,10 +68,10 @@ export class SwarmCollisionSystem implements System {
 
       for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
         // Collision distance = scaled swarm size + player radius
-        // Linear scaling: 100=1x, 300=1.5x, 500=2x (matches client visuals)
+        // Linear scaling: 100=1x, 500=1.5x (matches client visuals)
         const BASE_ENERGY = 100;
         const MAX_ENERGY = 500;
-        const MAX_SCALE = 2.0;
+        const MAX_SCALE = 1.5;
         const energyRatio = Math.min((swarmEnergyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
         const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
         const scaledSwarmSize = swarmComp.size * energyScale;
@@ -167,10 +167,10 @@ export class SwarmCollisionSystem implements System {
         const dx = player.x - swarm.x;
         const dy = player.y - swarm.y;
         const distSq = dx * dx + dy * dy;
-        // Linear scaling: 100=1x, 300=1.5x, 500=2x (matches client visuals)
+        // Linear scaling: 100=1x, 500=1.5x (matches client visuals)
         const BASE_ENERGY = 100;
         const MAX_ENERGY = 500;
-        const MAX_SCALE = 2.0;
+        const MAX_SCALE = 1.5;
         const energyRatio = Math.min((swarm.energyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY), 1);
         const energyScale = 1 + energyRatio * (MAX_SCALE - 1);
         const scaledSwarmSize = swarm.size * energyScale;
