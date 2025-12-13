@@ -568,9 +568,9 @@ export class ECSXRayPanel {
       if (entries.length <= 4) {
         const lines = entries.map(([k, v]) => {
           const vStr = typeof v === 'number' ? (Number.isInteger(v) ? v : (v as number).toFixed(2)) :
-                       typeof v === 'string' ? `"${v.slice(0, 20)}"` :
+                       typeof v === 'string' ? `"${this.escapeHtml(v.slice(0, 20))}"` :
                        typeof v === 'boolean' ? v : typeof v;
-          return `${k}: ${vStr}`;
+          return `${this.escapeHtml(String(k))}: ${vStr}`;
         });
         return `{ ${lines.join(', ')} }`;
       }
