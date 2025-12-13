@@ -133,6 +133,11 @@ const THEMES = {
 };
 type Theme = keyof typeof THEMES;
 
+type ViewMode = 'entity' | 'world';
+
+// Throttle world view updates to avoid performance hit from counting all entities
+const WORLD_VIEW_UPDATE_INTERVAL = 500; // ms
+
 export class ECSXRayPanel {
   private world: World;
   private container: HTMLDivElement;
@@ -143,9 +148,11 @@ export class ECSXRayPanel {
   private selectedStringId: string | null = null;
   private currentSize: PanelSize = 'compact';
   private currentTheme: Theme = 'dark';
+  private currentView: ViewMode = 'entity';
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private entityList: Array<{ entityId: EntityId; stringId: string; tag: string }> = [];
   private entityListIndex = -1;
+  private lastWorldViewUpdate = 0;
 
   constructor(options: ECSXRayPanelOptions) {
     this.world = options.world;
@@ -170,6 +177,7 @@ export class ECSXRayPanel {
     const quickBtns = document.createElement('div');
     quickBtns.style.cssText = 'display: flex; gap: 4px; flex-wrap: wrap;';
     quickBtns.innerHTML = `
+      <button class="xbtn" data-action="world">🌐 World</button>
       <button class="xbtn" data-action="me">🎮 Me</button>
       <button class="xbtn" data-action="swarm">👾 Swarm</button>
       <button class="xbtn" data-action="bot">🤖 Bot</button>
@@ -213,10 +221,11 @@ export class ECSXRayPanel {
       const btn = (e.target as HTMLElement).closest('[data-action]');
       if (!btn) return;
       const action = btn.getAttribute('data-action');
-      if (action === 'me') this.selectLocalPlayer();
-      else if (action === 'swarm') this.selectNearestOfType(Tags.Swarm);
-      else if (action === 'bot') this.selectNearestOfType(Tags.Bot);
-      else if (action === 'serpent') this.selectNearestOfType(Tags.EntropySerpent);
+      if (action === 'world') this.showWorldView();
+      else if (action === 'me') { this.currentView = 'entity'; this.selectLocalPlayer(); }
+      else if (action === 'swarm') { this.currentView = 'entity'; this.selectNearestOfType(Tags.Swarm); }
+      else if (action === 'bot') { this.currentView = 'entity'; this.selectNearestOfType(Tags.Bot); }
+      else if (action === 'serpent') { this.currentView = 'entity'; this.selectNearestOfType(Tags.EntropySerpent); }
       else if (action === 'theme') this.toggleTheme();
       else if (action === 'size') this.cycleSize();
     });
@@ -296,6 +305,13 @@ export class ECSXRayPanel {
     this.applyStyles();
   }
 
+  private showWorldView(): void {
+    this.currentView = 'world';
+    this.selectedEntityId = null;
+    this.selectedStringId = null;
+    this.show();
+  }
+
   private applyStyles(): void {
     const size = PANEL_SIZES[this.currentSize];
     const theme = THEMES[this.currentTheme];
@@ -338,6 +354,7 @@ export class ECSXRayPanel {
 
   // Public API
   selectEntity(entityId: EntityId): void {
+    this.currentView = 'entity';
     this.selectedEntityId = entityId;
     this.selectedStringId = getStringIdByEntity(entityId) ?? null;
     this.show();
@@ -366,6 +383,14 @@ export class ECSXRayPanel {
   update(): void {
     if (!this.isVisible) return;
 
+    if (this.currentView === 'world') {
+      this.renderWorldView();
+    } else {
+      this.renderEntityView();
+    }
+  }
+
+  private renderEntityView(): void {
     const theme = THEMES[this.currentTheme];
 
     if (this.selectedEntityId === null) {
@@ -419,6 +444,139 @@ export class ECSXRayPanel {
 
     if (!hasAny) html += `<div style="color:${theme.muted}">(no components)</div>`;
     this.componentsEl.innerHTML = html;
+  }
+
+  private renderWorldView(): void {
+    // Throttle updates to avoid performance hit
+    const now = performance.now();
+    if (now - this.lastWorldViewUpdate < WORLD_VIEW_UPDATE_INTERVAL) {
+      return;
+    }
+    this.lastWorldViewUpdate = now;
+
+    const theme = THEMES[this.currentTheme];
+    const stats = this.world.getStats();
+    const allEntities = this.world.getAllEntities();
+    const borderColor = this.currentTheme === 'dark' ? '#333' : '#ccc';
+    const bgColor = this.currentTheme === 'dark' ? '#333' : '#ddd';
+
+    // Header
+    this.headerEl.innerHTML = `
+      <div style="color:${theme.title};font-weight:bold;margin-bottom:8px">🌐 World View</div>
+      <div style="color:${theme.muted};margin-bottom:8px">Live ECS state</div>
+    `;
+
+    let html = '';
+
+    // ═══════════════════════════════════════════
+    // Section 1: Entities
+    // ═══════════════════════════════════════════
+    html += `<div style="margin-bottom:12px">`;
+    html += `<div style="color:${theme.title};font-weight:bold;border-bottom:1px solid ${borderColor};padding-bottom:4px;margin-bottom:8px">entities: Set(${stats.entities})</div>`;
+
+    // Show entity IDs (truncate if too many)
+    const maxShow = 20;
+    const entityIds = allEntities.slice(0, maxShow).join(', ');
+    const truncated = allEntities.length > maxShow ? `, ... +${allEntities.length - maxShow} more` : '';
+    html += `<div style="padding-left:12px;color:${theme.muted};font-size:0.9em">[${entityIds}${truncated}]</div>`;
+    html += `</div>`;
+
+    // ═══════════════════════════════════════════
+    // Section 2: Entity Tags Breakdown
+    // ═══════════════════════════════════════════
+    html += `<div style="margin-bottom:12px">`;
+    html += `<div style="color:${theme.title};font-weight:bold;border-bottom:1px solid ${borderColor};padding-bottom:4px;margin-bottom:8px">entityTags: Map(${stats.entities})</div>`;
+
+    // Count entities by tag
+    const tagCounts: Record<string, number> = {};
+    const allTags = Object.values(Tags);
+    for (const tag of allTags) {
+      let count = 0;
+      this.world.forEachWithTag(tag, () => count++);
+      if (count > 0) tagCounts[tag] = count;
+    }
+
+    // Sort by count descending
+    const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+    if (sortedTags.length > 0) {
+      for (const [tag, count] of sortedTags) {
+        html += `<div style="padding-left:12px;margin-bottom:2px">`;
+        html += `<span style="background:${bgColor};color:${theme.highlight};padding:1px 6px;border-radius:3px;margin-right:6px">${tag}</span>`;
+        html += `<span style="color:${theme.accent}">${count}</span>`;
+        html += `</div>`;
+      }
+    } else {
+      html += `<div style="padding-left:12px;color:${theme.muted}">(no tagged entities)</div>`;
+    }
+    html += `</div>`;
+
+    // ═══════════════════════════════════════════
+    // Section 3: Component Stores
+    // ═══════════════════════════════════════════
+    html += `<div style="margin-bottom:12px">`;
+    html += `<div style="color:${theme.title};font-weight:bold;border-bottom:1px solid ${borderColor};padding-bottom:4px;margin-bottom:8px">stores: Map(${stats.componentTypes})</div>`;
+
+    // Sort stores by count descending
+    const sortedStores = Object.entries(stats.stores).sort((a, b) => b[1] - a[1]);
+    for (const [compType, count] of sortedStores) {
+      const barWidth = Math.min(100, (count / stats.entities) * 100);
+      html += `<div style="padding-left:12px;margin-bottom:4px">`;
+      html += `<div style="display:flex;align-items:center;gap:8px">`;
+      html += `<span style="color:${theme.accent};min-width:120px">${compType}</span>`;
+      html += `<span style="color:${theme.muted};min-width:30px">${count}</span>`;
+      html += `<div style="flex:1;height:6px;background:${borderColor};border-radius:3px;overflow:hidden">`;
+      html += `<div style="width:${barWidth}%;height:100%;background:${theme.highlight}"></div>`;
+      html += `</div>`;
+      html += `</div>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+
+    // ═══════════════════════════════════════════
+    // Section 4: Resources
+    // ═══════════════════════════════════════════
+    html += `<div style="margin-bottom:12px">`;
+    html += `<div style="color:${theme.title};font-weight:bold;border-bottom:1px solid ${borderColor};padding-bottom:4px;margin-bottom:8px">resources: Map(${stats.resources.length})</div>`;
+
+    if (stats.resources.length > 0) {
+      for (const key of stats.resources) {
+        const value = this.world.getResource(key);
+        const valueStr = this.formatResourceValue(value);
+        html += `<div style="padding-left:12px;margin-bottom:4px;border-left:2px solid ${borderColor}">`;
+        html += `<div style="color:${theme.accent};font-weight:bold">${this.escapeHtml(key)}</div>`;
+        html += `<div style="padding-left:8px;color:${theme.text}">${valueStr}</div>`;
+        html += `</div>`;
+      }
+    } else {
+      html += `<div style="padding-left:12px;color:${theme.muted}">(no resources)</div>`;
+    }
+    html += `</div>`;
+
+    this.componentsEl.innerHTML = html;
+  }
+
+  private formatResourceValue(value: unknown): string {
+    if (value === null) return '<span style="color:#888">null</span>';
+    if (value === undefined) return '<span style="color:#888">undefined</span>';
+    if (typeof value === 'string') return `"${this.escapeHtml(value.length > 50 ? value.slice(0, 47) + '...' : value)}"`;
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) return `Array(${value.length})`;
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) return '{}';
+      if (entries.length <= 4) {
+        const lines = entries.map(([k, v]) => {
+          const vStr = typeof v === 'number' ? (Number.isInteger(v) ? v : (v as number).toFixed(2)) :
+                       typeof v === 'string' ? `"${v.slice(0, 20)}"` :
+                       typeof v === 'boolean' ? v : typeof v;
+          return `${k}: ${vStr}`;
+        });
+        return `{ ${lines.join(', ')} }`;
+      }
+      return `{ ${entries.length} keys }`;
+    }
+    return typeof value;
   }
 
   dispose(): void {
