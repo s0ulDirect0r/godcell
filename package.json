@@ -23,8 +23,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "clean": "rm -rf dist node_modules",
-    "lint": "eslint . --ext .ts,.tsx",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "lint": "eslint \"**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"**/*.{ts,tsx}\" --fix",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\""
   },
@@ -50,6 +50,7 @@
     "esbuild": "^0.25.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
     "happy-dom": "^20.0.10",
     "prettier": "^3.7.4",
     "tsx": "^4.7.0",

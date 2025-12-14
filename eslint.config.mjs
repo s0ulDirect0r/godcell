@@ -1,6 +1,7 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
+import globals from 'globals';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -11,38 +12,8 @@ export default tseslint.config(
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
-        // Node globals
-        console: 'readonly',
-        process: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
-        module: 'readonly',
-        require: 'readonly',
-        Buffer: 'readonly',
-        setTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearTimeout: 'readonly',
-        clearInterval: 'readonly',
-        // Browser globals
-        window: 'readonly',
-        document: 'readonly',
-        navigator: 'readonly',
-        requestAnimationFrame: 'readonly',
-        cancelAnimationFrame: 'readonly',
-        HTMLElement: 'readonly',
-        HTMLCanvasElement: 'readonly',
-        MouseEvent: 'readonly',
-        KeyboardEvent: 'readonly',
-        Event: 'readonly',
-        WebSocket: 'readonly',
-        URL: 'readonly',
-        performance: 'readonly',
-        Map: 'readonly',
-        Set: 'readonly',
-        WeakMap: 'readonly',
-        WeakSet: 'readonly',
-        Promise: 'readonly',
-        Intl: 'readonly',
+        ...globals.node,
+        ...globals.browser,
       },
     },
     rules: {

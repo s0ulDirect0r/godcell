@@ -17,6 +17,7 @@ import type {
   EnergyComponent,
   StageComponent,
   DamageTrackingComponent,
+  StunnedComponent,
 } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -160,9 +161,11 @@ export class AbilitySystem {
         // Set stun via component (create if needed or update)
         if (otherStunned) {
           otherStunned.until = now + stunDuration;
+        } else {
+          world.addComponent<StunnedComponent>(otherEntity, Components.Stunned, {
+            until: now + stunDuration,
+          });
         }
-        // Note: If no stunned component, the shared ECS may need component creation
-        // For now, stun tracking happens via the component if present
 
         // Multi-cells also lose energy when hit (entity-based)
         if (otherStage.stage === EvolutionStage.MULTI_CELL) {
@@ -339,7 +342,7 @@ export class AbilitySystem {
             }
 
             // Record damage for drain aura visual
-            recordDamage(world, swarmEntity, drainPerHit, 'beam');
+            recordDamage(world, swarmEntity, actualDrain, 'beam');
 
             logger.info({
               event: 'strike_hit_swarm',

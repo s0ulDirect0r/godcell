@@ -396,16 +396,26 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
     const now = Date.now();
     const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
-    // Add the combat specialization component with pending selection
-    devContext.world.addComponent<CombatSpecializationComponent>(
-      entity,
-      Components.CombatSpecialization,
-      {
-        specialization: null,
-        selectionPending: true,
-        selectionDeadline: deadline,
-      }
-    );
+    // Add or update the combat specialization component with pending selection
+    if (devContext.world.hasComponent(entity, Components.CombatSpecialization)) {
+      const spec = devContext.world.getComponent<CombatSpecializationComponent>(
+        entity,
+        Components.CombatSpecialization
+      )!;
+      spec.specialization = null;
+      spec.selectionPending = true;
+      spec.selectionDeadline = deadline;
+    } else {
+      devContext.world.addComponent<CombatSpecializationComponent>(
+        entity,
+        Components.CombatSpecialization,
+        {
+          specialization: null,
+          selectionPending: true,
+          selectionDeadline: deadline,
+        }
+      );
+    }
 
     // Emit specialization prompt to trigger the modal
     const promptMessage: SpecializationPromptMessage = {

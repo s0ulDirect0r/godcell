@@ -113,7 +113,7 @@ AI assistants often create planning and design documents during development:
 
 **Example .gitignore entry (optional):**
 
-```
+```gitignore
 # AI planning documents (ephemeral)
 history/
 ```

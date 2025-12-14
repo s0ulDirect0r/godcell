@@ -124,13 +124,13 @@ Currently tracking **30+ event types** across the codebase. Every new feature ad
 
 Instead of:
 
-```
+```text
 Server sends playerDied → SocketManager emits event → ThreeRenderer catches event → spawns burst
 ```
 
 Do:
 
-```
+```text
 Server sends playerDied → SocketManager adds DeathEffect component → EffectsSystem queries DeathEffect → spawns burst → removes component
 ```
 

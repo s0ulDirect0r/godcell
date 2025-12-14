@@ -173,7 +173,7 @@ export function createJungleCreature(
   group.userData.variant = variant;
 
   const creatureSize = size ?? GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS;
-  const colors = VARIANT_COLORS[variant as keyof typeof VARIANT_COLORS] || VARIANT_COLORS.grazer;
+  const colors = VARIANT_COLORS[variant as keyof typeof VARIANT_COLORS] ?? VARIANT_COLORS.grazer;
 
   if (variant === 'grazer') {
     createGrazerMesh(group, colors, creatureSize);
@@ -202,18 +202,18 @@ export function updateJungleCreatureAnimation(
   phase: number = 0
 ): void {
   const time = performance.now() / 1000;
-  const variant = (group.userData.variant as CreatureVariant) || 'grazer';
+  const variant = (group.userData.variant as CreatureVariant) ?? 'grazer';
 
   // Breathing scale
   const breathRate =
-    ANIMATION.breathRate[variant as keyof typeof ANIMATION.breathRate] ||
+    ANIMATION.breathRate[variant as keyof typeof ANIMATION.breathRate] ??
     ANIMATION.breathRate.grazer;
   const breathScale = 1 + Math.sin(time * breathRate + phase) * ANIMATION.breathAmount;
   group.scale.setScalar(breathScale);
 
   // Head bob for movement feel
   const bobAmount =
-    ANIMATION.bobAmount[variant as keyof typeof ANIMATION.bobAmount] || ANIMATION.bobAmount.grazer;
+    ANIMATION.bobAmount[variant as keyof typeof ANIMATION.bobAmount] ?? ANIMATION.bobAmount.grazer;
   group.position.y = ANIMATION.baseHeight + Math.sin(time * ANIMATION.bobSpeed + phase) * bobAmount;
 }
 

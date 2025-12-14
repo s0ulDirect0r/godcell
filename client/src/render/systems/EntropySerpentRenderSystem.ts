@@ -125,6 +125,7 @@ export class EntropySerpentRenderSystem {
         this.serpentMeshes.delete(id);
         this.serpentTargets.delete(id);
         this.serpentHeadings.delete(id);
+        this._lastPosLogs.delete(id);
         // Clean up debug markers
         const debugGroup = this.debugMarkers.get(id);
         if (debugGroup) {
@@ -201,6 +202,7 @@ export class EntropySerpentRenderSystem {
     this.serpentMeshes.clear();
     this.serpentTargets.clear();
     this.serpentHeadings.clear();
+    this._lastPosLogs.clear();
   }
 
   /**
@@ -262,12 +264,9 @@ export class EntropySerpentRenderSystem {
    */
   toggleDebug(): boolean {
     this.debugMode = !this.debugMode;
-    console.log(
-      `[SerpentDebug] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}, serpentMeshes: ${this.serpentMeshes.size}`
-    );
 
     if (!this.debugMode) {
-      // Remove all debug markers
+      // Remove all debug markers and clear debug state
       this.debugMarkers.forEach((group) => {
         this.scene.remove(group);
         group.traverse((child) => {
@@ -282,6 +281,8 @@ export class EntropySerpentRenderSystem {
         });
       });
       this.debugMarkers.clear();
+      this._lastPosLogs.clear();
+      this._lastDebugLog = 0;
     }
 
     return this.debugMode;
@@ -462,5 +463,6 @@ export class EntropySerpentRenderSystem {
       this.scene.remove(group);
     });
     this.debugMarkers.clear();
+    this._lastPosLogs.clear();
   }
 }

@@ -296,9 +296,11 @@ function spawnCyberOrganismBot(io: Server): BotController {
     const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
     return p?.socketId === botId;
   });
-  if (entity) {
+  if (entity !== undefined) {
     ecsWorld.addComponent(entity, Components.CombatSpecialization, {
       specialization: chosenSpec,
+      selectionPending: false,
+      selectionDeadline: 0,
     });
   }
 
@@ -724,10 +726,13 @@ export function spawnBotAt(io: Server, position: Position, stage: EvolutionStage
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
 
-  const isMultiCell = stage >= EvolutionStage.MULTI_CELL;
-  const botId = isMultiCell
-    ? `bot-multicell-${Math.random().toString(36).substr(2, 9)}`
-    : `bot-${Math.random().toString(36).substr(2, 9)}`;
+  const isCyber = stage >= EvolutionStage.CYBER_ORGANISM;
+  const isMultiCell = stage === EvolutionStage.MULTI_CELL;
+  const botId = isCyber
+    ? `bot-cyber-${Math.random().toString(36).substr(2, 9)}`
+    : isMultiCell
+      ? `bot-multicell-${Math.random().toString(36).substr(2, 9)}`
+      : `bot-${Math.random().toString(36).substr(2, 9)}`;
   const botColor = randomColor();
 
   // Create bot in ECS (source of truth)
@@ -758,8 +763,24 @@ export function spawnBotAt(io: Server, position: Position, stage: EvolutionStage
     },
   };
 
-  // Track in appropriate bot map
-  if (isMultiCell) {
+  // Track in appropriate bot map and assign specialization for cyber bots
+  if (isCyber) {
+    cyberOrganismBots.set(botId, bot);
+    // Assign combat specialization for cyber bots
+    const entity = ecsWorld.query(Components.Player).find((e) => {
+      const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
+      return p?.socketId === botId;
+    });
+    if (entity !== undefined) {
+      const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
+      const chosenSpec = specializations[Math.floor(Math.random() * specializations.length)];
+      ecsWorld.addComponent(entity, Components.CombatSpecialization, {
+        specialization: chosenSpec,
+        selectionPending: false,
+        selectionDeadline: 0,
+      });
+    }
+  } else if (isMultiCell) {
     multiCellBots.set(botId, bot);
   } else {
     singleCellBots.set(botId, bot);
@@ -1590,7 +1611,7 @@ export function respawnBotNow(botId: string, stage: number, io: Server, world: W
       const p = world.getComponent<{ socketId: string }>(e, Components.Player);
       return p?.socketId === botId;
     });
-    if (entity) {
+    if (entity !== undefined) {
       const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
       const newSpec = specializations[Math.floor(Math.random() * specializations.length)];
       const specComp = world.getComponent<{ specialization: 'melee' | 'ranged' | 'traps' | null }>(

@@ -269,27 +269,6 @@ export class EntropySerpentAISystem implements System {
     const damage = GAME_CONFIG.ENTROPY_SERPENT_DAMAGE;
     const hitPlayerIds: string[] = [];
 
-    // Debug: Log attack origin (server console)
-    const actualHeadOffset = GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET;
-    console.log('[SerpentAttack SERVER] Attack initiated:', {
-      bodyPos: { x: serpentPos.x.toFixed(1), y: serpentPos.y.toFixed(1) },
-      headPos: { x: headPos.x.toFixed(1), y: headPos.y.toFixed(1) },
-      headingDeg: ((serpent.heading * 180) / Math.PI).toFixed(1) + '°',
-      headOffset: actualHeadOffset,
-    });
-    logger.info(
-      {
-        event: 'serpent_attack_debug',
-        serpentId,
-        bodyPos: { x: serpentPos.x, y: serpentPos.y },
-        headPos,
-        heading: serpent.heading,
-        headingDeg: ((serpent.heading * 180) / Math.PI).toFixed(1),
-        attackRange,
-      },
-      'Serpent attack initiated'
-    );
-
     // Check all players for hits
     world.forEachWithTag(Tags.Player, (playerEntity) => {
       const playerPos = world.getComponent<PositionComponent>(playerEntity, Components.Position);
@@ -305,23 +284,6 @@ export class EntropySerpentAISystem implements System {
       const dy = playerPos.y - headPos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      const playerId = getSocketIdByEntity(playerEntity);
-
-      // Debug: Log every player check
-      logger.info(
-        {
-          event: 'serpent_attack_check',
-          serpentId,
-          playerId,
-          playerPos: { x: playerPos.x, y: playerPos.y },
-          headPos,
-          distFromHead: dist.toFixed(1),
-          attackRange,
-          inRange: dist <= attackRange,
-        },
-        'Checking player for attack hit'
-      );
-
       // Must be within attack range of HEAD
       if (dist > attackRange) return;
 
@@ -330,21 +292,6 @@ export class EntropySerpentAISystem implements System {
       const angleDiff = Math.atan2(
         Math.sin(angleToPlayer - serpent.heading),
         Math.cos(angleToPlayer - serpent.heading)
-      );
-
-      // Debug: Log arc check
-      logger.info(
-        {
-          event: 'serpent_attack_arc_check',
-          serpentId,
-          playerId,
-          angleToPlayer: ((angleToPlayer * 180) / Math.PI).toFixed(1),
-          serpentHeading: ((serpent.heading * 180) / Math.PI).toFixed(1),
-          angleDiff: ((angleDiff * 180) / Math.PI).toFixed(1),
-          halfArcDeg: ((halfArc * 180) / Math.PI).toFixed(1),
-          inArc: Math.abs(angleDiff) <= halfArc,
-        },
-        'Arc check'
       );
 
       if (Math.abs(angleDiff) <= halfArc) {
