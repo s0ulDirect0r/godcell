@@ -3,7 +3,7 @@
 // Build detection messages for multi-cell chemical sensing
 // ============================================
 
-import { EvolutionStage, Components, Tags } from '#shared';
+import { EvolutionStage, Components, Tags, distance } from '#shared';
 import type {
   World,
   EntityId,
@@ -14,15 +14,6 @@ import type {
   DetectionUpdateMessage,
 } from '#shared';
 import { getSocketIdByEntity, getStringIdByEntity } from '../factories';
-
-/**
- * Calculate distance between two positions.
- */
-function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
 
 /**
  * Get all entities within detection range of a position.

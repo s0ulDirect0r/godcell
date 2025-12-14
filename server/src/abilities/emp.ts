@@ -13,7 +13,7 @@ import {
   forEachSwarm,
 } from '../ecs/factories';
 import type { AbilityContext } from './types';
-import { distance } from './utils';
+import { distance } from '../helpers/math';
 
 /**
  * Fire EMP ability (Stage 2 Multi-Cell only)

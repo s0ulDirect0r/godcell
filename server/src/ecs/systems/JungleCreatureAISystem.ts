@@ -5,7 +5,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Components, type World } from '#shared';
+import { GAME_CONFIG, Components, distance, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
@@ -29,15 +29,6 @@ import { isJungleStage } from '../../helpers/stages';
 // ============================================
 // Helper Functions
 // ============================================
-
-/**
- * Calculate distance between two positions
- */
-function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
 
 /**
  * Generate a random patrol target within territory radius

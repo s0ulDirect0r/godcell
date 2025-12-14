@@ -1,4 +1,4 @@
-import { GAME_CONFIG } from '#shared';
+import { GAME_CONFIG, distance } from '#shared';
 import type { EntropySwarm, Position, SwarmSpawnedMessage } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -93,12 +93,6 @@ function generateSwarmPositions(count: number): Position[] {
   }
 
   return positions;
-}
-
-function distance(p1: Position, p2: Position): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**

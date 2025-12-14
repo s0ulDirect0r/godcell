@@ -23,7 +23,7 @@ import {
   destroyEntity,
 } from '../ecs/factories';
 import type { AbilityContext } from './types';
-import { distance } from './utils';
+import { distance } from '../helpers/math';
 
 /**
  * Fire melee attack (Stage 3 Melee specialization only)
