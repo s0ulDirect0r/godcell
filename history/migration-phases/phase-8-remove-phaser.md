@@ -33,9 +33,11 @@ rm client/src/config/renderer-flags.ts
 ## Files to Modify
 
 ### `client/package.json`
+
 Remove Phaser dependency.
 
 **Before:**
+
 ```json
 {
   "dependencies": {
@@ -48,6 +50,7 @@ Remove Phaser dependency.
 ```
 
 **After:**
+
 ```json
 {
   "dependencies": {
@@ -59,9 +62,11 @@ Remove Phaser dependency.
 ```
 
 ### `client/src/main.ts`
+
 Always use ThreeRenderer (no flag logic).
 
 **Before:**
+
 ```typescript
 import { PhaserRenderer } from './render/phaser/PhaserRenderer';
 import { ThreeRenderer } from './render/three/ThreeRenderer';
@@ -79,6 +84,7 @@ if (flags.mode === 'three-only') {
 ```
 
 **After:**
+
 ```typescript
 import { ThreeRenderer } from './render/three/ThreeRenderer';
 
@@ -87,9 +93,11 @@ const renderer = new ThreeRenderer();
 ```
 
 ### `client/src/utils/performance.ts` (Optional cleanup)
+
 Remove renderer mode from debug overlay if it's no longer relevant.
 
 ### `client/src/ui/DebugOverlay.ts` (Optional cleanup)
+
 Remove "Renderer: X" line from debug output.
 
 ## Test Cases
@@ -149,11 +157,13 @@ ls -lh client/dist/*.js
 ## Implementation Notes
 
 **Gotchas:**
+
 - Make sure no imports reference `phaser` anywhere
 - Check for stray Phaser types in interfaces
 - Remove `@types/phaser` from devDependencies too
 
 **Verification:**
+
 ```bash
 # Search for any remaining Phaser references
 grep -r "phaser" client/src/
@@ -163,6 +173,7 @@ grep -r "Phaser" client/src/
 ```
 
 **Bundle analysis:**
+
 ```bash
 # Optional: Check bundle contents
 npx vite-bundle-visualizer

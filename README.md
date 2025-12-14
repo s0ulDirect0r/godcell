@@ -100,4 +100,4 @@ This project is private/proprietary. All rights reserved.
 
 ---
 
-*"To become a god is to realize you're still just a cell in a vaster ocean."*
+_"To become a god is to realize you're still just a cell in a vaster ocean."_

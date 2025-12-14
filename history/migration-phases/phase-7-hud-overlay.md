@@ -213,6 +213,7 @@ export class HUDOverlay {
 ## Files to Modify
 
 ### `client/src/main.ts`
+
 Add HUD overlay to bootstrap.
 
 ```typescript
@@ -226,7 +227,7 @@ const hudOverlay = new HUDOverlay();
 function update(): void {
   // ... existing code
 
-  hudOverlay.update(gameState);  // NEW
+  hudOverlay.update(gameState); // NEW
 
   requestAnimationFrame(update);
 }
@@ -271,17 +272,20 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Set `pointer-events: none` on HUD container except death overlay
 - Use CSS transitions for smooth bar animations
 - Avoid layout recalculations every frame (cache dimensions)
 - Respawn button must emit `input:respawn` event (not call SocketManager directly)
 
 **Performance:**
+
 - Updating `style.width` is cheap (GPU-accelerated)
 - Use `transform` instead of `top`/`left` for positioning if animating
 - Death overlay should be `display: none` when hidden (not just opacity)
 
 **Styling:**
+
 - Colors match game aesthetic (cyan, red, neon)
 - Monospace font for digital feel
 - Text shadows for glow effect

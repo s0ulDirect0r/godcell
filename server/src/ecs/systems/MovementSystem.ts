@@ -7,12 +7,7 @@ import type { Server } from 'socket.io';
 import { EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
   PlayerMovedMessage,
-  EnergyComponent,
-  PositionComponent,
-  StageComponent,
   StunnedComponent,
-  VelocityComponent,
-  InputComponent,
   SprintComponent,
   KnockbackComponent,
 } from '#shared';
@@ -49,7 +44,6 @@ export class MovementSystem implements System {
   readonly name = 'MovementSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     // Iterate over all player entities in ECS
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
@@ -82,8 +76,12 @@ export class MovementSystem implements System {
 
       // Normalize diagonal input for consistent acceleration
       // For Stage 5, normalize in 3D; for others, normalize in 2D
-      const inputLengthXY = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y);
-      const inputLength3D = Math.sqrt(inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y + inputZ * inputZ);
+      const inputLengthXY = Math.sqrt(
+        inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y
+      );
+      const inputLength3D = Math.sqrt(
+        inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y + inputZ * inputZ
+      );
       const inputLength = stage === EvolutionStage.GODCELL ? inputLength3D : inputLengthXY;
       const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
       const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
@@ -125,7 +123,10 @@ export class MovementSystem implements System {
       }
 
       // Apply knockback force (from melee attacks, etc.)
-      const knockbackComponent = world.getComponent<KnockbackComponent>(entity, Components.Knockback);
+      const knockbackComponent = world.getComponent<KnockbackComponent>(
+        entity,
+        Components.Knockback
+      );
       if (knockbackComponent) {
         // Apply knockback to velocity (instant impulse, not additive)
         velocityComponent.x += knockbackComponent.forceX * deltaTime;
@@ -133,7 +134,10 @@ export class MovementSystem implements System {
 
         // Decay knockback force over time
         const decay = knockbackComponent.decayRate * deltaTime;
-        const forceMag = Math.sqrt(knockbackComponent.forceX * knockbackComponent.forceX + knockbackComponent.forceY * knockbackComponent.forceY);
+        const forceMag = Math.sqrt(
+          knockbackComponent.forceX * knockbackComponent.forceX +
+            knockbackComponent.forceY * knockbackComponent.forceY
+        );
 
         if (forceMag <= decay || forceMag < 1) {
           // Knockback exhausted - remove component
@@ -148,8 +152,14 @@ export class MovementSystem implements System {
 
       // Calculate max speed (2D for most stages, 3D for godcell)
       const vz = velocityComponent.z ?? 0;
-      const currentSpeedXY = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y);
-      const currentSpeed3D = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y + vz * vz);
+      const currentSpeedXY = Math.sqrt(
+        velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y
+      );
+      const currentSpeed3D = Math.sqrt(
+        velocityComponent.x * velocityComponent.x +
+          velocityComponent.y * velocityComponent.y +
+          vz * vz
+      );
       const currentSpeed = stage === EvolutionStage.GODCELL ? currentSpeed3D : currentSpeedXY;
       let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
@@ -227,14 +237,23 @@ export class MovementSystem implements System {
 
       // Skip if no movement (include z for godcell)
       const currentVZ = velocityComponent.z ?? 0;
-      const hasMovement = stage === EvolutionStage.GODCELL
-        ? (velocityComponent.x !== 0 || velocityComponent.y !== 0 || currentVZ !== 0)
-        : (velocityComponent.x !== 0 || velocityComponent.y !== 0);
+      const hasMovement =
+        stage === EvolutionStage.GODCELL
+          ? velocityComponent.x !== 0 || velocityComponent.y !== 0 || currentVZ !== 0
+          : velocityComponent.x !== 0 || velocityComponent.y !== 0;
       if (!hasMovement) return;
 
       // Calculate distance for energy cost (3D for godcell)
-      const distanceMovedXY = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y) * deltaTime;
-      const distanceMoved3D = Math.sqrt(velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y + currentVZ * currentVZ) * deltaTime;
+      const distanceMovedXY =
+        Math.sqrt(
+          velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y
+        ) * deltaTime;
+      const distanceMoved3D =
+        Math.sqrt(
+          velocityComponent.x * velocityComponent.x +
+            velocityComponent.y * velocityComponent.y +
+            currentVZ * currentVZ
+        ) * deltaTime;
       const distanceMoved = stage === EvolutionStage.GODCELL ? distanceMoved3D : distanceMovedXY;
 
       // Update position - write to ECS component directly

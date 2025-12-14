@@ -12,8 +12,8 @@ import type { DamageSource, EvolutionStage } from '#shared';
  * AuraRenderSystem queries for this to render red glow.
  */
 export interface DrainAuraComponent {
-  intensity: number;        // 0-1, drives visual glow strength
-  source: DamageSource;     // For color selection (red for most, orange for starvation)
+  intensity: number; // 0-1, drives visual glow strength
+  source: DamageSource; // For color selection (red for most, orange for starvation)
   proximityFactor?: number; // 0-1, for gradient effects (gravity wells)
 }
 
@@ -29,10 +29,10 @@ export interface DrainAuraComponent {
  * - 0xff88ff (pink) for predation energy gain
  */
 export interface GainAuraComponent {
-  intensity: number;   // 0-1, drives visual strength
-  color: number;       // THREE.Color hex value
+  intensity: number; // 0-1, drives visual strength
+  color: number; // THREE.Color hex value
   triggerTime: number; // Date.now() when triggered (for animation timing)
-  duration: number;    // Flash duration in ms (typically 500-600ms)
+  duration: number; // Flash duration in ms (typically 500-600ms)
 }
 
 /**
@@ -42,8 +42,8 @@ export interface GainAuraComponent {
  * Renders a pulsing shell/cocoon effect.
  */
 export interface EvolutionAuraComponent {
-  progress: number;          // 0-1, drives the visual animation
+  progress: number; // 0-1, drives the visual animation
   targetStage: EvolutionStage; // The stage being evolved to
-  startTime: number;         // Date.now() when evolution started
-  duration: number;          // Total evolution duration in ms
+  startTime: number; // Date.now() when evolution started
+  duration: number; // Total evolution duration in ms
 }

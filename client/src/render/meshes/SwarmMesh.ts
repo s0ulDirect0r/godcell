@@ -105,7 +105,9 @@ export function createSwarm(
     const vPhi = Math.random() * Math.PI;
 
     internalParticleData.push({
-      x, y, z,
+      x,
+      y,
+      z,
       vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
       vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
       vz: speed * Math.cos(vPhi),
@@ -184,11 +186,7 @@ export function createSwarm(
  * @param state - 'patrol' | 'chase' | 'disabled'
  * @param isDisabled - Whether swarm is disabled (hit by EMP)
  */
-export function updateSwarmState(
-  group: THREE.Group,
-  state: string,
-  isDisabled: boolean
-): void {
+export function updateSwarmState(group: THREE.Group, state: string, isDisabled: boolean): void {
   const outerSphere = group.children[0] as THREE.Mesh;
   const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
   const internalStorm = group.children[1] as THREE.Points;
@@ -292,7 +290,10 @@ export function updateSwarmAnimation(
   const baseIntensity = swarmState === 'chase' ? 1.2 : 0.8;
   const intensityBoost = energyRatio * 0.3; // Extra glow with energy (was 0.5)
   const flickerAmount = 0.15 + energyRatio * 0.15; // 0.15 to 0.3 (was 0.2 to 0.5)
-  outerMaterial.emissiveIntensity = baseIntensity + intensityBoost + Math.sin(time * 4 * (1 + energyRatio * 0.5) + pulsePhase) * flickerAmount;
+  outerMaterial.emissiveIntensity =
+    baseIntensity +
+    intensityBoost +
+    Math.sin(time * 4 * (1 + energyRatio * 0.5) + pulsePhase) * flickerAmount;
 
   // === INTERNAL PARTICLE STORM ===
   const internalStorm = group.children[1] as THREE.Points;
@@ -395,7 +396,7 @@ export function updateSwarmAnimation(
  * @param group - The swarm THREE.Group to dispose
  */
 export function disposeSwarm(group: THREE.Group): void {
-  group.children.forEach(child => {
+  group.children.forEach((child) => {
     if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
       child.geometry.dispose();
       (child.material as THREE.Material).dispose();

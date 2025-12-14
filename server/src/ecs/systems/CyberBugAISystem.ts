@@ -5,18 +5,17 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
+import { GAME_CONFIG, Components, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
-  CyberBugComponent,
   StageComponent,
   EnergyComponent,
   EntityId,
   CyberBugMovedMessage,
 } from '#shared';
 import type { System } from './types';
-import { forEachCyberBug, forEachPlayer, getStringIdByEntity } from '../factories';
+import { forEachCyberBug, forEachPlayer } from '../factories';
 import { processCyberBugRespawns } from '../../jungleFauna';
 import { isJungleStage } from '../../helpers/stages';
 
@@ -49,7 +48,8 @@ function findNearestThreatFast(
   threats: ThreatSnapshot[]
 ): ThreatSnapshot | null {
   let nearest: ThreatSnapshot | null = null;
-  const fleeRadiusSq = GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS * GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS;
+  const fleeRadiusSq =
+    GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS * GAME_CONFIG.CYBERBUG_FLEE_TRIGGER_RADIUS;
   let nearestDistSq = fleeRadiusSq;
 
   for (const threat of threats) {
@@ -140,7 +140,8 @@ export class CyberBugAISystem implements System {
             const patrolDy = bugComp.patrolTarget.y - bugY;
             const distToTargetSq = patrolDx * patrolDx + patrolDy * patrolDy;
 
-            if (distToTargetSq < 900) { // 30^2 = 900
+            if (distToTargetSq < 900) {
+              // 30^2 = 900
               // Reached target, maybe go idle or pick new target
               if (Math.random() < 0.3) {
                 bugComp.state = 'idle';
@@ -169,9 +170,10 @@ export class CyberBugAISystem implements System {
 
       // Clamp to max speed
       const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-      const maxSpeed = bugComp.state === 'flee'
-        ? GAME_CONFIG.CYBERBUG_FLEE_SPEED * 1.2 // Faster when fleeing
-        : GAME_CONFIG.CYBERBUG_PATROL_SPEED; // Slower when patrolling
+      const maxSpeed =
+        bugComp.state === 'flee'
+          ? GAME_CONFIG.CYBERBUG_FLEE_SPEED * 1.2 // Faster when fleeing
+          : GAME_CONFIG.CYBERBUG_PATROL_SPEED; // Slower when patrolling
 
       if (velocityMagnitude > maxSpeed) {
         velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;

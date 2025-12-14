@@ -35,9 +35,9 @@ const CONFIG = {
   CLAW_SPREAD: 0.4,
 
   // Swarm-style body visuals
-  PARTICLES_PER_SEGMENT: 40,      // Internal particles per body segment
-  OUTER_OPACITY: 0.25,            // Outer sphere transparency
-  PARTICLE_SPEED: 40,             // Base particle speed
+  PARTICLES_PER_SEGMENT: 40, // Internal particles per body segment
+  OUTER_OPACITY: 0.25, // Outer sphere transparency
+  PARTICLE_SPEED: 40, // Base particle speed
 
   // Colors
   BODY_COLOR: 0xff6600,
@@ -58,8 +58,12 @@ const CONFIG = {
  * Particle data for internal storm animation
  */
 interface ParticleData {
-  x: number; y: number; z: number;
-  vx: number; vy: number; vz: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
 }
 
 /**
@@ -68,8 +72,8 @@ interface ParticleData {
 interface ClawSwipeState {
   active: boolean;
   startTime: number;
-  duration: number;  // ms
-  armIndex: number;  // Which arm is swiping (0 = left, 1 = right)
+  duration: number; // ms
+  armIndex: number; // Which arm is swiping (0 = left, 1 = right)
 }
 
 /**
@@ -78,7 +82,7 @@ interface ClawSwipeState {
 export interface EntropySerpentAnimState {
   basePositions: THREE.Vector3[];
   time: number;
-  segmentParticles: ParticleData[][];  // Particles for each body segment
+  segmentParticles: ParticleData[][]; // Particles for each body segment
   clawSwipe: ClawSwipeState;
 }
 
@@ -129,7 +133,9 @@ function createSwarmSegment(segRadius: number, bodyColor: number): THREE.Group {
     const vPhi = Math.random() * Math.PI;
 
     particleData.push({
-      x, y, z,
+      x,
+      y,
+      z,
       vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
       vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
       vz: speed * Math.cos(vPhi),
@@ -261,10 +267,10 @@ export function createEntropySerpent(radius: number, colorHex?: number): THREE.G
 
   // Center the group
   const centerOffset = (CONFIG.BODY_SEGMENTS / 2) * radius * 1.6;
-  group.children.forEach(child => {
+  group.children.forEach((child) => {
     child.position.x -= centerOffset;
   });
-  animState.basePositions.forEach(pos => {
+  animState.basePositions.forEach((pos) => {
     pos.x -= centerOffset;
   });
 
@@ -374,7 +380,7 @@ export function updateEntropySerpentAnimation(
 
     // Breathing pulse on outer sphere
     const breathe = Math.sin(time * CONFIG.BREATHE_SPEED + phase * 0.5) * CONFIG.BREATHE_AMOUNT;
-    const outer = seg.children.find(c => c.name === 'outer') as THREE.Mesh | undefined;
+    const outer = seg.children.find((c) => c.name === 'outer') as THREE.Mesh | undefined;
     if (outer) {
       outer.scale.setScalar(1 + breathe);
     }
@@ -382,7 +388,7 @@ export function updateEntropySerpentAnimation(
 
   // === INTERNAL PARTICLE STORM ===
   bodySegments.forEach((seg, segIndex) => {
-    const particles = seg.children.find(c => c.name === 'particles') as THREE.Points | undefined;
+    const particles = seg.children.find((c) => c.name === 'particles') as THREE.Points | undefined;
     if (!particles) return;
 
     const particleData = animState.segmentParticles[segIndex];
@@ -488,19 +494,18 @@ export function updateEntropySerpentState(
 ): void {
   group.userData.state = state;
 
-  const bodyColor = state === 'chase' || state === 'attack'
-    ? CONFIG.CHASE_BODY_COLOR
-    : CONFIG.BODY_COLOR;
+  const bodyColor =
+    state === 'chase' || state === 'attack' ? CONFIG.CHASE_BODY_COLOR : CONFIG.BODY_COLOR;
 
-  const glowColor = state === 'chase' || state === 'attack'
-    ? CONFIG.CHASE_GLOW_COLOR
-    : CONFIG.GLOW_COLOR;
+  const glowColor =
+    state === 'chase' || state === 'attack' ? CONFIG.CHASE_GLOW_COLOR : CONFIG.GLOW_COLOR;
 
   const outerOpacity = state === 'chase' ? 0.35 : state === 'attack' ? 0.45 : CONFIG.OUTER_OPACITY;
   const emissiveIntensity = state === 'chase' ? 0.8 : state === 'attack' ? 1.0 : 0.6;
-  const glowIntensity = state === 'chase' ? 10 : state === 'attack' ? 12 : CONFIG.EYE_GLOW_INTENSITY;
+  const glowIntensity =
+    state === 'chase' ? 10 : state === 'attack' ? 12 : CONFIG.EYE_GLOW_INTENSITY;
 
-  group.traverse(child => {
+  group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       const mat = child.material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
 
@@ -537,11 +542,11 @@ export function updateEntropySerpentState(
  * Dispose of serpent resources
  */
 export function disposeEntropySerpent(group: THREE.Group): void {
-  group.traverse(child => {
+  group.traverse((child) => {
     if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
-        child.material.forEach(m => m.dispose());
+        child.material.forEach((m) => m.dispose());
       } else {
         (child.material as THREE.Material).dispose();
       }

@@ -110,7 +110,10 @@ export class SwarmRenderSystem {
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
       const swarm = this.world.getComponent<SwarmComponent>(entity, Components.Swarm);
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
       if (!pos || !swarm) return;
 
       currentSwarmIds.add(swarmId);
@@ -155,7 +158,10 @@ export class SwarmRenderSystem {
       const energy = energyComp?.current ?? this.BASE_ENERGY;
       const MAX_SCALE = 1.5; // For aura/particle calculations only
       const MAX_ENERGY = 500;
-      const energyRatio = Math.min((energy - this.BASE_ENERGY) / (MAX_ENERGY - this.BASE_ENERGY), 1);
+      const energyRatio = Math.min(
+        (energy - this.BASE_ENERGY) / (MAX_ENERGY - this.BASE_ENERGY),
+        1
+      );
       const energyScale = 1 + energyRatio * (MAX_SCALE - 1); // Used for aura calculations
       // No size scaling: group.scale stays at 1
       this.swarmEnergyScales.set(swarmId, 1.0); // Fixed scale for spawn animation
@@ -218,7 +224,6 @@ export class SwarmRenderSystem {
    */
   interpolate(dt: number = 16.67): void {
     const lerpFactor = frameLerp(0.3, dt);
-    const time = performance.now() * 0.001;
 
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
@@ -254,7 +259,16 @@ export class SwarmRenderSystem {
       const isDisabled = this.swarmDisabled.get(id) ?? false;
 
       if (internalParticles && orbitingParticles) {
-        updateSwarmAnimation(group, internalParticles, orbitingParticles, swarmState, pulsePhase, dt, energyRatio, isDisabled);
+        updateSwarmAnimation(
+          group,
+          internalParticles,
+          orbitingParticles,
+          swarmState,
+          pulsePhase,
+          dt,
+          energyRatio,
+          isDisabled
+        );
       }
     });
   }
@@ -352,7 +366,7 @@ export class SwarmRenderSystem {
    * Set opacity for all materials in a group
    */
   private setGroupOpacity(group: THREE.Group, opacity: number): void {
-    group.children.forEach(child => {
+    group.children.forEach((child) => {
       if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
         const material = child.material as THREE.Material;
         if ('opacity' in material) {
@@ -426,7 +440,9 @@ export class SwarmRenderSystem {
       const vPhi = Math.random() * Math.PI;
 
       newParticles.push({
-        x, y, z,
+        x,
+        y,
+        z,
         vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
         vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
         vz: speed * Math.cos(vPhi),
@@ -456,7 +472,7 @@ export class SwarmRenderSystem {
     swarmId: string,
     group: THREE.Group,
     energy: number,
-    energyScale: number
+    _energyScale: number
   ): void {
     const baseSize = this.swarmBaseSizes.get(swarmId) ?? 30;
     const absorbedEnergy = energy - this.BASE_ENERGY;
@@ -502,7 +518,7 @@ export class SwarmRenderSystem {
     const pulseWave = Math.sin(time * pulseFreq * Math.PI * 2 + pulsePhase);
 
     // Ring thickness oscillates: 10% base, +3% pulse at max energy (was +5%)
-    const baseThickness = 0.10; // 10% of body radius
+    const baseThickness = 0.1; // 10% of body radius
     const pulseAmplitude = 0.03 * intensityFactor; // Up to 3% extra at max energy
     const ringThickness = baseThickness + pulseWave * pulseAmplitude;
 

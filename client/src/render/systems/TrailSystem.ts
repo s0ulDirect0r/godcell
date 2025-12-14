@@ -7,12 +7,13 @@
 import * as THREE from 'three';
 import { updateTrails, disposeAllTrails } from '../effects/TrailEffect';
 import type { RenderMode } from './EnvironmentSystem';
+import type { EvolutionStage } from '#shared';
 
 /**
  * Player data needed for trail rendering
  */
 interface TrailPlayerData {
-  stage: string;
+  stage: EvolutionStage;
   color: string;
   energy: number;
   maxEnergy: number;
@@ -67,7 +68,7 @@ export class TrailSystem {
       this.trailPoints,
       this.trailMeshes,
       playerMeshes as Map<string, THREE.Group>,
-      players as Map<string, { stage: any; color: string; energy: number; maxEnergy: number; radius: number }>
+      players
     );
   }
 

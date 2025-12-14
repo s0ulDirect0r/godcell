@@ -223,7 +223,7 @@ export class SpecializationModal {
     // Wire up card clicks
     setTimeout(() => {
       const cards = container.querySelectorAll('.spec-card');
-      cards.forEach(card => {
+      cards.forEach((card) => {
         card.addEventListener('click', () => {
           const spec = card.getAttribute('data-spec') as CombatSpecialization;
           if (spec) {

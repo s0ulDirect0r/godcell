@@ -133,8 +133,7 @@ function formatBytes(bytes: number): string {
 }
 
 function reportStats(elapsedSec: number) {
-  const connectedClients = Array.from(stats.values()).filter(s => s.connected).length;
-  const avgMsgPerClient = totalMessagesReceived / Math.max(1, CLIENT_COUNT);
+  const connectedClients = Array.from(stats.values()).filter((s) => s.connected).length;
   const msgPerSec = totalMessagesReceived / Math.max(1, elapsedSec);
   const bytesPerSec = totalBytesReceived / Math.max(1, elapsedSec);
 
@@ -146,7 +145,9 @@ function reportStats(elapsedSec: number) {
   console.log(`Messages/sec: ${msgPerSec.toFixed(1)}`);
   console.log(`Total bandwidth: ${formatBytes(totalBytesReceived)}`);
   console.log(`Bandwidth/sec: ${formatBytes(bytesPerSec)}/s`);
-  console.log(`Avg bandwidth/client/sec: ${formatBytes(bytesPerSec / Math.max(1, connectedClients))}/s`);
+  console.log(
+    `Avg bandwidth/client/sec: ${formatBytes(bytesPerSec / Math.max(1, connectedClients))}/s`
+  );
   console.log('='.repeat(60) + '\n');
 }
 
@@ -165,7 +166,7 @@ async function main() {
   // Stagger client connections to avoid thundering herd
   for (let i = 0; i < CLIENT_COUNT; i++) {
     clients.push(createFakeClient(i));
-    await new Promise(resolve => setTimeout(resolve, 100)); // 100ms between connections
+    await new Promise((resolve) => setTimeout(resolve, 100)); // 100ms between connections
   }
 
   const startTime = Date.now();
@@ -177,7 +178,7 @@ async function main() {
   }, 10000);
 
   // Wait for duration
-  await new Promise(resolve => setTimeout(resolve, DURATION_SEC * 1000));
+  await new Promise((resolve) => setTimeout(resolve, DURATION_SEC * 1000));
 
   // Final stats
   clearInterval(statsInterval);

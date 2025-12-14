@@ -3,18 +3,13 @@
 // Build detection messages for multi-cell chemical sensing
 // ============================================
 
-import {
-  EvolutionStage,
-  Components,
-  Tags,
-} from '#shared';
+import { EvolutionStage, Components, Tags } from '#shared';
 import type {
   World,
   EntityId,
   PositionComponent,
   EnergyComponent,
   StageComponent,
-  NutrientComponent,
   DetectedEntity,
   DetectionUpdateMessage,
 } from '#shared';

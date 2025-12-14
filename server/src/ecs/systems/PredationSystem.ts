@@ -4,15 +4,13 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import type { Position, PlayerEngulfedMessage, PlayerDiedMessage } from '#shared';
+import type { Position, PlayerEngulfedMessage } from '#shared';
 import { EvolutionStage, GAME_CONFIG, type World } from '#shared';
 import type { System } from './types';
 import {
   forEachPlayer,
-  getEnergy,
   setEnergy,
   addEnergy,
-  getEntityBySocketId,
   getSocketIdByEntity,
   setDrainTarget,
   clearDrainTarget,
@@ -23,11 +21,7 @@ import {
   requirePosition,
   requireStage,
   Components,
-  type EnergyComponent,
-  type PositionComponent,
-  type StageComponent,
   type StunnedComponent,
-  type PlayerComponent,
 } from '../index';
 import { distance } from '../../helpers';
 import { getConfig } from '../../dev';
@@ -46,7 +40,6 @@ export class PredationSystem implements System {
   readonly name = 'PredationSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 
     // Iterate predators via ECS
@@ -54,7 +47,10 @@ export class PredationSystem implements System {
       const predatorStage = requireStage(world, predatorEntity);
       const predatorEnergy = requireEnergy(world, predatorEntity);
       const predatorPos = requirePosition(world, predatorEntity);
-      const predatorStunned = world.getComponent<StunnedComponent>(predatorEntity, Components.Stunned);
+      const predatorStunned = world.getComponent<StunnedComponent>(
+        predatorEntity,
+        Components.Stunned
+      );
 
       // Only Stage 2 (MULTI_CELL) can drain via contact
       if (predatorStage.stage !== EvolutionStage.MULTI_CELL) return;
@@ -106,7 +102,15 @@ export class PredationSystem implements System {
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {
-            this.engulfPrey(world, io, predatorEntity, preyEntity, preyId, preyPosition, preyEnergy.max);
+            this.engulfPrey(
+              world,
+              io,
+              predatorEntity,
+              preyEntity,
+              preyId,
+              preyPosition,
+              preyEnergy.max
+            );
           }
         }
       });
@@ -137,11 +141,6 @@ export class PredationSystem implements System {
     position: Position,
     preyMaxEnergy: number
   ): void {
-
-    // Get prey color from ECS
-    const preyPlayer = world.getComponent<PlayerComponent>(preyEntity, Components.Player);
-    const preyColor = preyPlayer?.color ?? '#ffffff';
-
     // Get predator socket ID for network messages
     const predatorId = getSocketIdByEntity(predatorEntity) ?? 'unknown';
 

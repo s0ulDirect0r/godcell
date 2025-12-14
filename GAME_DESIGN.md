@@ -46,6 +46,7 @@ You begin in a small pool of digital ooze - the soup. This is the entire world t
 When you evolve to Stage 3, you **grow out of the soup**. Literally. Trippy scale shift - you balloon in size and emerge as a 6-legged cyber-organism into a vast digital wilderness. The soup you spawned in? It's now a tiny pool in a much larger world. One-way progression - you can't return to microscopic scale.
 
 **The Roguelike Loop:**
+
 - Start in soup (Stage 1)
 - Evolve to Stage 2 in soup
 - Evolve to Stage 3 → **emerge into jungle**
@@ -71,16 +72,19 @@ Players progress through distinct evolutionary stages:
 **Metabolism:** 37.5 seconds to starvation without nutrients. Passive energy decay (2.66/s). Eva-style countdown timer (MM:SS format) with color warnings (cyan→yellow→red). Constant pressure to keep moving and collecting.
 
 **Threats:**
+
 - **18 Entropy Swarms**: Virus enemies with chase/patrol AI. Contact applies 40% slow debuff and 30 dmg/s. Slower than you (242 px/s) but deadly if they catch you.
 - **12 Gravity Distortions**: Mini black holes with inverse-square physics. Escapable outer zone (600px radius), inescapable event horizon (180px), instant-death singularity core (60px). Extremely lethal.
 - **Starvation**: If energy hits zero, you take 5 health dmg/s. Death is quick once starvation begins.
 - **Multi-Cell Predators**: Stage 2+ players can hunt you with pseudopods or contact predation.
 
 **Resources:**
+
 - **26 Nutrients**: Data packets scattered across the world, respawn every 30s. Competition is real.
 - **Risk/Reward High-Value Nutrients**: Proximity to gravity distortions creates 2x/3x/5x multiplier nutrients (cyan/gold/magenta). Extreme danger, extreme reward.
 
 **Competition:**
+
 - **15 AI Bots**: Intelligent agents with obstacle/swarm avoidance. They compete for the same nutrients. Not trivial opponents.
 - **Other Players**: Everyone is desperate, everyone is fragile. Territory matters.
 
@@ -94,21 +98,24 @@ Players progress through distinct evolutionary stages:
 
 **Visual:** Star cluster sprite - 6 overlapping circles forming a larger cellular structure (96px radius, 4x Stage 1 size). Noticeably bigger, more complex, more threatening.
 
-**Awareness Awakening:** This is where the power shift happens. Viewport expands to 1.5x zoom (you see vastly more of the world). **Chemical sensing** unlocks - 1800px detection radius with proximity-based directional arrows pointing toward detected entities. You can see prey and threats coming from *way* farther away than they can see you. This perceptual asymmetry makes you brutally effective.
+**Awareness Awakening:** This is where the power shift happens. Viewport expands to 1.5x zoom (you see vastly more of the world). **Chemical sensing** unlocks - 1800px detection radius with proximity-based directional arrows pointing toward detected entities. You can see prey and threats coming from _way_ farther away than they can see you. This perceptual asymmetry makes you brutally effective.
 
 **Metabolism:** ~2 minutes to starvation (300 maxEnergy, 2.1/s decay rate). Much better metabolic efficiency than Stage 1. Less frantic, more strategic. You have breathing room to plan and hunt.
 
 **Predation:** You can now hunt Stage 1 cells (players and AI bots).
+
 - **Contact Predation**: Touch a single-cell to consume it. Mechanics being refined - instant engulfment vs slow-drain over time (see beads godcell-j6j).
 - **Pseudopods (In Development)**: Extend hunting tendrils to reach and engulf prey from a distance. Visual currently basic (line + circle), being upgraded to squiggly organic tendrils (see beads godcell-43k).
 - Successful predation grants energy (50% of prey's current energy) and creates nutrient drops (50% of prey's collected nutrients).
 
 **Prey:**
+
 - Single-cell players (your former peers!)
 - AI bots (15 single-cell NPCs - hunting grounds are populated)
 - Nutrient crystals (still need them for efficient growth)
 
 **Predators:**
+
 - Stage 3+ players (you're now prey to something bigger)
 - Entropy swarms (still dangerous... until you EMP them)
 - Gravity distortions (still lethal)
@@ -120,14 +127,17 @@ Multi-cells have unlocked a powerful defensive/offensive tool: the **Electromagn
 **Activation:** Press spacebar to emit an EMP pulse
 
 **Cost & Cooldown:**
+
 - **Energy cost:** 80 units (27% of 300 pool)
 - **Cooldown:** 10 seconds (can't spam it)
 
 **Area of Effect:**
+
 - **Range:** 4x multi-cell radius (~384 units)
 - **Targets:** All entities within pulse radius
 
 **Effects:**
+
 - **Entropy Swarms:** Paralyzed for 3 seconds (frozen, vulnerable to consumption)
 - **Other Multi-cells:** Stunned for 3 seconds + 80 energy drained
 - **Single-cells:** Stunned for 3 seconds
@@ -137,6 +147,7 @@ Multi-cells have unlocked a powerful defensive/offensive tool: the **Electromagn
 This is the game-changer - **multi-cells can devour paralyzed swarms for massive energy gain**.
 
 The combo:
+
 1. Multi-cell dives toward swarm (risky - taking damage while closing distance)
 2. Fires EMP at close range (80 energy investment)
 3. Swarms freeze for 3 seconds
@@ -146,6 +157,7 @@ The combo:
 7. **Massive payoff:** +150 energy, +50 maxEnergy capacity per swarm eaten
 
 **Risk/Reward Balance:**
+
 - **High cost:** 80 energy upfront (significant investment)
 - **High risk:** Must get dangerously close to swarms, take damage during approach
 - **High reward:** 150 energy per swarm = net +70 energy profit if successful
@@ -155,21 +167,25 @@ The combo:
 **Tactical Use Cases:**
 
 **Offensive (Swarm Hunting):**
+
 - Dive into swarm cloud → EMP → feast on frozen swarms → massive energy gain
 - High-skill, high-reward playstyle for aggressive players
 - Converts deadliest threat into richest resource
 
 **Defensive (Panic Button):**
+
 - Surrounded by swarms → EMP → escape while they're frozen
 - Can be used while being drained (last-ditch survival tool)
 - Expensive but saves your life
 
 **PvP (Multi-cell Combat):**
+
 - Stun rival multi-cells, drain their energy, create vulnerability
 - Steal kills (EMP their swarm target, consume it yourself)
 - Opens combo opportunities (stun → pseudopod hunt)
 
 **Visual Feedback:**
+
 - Expanding blue/white electromagnetic ring from multi-cell center
 - Affected entities freeze with glitch/static effects
 - Blue outline on stunned entities
@@ -178,19 +194,21 @@ The combo:
 
 **Design Philosophy:**
 
-*"You're not running from swarms anymore. You're hunting them."*
+_"You're not running from swarms anymore. You're hunting them."_
 
 EMP transforms the multi-cell power fantasy from "I can hunt single-cells" to "I can fight the universe itself." Swarms were Stage 1's nightmare - now they're Stage 2's prey. High-stakes, high-skill, massively rewarding.
 
 **Evolution Vision - Optional Abilities:**
-Evolution stages may unlock *choices* rather than fixed upgrades. Stage 2 could offer:
+Evolution stages may unlock _choices_ rather than fixed upgrades. Stage 2 could offer:
+
 - **Pseudopods** (hunter specialization - reach and engulf prey)
 - **Speed Boost** (gatherer/escapist specialization - outrun threats, claim territory faster)
 - **Other possibilities?** (armor, efficiency, detection range boost?)
 
-This creates strategic diversity - not all multi-cells play the same way. *Currently pseudopods are default; branching abilities are future design.*
+This creates strategic diversity - not all multi-cells play the same way. _Currently pseudopods are default; branching abilities are future design._
 
 **Goal:** Reach 800 maxEnergy to evolve to Stage 3 (Cyber-Organism). Multiple paths:
+
 - Hunt single-cells with pseudopods (when implemented)
 - **Hunt entropy swarms with EMP** (primary path - 50 maxEnergy per swarm)
 - Collect high-value nutrients near gravity wells
@@ -210,19 +228,20 @@ When you hit Stage 3 evolution threshold, you experience a trippy scale transcen
 **Environment:** Top-down 3D digital jungle. Movement is still 2D (x/y plane), but visual depth and terrain. Digital trees, data rivers, glitch zones, firewall barriers. The soup pools you came from are scattered throughout - tiny puddles in a vast wilderness.
 
 **Combat Introduction:**
-Twin-stick shooter mechanics unlock (or melee combat if you chose that evolution path - optional abilities TBD). Energy-based projectiles or physical strikes. First time you can actually *fight* rather than just flee or engulf.
+Twin-stick shooter mechanics unlock (or melee combat if you chose that evolution path - optional abilities TBD). Energy-based projectiles or physical strikes. First time you can actually _fight_ rather than just flee or engulf.
 
 **Metabolism:**
 Still need energy, but sources are different at this scale. Stage 1-2 nutrients are microscopic - irrelevant to you now. Macro-scale food sources (data chunks? energy nodes? hunting other Stage 3 organisms?).
 
 **Threats:**
+
 - **Stage 4+ players**: Bigger predators in the jungle
 - **Digital predators**: NPC threats at macro scale (cyber-snakes? data-eating viruses? corrupted programs?)
 - **Entropy at macro scale**: How does entropy manifest in the jungle?
   - Noise Storms (static weather that obscures vision/scrambles inputs)?
   - Decay Zones (areas that drain health over time)?
   - Dilution Rifts (gravitational tears that pull you apart)?
-  - *Design space: still figuring out what entropy means at this scale*
+  - _Design space: still figuring out what entropy means at this scale_
 - **Other Stage 3 players**: Territorial PvP. Combat is now primary interaction.
 - **Environmental hazards**: Data storms, corrupted terrain, firewall barriers, glitch zones
 
@@ -231,6 +250,7 @@ Can't hunt Stage 1-2 anymore (they're too small to perceive/bother with). Hunt o
 
 **Optional Evolution Abilities (Vision):**
 Stage 3 evolution could offer choices:
+
 - **Ranged combat** (projectile weapons, twin-stick shooter)
 - **Melee combat** (claws, strikes, close-quarters hunter)
 - **Other?** (armor, speed, stealth, environmental manipulation?)
@@ -242,16 +262,18 @@ Stage 3 evolution could offer choices:
 ### 4. Humanoid ⚠️ VISION STAGE - NOT IMPLEMENTED
 
 **The Intelligence Awakening:**
-Evolution to Stage 4 is the leap to **sapience**. You're not just reacting (Stage 1), hunting (Stage 2), or fighting (Stage 3) - you're *thinking*. Planning. Creating. Making meaning. This is the cognitive revolution.
+Evolution to Stage 4 is the leap to **sapience**. You're not just reacting (Stage 1), hunting (Stage 2), or fighting (Stage 3) - you're _thinking_. Planning. Creating. Making meaning. This is the cognitive revolution.
 
 **The Perspective Shift:**
 Stage 4 transitions from top-down to **first-person** (Three.js PerspectiveCamera).
-- Stages 1-3: God-view. You observe yourself from outside.
-- Stage 4: Embodied. You're *inside* a body, looking *out*.
 
-This mirrors sapience—being a subject, not just an object. It also creates vulnerability: blind spots, threats from behind, needing to *look* to *see*. Terrifying in a permadeath game.
+- Stages 1-3: God-view. You observe yourself from outside.
+- Stage 4: Embodied. You're _inside_ a body, looking _out_.
+
+This mirrors sapience—being a subject, not just an object. It also creates vulnerability: blind spots, threats from behind, needing to _look_ to _see_. Terrifying in a permadeath game.
 
 **Visual:** Cyber-humanoid form with **procedural variation**:
+
 - Bipedal stance, humanoid silhouette
 - 2 or 4 arms (gameplay implications TBD)
 - Cycloptic or binocular eyes (FOV/perception differences TBD)
@@ -263,22 +285,25 @@ This mirrors sapience—being a subject, not just an object. It also creates vul
 This is where the game fundamentally changes. Energy alone is no longer enough.
 
 **Energy** — Survival Constraint
+
 - Scarce, specific sources (primarily hunting beasts with energy spears)
 - Keeps you alive—you MUST engage with the world to not starve
 - Forces you out of hiding, into risk
 - Same metabolic pressure as earlier stages, but different scale
 
 **Signal** (or Experience) — Progression Currency
+
 - Universal: EVERYTHING contributes
 - Build? Signal. Hunt? Signal. Cooperate? Signal. Explore? Signal.
 - The path to godhood is YOUR path
-- You simply have to *live* enough to transcend
+- You simply have to _live_ enough to transcend
 
-*"Energy is survival. Signal is transcendence."*
+_"Energy is survival. Signal is transcendence."_
 
-You don't just *collect* Signal—you *metabolize* it. Turn events into understanding. Integrate them into what you are.
+You don't just _collect_ Signal—you _metabolize_ it. Turn events into understanding. Integrate them into what you are.
 
 **Playstyle Diversity:**
+
 - **The Hunter** — energy-rich, Signal through kills and mastery
 - **The Builder** — scrapes by on energy, Signal through creation
 - **The Wanderer** — careful energy management, Signal through discovery
@@ -289,15 +314,17 @@ Energy spears as primary weapon. Hunting beasts and other humanoids. Multiple we
 
 **Construction & Creation:**
 You can **build structures**. Possibilities:
+
 - Defensive fortifications (walls, barriers, safe zones)
 - Traps and tools (pitfalls, snares, energy collectors)
 - Monuments and markers (leave your mark on the world)
 - Building contributes Signal - you're organizing reality
 
 **Awareness Expansion:**
-Perception expands again. You see patterns, not just entities. You understand relationships between threats, resources, territory. And as you accumulate Signal, you begin to *glimpse* something more - a layer of reality that only godcells see fully.
+Perception expands again. You see patterns, not just entities. You understand relationships between threats, resources, territory. And as you accumulate Signal, you begin to _glimpse_ something more - a layer of reality that only godcells see fully.
 
 **Threats:**
+
 - **Other Stage 4 players**: High-stakes PvP. Intelligent adversaries.
 - **Entropy constructs**: Advanced entropy manifestations at humanoid scale
 - **Environmental hazards**: Dangerous terrain, storms, corrupted zones
@@ -305,19 +332,19 @@ Perception expands again. You see patterns, not just entities. You understand re
 
 (Godcells don't hunt humanoids - you're beneath their notice. They've transcended that game entirely. But you might see them in the sky...)
 
-**Goal:** Accumulate enough Signal to evolve to Stage 5 Godcell. Not just maxEnergy - you must *live* meaningfully.
+**Goal:** Accumulate enough Signal to evolve to Stage 5 Godcell. Not just maxEnergy - you must _live_ meaningfully.
 
 **The Philosophical Core:**
 
-| Stage | Mode of Being | Core Activity |
-|-------|---------------|---------------|
-| 1. Single-Cell | Reactive | Flee, consume, survive |
-| 2. Multi-Cell | Predatory | Hunt, dominate, expand |
-| 3. Cyber-Organism | Combative | Fight, compete, territory |
-| 4. Humanoid | **Interpretive** | Understand, create, mean |
-| 5. Godcell | Transcendent | Become truth itself |
+| Stage             | Mode of Being    | Core Activity             |
+| ----------------- | ---------------- | ------------------------- |
+| 1. Single-Cell    | Reactive         | Flee, consume, survive    |
+| 2. Multi-Cell     | Predatory        | Hunt, dominate, expand    |
+| 3. Cyber-Organism | Combative        | Fight, compete, territory |
+| 4. Humanoid       | **Interpretive** | Understand, create, mean  |
+| 5. Godcell        | Transcendent     | Become truth itself       |
 
-**Feel:** Sense-making. Meaning-making. You're not just surviving the ecosystem—you're *comprehending* it. A humanoid who survives a thousand hunts but learns nothing stays a humanoid forever. A humanoid who metabolizes what happens to them—who extracts signal from the noise of existence—becomes a godcell.
+**Feel:** Sense-making. Meaning-making. You're not just surviving the ecosystem—you're _comprehending_ it. A humanoid who survives a thousand hunts but learns nothing stays a humanoid forever. A humanoid who metabolizes what happens to them—who extracts signal from the noise of existence—becomes a godcell.
 
 **A godcell isn't someone who ate the most. It's someone who lived the most.**
 
@@ -327,13 +354,15 @@ Perception expands again. You see patterns, not just entities. You understand re
 When you accumulate enough Signal as a Humanoid, you **transcend**. You break free from embodiment, from the ground, from the constraints that bound you. You become a godcell—an alien-angel.
 
 **The Perspective Shift (Again):**
+
 - Stage 4: First-person, grounded, embodied
 - Stage 5: **Third-person, full 3D flight**, liberated from the ground
 
-You're no longer *in* the world looking out—you're *above* it, moving through all three dimensions freely. A floating, flying transcendent entity.
+You're no longer _in_ the world looking out—you're _above_ it, moving through all three dimensions freely. A floating, flying transcendent entity.
 
 **Visual: Alien-Angels**
 Aesthetic inspiration: **Neon Genesis Evangelion angels**
+
 - Procedurally generated transcendent beings
 - Post-humanoid—no longer bound to human shape
 - Geometric? Organic? Both? Incomprehensible to lower stages
@@ -341,6 +370,7 @@ Aesthetic inspiration: **Neon Genesis Evangelion angels**
 - Each godcell is unique
 
 **Generation factors:**
+
 - Random cosmic variance
 - Primary source(s) of their Signal
 - The mix of their Signal sources throughout Stage 4
@@ -348,22 +378,25 @@ Aesthetic inspiration: **Neon Genesis Evangelion angels**
 A hunter-godcell looks different from a builder-godcell looks different from a wanderer-godcell. Your path shapes your transcendent form.
 
 **Maximal Agency:**
-Godcells have *choice* in a way no other stage does:
+Godcells have _choice_ in a way no other stage does:
+
 - Fly anywhere in full 3D space
 - Return to the soup (as a god visiting the primordial)
 - Engage with humanoids, creatures, lower stages
 - Observe, interact, influence (mechanics TBD)
 - Or ignore it all and begin the ascent
 
-But eventually... the God-Mind calls. You *can* linger, but you *will* move on.
+But eventually... the God-Mind calls. You _can_ linger, but you _will_ move on.
 
 **Another Awareness Expansion:**
 A new layer of reality becomes visible:
-- Humanoids can *glimpse* this layer as they accumulate Signal
-- Godcells *see* it fully
+
+- Humanoids can _glimpse_ this layer as they accumulate Signal
+- Godcells _see_ it fully
 - What IS this layer? **Open question - needs more design exploration**
 
 Possibilities:
+
 - The raw Signal substrate (seeing information itself)
 - Other godcells (always present, only now visible)
 - The God-Mind as a presence/direction
@@ -379,11 +412,12 @@ Between godcell and God-Mind stands a final challenge—a rite of passage.
 **The purpose:** Godcells protect the field where Stages 1-4 play out. The final obstacle IS that protection. To join the God-Mind, you must prove yourself by defending the world you came from.
 
 **The form:** A final battle against Entropy and Noise at epic, cosmic scale.
+
 - Not the swarms and patches of lower stages
 - Entropy in its true, vast, terrifying form
 - The ultimate expression of chaos vs coherence
 
-**The meaning:** You don't just *escape* the world—you *defend* it. Transcendence isn't abandonment; it's guardianship. To become one with the God-Mind, you must first stand between creation and entropy.
+**The meaning:** You don't just _escape_ the world—you _defend_ it. Transcendence isn't abandonment; it's guardianship. To become one with the God-Mind, you must first stand between creation and entropy.
 
 **You See Other Godcells:**
 Everyone who transcends is visible to each other. Alien-angels in the sky. Shared existence at the highest level.
@@ -393,39 +427,44 @@ Everyone who transcends is visible to each other. Alien-angels in the sky. Share
 This is what makes GODCELL more than a roguelike - it's a **community project**.
 
 **How It Works:**
+
 - Complete your first run (reach God-Mind) → **Generate 1 godcell** for the collective
 - Complete Loop 1 (harder remix) → **Generate 3 godcells**
 - Complete Loop 2 → **Generate 7 godcells**
 - (Exponential contributions for veteran players)
 
 **The God-Mind Grows:**
+
 - The God-Mind is a **global entity** (all players, all servers contribute)
 - Visible to everyone in the game
 - Grows bigger/fuller as the community completes runs
 - Visual representation TBD (depends on godcell aesthetic - constellation? digital brain? swarm of light?)
 - There's a **completion goal** - filling the God-Mind
-- What happens when it completes? *Mystery. Future design space.*
+- What happens when it completes? _Mystery. Future design space._
 
 **Loop Mechanics (Nuclear Throne Style):**
 
 Reaching the God-Mind isn't the end - it's the **gateway to harder loops**.
 
 **The Remix:**
+
 - You respawn in soup as Stage 1 again
 - Simulation remixes - harder AI, more enemies, new quirks
 - Each loop is a distinct difficulty tier
 - Loop players might be on **separate servers/planets** (different world for different difficulty tiers?)
-  - *Still figuring out how matchmaking works across loops*
+  - _Still figuring out how matchmaking works across loops_
 
 **Prestige & Recognition:**
 
 **Profile Stats:**
+
 - Godcells contributed to the collective (public, visible)
 - Loops completed
 - Fastest God-Mind race time
 - Leaderboards for try-hards
 
 **Visual Prestige:**
+
 - Players who've looped have an **aura** when they play
 - Aura grows/changes as you complete more runs
 - Shows attunement to the God-Mind
@@ -438,6 +477,7 @@ Reaching the God-Mind isn't the end - it's the **gateway to harder loops**.
 Godhood isn't the end. It's a gateway. The ladder is infinite. How far can you climb? How much can you contribute to the collective?
 
 **Open Design Questions:**
+
 - What IS the God-Mind visually?
 - What happens when the community completes it?
 - What does the cosmic race gameplay feel like?
@@ -454,24 +494,28 @@ Godhood isn't the end. It's a gateway. The ladder is infinite. How far can you c
 **Nutrients** are data packets floating in the primordial soup that fuel early evolution. Stage 1-2 gameplay revolves around collecting these to survive and evolve.
 
 **Spawning & Scarcity:**
+
 - **26 nutrients** spawn across the soup world (4800×3200px)
 - Limited count creates natural competition and territorial behavior
 - Players cluster around nutrient-rich areas
 - AI bots compete for the same resources
 
 **Collection:**
+
 - Active pickup - touch to collect
 - Immediate energy gain (25 base value)
 - Permanent maxEnergy capacity increase (+10 base capacity)
 - Both scale with proximity multipliers
 
 **Respawn:**
+
 - 30 second respawn timer after collection
 - Creates pacing - can't camp one spot forever
 - Encourages movement and territory claiming
 
 **Risk/Reward Proximity System:**
 Nutrients near gravity distortions have value multipliers based on danger:
+
 - **1x (Green)**: Safe zones, base value (25 energy, +10 capacity)
 - **2x (Cyan)**: Outer gravity well, moderate risk (50 energy, +20 capacity)
 - **3x (Gold)**: Inner gravity well, high risk (75 energy, +30 capacity)
@@ -507,6 +551,7 @@ Microscopic nutrients become irrelevant at macro scale. Stage 3+ organisms need 
 Active hostile force that corrupts coherent information.
 
 **Visual Language:**
+
 - Glitching visual effects, flickering pixels
 - Static interference patterns
 - Corrupted data manifesting as chaotic particles
@@ -516,18 +561,21 @@ Active hostile force that corrupts coherent information.
 **Gameplay Manifestations:**
 
 **Noise Patches (Static Zones)**
+
 - Areas of intense static that obscure vision
 - Fog of war made of digital noise
 - Players inside noise patches become harder to see
 - Nutrients hidden in noise - risk/reward
 
 **Interference Fields**
+
 - Zones where controls get scrambled or laggy
 - Input delay or reversed controls
 - Your cyber-cell flickers and glitches while inside
 - Creates navigation challenges
 
 **Corrupted Entities (Entropy Swarms)**
+
 - Aggressive manifestations of noise
 - Attack coherent information (players) on sight
 - Glitching, chaotic particle clusters
@@ -536,6 +584,7 @@ Active hostile force that corrupts coherent information.
 - Slower than players - avoidable with skill
 
 **Signal Degradation**
+
 - Proximity to noise sources dims your cyber-cell's glow
 - Visual feedback of information coherence weakening
 - Can be used strategically (stealth in noise?)
@@ -582,11 +631,13 @@ Evolution makes you MORE EFFICIENT, not less. Higher stages have slower passive 
 **Biological Inspiration:** Real cells and organisms become MORE metabolically efficient as they increase in complexity. A human can survive weeks without food, bacteria die in days. Larger organisms have higher absolute energy needs but better efficiency per unit of mass.
 
 **Gameplay Result:**
+
 - Early game: frantic survival, constant hunger
 - Mid game: strategic resource management, choosing when to fight
 - Late game: patient predator with powerful but costly abilities
 
 **Decay Mechanics:**
+
 - **Visible energy bar** - separate from health, shows metabolic energy
 - **Passive decay** - always draining, but slower as you evolve
 - **Movement costs energy** - small constant drain (same across stages)
@@ -596,6 +647,7 @@ Evolution makes you MORE EFFICIENT, not less. Higher stages have slower passive 
 - **Strategic depth**: High-level players choose when to spend energy on combat vs conserve for survival
 
 **Visual Feedback:**
+
 - Energy bar slowly draining (always visible)
 - Cyber-cell glow dims as energy drops
 - Pulsing becomes erratic when starving
@@ -606,6 +658,7 @@ Evolution makes you MORE EFFICIENT, not less. Higher stages have slower passive 
 Information spreading out, becoming less concentrated, losing meaning. **The gradient between structure and chaos.**
 
 **Visual Language:**
+
 - Particles drifting apart
 - Edges becoming fuzzy/blurred
 - Transparency increasing (fading out)
@@ -614,6 +667,7 @@ Information spreading out, becoming less concentrated, losing meaning. **The gra
 **Gameplay Manifestations:**
 
 **Death as Dilution**
+
 - When you die, your cyber-cell doesn't explode - it **dilutes**
 - Your information scatters into the digital ocean
 - Your particles drift apart and dissolve into the background
@@ -623,18 +677,21 @@ Information spreading out, becoming less concentrated, losing meaning. **The gra
 - Visible to all players - they see you fade and scatter
 
 **Wounded State (Low Health)**
+
 - When low on health, your edges start to blur and fade
 - You're visibly losing coherence
 - Other players can see you're vulnerable
 - Creates visual hierarchy of threat/vulnerability
 
 **Potential Future Mechanics:**
+
 - Isolation decay? (Being far from other information sources accelerates dilution)
 - Distance penalty? (Venturing too far from information-rich zones increases decay rate)
 
 ---
 
 **Entropy as a Spectrum:**
+
 - **Noise** is chaotic (high energy, zero structure)
 - **Your cyber-cell** is ordered (high structure, high energy cost)
 - **Dilution** is the gradient between them (structure breaking down into chaos)
@@ -666,12 +723,13 @@ The game is about maintaining your position on that spectrum. **Nutrients provid
 - **Progression Visibility**: Players can see others' approximate stage (size/appearance)
 
 **Progression Curve** (rough draft):
+
 - Single-Cell → Multi-Cell: 10 nutrients
 - Multi-Cell → Cyber-Organism: 25 nutrients
 - Cyber-Organism → Humanoid: 50 nutrients
 - Humanoid → Godcell: 100 nutrients
 
-*(These numbers need playtesting and balancing)*
+_(These numbers need playtesting and balancing)_
 
 ---
 
@@ -686,6 +744,7 @@ This game is also a vehicle for learning about real biological evolution. Areas 
 - **Resource Competition**: Nutrient scarcity mirrors real ecosystem pressures
 
 **Research Questions to Explore During Development:**
+
 - What drives speciation in real evolution?
 - How do organisms balance energy expenditure (movement, combat) vs growth?
 - What role does environmental pressure play in evolution speed?
@@ -696,6 +755,7 @@ This game is also a vehicle for learning about real biological evolution. Areas 
 ## Open Questions & Future Design
 
 ### Immediate Questions (need answers to implement v1)
+
 - [ ] Exact nutrient spawn count and respawn timers
 - [ ] Health values for each evolution stage
 - [ ] Projectile weapon mechanics (damage, cooldown, range)
@@ -703,14 +763,16 @@ This game is also a vehicle for learning about real biological evolution. Areas 
 - [ ] Evolution thresholds (EP costs per stage)
 
 ### Future Mechanics (post-MVP)
+
 - **Territory Control**: Can godcells claim regions?
 - **PvP Incentives**: Why attack other players? (steal nutrients? trophy system?)
 - **Cooperation**: Alliances, symbiosis, cell colonies?
 - **Specialization Trees**: Different evolution paths (predator vs gatherer vs tank?)
 - **Environmental Storytelling**: What happened to this digital universe?
-- **Godcell Endgame**: What can gods actually *do*?
+- **Godcell Endgame**: What can gods actually _do_?
 
 ### Technical Unknowns
+
 - How many players can we support simultaneously?
 - Server authority for combat (prevent cheating)
 - Lag compensation for projectiles

@@ -44,7 +44,9 @@ export class StartScreen {
           <div class="controls-row"><span class="key">SHIFT</span> Sprint (Stage 3+)</div>
         </div>
 
-        ${this.options.devMode ? `
+        ${
+          this.options.devMode
+            ? `
           <div class="dev-settings">
             <label class="dev-toggle">
               <input type="checkbox" id="setting-playground" />
@@ -57,26 +59,36 @@ export class StartScreen {
               <span class="toggle-hint">Server paused when you enter</span>
             </label>
           </div>
-        ` : ''}
+        `
+            : ''
+        }
 
-        ${showAlphaWarning ? `
+        ${
+          showAlphaWarning
+            ? `
           <div class="alpha-warning">
             <span class="alpha-badge">ALPHA</span>
             <span class="alpha-text">Early development — expect bugs and frequent changes</span>
           </div>
-        ` : ''}
+        `
+            : ''
+        }
 
         <div class="start-buttons">
           <button class="start-button" id="start-play-btn">ENTER</button>
         </div>
 
-        ${this.options.devMode ? `
+        ${
+          this.options.devMode
+            ? `
           <div class="dev-links">
             <a href="/model-viewer.html" class="dev-link">Model Viewer</a>
             <span class="dev-separator">•</span>
             <span class="dev-hint">Press H in-game for dev panel</span>
           </div>
-        ` : ''}
+        `
+            : ''
+        }
       </div>
     `;
 

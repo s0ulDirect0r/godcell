@@ -28,6 +28,7 @@ export type GameEvent = ServerMessage | ClientEvent;
 type EventHandler<T extends GameEvent> = (event: T) => void;
 
 export class EventBus {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Type erasure for generic event storage
   private handlers: Map<GameEvent['type'], Set<EventHandler<any>>> = new Map();
 
   /**
@@ -77,12 +78,10 @@ export class EventBus {
   /**
    * Emit an event (type-safe)
    */
-  emit<T extends GameEvent['type']>(
-    event: Extract<GameEvent, { type: T }>
-  ): void {
+  emit<T extends GameEvent['type']>(event: Extract<GameEvent, { type: T }>): void {
     const handlers = this.handlers.get(event.type);
     if (handlers) {
-      handlers.forEach(handler => handler(event));
+      handlers.forEach((handler) => handler(event));
     }
   }
 

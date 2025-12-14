@@ -19,6 +19,7 @@ if (this.environmentSystem.getMode() === 'soup') {
 ```
 
 This is too coarse:
+
 - Stage 3+ players can't see their own damage/gain auras
 - All effects are hidden in jungle mode, even ones that should apply to jungle-scale entities
 - No path forward for Stage 4-5 effects
@@ -29,12 +30,12 @@ Effects should be tied to **entities**, not global modes. Each effect has an imp
 
 ### Scale Mapping
 
-| Scale   | Stages              | Environment |
-|---------|---------------------|-------------|
-| soup    | 1 (single-cell), 2 (multi-cell) | Primordial soup |
-| jungle  | 3 (cyber-organism)  | Digital jungle |
-| city    | 4 (humanoid)        | Neon city |
-| world   | 5 (godcell)         | Transcendent |
+| Scale  | Stages                          | Environment     |
+| ------ | ------------------------------- | --------------- |
+| soup   | 1 (single-cell), 2 (multi-cell) | Primordial soup |
+| jungle | 3 (cyber-organism)              | Digital jungle  |
+| city   | 4 (humanoid)                    | Neon city       |
+| world  | 5 (godcell)                     | Transcendent    |
 
 ### Implementation
 

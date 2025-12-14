@@ -5,6 +5,7 @@
 **Status:** Design / Pre-Implementation
 
 ### Changelog
+
 - **v1.1 (2025-11-24):** Updated to reflect drain aura system, continuous predation drain, pseudopod beam damage, gravity damage clarification
 
 ---
@@ -33,11 +34,13 @@ Refactor GODCELL from a dual-resource system (health + energy) to a unified **en
 ## Current System (To Be Replaced)
 
 ### Player Resources
+
 - **Health:** 100-500 (stage-dependent)
 - **Energy:** 100-2000 (stage-dependent)
 - **Death:** Health ≤ 0
 
 ### Damage Sources
+
 - **Swarms:** 60 health damage/s (contact)
 - **Gravity:** Physics force only (damage tracking disabled in commit 9a43c14)
 - **Starvation:** 5 health damage/s (when energy = 0)
@@ -46,12 +49,15 @@ Refactor GODCELL from a dual-resource system (health + energy) to a unified **en
 - **Singularity:** Instant health = 0
 
 ### Swarms
+
 - Have `energy?: number` field (set when disabled by EMP)
 - Position/velocity/state tracking
 - `disabledUntil` timestamp for EMP paralysis
 
 ### Drain Aura System (Existing)
+
 The codebase has a sophisticated damage visualization system:
+
 - Server tracks `activeDamageThisTick` per entity
 - `recordDamage(entityId, damageRate, source, proximityFactor?)` aggregates damage
 - Broadcasts `PlayerDrainStateMessage` with `damageInfo: { totalDamageRate, primarySource, proximityFactor }`
@@ -65,6 +71,7 @@ The codebase has a sophisticated damage visualization system:
 ### Player Resources
 
 **Single Resource: Energy**
+
 - Stage 1: 200 energy (combines old 100 health + 100 energy)
 - Stage 2: 400 energy (combines old 150 health + 250 energy)
 - Stage 3: 1000 energy (combines old 200 health + 800 energy)
@@ -72,15 +79,18 @@ The codebase has a sophisticated damage visualization system:
 - Stage 5: 3000+ energy (TBD)
 
 **Death Condition:**
+
 - `player.energy <= 0` → instant dilution
 
 ### Damage Sources (All Drain Energy)
 
 #### 1. Swarms
+
 - **Contact damage:** 60 energy/s (unchanged rate, but drains energy not health)
 - **Slow effect:** 0.6 speed multiplier (unchanged)
 
 #### 2. Gravity Wells
+
 - **Physics force:** Pulls entities toward center (unchanged)
 - **Proximity drain:** DISABLED (was 10/s scaled by distance²) - decision: keep disabled for now
 - **Event horizon:** 180px radius, inescapable pull
@@ -89,6 +99,7 @@ The codebase has a sophisticated damage visualization system:
 > **Design note:** Gravity wells are physics obstacles, not damage sources. The threat is being pulled into the singularity, not gradual health drain. This makes them feel more like black holes.
 
 #### 3. Starvation (Passive Decay)
+
 - **Passive decay:** Stage-dependent rates (unchanged)
   - Stage 1: 2.66 energy/s
   - Stage 2: 2.1 energy/s
@@ -98,6 +109,7 @@ The codebase has a sophisticated damage visualization system:
 - **No separate starvation damage phase** - you just run out of energy and die
 
 #### 4. Predation (Continuous Drain)
+
 - **Contact drain:** 150 energy/s (multi-cell touching single-cell)
 - **Energy gain for predator:** Transferred from prey as they drain
 - **Death:** Prey dies when energy reaches 0 (not instant)
@@ -105,12 +117,14 @@ The codebase has a sophisticated damage visualization system:
 > **Design note:** Changed from instant-death to continuous drain. This gives prey a brief window to escape and makes predation feel more like "absorption" than deletion.
 
 #### 5. Pseudopod Beams (NEW)
+
 - **Projectile damage:** 100 energy/s on hit
 - **Projectile speed:** 3600 px/s
 - **Collision width:** 20px
 - **Fired by:** Stage 2+ multi-cells
 
 #### 6. EMP (Updated)
+
 - **Multi-cells:** 1-2s stun + 80 energy drain
 - **Single-cells:** 3s stun + 40 energy drain (NEW)
 - **Swarms:** 3s paralyze (unchanged)
@@ -120,11 +134,13 @@ The codebase has a sophisticated damage visualization system:
 Higher evolution stages have **structural stability** - they resist energy drain from external threats (not passive decay).
 
 **Resistance Formula:**
+
 ```
 actualDamage = baseDamage * (1 - damageResistance)
 ```
 
 **Resistance Values:**
+
 - Stage 1: 0% resistance (full damage)
 - Stage 2: 25% resistance (takes 75% damage)
 - Stage 3: 40% resistance (takes 60% damage)
@@ -132,16 +148,19 @@ actualDamage = baseDamage * (1 - damageResistance)
 - Stage 5: 60% resistance (takes 40% damage)
 
 **Applies To:**
+
 - Swarm contact damage
 - Gravity well damage
 - EMP energy drain (from other players)
 
 **Does NOT Apply To:**
+
 - Passive energy decay (metabolism)
 - Singularity instant-death
 - Predation instant-death
 
 **Example:**
+
 - Stage 1 player hit by swarm: 60 energy/s × (1 - 0) = **60 energy/s**
 - Stage 2 player hit by swarm: 60 energy/s × (1 - 0.25) = **45 energy/s**
 - Stage 3 player hit by swarm: 60 energy/s × (1 - 0.40) = **36 energy/s**
@@ -153,16 +172,19 @@ actualDamage = baseDamage * (1 - damageResistance)
 Swarms already have an `energy` field. This refactor makes it consistent.
 
 **Properties:**
+
 - **Initial energy:** 100 (set when disabled by EMP)
 - **Consumption:** Players drain 50 energy/s during contact with disabled swarm
 - **Death:** Swarm energy ≤ 0 → swarm destroyed (dilution effect)
 
 **EMP Interaction:**
+
 - EMP disables swarm → sets `swarm.energy = 100` + `swarm.disabledUntil = now + 3000ms`
 - Player makes contact during disabled window → drains swarm energy
 - Swarm reaches 0 energy → consumed (player gains 150 energy + 50 maxEnergy)
 
 **Implementation Note:**
+
 - `EntropySwarm.energy` field already exists
 - Just ensure it's consistently used (not `currentHealth` anywhere)
 
@@ -173,6 +195,7 @@ Swarms already have an `energy` field. This refactor makes it consistent.
 ### GAME_CONFIG Updates (shared/index.ts)
 
 **Remove:**
+
 ```typescript
 // Health constants (DELETE)
 SINGLE_CELL_HEALTH: 100,
@@ -187,6 +210,7 @@ STARVATION_DAMAGE_RATE: 5,
 ```
 
 **Modify:**
+
 ```typescript
 // Energy pools (UPDATED - combine health + energy)
 SINGLE_CELL_ENERGY: 200,           // Was 100, now 200 (100 health + 100 energy)
@@ -204,6 +228,7 @@ GODCELL_MAX_ENERGY: 3000,          // TBD
 ```
 
 **Add:**
+
 ```typescript
 // Damage resistance (NEW - structural stability at higher stages)
 SINGLE_CELL_DAMAGE_RESISTANCE: 0,      // 0% (takes full damage)
@@ -226,6 +251,7 @@ PSEUDOPOD_DAMAGE_RATE: 100,             // Energy drained per second on beam hit
 ```
 
 **Rename:**
+
 ```typescript
 // Damage rates (SEMANTIC CHANGE - now drain energy, not health)
 SWARM_DAMAGE_RATE: 60,            // Energy drain per second on contact (was health damage)
@@ -235,6 +261,7 @@ OBSTACLE_DAMAGE_RATE: 10,         // Energy drain per second at center (was heal
 ### Evolution Thresholds (Unchanged)
 
 Evolution still gates on maxEnergy:
+
 - Stage 1→2: 300 maxEnergy
 - Stage 2→3: 800 maxEnergy
 - Stage 3→4: 1000 maxEnergy
@@ -249,6 +276,7 @@ The codebase already has a drain aura visualization system. In the energy-only w
 ### Server-Side Changes
 
 **Update `recordDamage()` to apply resistance:**
+
 ```typescript
 function recordDamage(
   entityId: string,
@@ -266,7 +294,7 @@ function recordDamage(
   // Track for aura visualization (uses actual rate after resistance)
   const current = activeDamageThisTick.get(entityId) || {
     totalDamageRate: 0,
-    sources: new Map()
+    sources: new Map(),
   };
   current.totalDamageRate += actualDamageRate;
   current.sources.set(source, (current.sources.get(source) || 0) + actualDamageRate);
@@ -275,6 +303,7 @@ function recordDamage(
 ```
 
 **Damage sources remain the same:**
+
 - `'predation'` - multi-cell contact drain (150 → ~112 after Stage 2 resistance)
 - `'swarm'` - entropy swarm contact (60 → ~45 after Stage 2 resistance)
 - `'beam'` - pseudopod projectile hits (100 → ~75 after Stage 2 resistance)
@@ -283,6 +312,7 @@ function recordDamage(
 ### Client-Side Changes
 
 **Aura intensity calculation (unchanged):**
+
 ```typescript
 function calculateAuraIntensity(totalDamageRate: number): number {
   // Maps DPS to 0-1 intensity
@@ -295,6 +325,7 @@ function calculateAuraIntensity(totalDamageRate: number): number {
 ```
 
 **Semantic change only:**
+
 - "Damage aura" now means "energy drain aura"
 - Visual feedback shows energy being drained, not health
 - No code changes needed on client (just interpretation)
@@ -302,6 +333,7 @@ function calculateAuraIntensity(totalDamageRate: number): number {
 ### Visual Feedback Enhancement (Optional)
 
 Consider adding energy-specific visuals:
+
 - **Low energy warning:** Sprite dims/flickers when below 25%
 - **Critical energy:** Pulsing red outline when below 10%
 - **Drain direction:** Particle trails flowing toward attacker/obstacle
@@ -313,6 +345,7 @@ Consider adding energy-specific visuals:
 ### shared/index.ts
 
 **Player Interface:**
+
 ```typescript
 export interface Player {
   id: string;
@@ -338,6 +371,7 @@ export interface Player {
 ```
 
 **EntropySwarm Interface:**
+
 ```typescript
 export interface EntropySwarm {
   id: string;
@@ -355,6 +389,7 @@ export interface EntropySwarm {
 ```
 
 **EnergyUpdateMessage:**
+
 ```typescript
 export interface EnergyUpdateMessage {
   type: 'energyUpdate';
@@ -372,6 +407,7 @@ export interface EnergyUpdateMessage {
 ### Server Changes (server/src/index.ts)
 
 #### 1. Player Initialization (createPlayer function)
+
 ```typescript
 function createPlayer(id: string, position: Position): Player {
   return {
@@ -384,8 +420,8 @@ function createPlayer(id: string, position: Position): Player {
     // maxHealth: GAME_CONFIG.SINGLE_CELL_MAX_HEALTH, // DELETE
 
     // Energy initialization (UPDATED)
-    energy: GAME_CONFIG.SINGLE_CELL_ENERGY,          // Now 200
-    maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY,   // Now 200
+    energy: GAME_CONFIG.SINGLE_CELL_ENERGY, // Now 200
+    maxEnergy: GAME_CONFIG.SINGLE_CELL_MAX_ENERGY, // Now 200
 
     stage: EvolutionStage.SINGLE_CELL,
     isEvolving: false,
@@ -394,6 +430,7 @@ function createPlayer(id: string, position: Position): Player {
 ```
 
 #### 2. Damage Resistance Helper (NEW)
+
 ```typescript
 /**
  * Get damage resistance for a given evolution stage
@@ -429,6 +466,7 @@ function applyDamage(player: Player, baseDamage: number): number {
 ```
 
 #### 3. Update Metabolism (updateMetabolism function)
+
 ```typescript
 function updateMetabolism(deltaTime: number) {
   for (const [playerId, player] of players) {
@@ -469,6 +507,7 @@ function updateMetabolism(deltaTime: number) {
 ```
 
 #### 4. Update Death Check (checkPlayerDeaths function)
+
 ```typescript
 function checkPlayerDeaths() {
   for (const [playerId, player] of players) {
@@ -557,6 +596,7 @@ function handlePredation(predatorId: string, preyId: string, deltaTime: number) 
 > **Note:** Predation drain does NOT apply damage resistance. Being engulfed is inescapable - the only defense is to not get caught.
 
 #### 7. Update EMP Handler (socket.on('empActivate'))
+
 ```typescript
 socket.on('empActivate', (message: EMPActivateMessage) => {
   const player = players.get(socket.id);
@@ -617,6 +657,7 @@ socket.on('empActivate', (message: EMPActivateMessage) => {
 ```
 
 #### 8. Update Respawn (respawnPlayer function)
+
 ```typescript
 function respawnPlayer(player: Player) {
   player.position = randomSpawnPosition();
@@ -624,7 +665,7 @@ function respawnPlayer(player: Player) {
   player.isEvolving = false;
 
   // Reset energy (CHANGED from health)
-  player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY;       // Now 200
+  player.energy = GAME_CONFIG.SINGLE_CELL_ENERGY; // Now 200
   player.maxEnergy = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY; // Now 200
 
   // ... rest unchanged ...
@@ -632,6 +673,7 @@ function respawnPlayer(player: Player) {
 ```
 
 #### 9. Update Evolution (handleEvolutionComplete function)
+
 ```typescript
 function handleEvolutionComplete(player: Player, targetStage: EvolutionStage) {
   player.stage = targetStage;
@@ -681,6 +723,7 @@ function getStageMaxEnergy(stage: EvolutionStage): number {
 ```
 
 #### 10. Update Energy Broadcasts (broadcastEnergyUpdates function)
+
 ```typescript
 function broadcastEnergyUpdates() {
   energyUpdateTicks++;
@@ -704,7 +747,9 @@ function broadcastEnergyUpdates() {
 ```
 
 #### 11. Update All Health Checks
+
 Replace all instances of:
+
 - `player.health <= 0` → `player.energy <= 0`
 - `player.health > 0` → `player.energy > 0`
 - `player.health = 0` → `player.energy = 0`
@@ -713,6 +758,7 @@ Replace all instances of:
 ### Swarm Changes (server/src/swarms.ts)
 
 #### 1. Update Swarm Collision Damage
+
 ```typescript
 function checkSwarmCollisions(players: Map<string, Player>, deltaTime: number): void {
   for (const swarm of swarms.values()) {
@@ -737,6 +783,7 @@ function checkSwarmCollisions(players: Map<string, Player>, deltaTime: number): 
 ```
 
 #### 2. Update Swarm Consumption (NEW function to add)
+
 ```typescript
 /**
  * Handle swarm consumption by multi-cells
@@ -761,10 +808,7 @@ export function consumeSwarm(
   // Swarm fully consumed
   if (swarm.energy <= 0) {
     // Reward consumer
-    consumer.energy = Math.min(
-      consumer.maxEnergy,
-      consumer.energy + GAME_CONFIG.SWARM_ENERGY_GAIN
-    );
+    consumer.energy = Math.min(consumer.maxEnergy, consumer.energy + GAME_CONFIG.SWARM_ENERGY_GAIN);
     consumer.maxEnergy += GAME_CONFIG.SWARM_MAX_ENERGY_GAIN;
 
     // Destroy swarm
@@ -779,6 +823,7 @@ export function consumeSwarm(
 ### Client Changes
 
 #### 1. Remove Health UI (client/src/render/hud/HUDOverlay.ts)
+
 - Already no health bars in HUD (confirmed by reading the code)
 - Countdown timer shows time-until-starvation (based on energy)
 - No changes needed to HUD
@@ -786,6 +831,7 @@ export function consumeSwarm(
 #### 2. Update Visual Feedback (client/src/render/three/ThreeRenderer.ts)
 
 **Energy-based sprite glow:**
+
 ```typescript
 // In player sprite update loop
 const energyPercent = player.energy / player.maxEnergy;
@@ -806,6 +852,7 @@ if (energyPercent < 0.3) {
 ```
 
 **Particle drain effects:**
+
 - Swarm contact: particles flow from player to swarm
 - Gravity well: particles pulled toward obstacle
 - EMP hit: burst of particles away from epicenter
@@ -813,6 +860,7 @@ if (energyPercent < 0.3) {
 #### 3. Update GameState (client/src/core/state/GameState.ts)
 
 Remove health tracking:
+
 ```typescript
 // In updatePlayer or handleEnergyUpdate
 player.energy = message.energy;
@@ -897,12 +945,14 @@ player.energy = message.energy;
 ## Open Questions / Tuning Needed
 
 ### Decided (v1.1)
+
 - ✅ **Gravity wells:** Physics-only, no proximity damage. Singularity = instant death.
 - ✅ **Predation:** Continuous drain (150/s), not instant death. Gives prey escape window.
 - ✅ **Drain aura system:** Reuse existing system - semantic change from "health damage" to "energy drain"
 - ✅ **Visual feedback:** Drain auras show energy loss; energy gain cue tracked in separate bead
 
 ### Still Open
+
 1. **Energy pool values:** Are 200/400/1000/2000 the right survivability levels?
 2. **Damage resistance:** Are 0%/25%/40%/50%/60% the right progression?
 3. **EMP single-cell drain:** Is 40 energy the right amount? (Currently 20% of Stage 1 pool)

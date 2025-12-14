@@ -85,6 +85,7 @@ npm run build        # Build all workspaces
 ```
 
 **Testing server startup (use `sleep` not `timeout`):**
+
 ```bash
 # Start server in background, capture PID, wait for startup, then kill
 npm run dev:server 2>&1 &
@@ -159,47 +160,47 @@ client/src/render/systems/  # Render systems (query ECS, manage Three.js)
 ```typescript
 // Query by tag
 world.forEachWithTag(Tags.Player, (entity) => {
-  const pos = world.getComponent(entity, Components.Position)
+  const pos = world.getComponent(entity, Components.Position);
   // ...
-})
+});
 
 // Query by components
-const entities = world.query(Components.Position, Components.Velocity)
+const entities = world.query(Components.Position, Components.Velocity);
 
 // Lookup by ID
-const entity = getEntityBySocketId(socketId)
-const entity = getEntityByStringId('nutrient_5')
+const entity = getEntityBySocketId(socketId);
+const entity = getEntityByStringId('nutrient_5');
 ```
 
 ### Component Modification
 
 ```typescript
 // Via helpers (preferred)
-setEnergyBySocketId(world, socketId, newEnergy)
+setEnergyBySocketId(world, socketId, newEnergy);
 
 // Direct mutation
-const energy = world.getComponent(entity, Components.Energy)
-energy.current = newEnergy
+const energy = world.getComponent(entity, Components.Energy);
+energy.current = newEnergy;
 ```
 
 ### Server Systems
 
 Systems implement `update(world, delta, io)` and run in priority order:
 
-| Priority | System | Purpose |
-|----------|--------|---------|
-| 100 | BotAISystem | Bot decisions |
-| 110 | SwarmAISystem | Swarm movement, respawns |
-| 200 | GravitySystem | Gravity well attraction |
-| 300 | PseudopodSystem | Beam travel and hits |
-| 400 | PredationSystem | Multi-cell contact draining |
-| 410 | SwarmCollisionSystem | Swarm damage, sets SlowedThisTick |
-| 500 | MovementSystem | Physics (reads SlowedThisTick) |
-| 600 | MetabolismSystem | Energy decay |
-| 610 | NutrientCollisionSystem | Pickup detection |
-| 620 | NutrientAttractionSystem | Visual pull effect |
-| 700 | DeathSystem | Death handling |
-| 900 | NetworkBroadcastSystem | Send to clients |
+| Priority | System                   | Purpose                           |
+| -------- | ------------------------ | --------------------------------- |
+| 100      | BotAISystem              | Bot decisions                     |
+| 110      | SwarmAISystem            | Swarm movement, respawns          |
+| 200      | GravitySystem            | Gravity well attraction           |
+| 300      | PseudopodSystem          | Beam travel and hits              |
+| 400      | PredationSystem          | Multi-cell contact draining       |
+| 410      | SwarmCollisionSystem     | Swarm damage, sets SlowedThisTick |
+| 500      | MovementSystem           | Physics (reads SlowedThisTick)    |
+| 600      | MetabolismSystem         | Energy decay                      |
+| 610      | NutrientCollisionSystem  | Pickup detection                  |
+| 620      | NutrientAttractionSystem | Visual pull effect                |
+| 700      | DeathSystem              | Death handling                    |
+| 900      | NetworkBroadcastSystem   | Send to clients                   |
 
 **Key dependency:** SwarmCollision (410) sets `SlowedThisTick` tag → Movement (500) reads it.
 
@@ -209,13 +210,13 @@ Each render system owns a visual domain and queries ECS directly:
 
 ```typescript
 class PlayerRenderSystem {
-  private meshes = new Map<string, THREE.Group>()
+  private meshes = new Map<string, THREE.Group>();
 
   update(world: World, dt: number) {
     world.forEachWithTag(Tags.Player, (entity) => {
-      const pos = world.getComponent(entity, Components.Position)
+      const pos = world.getComponent(entity, Components.Position);
       // Create/update/remove Three.js objects
-    })
+    });
   }
 }
 ```
@@ -224,12 +225,12 @@ class PlayerRenderSystem {
 
 ```typescript
 // Input → Network
-eventBus.on('client:inputMove', (e) => socketManager.sendMove(e.direction))
+eventBus.on('client:inputMove', (e) => socketManager.sendMove(e.direction));
 
 // Network → Rendering
 eventBus.on('playerDied', (e) => {
-  effectsSystem.spawnDeathBurst(e.x, e.y, e.color)
-})
+  effectsSystem.spawnDeathBurst(e.x, e.y, e.color);
+});
 ```
 
 ---
@@ -269,15 +270,16 @@ eventBus.on('playerDied', (e) => {
 
 Server uses Pino with 3 separate log files, each with rotation (10MB max, 5 old files):
 
-| Logger | File | Purpose |
-|--------|------|---------|
-| `logger` | `logs/server.log` | Game events (deaths, evolutions, spawns, game state) |
-| `perfLogger` | `logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
-| `clientLogger` | `logs/client.log` | Forwarded client debug info (camera, errors) |
+| Logger         | File                   | Purpose                                              |
+| -------------- | ---------------------- | ---------------------------------------------------- |
+| `logger`       | `logs/server.log`      | Game events (deaths, evolutions, spawns, game state) |
+| `perfLogger`   | `logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
+| `clientLogger` | `logs/client.log`      | Forwarded client debug info (camera, errors)         |
 
 All loggers output to rotating JSON file. In development, also outputs to console via pino-pretty.
 
 **Usage:**
+
 ```typescript
 import { logger, perfLogger, clientLogger } from './logger';
 
@@ -299,6 +301,7 @@ clientLogger.info({ clientId, event: 'client_log' }, 'Camera position...');
 **Telemetry Philosophy:**
 
 This project is telemetry-focused. As the ecosystem grows, we want to track as much as possible to:
+
 - Understand emergent behaviors
 - Tune balance and AI
 - Debug issues with data, not guesswork
@@ -315,6 +318,7 @@ This project is telemetry-focused. As the ecosystem grows, we want to track as m
 **Telemetry event naming:**
 
 Use prefixes to categorize:
+
 - `player_*` — human player events
 - `bot_*` — AI bot events (e.g., `bot_emp_decision`, `bot_pseudopod_decision`)
 - `swarm_*` — entropy swarm events
@@ -323,6 +327,7 @@ Use prefixes to categorize:
 **Context is king:**
 
 Always include enough context to answer "why did this happen?":
+
 ```typescript
 logger.info({
   event: 'bot_emp_decision',
@@ -476,12 +481,14 @@ Keep the game fun and legible, but keep the codebase stable and predictable.
 ### When to Read These Docs
 
 **Read `SYSTEM_DESIGN.md` BEFORE:**
+
 - Implementing new features that touch multiple systems (server + client)
 - Adding new entity types, components, or server systems
 - Debugging data flow issues between server and client
 - Any architectural changes or refactors
 
 **Read `GAME_DESIGN.md` BEFORE:**
+
 - Implementing new gameplay mechanics or abilities
 - Making decisions about game feel, balance, or player experience
 - Working on evolution stages or progression systems

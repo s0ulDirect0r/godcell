@@ -183,7 +183,8 @@ export function updateTrails(
           const opacity = Math.pow(age, 1.5);
 
           // Get perpendicular direction for ribbon width
-          let perpX = 0, perpY = 1;
+          let perpX = 0,
+            perpY = 1;
           if (i < points.length - 1) {
             const next = points[i + 1];
             const dx = next.x - point.x;

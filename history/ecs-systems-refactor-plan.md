@@ -9,6 +9,7 @@
 **Progress**: index.ts 2537 → 872 lines (target was 500)
 
 ### Completed
+
 - ✅ Phase 1: Extract helpers/, obstacle ECS queries
 - ✅ Phase 2: Migrate 8 systems (MetabolismSystem, DeathSystem, PredationSystem, PseudopodSystem, GravitySystem, NutrientCollisionSystem, NutrientAttractionSystem, NetworkBroadcastSystem)
 - ✅ Phase 3: Extract nutrients.ts module
@@ -21,6 +22,7 @@
   - `handleBotDeath()` never needed `players` Map
 
 ### Remaining (tracked in beads)
+
 - ❌ Phase 4d: Remove `syncPlayersFromECS()` bridge → **`godcell-4bp`**
   - abilities.ts: 4 usages need ECS conversion
   - dev.ts: 4 remaining usages need ECS conversion
@@ -28,6 +30,7 @@
 - ❌ Phase 5: Eliminate legacy Maps entirely (tracked in Epic `godcell-shh`)
 
 ### Beads Issues
+
 - **Epic `godcell-shh`**: "Complete ECS migration - eliminate legacy state"
 - **`godcell-4bp`**: Remove syncPlayersFromECS bridge (Phase 4d)
 - **`godcell-5nc`**: Replace activeDrains Map with ECS component
@@ -37,6 +40,7 @@
 ### Key Insights
 
 **ECS iteration pattern:**
+
 ```typescript
 forEachPlayer(world, (entity, socketId) => {
   const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -46,6 +50,7 @@ forEachPlayer(world, (entity, socketId) => {
 
 **TypeScript closure narrowing workaround:**
 When mutating variables inside `forEachPlayer` callbacks, use object wrapper pattern:
+
 ```typescript
 // BAD - TypeScript loses narrowing
 let nearest: Player | null = null;
@@ -71,6 +76,7 @@ Dev commands arrive via socket events between ticks, but `syncPlayersFromECS()` 
 5 functions still have unused `players: Map<string, Player>` parameters from before conversion. Safe to remove in a cleanup pass.
 
 ### Key Files
+
 - `server/src/ecs/systems/GameContext.ts` - the bridge interface
 - `server/src/helpers/` - extracted pure utilities
 - `server/src/nutrients.ts` - extracted nutrient lifecycle
@@ -78,19 +84,23 @@ Dev commands arrive via socket events between ticks, but `syncPlayersFromECS()` 
 ---
 
 ## Goal
+
 Move all game logic from `server/src/index.ts` into ECS systems, reducing index.ts from ~2500 lines to ~500 lines of pure orchestration.
 
 ## Original State (before this work)
+
 - index.ts contains ~45 functions with all game logic
 - ECS systems are thin wrappers that delegate to index.ts functions
 - MovementSystem and SwarmCollisionSystem show the target pattern (direct ECS operations)
 
 ## Target State
+
 - index.ts: Server setup, connection handling, game loop orchestration only
 - ECS systems: All game logic, reading/writing ECS components directly
 - Helper modules: Pure utility functions (math, stage lookups)
 
 ## Decisions
+
 - **Commit style**: Per-phase commits (not per-system)
 - **File structure**: `server/src/helpers/` directory for utility modules
 
@@ -101,14 +111,18 @@ Move all game logic from `server/src/index.ts` into ECS systems, reducing index.
 Create helper modules and eliminate `obstacles` Map by querying ECS directly.
 
 ### 1a. `server/src/helpers/math.ts` ✓
+
 Move from index.ts:
+
 - `distance()`
 - `rayCircleIntersection()`
 - `lineCircleIntersection()`
 - `poissonDiscSampling()`
 
 ### 1b. `server/src/helpers/stages.ts` ✓
+
 Move from index.ts:
+
 - `getStageMaxEnergy()`
 - `getDamageResistance()`
 - `getEnergyDecayRate()`
@@ -120,7 +134,9 @@ Move from index.ts:
 - `getNextEvolutionStage()`
 
 ### 1c. `server/src/helpers/spawning.ts`
+
 Move from index.ts:
+
 - `randomColor()` - pure, no dependencies
 - `randomSpawnPosition(world)` - queries ECS for obstacles
 - `isNutrientSpawnSafe(position, world)` - queries ECS for obstacles
@@ -130,14 +146,18 @@ Move from index.ts:
 No more passing `Map<string, Obstacle>` around.
 
 ### 1d. Obstacle ECS Query Helpers
+
 Add to `server/src/ecs/factories.ts`:
+
 - `forEachObstacle(world, callback)` - iterate all obstacles
 - `getObstaclePositions(world)` - get all obstacle positions for spawn checks
 
 This mirrors the player helpers pattern (`forEachPlayer`, etc.)
 
 ### 1e. Remove `obstacles` Map
+
 Update index.ts:
+
 - Keep `obstacles` Map only for initialization (legacy clients need the data)
 - All game logic reads from ECS via helpers
 - bots.ts uses ECS queries instead of stored Map reference
@@ -151,14 +171,18 @@ Update index.ts:
 Systems are migrated in priority order to maintain working game at each step.
 
 ### 2a. MetabolismSystem (Priority 600)
+
 Move into system:
+
 - `updateMetabolism()` logic (~50 lines)
 - `checkEvolution()` logic (~70 lines)
 
 Dependencies: ECS components (Energy, Stage), stage helpers, io for broadcasts
 
 ### 2b. DeathSystem (Priority 700)
+
 Move into system:
+
 - `checkPlayerDeaths()` logic (~20 lines)
 - `handlePlayerDeath()` logic (~90 lines)
 - `respawnPlayer()` logic (~50 lines)
@@ -166,14 +190,18 @@ Move into system:
 Dependencies: ECS components, playerLastDamageSource, playerLastBeamShooter, activeDrains, io
 
 ### 2c. PredationSystem (Priority 400)
+
 Move into system:
+
 - `checkPredationCollisions()` logic (~65 lines)
 - `engulfPrey()` logic (~45 lines)
 
 Dependencies: ECS components, players cache (for collision), activeDrains, io
 
 ### 2d. PseudopodSystem (Priority 300)
+
 Move into system:
+
 - `updatePseudopods()` logic (~45 lines)
 - `checkBeamCollision()` logic (~125 lines)
 - `checkBeamHitscan()` logic (~45 lines)
@@ -181,25 +209,33 @@ Move into system:
 Dependencies: ECS components, pseudopods, pseudopodHits, players cache, io
 
 ### 2e. GravitySystem (Priority 200)
+
 Move into system:
+
 - `applyGravityForces()` logic (~110 lines)
 
 Dependencies: players cache, playerVelocities, obstacles, ECS position components
 
 ### 2f. NutrientCollisionSystem (Priority 610)
+
 Move into system:
+
 - `checkNutrientCollisions()` logic (~65 lines)
 
 Dependencies: ECS components, nutrients, io
 
 ### 2g. NutrientAttractionSystem (Priority 620)
+
 Move into system:
+
 - `attractNutrientsToObstacles()` logic (~60 lines)
 
 Dependencies: nutrients, obstacles
 
 ### 2h. NetworkBroadcastSystem (Priority 900)
+
 Move into system:
+
 - `broadcastEnergyUpdates()` logic (~20 lines)
 - `broadcastDrainState()` logic (~60 lines)
 - `broadcastDetectionUpdates()` logic (~65 lines)
@@ -215,7 +251,9 @@ Dependencies: ECS components, various tracking Maps, io
 Create dedicated nutrient system for spawn/respawn:
 
 ### 3a. `NutrientSpawnSystem` (new, or extend NutrientCollisionSystem)
+
 Move into system:
+
 - `spawnNutrient()` logic
 - `spawnNutrientAt()` logic
 - `respawnNutrient()` logic
@@ -230,14 +268,17 @@ Move `nutrients` and `nutrientRespawnTimers` Maps into system-owned state.
 ## Phase 4: Cleanup
 
 ### 4a. Shrink GameContext
+
 - Remove function references that are now in systems
 - Keep only: world, io, deltaTime, tickData, shared state Maps
 
 ### 4b. Remove syncPlayersFromECS()
+
 - Once all systems read ECS directly, this bridge is unnecessary
 - Remove the `players` cache Map
 
 ### 4c. Final index.ts structure (~500 lines)
+
 - Imports
 - Server configuration
 - Module-level state Maps (until Phase 5)
@@ -257,19 +298,23 @@ The `players` Map, `nutrients` Map, and associated types are legacy bridges that
 Systems should operate purely on ECS components.
 
 ### 5a. Remove `players` Map iteration
+
 - All systems must use `forEachPlayer(world, ...)` not `for (const [id, player] of players)`
 - ECS iteration is the source of truth
 
 ### 5b. Remove `Player` type from system interfaces
+
 - `handlePlayerDeath(player, cause)` → `handlePlayerDeath(playerId, cause)`
 - Systems access components directly, not through Player wrapper
 - Keep `getPlayerBySocketId()` only for network serialization (client state sync)
 
 ### 5c. Remove `players` Map from GameContext
+
 - Systems don't need Map access once they iterate ECS
 - Keeps network broadcast code simpler (can use ECS serialization helpers)
 
 ### 5d. Audit all `Player` type usage
+
 - Search for `Player` type in systems
 - Each usage should be replaced with direct component access
 - `player.energy` → `energyComp.current`
@@ -286,7 +331,7 @@ Systems should operate purely on ECS components.
 // BEFORE: Thin wrapper
 export class MetabolismSystem implements System {
   update(ctx: GameContext): void {
-    ctx.updateMetabolism(ctx.deltaTime);  // Delegates to index.ts
+    ctx.updateMetabolism(ctx.deltaTime); // Delegates to index.ts
   }
 }
 
@@ -318,22 +363,22 @@ export class MetabolismSystem implements System {
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
-| `server/src/index.ts` | Remove migrated functions, shrink to orchestration |
-| `server/src/helpers/index.ts` | New - barrel exports |
-| `server/src/helpers/physics.ts` | New - math utilities |
-| `server/src/helpers/stages.ts` | New - stage config lookups |
-| `server/src/helpers/spawning.ts` | New - spawn utilities |
-| `server/src/ecs/systems/MetabolismSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/DeathSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/PredationSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/PseudopodSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/GravitySystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/NutrientCollisionSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/NutrientAttractionSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/NetworkBroadcastSystem.ts` | Expand with full logic |
-| `server/src/ecs/systems/GameContext.ts` | Shrink as functions move out |
+| File                                                 | Change                                             |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| `server/src/index.ts`                                | Remove migrated functions, shrink to orchestration |
+| `server/src/helpers/index.ts`                        | New - barrel exports                               |
+| `server/src/helpers/physics.ts`                      | New - math utilities                               |
+| `server/src/helpers/stages.ts`                       | New - stage config lookups                         |
+| `server/src/helpers/spawning.ts`                     | New - spawn utilities                              |
+| `server/src/ecs/systems/MetabolismSystem.ts`         | Expand with full logic                             |
+| `server/src/ecs/systems/DeathSystem.ts`              | Expand with full logic                             |
+| `server/src/ecs/systems/PredationSystem.ts`          | Expand with full logic                             |
+| `server/src/ecs/systems/PseudopodSystem.ts`          | Expand with full logic                             |
+| `server/src/ecs/systems/GravitySystem.ts`            | Expand with full logic                             |
+| `server/src/ecs/systems/NutrientCollisionSystem.ts`  | Expand with full logic                             |
+| `server/src/ecs/systems/NutrientAttractionSystem.ts` | Expand with full logic                             |
+| `server/src/ecs/systems/NetworkBroadcastSystem.ts`   | Expand with full logic                             |
+| `server/src/ecs/systems/GameContext.ts`              | Shrink as functions move out                       |
 
 ---
 

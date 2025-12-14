@@ -3,19 +3,9 @@
 // Functions to create/update entities from network messages
 // ============================================
 
-import {
-  World,
-  ComponentStore,
-  Components,
-  Tags,
-  GAME_CONFIG,
-} from '#shared';
+import { World, ComponentStore, Components, Tags, GAME_CONFIG } from '#shared';
 import { ClientComponents } from './types';
-import type {
-  DrainAuraComponent,
-  GainAuraComponent,
-  EvolutionAuraComponent,
-} from './components';
+import type { DrainAuraComponent, GainAuraComponent, EvolutionAuraComponent } from './components';
 import type {
   EntityId,
   PositionComponent,
@@ -90,7 +80,10 @@ export function createClientWorld(): World {
   world.registerStore<EntropySerpentComponent>(Components.EntropySerpent, new ComponentStore());
 
   // Client-only components
-  world.registerStore<InterpolationTargetComponent>(Components.InterpolationTarget, new ComponentStore());
+  world.registerStore<InterpolationTargetComponent>(
+    Components.InterpolationTarget,
+    new ComponentStore()
+  );
   world.registerStore<ClientDamageInfoComponent>(Components.ClientDamageInfo, new ComponentStore());
 
   // Client-only aura components (visual feedback)
@@ -182,7 +175,10 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     }
 
     // Update interpolation target
-    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    const interp = world.getComponent<InterpolationTargetComponent>(
+      entity,
+      Components.InterpolationTarget
+    );
     if (interp) {
       interp.targetX = player.position.x;
       interp.targetY = player.position.y;
@@ -233,7 +229,13 @@ export function upsertPlayer(world: World, player: Player): EntityId {
  * Update player position target (for interpolation).
  * z is optional - only used for Stage 5 (godcell) 3D movement.
  */
-export function updatePlayerTarget(world: World, playerId: string, x: number, y: number, z?: number): void {
+export function updatePlayerTarget(
+  world: World,
+  playerId: string,
+  x: number,
+  y: number,
+  z?: number
+): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
@@ -246,7 +248,10 @@ export function updatePlayerTarget(world: World, playerId: string, x: number, y:
     }
   }
 
-  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  const interp = world.getComponent<InterpolationTargetComponent>(
+    entity,
+    Components.InterpolationTarget
+  );
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
@@ -271,7 +276,12 @@ export function removePlayer(world: World, playerId: string): void {
 /**
  * Update player energy (and optionally max energy).
  */
-export function updatePlayerEnergy(world: World, playerId: string, energy: number, maxEnergy?: number): void {
+export function updatePlayerEnergy(
+  world: World,
+  playerId: string,
+  energy: number,
+  maxEnergy?: number
+): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
@@ -300,7 +310,13 @@ export function setPlayerEvolving(world: World, playerId: string, isEvolving: bo
 /**
  * Update player after evolution completes.
  */
-export function updatePlayerEvolved(world: World, playerId: string, newStage: EvolutionStage, newMaxEnergy: number, newRadius: number): void {
+export function updatePlayerEvolved(
+  world: World,
+  playerId: string,
+  newStage: EvolutionStage,
+  newMaxEnergy: number,
+  newRadius: number
+): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
@@ -357,7 +373,12 @@ export function upsertNutrient(world: World, nutrient: Nutrient): EntityId {
 /**
  * Update nutrient position.
  */
-export function updateNutrientPosition(world: World, nutrientId: string, x: number, y: number): void {
+export function updateNutrientPosition(
+  world: World,
+  nutrientId: string,
+  x: number,
+  y: number
+): void {
   const entity = stringIdToEntity.get(nutrientId);
   if (entity === undefined) return;
 
@@ -467,7 +488,10 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
       energyComp.max = initialEnergy;
     }
 
-    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    const interp = world.getComponent<InterpolationTargetComponent>(
+      entity,
+      Components.InterpolationTarget
+    );
     if (interp) {
       interp.targetX = swarm.position.x;
       interp.targetY = swarm.position.y;
@@ -543,7 +567,10 @@ export function updateSwarmTarget(
     }
   }
 
-  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  const interp = world.getComponent<InterpolationTargetComponent>(
+    entity,
+    Components.InterpolationTarget
+  );
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
@@ -613,7 +640,12 @@ export function upsertPseudopod(world: World, pseudopod: Pseudopod): EntityId {
 /**
  * Update pseudopod position.
  */
-export function updatePseudopodPosition(world: World, pseudopodId: string, x: number, y: number): void {
+export function updatePseudopodPosition(
+  world: World,
+  pseudopodId: string,
+  x: number,
+  y: number
+): void {
   const entity = stringIdToEntity.get(pseudopodId);
   if (entity === undefined) return;
 
@@ -714,7 +746,10 @@ export function upsertCyberBug(world: World, bug: CyberBug): EntityId {
       bugComp.state = bug.state;
     }
 
-    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    const interp = world.getComponent<InterpolationTargetComponent>(
+      entity,
+      Components.InterpolationTarget
+    );
     if (interp) {
       interp.targetX = bug.position.x;
       interp.targetY = bug.position.y;
@@ -779,7 +814,10 @@ export function updateCyberBugPosition(
   if (entity === undefined) return;
 
   // Update interpolation target (render systems interpolate toward this)
-  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  const interp = world.getComponent<InterpolationTargetComponent>(
+    entity,
+    Components.InterpolationTarget
+  );
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
@@ -807,12 +845,18 @@ export function upsertJungleCreature(world: World, creature: JungleCreature): En
       pos.y = creature.position.y;
     }
 
-    const creatureComp = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
+    const creatureComp = world.getComponent<JungleCreatureComponent>(
+      entity,
+      Components.JungleCreature
+    );
     if (creatureComp) {
       creatureComp.state = creature.state;
     }
 
-    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    const interp = world.getComponent<InterpolationTargetComponent>(
+      entity,
+      Components.InterpolationTarget
+    );
     if (interp) {
       interp.targetX = creature.position.x;
       interp.targetY = creature.position.y;
@@ -879,7 +923,10 @@ export function updateJungleCreaturePosition(
   if (entity === undefined) return;
 
   // Update interpolation target (render systems interpolate toward this)
-  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  const interp = world.getComponent<InterpolationTargetComponent>(
+    entity,
+    Components.InterpolationTarget
+  );
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
@@ -887,7 +934,10 @@ export function updateJungleCreaturePosition(
   }
 
   // Update state for visual changes
-  const creatureComp = world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
+  const creatureComp = world.getComponent<JungleCreatureComponent>(
+    entity,
+    Components.JungleCreature
+  );
   if (creatureComp) {
     creatureComp.state = state as 'idle' | 'patrol' | 'hunt' | 'flee';
   }
@@ -1041,13 +1091,19 @@ export function upsertEntropySerpent(world: World, serpent: EntropySerpent): Ent
       pos.y = serpent.position.y;
     }
 
-    const serpentComp = world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
+    const serpentComp = world.getComponent<EntropySerpentComponent>(
+      entity,
+      Components.EntropySerpent
+    );
     if (serpentComp) {
       serpentComp.state = serpent.state;
       serpentComp.heading = serpent.heading;
     }
 
-    const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+    const interp = world.getComponent<InterpolationTargetComponent>(
+      entity,
+      Components.InterpolationTarget
+    );
     if (interp) {
       interp.targetX = serpent.position.x;
       interp.targetY = serpent.position.y;
@@ -1110,7 +1166,10 @@ export function updateEntropySerpentPosition(
   if (entity === undefined) return;
 
   // Update interpolation target
-  const interp = world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+  const interp = world.getComponent<InterpolationTargetComponent>(
+    entity,
+    Components.InterpolationTarget
+  );
   if (interp) {
     interp.targetX = x;
     interp.targetY = y;
@@ -1118,7 +1177,10 @@ export function updateEntropySerpentPosition(
   }
 
   // Update state and heading for visual changes
-  const serpentComp = world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
+  const serpentComp = world.getComponent<EntropySerpentComponent>(
+    entity,
+    Components.EntropySerpent
+  );
   if (serpentComp) {
     serpentComp.state = state as 'patrol' | 'chase' | 'attack';
     serpentComp.heading = heading;
@@ -1142,7 +1204,7 @@ export function setPlayerDamageInfo(
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
 
-  let info = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+  const info = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
   if (!info) {
     world.addComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo, {
       totalDamageRate,
@@ -1180,7 +1242,7 @@ export function setSwarmDamageInfo(
   const entity = stringIdToEntity.get(swarmId);
   if (entity === undefined) return;
 
-  let info = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+  const info = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
   if (!info) {
     world.addComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo, {
       totalDamageRate,
@@ -1411,7 +1473,10 @@ export function setEvolutionAura(
   targetStage: EvolutionStage,
   duration: number
 ): void {
-  const existing = world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);
+  const existing = world.getComponent<EvolutionAuraComponent>(
+    entity,
+    ClientComponents.EvolutionAura
+  );
   if (existing) {
     existing.progress = 0;
     existing.targetStage = targetStage;
@@ -1458,7 +1523,10 @@ export function getGainAura(world: World, entityId: string): GainAuraComponent |
 /**
  * Get the evolution aura component for an entity by string ID.
  */
-export function getEvolutionAura(world: World, entityId: string): EvolutionAuraComponent | undefined {
+export function getEvolutionAura(
+  world: World,
+  entityId: string
+): EvolutionAuraComponent | undefined {
   const entity = stringIdToEntity.get(entityId);
   if (entity === undefined) return undefined;
   return world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);

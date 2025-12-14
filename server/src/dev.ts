@@ -13,8 +13,8 @@ import {
   type DevConfigUpdatedMessage,
   type DevStateMessage,
   type Position,
-  type Nutrient,  // Still needed for spawnNutrientAt return type
-  type EntropySwarm,  // Still needed for spawnSwarmAt return type
+  type Nutrient, // Still needed for spawnNutrientAt return type
+  type EntropySwarm, // Still needed for spawnSwarmAt return type
   type TunableConfigKey,
   type World,
   type SpecializationPromptMessage,
@@ -22,7 +22,6 @@ import {
 } from '#shared';
 import { logger } from './logger';
 import {
-  // Entity-based helpers (preferred)
   setEnergy,
   setMaxEnergy,
   setStage,
@@ -32,22 +31,17 @@ import {
   getPosition,
   getEntityBySocketId,
   forEachPlayer,
-  hasPlayer,
-  // Nutrient ECS helpers
   forEachNutrient,
   getEntityByStringId,
   destroyEntity,
   getNutrientCount,
-  // Swarm ECS helpers
   forEachSwarm,
   getSwarmCount,
   getSwarmComponents,
-  Tags,
   Components,
 } from './ecs';
 import { removeSwarm } from './swarms';
 import { getNextEvolutionStage } from './helpers/stages';
-import type { PositionComponent } from '#shared';
 
 // ============================================
 // Dev State
@@ -70,10 +64,10 @@ let shouldStepTick = false;
 /**
  * Get a config value, checking overrides first
  */
-export function getConfig<K extends keyof typeof GAME_CONFIG>(key: K): typeof GAME_CONFIG[K] {
+export function getConfig<K extends keyof typeof GAME_CONFIG>(key: K): (typeof GAME_CONFIG)[K] {
   const override = configOverrides.get(key);
   if (override !== undefined) {
-    return override as typeof GAME_CONFIG[K];
+    return override as (typeof GAME_CONFIG)[K];
   }
   return GAME_CONFIG[key];
 }
@@ -232,7 +226,11 @@ function handleSpawnEntity(
     case 'nutrient': {
       const nutrient = devContext.spawnNutrientAt(position, options?.nutrientMultiplier || 1);
       io.emit('nutrientSpawned', { type: 'nutrientSpawned', nutrient });
-      logger.info({ event: 'dev_spawn_nutrient', position, multiplier: options?.nutrientMultiplier || 1 });
+      logger.info({
+        event: 'dev_spawn_nutrient',
+        position,
+        multiplier: options?.nutrientMultiplier || 1,
+      });
       break;
     }
 
@@ -277,7 +275,13 @@ function handleDeleteEntity(io: Server, entityType: string, entityId: string): v
       const nutrientEntity = getEntityByStringId(entityId);
       if (nutrientEntity !== undefined) {
         destroyEntity(devContext.world, nutrientEntity);
-        io.emit('nutrientCollected', { type: 'nutrientCollected', nutrientId: entityId, playerId: 'dev', collectorEnergy: 0, collectorMaxEnergy: 0 });
+        io.emit('nutrientCollected', {
+          type: 'nutrientCollected',
+          nutrientId: entityId,
+          playerId: 'dev',
+          collectorEnergy: 0,
+          collectorMaxEnergy: 0,
+        });
         logger.info({ event: 'dev_delete_nutrient', entityId });
       }
       break;
@@ -337,7 +341,12 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
   logger.info({ event: 'dev_teleport', playerId, position: { x: clampedX, y: clampedY } });
 }
 
-function handleSetPlayerEnergy(io: Server, playerId: string, energy: number, maxEnergy?: number): void {
+function handleSetPlayerEnergy(
+  io: Server,
+  playerId: string,
+  energy: number,
+  maxEnergy?: number
+): void {
   if (!devContext) return;
 
   // Lookup entity at boundary
@@ -387,12 +396,26 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
     const now = Date.now();
     const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
-    // Add the combat specialization component with pending selection
-    devContext.world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
-      specialization: null,
-      selectionPending: true,
-      selectionDeadline: deadline,
-    });
+    // Add or update the combat specialization component with pending selection
+    if (devContext.world.hasComponent(entity, Components.CombatSpecialization)) {
+      const spec = devContext.world.getComponent<CombatSpecializationComponent>(
+        entity,
+        Components.CombatSpecialization
+      )!;
+      spec.specialization = null;
+      spec.selectionPending = true;
+      spec.selectionDeadline = deadline;
+    } else {
+      devContext.world.addComponent<CombatSpecializationComponent>(
+        entity,
+        Components.CombatSpecialization,
+        {
+          specialization: null,
+          selectionPending: true,
+          selectionDeadline: deadline,
+        }
+      );
+    }
 
     // Emit specialization prompt to trigger the modal
     const promptMessage: SpecializationPromptMessage = {
@@ -409,7 +432,13 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
     });
   }
 
-  io.emit('playerEvolved', { type: 'playerEvolved', playerId, newStage: stage, newMaxEnergy: stageStats.maxEnergy, radius: stageComp.radius });
+  io.emit('playerEvolved', {
+    type: 'playerEvolved',
+    playerId,
+    newStage: stage,
+    newMaxEnergy: stageStats.maxEnergy,
+    radius: stageComp.radius,
+  });
   io.emit('energyUpdate', { type: 'energyUpdate', playerId, energy: stageStats.energy });
   logger.info({ event: 'dev_set_stage', playerId, oldStage, newStage: stage });
 }
@@ -528,10 +557,18 @@ function handleClearWorld(io: Server): void {
     });
   }
 
-  logger.info({ event: 'dev_clear_world', nutrientsCleared: nutrientCount, swarmsCleared: swarmCount });
+  logger.info({
+    event: 'dev_clear_world',
+    nutrientsCleared: nutrientCount,
+    swarmsCleared: swarmCount,
+  });
 }
 
-function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism'): void {
+function handleDeleteAt(
+  io: Server,
+  position: Position,
+  entityType: 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism'
+): void {
   if (!devContext) return;
 
   const MAX_DELETE_DISTANCE = 100; // Max distance to find entity
@@ -585,7 +622,11 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
       });
       logger.info({ event: 'dev_delete_at_swarm', position, deletedId: nearestId });
     }
-  } else if (entityType === 'single-cell' || entityType === 'multi-cell' || entityType === 'cyber-organism') {
+  } else if (
+    entityType === 'single-cell' ||
+    entityType === 'multi-cell' ||
+    entityType === 'cyber-organism'
+  ) {
     // Find nearest bot of the specified type using ECS iteration
     // Use object wrapper pattern for closure mutation
     const result: { nearestId: string | null; nearestDist: number; nearestPos: Position | null } = {
@@ -632,7 +673,12 @@ function handleDeleteAt(io: Server, position: Position, entityType: 'nutrient' |
         color: '#ff0000', // Color not critical for dev kill
         cause: 'starvation',
       });
-      logger.info({ event: 'dev_delete_at_bot', position, deletedId: result.nearestId, entityType });
+      logger.info({
+        event: 'dev_delete_at_bot',
+        position,
+        deletedId: result.nearestId,
+        entityType,
+      });
     }
   }
 }

@@ -31,18 +31,19 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 
   // === OUTER MEMBRANE (Transparent shell) ===
   // Slight clearcoat for wet/glossy cell appearance
-  const membraneGeometry = getGeometry(`sphere-membrane-${radius}`, () =>
-    new THREE.SphereGeometry(radius, 32, 32)
+  const membraneGeometry = getGeometry(
+    `sphere-membrane-${radius}`,
+    () => new THREE.SphereGeometry(radius, 32, 32)
   );
 
   const membraneMaterial = new THREE.MeshPhysicalMaterial({
     color: colorHex,
     transparent: true,
-    opacity: 0.15,           // Very transparent outer shell
-    roughness: 0.1,          // Smooth surface
-    metalness: 0.05,         // Slight metallic sheen
-    clearcoat: 0.8,          // Wet/glossy appearance
-    depthWrite: false,       // Don't write depth - allows inner layers (nucleus) to render
+    opacity: 0.15, // Very transparent outer shell
+    roughness: 0.1, // Smooth surface
+    metalness: 0.05, // Slight metallic sheen
+    clearcoat: 0.8, // Wet/glossy appearance
+    depthWrite: false, // Don't write depth - allows inner layers (nucleus) to render
   });
 
   const membrane = new THREE.Mesh(membraneGeometry, membraneMaterial);
@@ -50,9 +51,10 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 
   // === CYTOPLASM (Volumetric jelly with shader) ===
   // Custom shader creates depth-based coloring and fresnel edge glow
-  const nucleusRadius = radius * 0.3;  // 30% of cell radius
-  const cytoplasmGeometry = getGeometry(`sphere-cytoplasm-${radius}`, () =>
-    new THREE.SphereGeometry(radius * 0.95, 32, 32)
+  const nucleusRadius = radius * 0.3; // 30% of cell radius
+  const cytoplasmGeometry = getGeometry(
+    `sphere-cytoplasm-${radius}`,
+    () => new THREE.SphereGeometry(radius * 0.95, 32, 32)
   );
 
   const cytoplasmMaterial = new THREE.ShaderMaterial({
@@ -61,7 +63,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
       opacity: { value: 0.5 },
       nucleusRadius: { value: nucleusRadius },
       cellRadius: { value: radius * 0.95 },
-      energyRatio: { value: 1.0 },  // 0-1, affects brightness (low energy = darker)
+      energyRatio: { value: 1.0 }, // 0-1, affects brightness (low energy = darker)
     },
     vertexShader: `
       varying vec3 vPosition;      // Local space position (for gradient/depth)
@@ -124,8 +126,8 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
   const positions = new Float32Array(particleCount * 3);
   const sizes = new Float32Array(particleCount);
 
-  const minRadius = nucleusRadius * 1.3;  // Just outside nucleus
-  const maxRadius = radius * 0.85;         // Just inside membrane
+  const minRadius = nucleusRadius * 1.3; // Just outside nucleus
+  const maxRadius = radius * 0.85; // Just inside membrane
 
   for (let i = 0; i < particleCount; i++) {
     const theta = Math.random() * Math.PI * 2;
@@ -136,7 +138,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
     positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i * 3 + 2] = r * Math.cos(phi);
 
-    sizes[i] = 1.5 + Math.random() * 1.5;  // Varying sizes
+    sizes[i] = 1.5 + Math.random() * 1.5; // Varying sizes
   }
 
   particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -148,7 +150,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
     transparent: true,
     opacity: 0.7,
     sizeAttenuation: false,
-    blending: THREE.AdditiveBlending,  // Glow effect
+    blending: THREE.AdditiveBlending, // Glow effect
   });
 
   const organelles = new THREE.Points(particleGeometry, particleMaterial);
@@ -156,14 +158,15 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
 
   // === INNER NUCLEUS (Glowing core) ===
   // Brightest part of the cell, emissive for bloom effect
-  const nucleusGeometry = getGeometry(`sphere-nucleus-${nucleusRadius}`, () =>
-    new THREE.SphereGeometry(nucleusRadius, 16, 16)
+  const nucleusGeometry = getGeometry(
+    `sphere-nucleus-${nucleusRadius}`,
+    () => new THREE.SphereGeometry(nucleusRadius, 16, 16)
   );
 
   const nucleusMaterial = new THREE.MeshStandardMaterial({
     color: colorHex,
     emissive: colorHex,
-    emissiveIntensity: 2.0,  // Strong glow for bloom
+    emissiveIntensity: 2.0, // Strong glow for bloom
     transparent: true,
     opacity: 1.0,
     depthWrite: false,
@@ -187,7 +190,11 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
  * @param energy - Current energy level
  * @param maxEnergy - Maximum energy level
  */
-export function updateSingleCellEnergy(cellGroup: THREE.Group, energy: number, maxEnergy: number): void {
+export function updateSingleCellEnergy(
+  cellGroup: THREE.Group,
+  energy: number,
+  maxEnergy: number
+): void {
   const energyRatio = Math.max(0, Math.min(1, energy / maxEnergy));
 
   // Get cell components (membrane, cytoplasm, organelles, nucleus)
@@ -261,6 +268,6 @@ export function updateSingleCellEnergy(cellGroup: THREE.Group, energy: number, m
  * Dispose of cached geometries (call on renderer cleanup)
  */
 export function disposeSingleCellCache(): void {
-  geometryCache.forEach(geometry => geometry.dispose());
+  geometryCache.forEach((geometry) => geometry.dispose());
   geometryCache.clear();
 }

@@ -11,7 +11,6 @@ import type {
   SwarmMovedMessage,
   DetectedEntity,
   DamageSource,
-  DamageTrackingComponent,
 } from '#shared';
 import { EvolutionStage, GAME_CONFIG, Components, type World } from '#shared';
 import type { System } from './types';
@@ -87,7 +86,10 @@ export class NetworkBroadcastSystem implements System {
    */
   private broadcastDrainState(world: World, io: Server): void {
     // Aggregate damage info per player from ECS components
-    const damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }> = {};
+    const damageInfo: Record<
+      string,
+      { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }
+    > = {};
     const now = Date.now();
 
     forEachPlayer(world, (_entity, playerId) => {
@@ -120,8 +122,8 @@ export class NetworkBroadcastSystem implements System {
 
       // Average proximity factors for gravity (if any)
       const proximityFactors = damages
-        .filter(d => d.proximityFactor !== undefined)
-        .map(d => d.proximityFactor!);
+        .filter((d) => d.proximityFactor !== undefined)
+        .map((d) => d.proximityFactor!);
       const proximityFactor =
         proximityFactors.length > 0
           ? proximityFactors.reduce((sum, p) => sum + p, 0) / proximityFactors.length
@@ -134,7 +136,10 @@ export class NetworkBroadcastSystem implements System {
     });
 
     // Build damage info for swarms being consumed (from SwarmComponent.beingConsumedBy)
-    const swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }> = {};
+    const swarmDamageInfo: Record<
+      string,
+      { totalDamageRate: number; primarySource: DamageSource }
+    > = {};
 
     forEachSwarm(world, (_entity, swarmId, _posComp, _velComp, swarmComp) => {
       if (swarmComp.beingConsumedBy) {
@@ -148,7 +153,7 @@ export class NetworkBroadcastSystem implements System {
     const drainStateMessage: PlayerDrainStateMessage = {
       type: 'playerDrainState',
       drainedPlayerIds: [], // deprecated
-      drainedSwarmIds: [],  // deprecated
+      drainedSwarmIds: [], // deprecated
       damageInfo,
       swarmDamageInfo,
     };

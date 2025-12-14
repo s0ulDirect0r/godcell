@@ -5,6 +5,7 @@
 **Branch**: TBD (will create after PR #42 merges)
 
 ## Overview
+
 Show drain auras with variable intensity whenever any entity takes energy/health damage from external sources. Aura appearance scales with damage rate and uses different colors for different damage types.
 
 ---
@@ -12,6 +13,7 @@ Show drain auras with variable intensity whenever any entity takes energy/health
 ## Design Decisions
 
 Based on user feedback:
+
 - ✅ **Starvation**: Different color (yellow/orange) to distinguish self-inflicted damage
 - ✅ **Metabolism**: No aura for passive energy decay (only external threats)
 - ✅ **Pseudopod hits**: Flash + brief aura (1-2 seconds with decay)
@@ -29,27 +31,33 @@ Update `PlayerDrainStateMessage` to include damage information:
 export interface PlayerDrainStateMessage {
   type: 'playerDrainState';
   drainedPlayerIds: string[]; // DEPRECATED - kept for backward compat
-  drainedSwarmIds: string[];  // DEPRECATED - kept for backward compat
+  drainedSwarmIds: string[]; // DEPRECATED - kept for backward compat
 
   // NEW: Comprehensive damage tracking per entity
-  damageInfo: Record<string, {
-    totalDamageRate: number;    // Combined damage per second from all sources
-    primarySource: DamageSource; // Dominant damage source (for color)
-    proximityFactor?: number;    // 0-1 for gradient effects (gravity wells)
-  }>;
+  damageInfo: Record<
+    string,
+    {
+      totalDamageRate: number; // Combined damage per second from all sources
+      primarySource: DamageSource; // Dominant damage source (for color)
+      proximityFactor?: number; // 0-1 for gradient effects (gravity wells)
+    }
+  >;
 
-  swarmDamageInfo: Record<string, {
-    totalDamageRate: number;
-    primarySource: DamageSource;
-  }>;
+  swarmDamageInfo: Record<
+    string,
+    {
+      totalDamageRate: number;
+      primarySource: DamageSource;
+    }
+  >;
 }
 
 // NEW: Damage source enum for visual treatment
 export type DamageSource =
-  | 'predation'   // Red (multi-cell contact drain)
-  | 'swarm'       // Red (entropy swarm attacks)
-  | 'beam'        // Red (pseudopod projectiles)
-  | 'gravity'     // Red (gravity well crushing)
+  | 'predation' // Red (multi-cell contact drain)
+  | 'swarm' // Red (entropy swarm attacks)
+  | 'beam' // Red (pseudopod projectiles)
+  | 'gravity' // Red (gravity well crushing)
   | 'starvation'; // Yellow/orange (zero energy)
 ```
 
@@ -62,9 +70,9 @@ Create new tracking system in main game loop:
 ```typescript
 // NEW: Track active damage sources per tick
 interface ActiveDamage {
-  damageRate: number;        // DPS this tick
-  source: DamageSource;      // Which source
-  proximityFactor?: number;  // For gravity gradient (0-1)
+  damageRate: number; // DPS this tick
+  source: DamageSource; // Which source
+  proximityFactor?: number; // For gravity gradient (0-1)
 }
 
 const activeDamageThisTick = new Map<string, ActiveDamage[]>();
@@ -74,7 +82,9 @@ function recordDamage(playerId: string, rate: number, source: DamageSource, prox
   if (!activeDamageThisTick.has(playerId)) {
     activeDamageThisTick.set(playerId, []);
   }
-  activeDamageThisTick.get(playerId)!.push({ damageRate: rate, source, proximityFactor: proximity });
+  activeDamageThisTick
+    .get(playerId)!
+    .push({ damageRate: rate, source, proximityFactor: proximity });
 }
 ```
 
@@ -98,6 +108,7 @@ function recordDamage(playerId: string, rate: number, source: DamageSource, prox
    - `recordDamage(playerId, STARVATION_DAMAGE_RATE, 'starvation')`
 
 **Aggregate and broadcast:**
+
 ```typescript
 function broadcastDamageState() {
   const damageInfo: Record<string, any> = {};
@@ -110,10 +121,13 @@ function broadcastDamageState() {
     const primarySource = damages.sort((a, b) => b.damageRate - a.damageRate)[0].source;
 
     // Average proximity for gravity (if applicable)
-    const proximityFactors = damages.filter(d => d.proximityFactor !== undefined).map(d => d.proximityFactor!);
-    const proximityFactor = proximityFactors.length > 0
-      ? proximityFactors.reduce((sum, p) => sum + p, 0) / proximityFactors.length
-      : undefined;
+    const proximityFactors = damages
+      .filter((d) => d.proximityFactor !== undefined)
+      .map((d) => d.proximityFactor!);
+    const proximityFactor =
+      proximityFactors.length > 0
+        ? proximityFactors.reduce((sum, p) => sum + p, 0) / proximityFactors.length
+        : undefined;
 
     damageInfo[playerId] = { totalDamageRate, primarySource, proximityFactor };
   }
@@ -121,7 +135,7 @@ function broadcastDamageState() {
   io.emit('playerDrainState', {
     type: 'playerDrainState',
     drainedPlayerIds: [], // deprecated
-    drainedSwarmIds: [],  // deprecated
+    drainedSwarmIds: [], // deprecated
     damageInfo,
     swarmDamageInfo: {}, // TODO: apply same logic to swarms being consumed
   });
@@ -132,6 +146,7 @@ function broadcastDamageState() {
 ```
 
 **Special handling for pseudopod hits:**
+
 - Maintain separate decay timer map: `Map<string, { rate: number, expiresAt: number }>`
 - When beam hits, add entry with 1.5 second expiration
 - Each tick, include non-expired entries in `activeDamageThisTick`
@@ -217,6 +232,7 @@ private updateDrainAuras(state: GameState, _dt: number): void {
 ```
 
 **Intensity calculation (maps DPS to 0-1 scale):**
+
 ```typescript
 private calculateAuraIntensity(damageRate: number): number {
   // Intensity scale:
@@ -238,6 +254,7 @@ private calculateAuraIntensity(damageRate: number): number {
 ```
 
 **Color selection:**
+
 ```typescript
 private getAuraColor(source: DamageSource): number {
   switch (source) {
@@ -254,6 +271,7 @@ private getAuraColor(source: DamageSource): number {
 ```
 
 **Apply intensity to visuals:**
+
 ```typescript
 private applyAuraIntensity(
   auraMesh: THREE.Group,
@@ -302,13 +320,13 @@ private applyAuraIntensity(
 
 ## Visual Parameters Summary
 
-| Damage Source | Color | Intensity Scaling | Special Behavior |
-|---|---|---|---|
-| **Predation** (150 dps) | Red | High (0.9-1.0) | Fast pulse, high opacity |
-| **Swarm** (60 dps) | Red | Medium (0.5-0.7) | Moderate pulse |
-| **Beam** (instant 100) | Red | Medium-fading | Flash + 1.5s decay aura |
-| **Gravity** (0-10 dps) | Red | Gradient (0.0-0.3) | Fades with distance from center |
-| **Starvation** (5 dps) | Orange | Low (0.15-0.2) | Slow pulse, subtle |
+| Damage Source           | Color  | Intensity Scaling  | Special Behavior                |
+| ----------------------- | ------ | ------------------ | ------------------------------- |
+| **Predation** (150 dps) | Red    | High (0.9-1.0)     | Fast pulse, high opacity        |
+| **Swarm** (60 dps)      | Red    | Medium (0.5-0.7)   | Moderate pulse                  |
+| **Beam** (instant 100)  | Red    | Medium-fading      | Flash + 1.5s decay aura         |
+| **Gravity** (0-10 dps)  | Red    | Gradient (0.0-0.3) | Fades with distance from center |
+| **Starvation** (5 dps)  | Orange | Low (0.15-0.2)     | Slow pulse, subtle              |
 
 ---
 

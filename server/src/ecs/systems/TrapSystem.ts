@@ -4,10 +4,9 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Tags, type World, Components } from '#shared';
+import { Tags, type World, Components } from '#shared';
 import type {
   PositionComponent,
-  TrapComponent,
   StunnedComponent,
   EntropySerpentComponent,
   EnergyComponent,
@@ -23,7 +22,6 @@ import {
   getStage,
   getEnergy,
   subtractEnergy,
-  getEntityBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
 import { isJungleStage } from '../../helpers/stages';
@@ -103,8 +101,14 @@ export class TrapSystem implements System {
       // Check collision with EntropySerpents
       const serpentEntities = world.getEntitiesWithTag(Tags.EntropySerpent);
       for (const serpentEntity of serpentEntities) {
-        const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
-        const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
+        const serpentPos = world.getComponent<PositionComponent>(
+          serpentEntity,
+          Components.Position
+        );
+        const serpentComp = world.getComponent<EntropySerpentComponent>(
+          serpentEntity,
+          Components.EntropySerpent
+        );
         const serpentId = getStringIdByEntity(serpentEntity);
         if (!serpentPos || !serpentComp || !serpentId) continue;
 
@@ -140,7 +144,10 @@ export class TrapSystem implements System {
 
       if (isSerpent) {
         // Serpent victim - damage only, no stun
-        const serpentEnergy = world.getComponent<EnergyComponent>(trap.victimEntity, Components.Energy);
+        const serpentEnergy = world.getComponent<EnergyComponent>(
+          trap.victimEntity,
+          Components.Energy
+        );
         if (serpentEnergy) {
           serpentEnergy.current = Math.max(0, serpentEnergy.current - trap.damage);
 

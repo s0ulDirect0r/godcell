@@ -69,7 +69,10 @@ export class CyberBugRenderSystem {
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
       const bug = this.world.getComponent<CyberBugComponent>(entity, Components.CyberBug);
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
       if (!pos || !bug) return;
 
       currentBugIds.add(bugId);

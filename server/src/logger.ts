@@ -46,9 +46,9 @@ function createLogger(filename: string, component: string) {
       target: 'pino-roll',
       options: {
         file: `${LOG_DIR}/${filename}`,
-        size: '10m',         // Rotate at 10MB
+        size: '10m', // Rotate at 10MB
         limit: { count: 5 }, // Keep last 5 rotated files
-        mkdir: true,         // Create logs dir if needed
+        mkdir: true, // Create logs dir if needed
       },
     });
   }
@@ -164,7 +164,12 @@ export function logObstaclesSpawned(count: number) {
 /**
  * Log gravity/physics debug info
  */
-export function logGravityDebug(playerId: string, distance: number, force: number, velocity: { x: number; y: number }) {
+export function logGravityDebug(
+  playerId: string,
+  distance: number,
+  force: number,
+  velocity: { x: number; y: number }
+) {
   logger.debug(
     { playerId, distance, force, velocity, event: 'gravity_applied' },
     `Gravity applied: dist=${distance.toFixed(0)}px, force=${force.toFixed(2)} px/s`
@@ -448,7 +453,12 @@ export function recordSpawn(entityId: string, stage: string): void {
  * Record an evolution event for rate tracking
  * Call this when a bot or player evolves
  */
-export function recordEvolution(entityId: string, fromStage: string, toStage: string, isBot: boolean): void {
+export function recordEvolution(
+  entityId: string,
+  fromStage: string,
+  toStage: string,
+  isBot: boolean
+): void {
   const now = Date.now();
 
   // Calculate survival time at previous stage
@@ -476,7 +486,6 @@ export function recordEvolution(entityId: string, fromStage: string, toStage: st
 // Internal function to avoid circular reference - will be set up after lifetime stats section
 let recordLifetimeEvolutionInternal = (_isBot: boolean) => {};
 let recordLifetimeCollectionInternal = (_isBot: boolean, _energy: number) => {};
-let recordLifetimeDeathInternal = (_cause: DeathCause) => {};
 
 /**
  * Clean up spawn tracking when entity dies/disconnects
@@ -775,7 +784,6 @@ export function recordLifetimeCollection(isBot: boolean, energy: number): void {
 // Wire up the internal functions now that they're defined
 recordLifetimeEvolutionInternal = recordLifetimeEvolution;
 recordLifetimeCollectionInternal = recordLifetimeCollection;
-recordLifetimeDeathInternal = recordLifetimeDeath;
 
 /**
  * Get lifetime average stats
@@ -810,9 +818,10 @@ export function getLifetimeStats(): {
     avgBotEvolutionsPerMinute: lifetimeStats.botEvolutions / safeMinutes,
     avgCollectionsPerMinute: lifetimeStats.totalNutrientCollections / safeMinutes,
     avgBotCollectionsPerMinute: lifetimeStats.botCollections / safeMinutes,
-    avgEnergyPerCollection: lifetimeStats.totalNutrientCollections > 0
-      ? lifetimeStats.totalEnergyCollected / lifetimeStats.totalNutrientCollections
-      : 0,
+    avgEnergyPerCollection:
+      lifetimeStats.totalNutrientCollections > 0
+        ? lifetimeStats.totalEnergyCollected / lifetimeStats.totalNutrientCollections
+        : 0,
     totals: { ...lifetimeStats },
   };
 }

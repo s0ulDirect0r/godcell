@@ -17,6 +17,7 @@ import type {
   EnergyComponent,
   StageComponent,
   DamageTrackingComponent,
+  StunnedComponent,
 } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -29,7 +30,6 @@ import {
   createTrap,
   countTrapsForPlayer,
   destroyEntity as ecsDestroyEntity,
-  getEntityBySocketId,
   getEntityByStringId,
   getPlayerBySocketId,
   // Entity-based component helpers (game layer)
@@ -126,15 +126,18 @@ export class AbilitySystem {
     const affectedPlayerIds: string[] = [];
 
     // Check swarms (from ECS)
-    forEachSwarm(world, (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, _swarmEnergyComp) => {
-      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
-      const dist = this.distance(playerPosition, swarmPosition);
-      if (dist <= getConfig('EMP_RANGE')) {
-        // Disable swarm (stun only, don't reset energy)
-        swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
-        affectedSwarmIds.push(swarmId);
+    forEachSwarm(
+      world,
+      (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, _swarmEnergyComp) => {
+        const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+        const dist = this.distance(playerPosition, swarmPosition);
+        if (dist <= getConfig('EMP_RANGE')) {
+          // Disable swarm (stun only, don't reset energy)
+          swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
+          affectedSwarmIds.push(swarmId);
+        }
       }
-    });
+    );
 
     // Check other players using ECS iteration (entity-based)
     forEachPlayer(world, (otherEntity, otherPlayerId) => {
@@ -150,16 +153,19 @@ export class AbilitySystem {
       const dist = this.distance(playerPosition, { x: otherPos.x, y: otherPos.y });
       if (dist <= getConfig('EMP_RANGE')) {
         // Single-cells get 50% stun duration (they're more nimble)
-        const stunDuration = otherStage.stage === EvolutionStage.SINGLE_CELL
-          ? getConfig('EMP_DISABLE_DURATION') * 0.5
-          : getConfig('EMP_DISABLE_DURATION');
+        const stunDuration =
+          otherStage.stage === EvolutionStage.SINGLE_CELL
+            ? getConfig('EMP_DISABLE_DURATION') * 0.5
+            : getConfig('EMP_DISABLE_DURATION');
 
         // Set stun via component (create if needed or update)
         if (otherStunned) {
           otherStunned.until = now + stunDuration;
+        } else {
+          world.addComponent<StunnedComponent>(otherEntity, Components.Stunned, {
+            until: now + stunDuration,
+          });
         }
-        // Note: If no stunned component, the shared ECS may need component creation
-        // For now, stun tracking happens via the component if present
 
         // Multi-cells also lose energy when hit (entity-based)
         if (otherStage.stage === EvolutionStage.MULTI_CELL) {
@@ -238,9 +244,10 @@ export class AbilitySystem {
 
     // Calculate max range (strike mode uses fixed range, legacy modes use radius multiplier)
     const playerRadius = stageComp.radius;
-    const maxRange = GAME_CONFIG.PSEUDOPOD_MODE === 'strike'
-      ? getConfig('PSEUDOPOD_RANGE')
-      : playerRadius * getConfig('PSEUDOPOD_RANGE');
+    const maxRange =
+      GAME_CONFIG.PSEUDOPOD_MODE === 'strike'
+        ? getConfig('PSEUDOPOD_RANGE')
+        : playerRadius * getConfig('PSEUDOPOD_RANGE');
 
     // For strike mode, clamp target to max range (fire at max range in cursor direction)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike' && targetDist > maxRange) {
@@ -264,12 +271,17 @@ export class AbilitySystem {
 
         const targetStage = world.getComponent<StageComponent>(targetEntity, Components.Stage);
         const targetEnergy = world.getComponent<EnergyComponent>(targetEntity, Components.Energy);
-        const targetPos = world.getComponent(targetEntity, Components.Position) as { x: number; y: number } | undefined;
+        const targetPos = world.getComponent(targetEntity, Components.Position) as
+          | { x: number; y: number }
+          | undefined;
         if (!targetStage || !targetEnergy || !targetPos) return;
 
         // Only hit soup-stage targets (single-cell and multi-cell)
-        if (targetStage.stage !== EvolutionStage.SINGLE_CELL &&
-            targetStage.stage !== EvolutionStage.MULTI_CELL) return;
+        if (
+          targetStage.stage !== EvolutionStage.SINGLE_CELL &&
+          targetStage.stage !== EvolutionStage.MULTI_CELL
+        )
+          return;
         if (targetEnergy.current <= 0) return; // Skip dead players
         if (targetStage.isEvolving) return; // Skip evolving players
 
@@ -306,36 +318,42 @@ export class AbilitySystem {
       });
 
       // Also check swarms in AoE - set damage tracking, DeathSystem handles kills
-      forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velComp, swarmComp, swarmEnergyComp) => {
-        const dx = swarmPosComp.x - targetX;
-        const dy = swarmPosComp.y - targetY;
-        const distToSwarm = Math.sqrt(dx * dx + dy * dy);
+      forEachSwarm(
+        world,
+        (swarmEntity, swarmId, swarmPosComp, _velComp, swarmComp, swarmEnergyComp) => {
+          const dx = swarmPosComp.x - targetX;
+          const dy = swarmPosComp.y - targetY;
+          const distToSwarm = Math.sqrt(dx * dx + dy * dy);
 
-        if (distToSwarm <= aoeRadius + swarmComp.size) {
-          const actualDrain = Math.min(drainPerHit, swarmEnergyComp.current);
-          swarmEnergyComp.current -= actualDrain;
-          totalDrained += actualDrain;
-          hitTargetIds.push(swarmId);
+          if (distToSwarm <= aoeRadius + swarmComp.size) {
+            const actualDrain = Math.min(drainPerHit, swarmEnergyComp.current);
+            swarmEnergyComp.current -= actualDrain;
+            totalDrained += actualDrain;
+            hitTargetIds.push(swarmId);
 
-          // Set damage tracking so DeathSystem knows who killed it
-          const damageTracking = world.getComponent<DamageTrackingComponent>(swarmEntity, Components.DamageTracking);
-          if (damageTracking) {
-            damageTracking.lastDamageSource = 'beam';
-            damageTracking.lastBeamShooter = playerId;
+            // Set damage tracking so DeathSystem knows who killed it
+            const damageTracking = world.getComponent<DamageTrackingComponent>(
+              swarmEntity,
+              Components.DamageTracking
+            );
+            if (damageTracking) {
+              damageTracking.lastDamageSource = 'beam';
+              damageTracking.lastBeamShooter = playerId;
+            }
+
+            // Record damage for drain aura visual
+            recordDamage(world, swarmEntity, actualDrain, 'beam');
+
+            logger.info({
+              event: 'strike_hit_swarm',
+              striker: playerId,
+              swarmId,
+              damage: actualDrain,
+              swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
+            });
           }
-
-          // Record damage for drain aura visual
-          recordDamage(world, swarmEntity, drainPerHit, 'beam');
-
-          logger.info({
-            event: 'strike_hit_swarm',
-            striker: playerId,
-            swarmId,
-            damage: actualDrain,
-            swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
-          });
         }
-      });
+      );
 
       // Give drained energy to the attacker (energy absorption, entity-based)
       if (totalDrained > 0) {
@@ -369,7 +387,6 @@ export class AbilitySystem {
         totalDrained,
         isBot: playerId.startsWith('bot-'),
       });
-
     } else if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
       // HITSCAN MODE: Instant raycast
       const actualDist = Math.min(targetDist, maxRange);
@@ -522,7 +539,10 @@ export class AbilitySystem {
     if (stageComp.isEvolving) return false;
 
     // Check specialization - must be ranged
-    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
     if (!specComp || specComp.specialization !== 'ranged') return false;
 
     const now = Date.now();
@@ -589,7 +609,13 @@ export class AbilitySystem {
    * @param attackType 'swipe' (90°) or 'thrust' (30°)
    * @returns true if attack was executed successfully
    */
-  fireMeleeAttack(entity: EntityId, playerId: string, attackType: MeleeAttackType, targetX: number, targetY: number): boolean {
+  fireMeleeAttack(
+    entity: EntityId,
+    playerId: string,
+    attackType: MeleeAttackType,
+    targetX: number,
+    targetY: number
+  ): boolean {
     const { world } = this.ctx;
 
     // Get player state from ECS (entity-based)
@@ -607,7 +633,10 @@ export class AbilitySystem {
     if (stageComp.isEvolving) return false;
 
     // Check specialization - must be melee
-    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
     if (!specComp || specComp.specialization !== 'melee') return false;
 
     const now = Date.now();
@@ -615,19 +644,25 @@ export class AbilitySystem {
 
     // Get attack parameters based on type
     const isSwipe = attackType === 'swipe';
-    const energyCost = isSwipe ? GAME_CONFIG.MELEE_SWIPE_ENERGY_COST : GAME_CONFIG.MELEE_THRUST_ENERGY_COST;
+    const energyCost = isSwipe
+      ? GAME_CONFIG.MELEE_SWIPE_ENERGY_COST
+      : GAME_CONFIG.MELEE_THRUST_ENERGY_COST;
     const cooldown = isSwipe ? GAME_CONFIG.MELEE_SWIPE_COOLDOWN : GAME_CONFIG.MELEE_THRUST_COOLDOWN;
     const range = isSwipe ? GAME_CONFIG.MELEE_SWIPE_RANGE : GAME_CONFIG.MELEE_THRUST_RANGE;
     const arc = isSwipe ? GAME_CONFIG.MELEE_SWIPE_ARC : GAME_CONFIG.MELEE_THRUST_ARC;
     const damage = isSwipe ? GAME_CONFIG.MELEE_SWIPE_DAMAGE : GAME_CONFIG.MELEE_THRUST_DAMAGE;
-    const knockback = isSwipe ? GAME_CONFIG.MELEE_SWIPE_KNOCKBACK : GAME_CONFIG.MELEE_THRUST_KNOCKBACK;
+    const knockback = isSwipe
+      ? GAME_CONFIG.MELEE_SWIPE_KNOCKBACK
+      : GAME_CONFIG.MELEE_THRUST_KNOCKBACK;
 
     if (energyComp.current < energyCost) return false;
 
     // Cooldown check via ECS (entity-based)
     const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) return false;
-    const lastUse = isSwipe ? (cooldowns.lastMeleeSwipeTime || 0) : (cooldowns.lastMeleeThrustTime || 0);
+    const lastUse = isSwipe
+      ? cooldowns.lastMeleeSwipeTime || 0
+      : cooldowns.lastMeleeThrustTime || 0;
     if (now - lastUse < cooldown) return false;
 
     // Deduct energy
@@ -670,7 +705,10 @@ export class AbilitySystem {
       if (dist < 200 || dist > range + targetRadius) return;
 
       // Check if within arc
-      const toTargetAngle = Math.atan2(targetPos.y - playerPosition.y, targetPos.x - playerPosition.x);
+      const toTargetAngle = Math.atan2(
+        targetPos.y - playerPosition.y,
+        targetPos.x - playerPosition.x
+      );
       let angleDiff = Math.abs(toTargetAngle - attackAngle);
       // Normalize to [-PI, PI]
       if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
@@ -683,13 +721,19 @@ export class AbilitySystem {
         targetEnergy.current -= damage;
 
         // Apply knockback via KnockbackComponent
-        const knockbackDir = Math.atan2(targetPos.y - playerPosition.y, targetPos.x - playerPosition.x);
+        const knockbackDir = Math.atan2(
+          targetPos.y - playerPosition.y,
+          targetPos.x - playerPosition.x
+        );
         const knockbackForceX = Math.cos(knockbackDir) * knockback;
         const knockbackForceY = Math.sin(knockbackDir) * knockback;
 
         // Add or update KnockbackComponent on target
         if (world.hasComponent(targetEntity, Components.Knockback)) {
-          const kbComp = world.getComponent<KnockbackComponent>(targetEntity, Components.Knockback)!;
+          const kbComp = world.getComponent<KnockbackComponent>(
+            targetEntity,
+            Components.Knockback
+          )!;
           kbComp.forceX += knockbackForceX;
           kbComp.forceY += knockbackForceY;
         } else {
@@ -712,7 +756,13 @@ export class AbilitySystem {
     });
 
     // Check CyberBugs (one-shot kills, award energy)
-    const bugsToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number }[] = [];
+    const bugsToKill: {
+      entity: number;
+      id: string;
+      pos: { x: number; y: number };
+      value: number;
+      capacityIncrease: number;
+    }[] = [];
     forEachCyberBug(world, (bugEntity, bugId, bugPos, bugComp) => {
       const bugPosition = { x: bugPos.x, y: bugPos.y };
       const dist = this.distance(playerPosition, bugPosition);
@@ -769,7 +819,14 @@ export class AbilitySystem {
     }
 
     // Check JungleCreatures (one-shot kills, award energy)
-    const creaturesToKill: { entity: number; id: string; pos: { x: number; y: number }; value: number; capacityIncrease: number; variant: string }[] = [];
+    const creaturesToKill: {
+      entity: number;
+      id: string;
+      pos: { x: number; y: number };
+      value: number;
+      capacityIncrease: number;
+      variant: string;
+    }[] = [];
     forEachJungleCreature(world, (creatureEntity, creatureId, creaturePos, creatureComp) => {
       const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
       const dist = this.distance(playerPosition, creaturePosition);
@@ -778,7 +835,10 @@ export class AbilitySystem {
       if (dist < 200 || dist > range + creatureComp.size) return;
 
       // Check if within arc
-      const toTargetAngle = Math.atan2(creaturePos.y - playerPosition.y, creaturePos.x - playerPosition.x);
+      const toTargetAngle = Math.atan2(
+        creaturePos.y - playerPosition.y,
+        creaturePos.x - playerPosition.x
+      );
       let angleDiff = Math.abs(toTargetAngle - attackAngle);
       if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
 
@@ -880,7 +940,12 @@ export class AbilitySystem {
 
     // Stage 3+ only (Cyber-Organism and above)
     if (!isJungleStage(stageComp.stage)) {
-      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'wrong_stage', stage: stageComp.stage });
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'wrong_stage',
+        stage: stageComp.stage,
+      });
       return false;
     }
     if (energyComp.current <= 0) {
@@ -893,7 +958,10 @@ export class AbilitySystem {
     }
 
     // Check specialization - must be traps
-    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
     if (!specComp || specComp.specialization !== 'traps') {
       logger.debug({
         event: 'player_trap_place_denied',
@@ -911,19 +979,34 @@ export class AbilitySystem {
       return false;
     }
     if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) {
-      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'insufficient_energy', energy: energyComp.current, cost: GAME_CONFIG.TRAP_ENERGY_COST });
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'insufficient_energy',
+        energy: energyComp.current,
+        cost: GAME_CONFIG.TRAP_ENERGY_COST,
+      });
       return false;
     }
 
     // Cooldown check via ECS (entity-based)
     const cooldowns = getCooldowns(world, entity);
     if (!cooldowns) {
-      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'no_cooldowns_component' });
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'no_cooldowns_component',
+      });
       return false;
     }
     const lastUse = cooldowns.lastTrapPlaceTime || 0;
     if (now - lastUse < GAME_CONFIG.TRAP_COOLDOWN) {
-      logger.debug({ event: 'player_trap_place_denied', playerId, reason: 'cooldown', remaining: GAME_CONFIG.TRAP_COOLDOWN - (now - lastUse) });
+      logger.debug({
+        event: 'player_trap_place_denied',
+        playerId,
+        reason: 'cooldown',
+        remaining: GAME_CONFIG.TRAP_COOLDOWN - (now - lastUse),
+      });
       return false;
     }
 
@@ -1057,7 +1140,10 @@ export class AbilitySystem {
     if (stageComp.isEvolving) return false;
 
     // Check specialization - must be ranged
-    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
     if (!specComp || specComp.specialization !== 'ranged') return false;
 
     if (energyComp.current < GAME_CONFIG.PROJECTILE_ENERGY_COST) return false;
@@ -1085,7 +1171,10 @@ export class AbilitySystem {
     if (stageComp.isEvolving) return false;
 
     // Check specialization - must be traps
-    const specComp = world.getComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization);
+    const specComp = world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    );
     if (!specComp || specComp.specialization !== 'traps') return false;
 
     if (energyComp.current < GAME_CONFIG.TRAP_ENERGY_COST) return false;

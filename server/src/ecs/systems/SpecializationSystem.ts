@@ -7,11 +7,7 @@ import type { Server } from 'socket.io';
 import type { World, SpecializationSelectedMessage, CombatSpecialization } from '#shared';
 import { Tags } from '#shared';
 import type { System } from './types';
-import {
-  Components,
-  getSocketIdByEntity,
-  type CombatSpecializationComponent,
-} from '../index';
+import { Components, getSocketIdByEntity, type CombatSpecializationComponent } from '../index';
 import { logger } from '../../logger';
 import { isBot } from '../../bots';
 
@@ -62,7 +58,9 @@ export class SpecializationSystem implements System {
         io.emit('specializationSelected', selectedMessage);
 
         logger.info({
-          event: isBot(socketId) ? 'bot_specialization_auto_assigned' : 'player_specialization_auto_assigned',
+          event: isBot(socketId)
+            ? 'bot_specialization_auto_assigned'
+            : 'player_specialization_auto_assigned',
           playerId: socketId,
           specialization: specComp.specialization,
         });

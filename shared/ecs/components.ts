@@ -21,7 +21,7 @@ import type { EvolutionStage, DeathCause, DamageSource, Position } from '../inde
 export interface PositionComponent {
   x: number;
   y: number;
-  z?: number;  // Optional, defaults to 0
+  z?: number; // Optional, defaults to 0
 }
 
 /**
@@ -37,7 +37,7 @@ export interface PositionComponent {
 export interface VelocityComponent {
   x: number;
   y: number;
-  z?: number;  // Optional, defaults to 0
+  z?: number; // Optional, defaults to 0
 }
 
 /**
@@ -46,8 +46,8 @@ export interface VelocityComponent {
  * Used by: Players, Swarms (when disabled)
  */
 export interface EnergyComponent {
-  current: number;  // Current energy level
-  max: number;      // Maximum energy capacity (grows with nutrients)
+  current: number; // Current energy level
+  max: number; // Maximum energy capacity (grows with nutrients)
 }
 
 // ============================================
@@ -59,9 +59,9 @@ export interface EnergyComponent {
  * Immutable after creation (except name).
  */
 export interface PlayerComponent {
-  socketId: string;   // Socket.io connection ID
-  name: string;       // Display name
-  color: string;      // Hex color like "#FF5733"
+  socketId: string; // Socket.io connection ID
+  name: string; // Display name
+  color: string; // Hex color like "#FF5733"
 }
 
 /**
@@ -70,9 +70,9 @@ export interface PlayerComponent {
  */
 export interface StageComponent {
   stage: EvolutionStage;
-  isEvolving: boolean;    // True during molting animation
+  isEvolving: boolean; // True during molting animation
   evolvingUntil?: number; // Timestamp when evolution completes (for invulnerability)
-  radius: number;         // Collision/visual radius in pixels (computed from stage)
+  radius: number; // Collision/visual radius in pixels (computed from stage)
 }
 
 /**
@@ -85,7 +85,7 @@ export interface StageComponent {
  */
 export interface InputComponent {
   direction: { x: number; y: number; z?: number }; // -1, 0, or 1 for each axis (z optional)
-  lastInputTimestamp?: number;                     // For debugging/anti-cheat
+  lastInputTimestamp?: number; // For debugging/anti-cheat
 }
 
 /**
@@ -117,9 +117,9 @@ export interface SpawnImmunityComponent {
  * Chosen at evolution to Stage 3, locked for that life.
  */
 export interface CombatSpecializationComponent {
-  specialization: 'melee' | 'ranged' | 'traps' | null;  // Chosen pathway
-  selectionPending: boolean;   // True while modal is shown, waiting for choice
-  selectionDeadline?: number;  // Timestamp when auto-assign triggers
+  specialization: 'melee' | 'ranged' | 'traps' | null; // Chosen pathway
+  selectionPending: boolean; // True while modal is shown, waiting for choice
+  selectionDeadline?: number; // Timestamp when auto-assign triggers
 }
 
 /**
@@ -127,9 +127,9 @@ export interface CombatSpecializationComponent {
  * Used by melee attacks to push targets away.
  */
 export interface KnockbackComponent {
-  forceX: number;      // Knockback force in X direction (pixels/second)
-  forceY: number;      // Knockback force in Y direction (pixels/second)
-  decayRate: number;   // Force reduction per second
+  forceX: number; // Knockback force in X direction (pixels/second)
+  forceY: number; // Knockback force in Y direction (pixels/second)
+  decayRate: number; // Force reduction per second
 }
 
 /**
@@ -137,12 +137,12 @@ export interface KnockbackComponent {
  * Prevents ability spam.
  */
 export interface CooldownsComponent {
-  lastEMPTime?: number;       // Timestamp of last EMP use
+  lastEMPTime?: number; // Timestamp of last EMP use
   lastPseudopodTime?: number; // Timestamp of last pseudopod fire
   lastOrganismProjectileTime?: number; // Timestamp of last organism projectile fire (Stage 3+)
-  lastMeleeSwipeTime?: number;  // Timestamp of last melee swipe
+  lastMeleeSwipeTime?: number; // Timestamp of last melee swipe
   lastMeleeThrustTime?: number; // Timestamp of last melee thrust
-  lastTrapPlaceTime?: number;   // Timestamp of last trap placement
+  lastTrapPlaceTime?: number; // Timestamp of last trap placement
 }
 
 /**
@@ -150,15 +150,16 @@ export interface CooldownsComponent {
  * Tracks what last damaged this entity and who fired the killing blow.
  */
 export interface DamageTrackingComponent {
-  lastDamageSource?: DeathCause;  // What last damaged this entity
-  lastBeamShooter?: string;       // Player ID who fired last beam hit (for kill rewards)
-  activeDamage: Array<{           // Current tick's damage sources (for drain auras)
+  lastDamageSource?: DeathCause; // What last damaged this entity
+  lastBeamShooter?: string; // Player ID who fired last beam hit (for kill rewards)
+  activeDamage: Array<{
+    // Current tick's damage sources (for drain auras)
     damageRate: number;
     source: DamageSource;
-    proximityFactor?: number;     // For gravity gradient (0-1)
+    proximityFactor?: number; // For gravity gradient (0-1)
   }>;
   // Pseudopod hit decay - brief damage display after beam hit
-  pseudopodHitRate?: number;      // Damage rate to display
+  pseudopodHitRate?: number; // Damage rate to display
   pseudopodHitExpiresAt?: number; // Timestamp when decay expires
 }
 
@@ -179,10 +180,10 @@ export interface DrainTargetComponent {
  * Collection increases energy and maxEnergy.
  */
 export interface NutrientComponent {
-  value: number;            // Immediate energy gain
+  value: number; // Immediate energy gain
   capacityIncrease: number; // Permanent maxEnergy increase
-  valueMultiplier: number;  // Proximity multiplier (1/2/3/5) - determines color
-  isHighValue: boolean;     // True if spawned near obstacle
+  valueMultiplier: number; // Proximity multiplier (1/2/3/5) - determines color
+  isHighValue: boolean; // True if spawned near obstacle
 }
 
 /**
@@ -190,8 +191,8 @@ export interface NutrientComponent {
  * Attracts entities toward its center.
  */
 export interface ObstacleComponent {
-  radius: number;    // Gravity influence radius (escapable zone)
-  strength: number;  // Gravity force multiplier
+  radius: number; // Gravity influence radius (escapable zone)
+  strength: number; // Gravity force multiplier
   // Note: Event horizon and core radius are derived from GAME_CONFIG
 }
 
@@ -201,9 +202,9 @@ export interface ObstacleComponent {
  * Invisible and intangible to soup-scale (Stage 1-2) players.
  */
 export interface TreeComponent {
-  radius: number;    // Collision radius (trunk size)
-  height: number;    // Visual height for rendering
-  variant: number;   // Seed for procedural generation (0-1)
+  radius: number; // Collision radius (trunk size)
+  height: number; // Visual height for rendering
+  variant: number; // Seed for procedural generation (0-1)
 }
 
 /**
@@ -211,13 +212,13 @@ export interface TreeComponent {
  * Hunts players and drains their energy.
  */
 export interface SwarmComponent {
-  size: number;                    // Radius for collision detection
-  state: 'patrol' | 'chase';       // Current AI state
-  targetPlayerId?: string;         // Socket ID being chased (if state === 'chase')
-  patrolTarget?: Position;         // Where swarm is wandering toward
-  homePosition: Position;          // Spawn point (for patrol radius)
-  disabledUntil?: number;          // Timestamp when EMP stun expires
-  beingConsumedBy?: string;        // Player socketId currently consuming this swarm
+  size: number; // Radius for collision detection
+  state: 'patrol' | 'chase'; // Current AI state
+  targetPlayerId?: string; // Socket ID being chased (if state === 'chase')
+  patrolTarget?: Position; // Where swarm is wandering toward
+  homePosition: Position; // Spawn point (for patrol radius)
+  disabledUntil?: number; // Timestamp when EMP stun expires
+  beingConsumedBy?: string; // Player socketId currently consuming this swarm
   // Note: Swarm energy is stored in EnergyComponent when disabled
 }
 
@@ -226,13 +227,13 @@ export interface SwarmComponent {
  * Travels toward target and drains energy on hit.
  */
 export interface PseudopodComponent {
-  ownerId: number;         // EntityId of player who fired
-  ownerSocketId: string;   // For quick lookup and network messages
-  width: number;           // Beam collision width
-  maxDistance: number;     // Max travel distance
+  ownerId: number; // EntityId of player who fired
+  ownerSocketId: string; // For quick lookup and network messages
+  width: number; // Beam collision width
+  maxDistance: number; // Max travel distance
   distanceTraveled: number; // How far it's traveled
-  createdAt: number;       // Timestamp for tracking
-  color: string;           // Owner's color (for rendering)
+  createdAt: number; // Timestamp for tracking
+  color: string; // Owner's color (for rendering)
   hitEntities: Set<number>; // EntityIds already hit (prevent double-hit)
 }
 
@@ -305,11 +306,11 @@ export interface CanDetectComponent {
  * Trees produce fruits periodically; bigger trees = more fruit.
  */
 export interface DataFruitComponent {
-  treeEntityId: number;       // EntityId of parent tree (0 if fallen/detached)
-  value: number;              // Energy gain on collection
-  capacityIncrease: number;   // maxEnergy increase (evolution progress)
-  ripeness: number;           // 0-1, affects visual glow intensity
-  fallenAt?: number;          // Timestamp when fruit fell from tree (undefined = still attached)
+  treeEntityId: number; // EntityId of parent tree (0 if fallen/detached)
+  value: number; // Energy gain on collection
+  capacityIncrease: number; // maxEnergy increase (evolution progress)
+  ripeness: number; // 0-1, affects visual glow intensity
+  fallenAt?: number; // Timestamp when fruit fell from tree (undefined = still attached)
 }
 
 /**
@@ -318,14 +319,14 @@ export interface DataFruitComponent {
  * Skittish AI: patrol until player approaches, then flee.
  */
 export interface CyberBugComponent {
-  swarmId: string;            // Groups bugs into swarms (same swarmId = same group)
-  size: number;               // Collision radius
+  swarmId: string; // Groups bugs into swarms (same swarmId = same group)
+  size: number; // Collision radius
   state: 'idle' | 'patrol' | 'flee';
-  fleeingFrom?: number;       // EntityId of player being fled from
-  homePosition: Position;     // Spawn point for patrol behavior
-  patrolTarget?: Position;    // Current wander destination
-  value: number;              // Energy gain on kill
-  capacityIncrease: number;   // maxEnergy increase on kill
+  fleeingFrom?: number; // EntityId of player being fled from
+  homePosition: Position; // Spawn point for patrol behavior
+  patrolTarget?: Position; // Current wander destination
+  value: number; // Energy gain on kill
+  capacityIncrease: number; // maxEnergy increase on kill
 }
 
 /**
@@ -334,15 +335,15 @@ export interface CyberBugComponent {
  * Stage 3 equivalent of soup's entropy swarms but huntable.
  */
 export interface JungleCreatureComponent {
-  variant: 'grazer' | 'stalker' | 'ambusher';  // Behavior archetype
-  size: number;               // Collision radius (larger than bugs)
+  variant: 'grazer' | 'stalker' | 'ambusher'; // Behavior archetype
+  size: number; // Collision radius (larger than bugs)
   state: 'idle' | 'patrol' | 'hunt' | 'flee';
-  targetEntityId?: number;    // EntityId being hunted (if state === 'hunt')
-  homePosition: Position;     // Spawn territory center
-  territoryRadius: number;    // How far it wanders from home
-  value: number;              // Energy gain on kill
-  capacityIncrease: number;   // maxEnergy increase on kill
-  aggressionRange?: number;   // Distance at which it attacks (stalker/ambusher only)
+  targetEntityId?: number; // EntityId being hunted (if state === 'hunt')
+  homePosition: Position; // Spawn territory center
+  territoryRadius: number; // How far it wanders from home
+  value: number; // Energy gain on kill
+  capacityIncrease: number; // maxEnergy increase on kill
+  aggressionRange?: number; // Distance at which it attacks (stalker/ambusher only)
 }
 
 /**
@@ -352,13 +353,13 @@ export interface JungleCreatureComponent {
  * Hunts cyber-organisms and humanoids relentlessly.
  */
 export interface EntropySerpentComponent {
-  size: number;                              // Collision radius (body segments)
-  state: 'patrol' | 'chase' | 'attack';      // AI state
-  targetEntityId?: number;                   // EntityId being hunted
-  homePosition: Position;                    // Spawn territory center
-  patrolTarget?: Position;                   // Current patrol destination
-  lastAttackTime?: number;                   // Timestamp of last claw attack
-  heading: number;                           // Current facing direction (radians)
+  size: number; // Collision radius (body segments)
+  state: 'patrol' | 'chase' | 'attack'; // AI state
+  targetEntityId?: number; // EntityId being hunted
+  homePosition: Position; // Spawn territory center
+  patrolTarget?: Position; // Current patrol destination
+  lastAttackTime?: number; // Timestamp of last claw attack
+  heading: number; // Current facing direction (radians)
 }
 
 /**
@@ -366,21 +367,21 @@ export interface EntropySerpentComponent {
  * Used by ranged spec to hunt fauna and attack other players.
  */
 export interface ProjectileComponent {
-  ownerId: number;           // EntityId of player who fired
-  ownerSocketId: string;     // For network attribution and rewards
-  damage: number;            // Energy drained from target on hit
-  capacitySteal: number;     // maxEnergy stolen from target (0 for fauna)
-  startX: number;            // Starting position X
-  startY: number;            // Starting position Y
-  targetX: number;           // Target position X
-  targetY: number;           // Target position Y
-  speed: number;             // Travel speed (px/s)
-  maxDistance: number;       // Max travel distance before despawn
-  distanceTraveled: number;  // How far it's traveled
+  ownerId: number; // EntityId of player who fired
+  ownerSocketId: string; // For network attribution and rewards
+  damage: number; // Energy drained from target on hit
+  capacitySteal: number; // maxEnergy stolen from target (0 for fauna)
+  startX: number; // Starting position X
+  startY: number; // Starting position Y
+  targetX: number; // Target position X
+  targetY: number; // Target position Y
+  speed: number; // Travel speed (px/s)
+  maxDistance: number; // Max travel distance before despawn
+  distanceTraveled: number; // How far it's traveled
   state: 'traveling' | 'hit' | 'missed';
-  hitEntityId?: number;      // EntityId of what was hit (if state === 'hit')
-  color: string;             // Owner's color (for rendering)
-  createdAt: number;         // Timestamp for tracking
+  hitEntityId?: number; // EntityId of what was hit (if state === 'hit')
+  color: string; // Owner's color (for rendering)
+  createdAt: number; // Timestamp for tracking
 }
 
 /**
@@ -389,14 +390,14 @@ export interface ProjectileComponent {
  * Applies damage and stun to the victim.
  */
 export interface TrapComponent {
-  ownerId: number;           // EntityId of player who placed
-  ownerSocketId: string;     // For kill attribution
-  damage: number;            // Energy damage on detonation
-  stunDuration: number;      // Stun duration in ms
-  triggerRadius: number;     // Activation distance from trap center
-  placedAt: number;          // Timestamp for lifetime tracking
-  lifetime: number;          // Max lifetime in ms before auto-despawn
-  color: string;             // Owner's color (for rendering)
+  ownerId: number; // EntityId of player who placed
+  ownerSocketId: string; // For kill attribution
+  damage: number; // Energy damage on detonation
+  stunDuration: number; // Stun duration in ms
+  triggerRadius: number; // Activation distance from trap center
+  placedAt: number; // Timestamp for lifetime tracking
+  lifetime: number; // Max lifetime in ms before auto-despawn
+  color: string; // Owner's color (for rendering)
 }
 
 // ============================================
@@ -414,11 +415,11 @@ export interface TrapComponent {
  * - Consistent with ECS architecture
  */
 export interface PendingRespawnComponent {
-  respawnAt: number;                    // Server timestamp when to respawn
-  entityType: 'bot' | 'swarm' | 'nutrient';  // What to spawn
-  stage?: number;                       // Evolution stage for bots (1-5)
-  position?: { x: number; y: number };  // Optional spawn position
-  metadata?: Record<string, unknown>;   // Extra data (e.g., nutrient value)
+  respawnAt: number; // Server timestamp when to respawn
+  entityType: 'bot' | 'swarm' | 'nutrient'; // What to spawn
+  stage?: number; // Evolution stage for bots (1-5)
+  position?: { x: number; y: number }; // Optional spawn position
+  metadata?: Record<string, unknown>; // Extra data (e.g., nutrient value)
 }
 
 // ============================================
@@ -431,10 +432,10 @@ export interface PendingRespawnComponent {
  * Used by: Players, Swarms (entities that move)
  */
 export interface InterpolationTargetComponent {
-  targetX: number;        // Target X position from server
-  targetY: number;        // Target Y position from server
-  targetZ?: number;       // Target Z position from server (height for Stage 5, optional)
-  timestamp: number;      // When this target was received
+  targetX: number; // Target X position from server
+  targetY: number; // Target Y position from server
+  targetZ?: number; // Target Z position from server (height for Stage 5, optional)
+  timestamp: number; // When this target was received
 }
 
 /**
@@ -443,7 +444,7 @@ export interface InterpolationTargetComponent {
  * Used by: Players, Swarms (entities that can be damaged)
  */
 export interface ClientDamageInfoComponent {
-  totalDamageRate: number;       // Combined damage rate from all sources
-  primarySource: DamageSource;   // Main damage source type (for color)
-  proximityFactor?: number;      // For gradient effects (0-1)
+  totalDamageRate: number; // Combined damage rate from all sources
+  primarySource: DamageSource; // Main damage source type (for color)
+  proximityFactor?: number; // For gradient effects (0-1)
 }

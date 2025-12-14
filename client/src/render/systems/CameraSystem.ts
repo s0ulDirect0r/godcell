@@ -89,7 +89,7 @@ export class CameraSystem {
   }
 
   getActiveCamera(): THREE.Camera {
-    return (this.mode === 'firstperson' || this.mode === 'thirdperson')
+    return this.mode === 'firstperson' || this.mode === 'thirdperson'
       ? this.perspCamera
       : this.orthoCamera;
   }
@@ -135,15 +135,15 @@ export class CameraSystem {
     // Higher = more zoomed out (see more world, player appears smaller)
     switch (stage) {
       case EvolutionStage.SINGLE_CELL:
-        return 1.0;   // Tight focus on small cell
+        return 1.0; // Tight focus on small cell
       case EvolutionStage.MULTI_CELL:
-        return 1.5;   // Slightly wider for larger multi-cell
+        return 1.5; // Slightly wider for larger multi-cell
       case EvolutionStage.CYBER_ORGANISM:
-        return 4.0;   // Jungle scale - see nearby trees and terrain
+        return 4.0; // Jungle scale - see nearby trees and terrain
       case EvolutionStage.HUMANOID:
-        return 4.0;   // First-person mode uses perspective camera instead
+        return 4.0; // First-person mode uses perspective camera instead
       case EvolutionStage.GODCELL:
-        return 5.0;   // Third-person with wider view
+        return 5.0; // Third-person with wider view
       default:
         return 1.0;
     }
@@ -236,8 +236,8 @@ export class CameraSystem {
 
     // Third-person camera offset (behind and above player)
     // These values create a comfortable chase-cam feel for a large sphere
-    const distanceBehind = 600;  // How far behind the player
-    const heightAbove = 300;     // How far above the player
+    const distanceBehind = 600; // How far behind the player
+    const heightAbove = 300; // How far above the player
 
     // Convert game coords to Three.js:
     // Game: X=right, Y=up (on screen), Z=height
@@ -249,7 +249,7 @@ export class CameraSystem {
     const cameraPos = new THREE.Vector3(
       x,
       z + heightAbove,
-      -y + distanceBehind  // Behind in Three.js space = more positive Z
+      -y + distanceBehind // Behind in Three.js space = more positive Z
     );
 
     // Smooth follow with lerp

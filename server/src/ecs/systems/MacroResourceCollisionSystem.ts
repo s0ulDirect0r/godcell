@@ -6,17 +6,9 @@
 
 import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components, type World } from '#shared';
-import type {
-  PositionComponent,
-  StageComponent,
-  EnergyComponent,
-} from '#shared';
+import type { PositionComponent, StageComponent, EnergyComponent } from '#shared';
 import type { System } from './types';
-import {
-  forEachPlayer,
-  forEachDataFruit,
-  destroyEntity,
-} from '../factories';
+import { forEachPlayer, forEachDataFruit, destroyEntity } from '../factories';
 import { logger } from '../../logger';
 import { distance, isJungleStage } from '../../helpers';
 

@@ -3,7 +3,13 @@
 // Detects conditions and manages aura ECS components
 // ============================================
 
-import type { World, EntityId, ClientDamageInfoComponent, StageComponent, EnergyComponent } from '#shared';
+import type {
+  World,
+  EntityId,
+  ClientDamageInfoComponent,
+  StageComponent,
+  EnergyComponent,
+} from '#shared';
 import { Components, Tags, GAME_CONFIG } from '#shared';
 import { ClientComponents } from '../types';
 import type { GainAuraComponent, EvolutionAuraComponent } from '../components';
@@ -55,7 +61,10 @@ export class AuraStateSystem {
 
     // Process players with ClientDamageInfo
     world.forEachWithTag(Tags.Player, (entity) => {
-      const damageInfo = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+      const damageInfo = world.getComponent<ClientDamageInfoComponent>(
+        entity,
+        Components.ClientDamageInfo
+      );
 
       if (damageInfo && damageInfo.totalDamageRate > 0) {
         entitiesWithDamage.add(entity);
@@ -64,19 +73,34 @@ export class AuraStateSystem {
         // Using same formula as existing AuraEffect
         const intensity = Math.min(1.0, damageInfo.totalDamageRate / 100);
 
-        setDrainAura(world, entity, intensity, damageInfo.primarySource, damageInfo.proximityFactor);
+        setDrainAura(
+          world,
+          entity,
+          intensity,
+          damageInfo.primarySource,
+          damageInfo.proximityFactor
+        );
       }
     });
 
     // Process swarms with ClientDamageInfo (when being consumed by EMP)
     world.forEachWithTag(Tags.Swarm, (entity) => {
-      const damageInfo = world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+      const damageInfo = world.getComponent<ClientDamageInfoComponent>(
+        entity,
+        Components.ClientDamageInfo
+      );
 
       if (damageInfo && damageInfo.totalDamageRate > 0) {
         entitiesWithDamage.add(entity);
 
         const intensity = Math.min(1.0, damageInfo.totalDamageRate / 100);
-        setDrainAura(world, entity, intensity, damageInfo.primarySource, damageInfo.proximityFactor);
+        setDrainAura(
+          world,
+          entity,
+          intensity,
+          damageInfo.primarySource,
+          damageInfo.proximityFactor
+        );
       }
     });
 
@@ -165,7 +189,10 @@ export class AuraStateSystem {
 
       if (stage.isEvolving) {
         // Check if we already have an evolution aura
-        const existingAura = world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);
+        const existingAura = world.getComponent<EvolutionAuraComponent>(
+          entity,
+          ClientComponents.EvolutionAura
+        );
 
         if (!existingAura) {
           // Start evolution aura (we don't know target stage, use next stage logic)

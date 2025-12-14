@@ -12,11 +12,8 @@ import {
   createJungleCreature,
   forEachTree,
   forEachCyberBug,
-  destroyEntity,
-  getStringIdByEntity,
 } from './ecs';
 import { logger } from './logger';
-import { poissonDiscSampling } from './helpers';
 
 // ============================================
 // ID Counters
@@ -56,7 +53,7 @@ const treeLastFruitSpawn = new Map<number, number>();
  * Spawn initial DataFruits near trees
  * Simple: spawn on ground, ready to collect, despawn after timeout
  */
-export function initializeDataFruits(world: World, io: Server): void {
+export function initializeDataFruits(world: World, _io: Server): void {
   let fruitCount = 0;
   const now = Date.now();
 
@@ -119,7 +116,7 @@ function spawnFruitNearTree(
     dataFruit: {
       id: fruitId,
       position: fruitPos,
-      treeEntityId: 0,  // Already on ground
+      treeEntityId: 0, // Already on ground
       value: GAME_CONFIG.DATAFRUIT_VALUE,
       capacityIncrease: GAME_CONFIG.DATAFRUIT_CAPACITY,
       ripeness: 1.0,
@@ -211,9 +208,9 @@ function spawnCyberBugSwarm(
     createCyberBug(
       world,
       bugId,
-      swarmId,       // swarmId
-      bugPos,        // position
-      homePosition,  // homePosition
+      swarmId, // swarmId
+      bugPos, // position
+      homePosition, // homePosition
       GAME_CONFIG.CYBERBUG_VALUE,
       GAME_CONFIG.CYBERBUG_CAPACITY
     );
@@ -231,8 +228,12 @@ export function initializeCyberBugs(world: World, io: Server): void {
     const homePosition = randomJunglePosition();
 
     // Random swarm size
-    const swarmSize = GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN +
-      Math.floor(Math.random() * (GAME_CONFIG.CYBERBUG_SWARM_SIZE_MAX - GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN + 1));
+    const swarmSize =
+      GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN +
+      Math.floor(
+        Math.random() *
+          (GAME_CONFIG.CYBERBUG_SWARM_SIZE_MAX - GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN + 1)
+      );
 
     spawnCyberBugSwarm(world, io, homePosition, swarmId, swarmSize);
     totalBugs += swarmSize;
@@ -263,8 +264,12 @@ export function scheduleSwarmRespawn(
 
   // If no bugs left, schedule respawn
   if (bugsRemaining === 0) {
-    const swarmSize = GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN +
-      Math.floor(Math.random() * (GAME_CONFIG.CYBERBUG_SWARM_SIZE_MAX - GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN + 1));
+    const swarmSize =
+      GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN +
+      Math.floor(
+        Math.random() *
+          (GAME_CONFIG.CYBERBUG_SWARM_SIZE_MAX - GAME_CONFIG.CYBERBUG_SWARM_SIZE_MIN + 1)
+      );
 
     swarmRespawnQueue.push({
       respawnTime: Date.now() + GAME_CONFIG.CYBERBUG_SWARM_RESPAWN_DELAY,
@@ -310,7 +315,7 @@ export function processCyberBugRespawns(world: World, io: Server): void {
 /**
  * Initialize all JungleCreatures in the jungle
  */
-export function initializeJungleCreatures(world: World, io: Server): void {
+export function initializeJungleCreatures(world: World, _io: Server): void {
   // Distribute creature variants: 50% grazers, 30% stalkers, 20% ambushers
   const creatureCount = GAME_CONFIG.JUNGLE_CREATURE_COUNT;
   const grazerCount = Math.floor(creatureCount * 0.5);
@@ -337,9 +342,9 @@ export function initializeJungleCreatures(world: World, io: Server): void {
     createJungleCreature(
       world,
       creatureId,
-      variant,       // variant
-      homePosition,  // position
-      homePosition,  // homePosition
+      variant, // variant
+      homePosition, // position
+      homePosition, // homePosition
       GAME_CONFIG.JUNGLE_CREATURE_VALUE,
       GAME_CONFIG.JUNGLE_CREATURE_CAPACITY
     );
@@ -375,7 +380,7 @@ export function scheduleCreatureRespawn(
 /**
  * Process pending creature respawns
  */
-export function processCreatureRespawns(world: World, io: Server): void {
+export function processCreatureRespawns(world: World, _io: Server): void {
   const now = Date.now();
 
   while (creatureRespawnQueue.length > 0 && creatureRespawnQueue[0].respawnTime <= now) {
@@ -385,9 +390,9 @@ export function processCreatureRespawns(world: World, io: Server): void {
     createJungleCreature(
       world,
       creatureId,
-      respawn.variant,       // variant
-      respawn.homePosition,  // position
-      respawn.homePosition,  // homePosition
+      respawn.variant, // variant
+      respawn.homePosition, // position
+      respawn.homePosition, // homePosition
       GAME_CONFIG.JUNGLE_CREATURE_VALUE,
       GAME_CONFIG.JUNGLE_CREATURE_CAPACITY
     );

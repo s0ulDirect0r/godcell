@@ -51,17 +51,25 @@ export class EnvironmentSystem {
 
   // Grid distortion data
   // Each entry: { geometry, originalPositions } for a grid line
-  private gridLines: Array<{ geometry: THREE.BufferGeometry; originalPositions: Float32Array }> = [];
+  private gridLines: Array<{ geometry: THREE.BufferGeometry; originalPositions: Float32Array }> =
+    [];
   private gravityWellCacheUpdated = false;
 
   // Jungle background (Stage 3+)
   private jungleBackgroundGroup!: THREE.Group;
   private jungleParticles!: THREE.Points;
-  private jungleParticleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
+  private jungleParticleData: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+  }> = [];
 
   // Soup activity visualization (inside soup pool in jungle view)
   private soupActivityPoints!: THREE.Points;
-  private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> = [];
+  private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> =
+    [];
 
   // Undergrowth particles (ground-level glow)
   private undergrowthPoints!: THREE.Points;
@@ -69,7 +77,16 @@ export class EnvironmentSystem {
 
   // Firefly particles (floating ambient life)
   private fireflyPoints!: THREE.Points;
-  private fireflyData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; phase: number; color: number }> = [];
+  private fireflyData: Array<{
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    phase: number;
+    color: number;
+  }> = [];
 
   // First-person ground plane (Stage 4+)
   private firstPersonGround!: THREE.Group;
@@ -272,8 +289,10 @@ export class EnvironmentSystem {
     // XZ plane: X=game X, Y=height, Z=-game Y
     for (let x = soupMinX; x <= soupMaxX; x += gridSize) {
       const { geometry, originalPositions } = createSubdividedLine(
-        x, -soupMinY,  // Start: Three.js coords (X, Z)
-        x, -soupMaxY,  // End: Three.js coords
+        x,
+        -soupMinY, // Start: Three.js coords (X, Z)
+        x,
+        -soupMaxY, // End: Three.js coords
         segmentsPerLine,
         gridHeight
       );
@@ -285,8 +304,10 @@ export class EnvironmentSystem {
     // Create lines parallel to X axis (along game X direction)
     for (let gameY = soupMinY; gameY <= soupMaxY; gameY += gridSize) {
       const { geometry, originalPositions } = createSubdividedLine(
-        soupMinX, -gameY,  // Start: Three.js coords
-        soupMaxX, -gameY,  // End: Three.js coords
+        soupMinX,
+        -gameY, // Start: Three.js coords
+        soupMaxX,
+        -gameY, // End: Three.js coords
         segmentsPerLine,
         gridHeight
       );
@@ -310,7 +331,9 @@ export class EnvironmentSystem {
     for (let i = 0; i < particleCount; i++) {
       const x = soupMinX + Math.random() * GAME_CONFIG.SOUP_WIDTH;
       const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
-      const size = GAME_CONFIG.PARTICLE_MIN_SIZE + Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
+      const size =
+        GAME_CONFIG.PARTICLE_MIN_SIZE +
+        Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
       // Position (XZ plane: X=game X, Y=height, Z=-game Y)
       positions[i * 3] = x;
@@ -322,9 +345,11 @@ export class EnvironmentSystem {
 
       // Calculate velocity (diagonal flow)
       const baseAngle = Math.PI / 4; // 45 degrees
-      const variance = (Math.random() - 0.5) * Math.PI / 2;
+      const variance = ((Math.random() - 0.5) * Math.PI) / 2;
       const angle = baseAngle + variance;
-      const speed = GAME_CONFIG.PARTICLE_SPEED_MIN + Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
+      const speed =
+        GAME_CONFIG.PARTICLE_SPEED_MIN +
+        Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
 
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;

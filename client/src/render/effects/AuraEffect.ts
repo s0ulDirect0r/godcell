@@ -17,18 +17,18 @@ import type { DamageSource } from '#shared';
 export function createCellAura(cellRadius: number): THREE.Group {
   const auraGroup = new THREE.Group();
 
-  const innerRadius = cellRadius * 1.0;  // Inner edge at cell boundary
-  const outerRadius = cellRadius * 1.03;  // Outer edge = 3% beyond boundary (thin shell)
+  const innerRadius = cellRadius * 1.0; // Inner edge at cell boundary
+  const outerRadius = cellRadius * 1.03; // Outer edge = 3% beyond boundary (thin shell)
 
   // Create outer sphere (viewed from inside)
   const outerGeometry = new THREE.SphereGeometry(outerRadius, 32, 32);
   const outerMaterial = new THREE.MeshStandardMaterial({
-    color: 0xff0000,              // Base red color
-    emissive: 0xff0000,           // Red glow for bloom effect
-    emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
+    color: 0xff0000, // Base red color
+    emissive: 0xff0000, // Red glow for bloom effect
+    emissiveIntensity: 1.0, // Base bloom (will be scaled by applyAuraIntensity)
     transparent: true,
-    opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
-    side: THREE.BackSide,         // Render inside of outer sphere
+    opacity: 0.3, // Base visibility (will be animated by applyAuraIntensity)
+    side: THREE.BackSide, // Render inside of outer sphere
     depthWrite: false,
     depthTest: false,
   });
@@ -41,10 +41,10 @@ export function createCellAura(cellRadius: number): THREE.Group {
   const innerMaterial = new THREE.MeshStandardMaterial({
     color: 0xff0000,
     emissive: 0xff0000,
-    emissiveIntensity: 1.0,       // Base bloom (will be scaled by applyAuraIntensity)
+    emissiveIntensity: 1.0, // Base bloom (will be scaled by applyAuraIntensity)
     transparent: true,
-    opacity: 0.3,                 // Base visibility (will be animated by applyAuraIntensity)
-    side: THREE.FrontSide,        // Render outside of inner sphere
+    opacity: 0.3, // Base visibility (will be animated by applyAuraIntensity)
+    side: THREE.FrontSide, // Render outside of inner sphere
     depthWrite: false,
     depthTest: false,
   });
@@ -121,7 +121,7 @@ export function applyAuraIntensity(
   proximityFactor?: number
 ): void {
   // Gentle pulsing (much slower and subtler)
-  const pulseSpeed = 1.0 + intensity * 1.5;  // 1-2.5 cycles/sec (slow even at high intensity)
+  const pulseSpeed = 1.0 + intensity * 1.5; // 1-2.5 cycles/sec (slow even at high intensity)
   const pulseAmount = 0.03 + intensity * 0.05; // ±3-8% scale variation (very subtle)
   const scale = 1.0 + Math.sin(time * pulseSpeed) * pulseAmount;
   auraMesh.scale.set(scale, scale, scale);
@@ -138,8 +138,8 @@ export function applyAuraIntensity(
 
   // Apply proximity gradient for gravity wells (fades at edges)
   if (proximityFactor !== undefined) {
-    opacity *= (0.5 + proximityFactor * 0.5); // Fade out at edges
-    emissive *= (0.5 + proximityFactor * 0.5);
+    opacity *= 0.5 + proximityFactor * 0.5; // Fade out at edges
+    emissive *= 0.5 + proximityFactor * 0.5;
   }
 
   // Check for hit flash (brief intense brightness boost from pseudopod hit)

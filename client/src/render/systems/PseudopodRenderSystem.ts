@@ -88,11 +88,7 @@ export class PseudopodRenderSystem {
 
           // XZ plane: game Y maps to -Z
           startPos = new THREE.Vector3(pos.x, 1, -pos.y);
-          endPos = new THREE.Vector3(
-            pos.x + dirX * boltLength,
-            1,
-            -(pos.y + dirY * boltLength)
-          );
+          endPos = new THREE.Vector3(pos.x + dirX * boltLength, 1, -(pos.y + dirY * boltLength));
         }
 
         // Calculate beam direction and length
@@ -104,19 +100,19 @@ export class PseudopodRenderSystem {
         const rayParams = {
           sourceOffset: new THREE.Vector3(0, 0, 0),
           destOffset: new THREE.Vector3(0, length, 0),
-          radius0: beam.width / 2,       // Start radius
-          radius1: beam.width / 3,       // End radius (tapers)
-          minRadius: 2.5,                // Minimum branch radius
-          maxIterations: 7,              // Recursion depth for jagged effect
-          isEternal: true,               // Stays visible until removed
-          timeScale: 0.7,                // Animation speed
-          propagationTimeFactor: 0.05,   // How fast lightning propagates
-          vanishingTimeFactor: 0.95,     // Fade-out timing
-          subrayPeriod: 3.5,             // How often sub-branches spawn
-          subrayDutyCycle: 0.6,          // Sub-branch visibility duration
-          maxSubrayRecursion: 1,         // Max depth of sub-branches
-          ramification: 3,               // Number of sub-branches
-          recursionProbability: 0.4,     // Chance of recursive branching
+          radius0: beam.width / 2, // Start radius
+          radius1: beam.width / 3, // End radius (tapers)
+          minRadius: 2.5, // Minimum branch radius
+          maxIterations: 7, // Recursion depth for jagged effect
+          isEternal: true, // Stays visible until removed
+          timeScale: 0.7, // Animation speed
+          propagationTimeFactor: 0.05, // How fast lightning propagates
+          vanishingTimeFactor: 0.95, // Fade-out timing
+          subrayPeriod: 3.5, // How often sub-branches spawn
+          subrayDutyCycle: 0.6, // Sub-branch visibility duration
+          maxSubrayRecursion: 1, // Max depth of sub-branches
+          ramification: 3, // Number of sub-branches
+          recursionProbability: 0.4, // Chance of recursive branching
         };
 
         const lightningGeometry = new LightningStrike(rayParams);

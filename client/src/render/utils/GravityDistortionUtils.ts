@@ -4,22 +4,16 @@
 // ============================================
 
 import * as THREE from 'three';
-import {
-  World,
-  Tags,
-  Components,
-  type PositionComponent,
-  type ObstacleComponent,
-} from '../../ecs';
+import { World, Tags, Components, type PositionComponent, type ObstacleComponent } from '../../ecs';
 
 /**
  * Cached gravity well data for spatial queries
  * Wells don't move, so we cache positions and radii at init/sync time
  */
 export interface GravityWellCache {
-  x: number;        // Game X position
-  y: number;        // Game Y position
-  radius: number;   // Gravity influence radius
+  x: number; // Game X position
+  y: number; // Game Y position
+  radius: number; // Gravity influence radius
   strength: number; // Gravity strength multiplier
 }
 
@@ -62,12 +56,12 @@ const DISTORTION_INTENSITY = 0.7;
 
 // Base values (what you get at DISTORTION_INTENSITY = 1.0)
 // These define the "full" effect - intensity scales them proportionally
-const BASE_GRID_MAX_DISPLACEMENT = 120;  // Max pixels grid bends toward wells
-const BASE_INNER_ZONE_BOOST = 2.0;       // Extra multiplier inside event horizon (1.0 = no boost)
-const BASE_ENTITY_MAX_STRETCH = 1.8;     // Max stretch toward gravity (1.0 = no stretch)
-const BASE_ENTITY_MIN_SQUASH = 0.48;     // Min squash perpendicular (1.0 = no squash)
-const BASE_ROTATION_INTENSITY = 0.48;    // How much entities lean toward gravity
-const BASE_EFFECT_RADIUS = 1.24;         // Effect radius as multiplier of physics radius
+const BASE_GRID_MAX_DISPLACEMENT = 120; // Max pixels grid bends toward wells
+const BASE_INNER_ZONE_BOOST = 2.0; // Extra multiplier inside event horizon (1.0 = no boost)
+const BASE_ENTITY_MAX_STRETCH = 1.8; // Max stretch toward gravity (1.0 = no stretch)
+const BASE_ENTITY_MIN_SQUASH = 0.48; // Min squash perpendicular (1.0 = no squash)
+const BASE_ROTATION_INTENSITY = 0.48; // How much entities lean toward gravity
+const BASE_EFFECT_RADIUS = 1.24; // Effect radius as multiplier of physics radius
 
 // Derived values (scaled by DISTORTION_INTENSITY)
 // Linear values scale directly
@@ -170,12 +164,12 @@ export function calculateDistortion(gameX: number, gameY: number): DistortionRes
 
     // Calculate intensity with exponential falloff (stronger near center)
     // t=0 at edge, t=1 at center
-    const t = 1 - (distance / well.radius);
+    const t = 1 - distance / well.radius;
     let intensity = Math.pow(t, GRID_FALLOFF_EXPONENT) * well.strength;
 
     // INNER ZONE BOOST: dramatically increase effect inside event horizon
     // This makes the effect REALLY ramp up as you approach the spark
-    if (t > (1 - INNER_ZONE_THRESHOLD)) {
+    if (t > 1 - INNER_ZONE_THRESHOLD) {
       // Inside the inner zone - apply exponential boost
       const innerT = (t - (1 - INNER_ZONE_THRESHOLD)) / INNER_ZONE_THRESHOLD; // 0 at threshold, 1 at center
       intensity *= 1 + (INNER_ZONE_BOOST - 1) * innerT * innerT; // Quadratic ramp-up of boost
@@ -229,12 +223,12 @@ export function calculateEntityWarp(gameX: number, gameY: number): EntityWarpTra
     if (distance >= well.radius || distance < 0.001) continue;
 
     // Calculate intensity with falloff
-    const t = 1 - (distance / well.radius);
+    const t = 1 - distance / well.radius;
     let intensity = Math.pow(t, ENTITY_WARP_FALLOFF_EXPONENT) * well.strength;
 
     // INNER ZONE BOOST: dramatically increase effect inside event horizon
     // Entities get EXTREMELY stretched as they approach the spark
-    if (t > (1 - INNER_ZONE_THRESHOLD)) {
+    if (t > 1 - INNER_ZONE_THRESHOLD) {
       const innerT = (t - (1 - INNER_ZONE_THRESHOLD)) / INNER_ZONE_THRESHOLD;
       intensity *= 1 + (INNER_ZONE_BOOST - 1) * innerT * innerT;
     }
@@ -284,7 +278,11 @@ export function calculateEntityWarp(gameX: number, gameY: number): EntityWarpTra
  * @param warp - Warp transform from calculateEntityWarp
  * @param baseScale - Optional base scale to preserve (e.g., energy-based scaling). Default 1.
  */
-export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransform, baseScale: number = 1): void {
+export function applyEntityWarp(
+  object: THREE.Object3D,
+  warp: EntityWarpTransform,
+  baseScale: number = 1
+): void {
   if (warp.intensity < 0.01) {
     // Reset to no warp, but preserve base scale
     object.scale.set(baseScale, baseScale, baseScale);
@@ -321,9 +319,9 @@ export function applyEntityWarp(object: THREE.Object3D, warp: EntityWarpTransfor
 
   // Apply non-uniform scale, multiplied by base scale
   object.scale.set(
-    warp.scaleX * baseScale,  // Stretch along X (will be rotated)
-    baseScale,                // Y (height) uses base scale
-    warp.scaleY * baseScale   // Squash along Z (perpendicular)
+    warp.scaleX * baseScale, // Stretch along X (will be rotated)
+    baseScale, // Y (height) uses base scale
+    warp.scaleY * baseScale // Squash along Z (perpendicular)
   );
 
   // Apply rotation to align stretch with gravity direction

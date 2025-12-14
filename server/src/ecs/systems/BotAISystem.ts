@@ -25,11 +25,6 @@ export class BotAISystem implements System {
 
     // updateBots now queries nutrients, obstacles, and swarms from ECS
     // abilitySystem is imported directly as a module singleton
-    updateBots(
-      Date.now(),
-      world,
-      swarms,
-      abilitySystem
-    );
+    updateBots(Date.now(), world, swarms, abilitySystem);
   }
 }

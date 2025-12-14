@@ -224,9 +224,7 @@ export class EffectsSystem {
    * @param direction - Attack direction (radians)
    */
   spawnClawSlash(x: number, y: number, direction: number): void {
-    this.clawSlashAnimations.push(
-      spawnClawSlash(this.scene, x, y, direction, 0xff6600)
-    );
+    this.clawSlashAnimations.push(spawnClawSlash(this.scene, x, y, direction, 0xff6600));
   }
 
   // ============================================
@@ -266,14 +264,18 @@ export class EffectsSystem {
     const spawnProgress = updateSpawnAnimations(this.scene, this.spawnAnimations, dt);
 
     // Clean up finished spawn animations from tracking set
-    this.spawningEntities.forEach(entityId => {
+    this.spawningEntities.forEach((entityId) => {
       if (!spawnProgress.has(entityId)) {
         this.spawningEntities.delete(entityId);
       }
     });
 
     // Update energy transfer animations
-    const receivingEnergy = updateEnergyTransferAnimations(this.scene, this.energyTransferAnimations, dt);
+    const receivingEnergy = updateEnergyTransferAnimations(
+      this.scene,
+      this.energyTransferAnimations,
+      dt
+    );
 
     // Update melee arc animations
     updateMeleeArcAnimations(this.scene, this.meleeArcAnimations, dt);
@@ -298,7 +300,7 @@ export class EffectsSystem {
    */
   clearSoupEffects(): void {
     // Clear death animations (soup entity deaths)
-    this.deathAnimations.forEach(anim => {
+    this.deathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -306,7 +308,7 @@ export class EffectsSystem {
     this.deathAnimations = [];
 
     // Clear spawn animations (soup entity spawns)
-    this.spawnAnimations.forEach(anim => {
+    this.spawnAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -314,7 +316,7 @@ export class EffectsSystem {
     this.spawnAnimations = [];
 
     // Clear energy transfer animations (soup energy flows)
-    this.energyTransferAnimations.forEach(anim => {
+    this.energyTransferAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -322,7 +324,7 @@ export class EffectsSystem {
     this.energyTransferAnimations = [];
 
     // Clear swarm death animations (soup enemies)
-    this.swarmDeathAnimations.forEach(anim => {
+    this.swarmDeathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -330,7 +332,7 @@ export class EffectsSystem {
     this.swarmDeathAnimations = [];
 
     // Clear EMP effects (multi-cell ability visual)
-    this.empEffects.forEach(anim => {
+    this.empEffects.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -338,7 +340,7 @@ export class EffectsSystem {
     this.empEffects = [];
 
     // Clear energy whip animations (multi-cell pseudopod attack)
-    this.energyWhipAnimations.forEach(anim => {
+    this.energyWhipAnimations.forEach((anim) => {
       this.scene.remove(anim.boltLine);
       anim.boltLine.geometry.dispose();
       (anim.boltLine.material as THREE.Material).dispose();
@@ -363,7 +365,7 @@ export class EffectsSystem {
    */
   dispose(): void {
     // Clean up death animations
-    this.deathAnimations.forEach(anim => {
+    this.deathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -371,7 +373,7 @@ export class EffectsSystem {
     this.deathAnimations = [];
 
     // Clean up evolution animations
-    this.evolutionAnimations.forEach(anim => {
+    this.evolutionAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -379,7 +381,7 @@ export class EffectsSystem {
     this.evolutionAnimations = [];
 
     // Clean up EMP effects
-    this.empEffects.forEach(anim => {
+    this.empEffects.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -387,7 +389,7 @@ export class EffectsSystem {
     this.empEffects = [];
 
     // Clean up swarm death animations
-    this.swarmDeathAnimations.forEach(anim => {
+    this.swarmDeathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -395,7 +397,7 @@ export class EffectsSystem {
     this.swarmDeathAnimations = [];
 
     // Clean up spawn animations
-    this.spawnAnimations.forEach(anim => {
+    this.spawnAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -403,7 +405,7 @@ export class EffectsSystem {
     this.spawnAnimations = [];
 
     // Clean up energy transfer animations
-    this.energyTransferAnimations.forEach(anim => {
+    this.energyTransferAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -411,7 +413,7 @@ export class EffectsSystem {
     this.energyTransferAnimations = [];
 
     // Clean up melee arc animations
-    this.meleeArcAnimations.forEach(anim => {
+    this.meleeArcAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
       anim.particles.geometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
@@ -419,7 +421,7 @@ export class EffectsSystem {
     this.meleeArcAnimations = [];
 
     // Clean up energy whip animations
-    this.energyWhipAnimations.forEach(anim => {
+    this.energyWhipAnimations.forEach((anim) => {
       this.scene.remove(anim.boltLine);
       anim.boltLine.geometry.dispose();
       (anim.boltLine.material as THREE.Material).dispose();
@@ -433,7 +435,7 @@ export class EffectsSystem {
     this.energyWhipAnimations = [];
 
     // Clean up claw slash animations
-    this.clawSlashAnimations.forEach(anim => {
+    this.clawSlashAnimations.forEach((anim) => {
       this.scene.remove(anim.arcLine);
       anim.arcLine.geometry.dispose();
       (anim.arcLine.material as THREE.Material).dispose();

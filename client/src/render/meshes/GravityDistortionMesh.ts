@@ -13,66 +13,66 @@ import { GAME_CONFIG } from '#shared';
 
 /** Outer influence ring - marks gravity zone boundary */
 const OUTER_RING = {
-  color: 0x6644ff,      // Purple
+  color: 0x6644ff, // Purple
   opacity: 0.5,
-  width: 3,             // Ring thickness in pixels
+  width: 3, // Ring thickness in pixels
 };
 
 /** Middle ring - marks 3x nutrient spawn zone at 60% radius */
 const MIDDLE_RING = {
-  color: 0x00ffff,      // Cyan
+  color: 0x00ffff, // Cyan
   opacity: 0.6,
-  radiusFactor: 0.6,    // Percentage of outer radius
+  radiusFactor: 0.6, // Percentage of outer radius
 };
 
 /** Event horizon sphere - visual danger zone with distortion shader */
 const EVENT_HORIZON = {
   // Base colors (will cycle through hues)
-  edgeColor: { r: 1.0, g: 0.0, b: 0.53 },    // Magenta edge glow (base)
-  innerColor: { r: 0.1, g: 0.0, b: 0.1 },    // Dark purple center
+  edgeColor: { r: 1.0, g: 0.0, b: 0.53 }, // Magenta edge glow (base)
+  innerColor: { r: 0.1, g: 0.0, b: 0.1 }, // Dark purple center
   // Fresnel (edge glow)
-  fresnelPower: 3.0,       // Higher = sharper edge falloff
-  fresnelIntensity: 1.5,   // Edge glow brightness
+  fresnelPower: 3.0, // Higher = sharper edge falloff
+  fresnelIntensity: 1.5, // Edge glow brightness
   // Ripple distortion
-  rippleSpeed: 0.8,        // How fast ripples animate
-  rippleFrequency: 8.0,    // Number of concentric rings
-  rippleAmplitude: 0.15,   // How much ripples distort (0-1)
+  rippleSpeed: 0.8, // How fast ripples animate
+  rippleFrequency: 8.0, // Number of concentric rings
+  rippleAmplitude: 0.15, // How much ripples distort (0-1)
   // Color cycling
-  colorCycleSpeed: 0.15,   // How fast colors shift (cycles per second)
+  colorCycleSpeed: 0.15, // How fast colors shift (cycles per second)
   // Overall
-  baseOpacity: 0.15,        // Base transparency
-  edgeOpacity: 0.4,        // Edge transparency (via fresnel)
+  baseOpacity: 0.15, // Base transparency
+  edgeOpacity: 0.4, // Edge transparency (via fresnel)
 };
 
 /** Swirling energy bands - rotating rings around event horizon */
 const ENERGY_BANDS = {
-  count: 3,                // Number of rings
-  color: 0xff00ff,         // Base color (will also cycle)
+  count: 3, // Number of rings
+  color: 0xff00ff, // Base color (will also cycle)
   opacity: 0.6,
-  thickness: 2,            // Tube radius
+  thickness: 2, // Tube radius
   // Each ring has different tilt and speed
   rings: [
-    { tiltX: 0.3, tiltZ: 0.1, speed: 0.4 },     // Slightly tilted, medium speed
-    { tiltX: -0.2, tiltZ: 0.4, speed: -0.3 },   // Opposite tilt, reverse
-    { tiltX: 0.5, tiltZ: -0.2, speed: 0.25 },   // More tilted, slower
+    { tiltX: 0.3, tiltZ: 0.1, speed: 0.4 }, // Slightly tilted, medium speed
+    { tiltX: -0.2, tiltZ: 0.4, speed: -0.3 }, // Opposite tilt, reverse
+    { tiltX: 0.5, tiltZ: -0.2, speed: 0.25 }, // More tilted, slower
   ],
 };
 
 /** Vortex spiral - rotating particle effect */
 const VORTEX = {
   particleCount: 100,
-  color: 0xff00ff,      // Bright magenta
+  color: 0xff00ff, // Bright magenta
   opacity: 0.7,
   size: 4.0,
-  spiralTurns: 3,       // Full rotations from edge to center
+  spiralTurns: 3, // Full rotations from edge to center
   minSpeedMultiplier: 0.3,
   maxSpeedMultiplier: 0.6,
 };
 
 /** Singularity core - instant death zone */
 const SINGULARITY_CORE = {
-  baseColor: 0x1a0011,  // Very dark magenta-black
-  emissive: 0xff00ff,   // Magenta glow
+  baseColor: 0x1a0011, // Very dark magenta-black
+  emissive: 0xff00ff, // Magenta glow
   emissiveIntensity: -0.5, // Negative = absorbs light, creates void effect
   roughness: 0.3,
   // Animation disabled - inner spark provides visual interest
@@ -82,16 +82,16 @@ const SINGULARITY_CORE = {
 
 /** Inner spark - burning red light at singularity center (LETHAL ZONE) */
 const INNER_SPARK = {
-  color: 0xff2200,        // Deep red-orange
-  emissive: 0xff4400,     // Bright orange-red glow
-  baseEmissiveIntensity: 2.5,  // Base brightness (very bright)
-  maxEmissiveIntensity: 5.0,   // Peak brightness during flicker
+  color: 0xff2200, // Deep red-orange
+  emissive: 0xff4400, // Bright orange-red glow
+  baseEmissiveIntensity: 2.5, // Base brightness (very bright)
+  maxEmissiveIntensity: 5.0, // Peak brightness during flicker
   // Radius controlled by GAME_CONFIG.OBSTACLE_SPARK_RADIUS (shared with server death check)
-  roughness: 0.1,         // Smooth/shiny for glow
+  roughness: 0.1, // Smooth/shiny for glow
   // Animation - chaotic flicker like a burning ember
-  flickerSpeed: 8.0,      // Fast flicker Hz
-  flickerSpeed2: 13.0,    // Secondary flicker (creates chaos)
-  flickerSpeed3: 21.0,    // Tertiary flicker (more chaos)
+  flickerSpeed: 8.0, // Fast flicker Hz
+  flickerSpeed2: 13.0, // Secondary flicker (creates chaos)
+  flickerSpeed3: 21.0, // Tertiary flicker (more chaos)
 };
 
 /** Accretion disk - particles spiraling inward */
@@ -100,11 +100,11 @@ const ACCRETION_DISK = {
   size: 3.0,
   opacity: 0.8,
   // Color gradient (outer to inner)
-  outerColor: { r: 0.4, g: 0.27, b: 1.0 },   // Blue-purple
-  middleColor: { r: 1.0, g: 0.0, b: 1.0 },   // Magenta
-  innerColor: { r: 1.0, g: 0.8, b: 1.0 },    // White-hot
+  outerColor: { r: 0.4, g: 0.27, b: 1.0 }, // Blue-purple
+  middleColor: { r: 1.0, g: 0.0, b: 1.0 }, // Magenta
+  innerColor: { r: 1.0, g: 0.8, b: 1.0 }, // White-hot
   // Particle lifetime
-  maxLife: 5.0,         // Seconds to reach core
+  maxLife: 5.0, // Seconds to reach core
 };
 
 // ============================================
@@ -261,11 +261,7 @@ export function createGravityDistortion(
   group.rotation.x = -Math.PI / 2;
 
   // === LAYER 1: OUTER INFLUENCE RING ===
-  const outerGeometry = new THREE.RingGeometry(
-    radius - OUTER_RING.width,
-    radius,
-    64
-  );
+  const outerGeometry = new THREE.RingGeometry(radius - OUTER_RING.width, radius, 64);
   const outerMaterial = new THREE.MeshBasicMaterial({
     color: OUTER_RING.color,
     transparent: true,
@@ -280,11 +276,7 @@ export function createGravityDistortion(
 
   // === LAYER 2: MIDDLE RING (3x nutrient zone) ===
   const middleRadius = radius * MIDDLE_RING.radiusFactor;
-  const middleGeometry = new THREE.RingGeometry(
-    middleRadius - OUTER_RING.width,
-    middleRadius,
-    64
-  );
+  const middleGeometry = new THREE.RingGeometry(middleRadius - OUTER_RING.width, middleRadius, 64);
   const middleMaterial = new THREE.MeshBasicMaterial({
     color: MIDDLE_RING.color,
     transparent: true,
@@ -308,8 +300,20 @@ export function createGravityDistortion(
     fragmentShader: EVENT_HORIZON_FRAGMENT,
     uniforms: {
       uTime: { value: 0.0 },
-      uEdgeColor: { value: new THREE.Vector3(EVENT_HORIZON.edgeColor.r, EVENT_HORIZON.edgeColor.g, EVENT_HORIZON.edgeColor.b) },
-      uInnerColor: { value: new THREE.Vector3(EVENT_HORIZON.innerColor.r, EVENT_HORIZON.innerColor.g, EVENT_HORIZON.innerColor.b) },
+      uEdgeColor: {
+        value: new THREE.Vector3(
+          EVENT_HORIZON.edgeColor.r,
+          EVENT_HORIZON.edgeColor.g,
+          EVENT_HORIZON.edgeColor.b
+        ),
+      },
+      uInnerColor: {
+        value: new THREE.Vector3(
+          EVENT_HORIZON.innerColor.r,
+          EVENT_HORIZON.innerColor.g,
+          EVENT_HORIZON.innerColor.b
+        ),
+      },
       uFresnelPower: { value: EVENT_HORIZON.fresnelPower },
       uFresnelIntensity: { value: EVENT_HORIZON.fresnelIntensity },
       uRippleSpeed: { value: EVENT_HORIZON.rippleSpeed },
@@ -336,10 +340,10 @@ export function createGravityDistortion(
   for (let i = 0; i < ENERGY_BANDS.rings.length; i++) {
     const ringConfig = ENERGY_BANDS.rings[i];
     const torusGeometry = new THREE.TorusGeometry(
-      bandRadius,               // Ring radius
-      ENERGY_BANDS.thickness,   // Tube radius
-      8,                        // Radial segments (tube cross-section)
-      64                        // Tubular segments (around the ring)
+      bandRadius, // Ring radius
+      ENERGY_BANDS.thickness, // Tube radius
+      8, // Radial segments (tube cross-section)
+      64 // Tubular segments (around the ring)
     );
     const torusMaterial = new THREE.MeshBasicMaterial({
       color: ENERGY_BANDS.color,
@@ -392,7 +396,8 @@ export function createGravityDistortion(
     depthWrite: false,
   });
 
-  const vortexSpeed = VORTEX.minSpeedMultiplier +
+  const vortexSpeed =
+    VORTEX.minSpeedMultiplier +
     Math.random() * (VORTEX.maxSpeedMultiplier - VORTEX.minSpeedMultiplier);
 
   const vortexParticles = new THREE.Points(vortexGeometry, vortexMaterial);
@@ -418,11 +423,7 @@ export function createGravityDistortion(
   group.add(vortexLine);
 
   // === LAYER 5: SINGULARITY CORE ===
-  const coreGeometry = new THREE.SphereGeometry(
-    GAME_CONFIG.OBSTACLE_CORE_RADIUS,
-    32,
-    32
-  );
+  const coreGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32, 32);
   const coreMaterial = new THREE.MeshStandardMaterial({
     color: SINGULARITY_CORE.baseColor,
     emissive: SINGULARITY_CORE.emissive,
@@ -437,11 +438,7 @@ export function createGravityDistortion(
   group.add(coreSphere);
 
   // === LAYER 6: INNER SPARK (burning red light at center - LETHAL ZONE) ===
-  const sparkGeometry = new THREE.SphereGeometry(
-    GAME_CONFIG.OBSTACLE_SPARK_RADIUS,
-    16,
-    16
-  );
+  const sparkGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_SPARK_RADIUS, 16, 16);
   const sparkMaterial = new THREE.MeshStandardMaterial({
     color: INNER_SPARK.color,
     emissive: INNER_SPARK.emissive,
@@ -487,9 +484,11 @@ export function createGravityDistortion(
     // Tangential + inward velocity
     const speed = 20 + Math.random() * 30;
     particles.push({
-      x, y, z,
-      vx: -y / r * speed * 0.3,
-      vy: x / r * speed * 0.3,
+      x,
+      y,
+      z,
+      vx: (-y / r) * speed * 0.3,
+      vy: (x / r) * speed * 0.3,
       vz: 0,
       life: Math.random() * ACCRETION_DISK.maxLife,
       maxLife: ACCRETION_DISK.maxLife,
@@ -583,14 +582,40 @@ export function updateGravityDistortionAnimation(
       const p = v * (1 - s);
       const q = v * (1 - f * s);
       const t = v * (1 - (1 - f) * s);
-      let r = 0, g = 0, b = 0;
+      let r = 0,
+        g = 0,
+        b = 0;
       switch (hi) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        case 5: r = v; g = p; b = q; break;
+        case 0:
+          r = v;
+          g = t;
+          b = p;
+          break;
+        case 1:
+          r = q;
+          g = v;
+          b = p;
+          break;
+        case 2:
+          r = p;
+          g = v;
+          b = t;
+          break;
+        case 3:
+          r = p;
+          g = q;
+          b = v;
+          break;
+        case 4:
+          r = t;
+          g = p;
+          b = v;
+          break;
+        case 5:
+          r = v;
+          g = p;
+          b = q;
+          break;
       }
       bandMaterial.color.setRGB(r, g, b);
     }
@@ -615,7 +640,8 @@ export function updateGravityDistortionAnimation(
   const coreSphere = group.children[8] as THREE.Mesh;
   if (coreSphere?.userData.isSingularityCore) {
     const coreMaterial = coreSphere.material as THREE.MeshStandardMaterial;
-    coreMaterial.emissiveIntensity = SINGULARITY_CORE.emissiveIntensity +
+    coreMaterial.emissiveIntensity =
+      SINGULARITY_CORE.emissiveIntensity +
       Math.sin(time * SINGULARITY_CORE.pulseSpeed + pulsePhase) * SINGULARITY_CORE.emissiveRange;
   }
 
@@ -631,7 +657,8 @@ export function updateGravityDistortionAnimation(
     // Combine and normalize to 0-1 range, then map to intensity range
     const combinedFlicker = (flicker1 + flicker2 * 0.5 + flicker3 * 0.3) / 1.8;
     const normalizedFlicker = (combinedFlicker + 1) / 2; // 0-1
-    sparkMaterial.emissiveIntensity = INNER_SPARK.baseEmissiveIntensity +
+    sparkMaterial.emissiveIntensity =
+      INNER_SPARK.baseEmissiveIntensity +
       normalizedFlicker * (INNER_SPARK.maxEmissiveIntensity - INNER_SPARK.baseEmissiveIntensity);
   }
 
@@ -696,15 +723,27 @@ export function updateGravityDistortionAnimation(
       } else if (distRatio > 0.15) {
         // Mid band: blend outer -> middle
         const blend = (0.5 - distRatio) / 0.35;
-        colors[i * 3] = ACCRETION_DISK.outerColor.r + blend * (ACCRETION_DISK.middleColor.r - ACCRETION_DISK.outerColor.r);
-        colors[i * 3 + 1] = ACCRETION_DISK.outerColor.g + blend * (ACCRETION_DISK.middleColor.g - ACCRETION_DISK.outerColor.g);
-        colors[i * 3 + 2] = ACCRETION_DISK.outerColor.b + blend * (ACCRETION_DISK.middleColor.b - ACCRETION_DISK.outerColor.b);
+        colors[i * 3] =
+          ACCRETION_DISK.outerColor.r +
+          blend * (ACCRETION_DISK.middleColor.r - ACCRETION_DISK.outerColor.r);
+        colors[i * 3 + 1] =
+          ACCRETION_DISK.outerColor.g +
+          blend * (ACCRETION_DISK.middleColor.g - ACCRETION_DISK.outerColor.g);
+        colors[i * 3 + 2] =
+          ACCRETION_DISK.outerColor.b +
+          blend * (ACCRETION_DISK.middleColor.b - ACCRETION_DISK.outerColor.b);
       } else {
         // Inner band: blend middle -> inner (white-hot core)
         const blend = (0.15 - distRatio) / 0.15;
-        colors[i * 3] = ACCRETION_DISK.middleColor.r + blend * (ACCRETION_DISK.innerColor.r - ACCRETION_DISK.middleColor.r);
-        colors[i * 3 + 1] = ACCRETION_DISK.middleColor.g + blend * (ACCRETION_DISK.innerColor.g - ACCRETION_DISK.middleColor.g);
-        colors[i * 3 + 2] = ACCRETION_DISK.middleColor.b + blend * (ACCRETION_DISK.innerColor.b - ACCRETION_DISK.middleColor.b);
+        colors[i * 3] =
+          ACCRETION_DISK.middleColor.r +
+          blend * (ACCRETION_DISK.innerColor.r - ACCRETION_DISK.middleColor.r);
+        colors[i * 3 + 1] =
+          ACCRETION_DISK.middleColor.g +
+          blend * (ACCRETION_DISK.innerColor.g - ACCRETION_DISK.middleColor.g);
+        colors[i * 3 + 2] =
+          ACCRETION_DISK.middleColor.b +
+          blend * (ACCRETION_DISK.innerColor.b - ACCRETION_DISK.middleColor.b);
       }
 
       sizes[i] = 2.0 + (1.0 - distRatio) * 3.0;
@@ -728,11 +767,15 @@ export function updateGravityDistortionAnimation(
  * Dispose gravity distortion resources (geometry + materials)
  */
 export function disposeGravityDistortion(group: THREE.Group): void {
-  group.traverse(child => {
-    if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Line) {
+  group.traverse((child) => {
+    if (
+      child instanceof THREE.Mesh ||
+      child instanceof THREE.Points ||
+      child instanceof THREE.Line
+    ) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
-        child.material.forEach(m => m.dispose());
+        child.material.forEach((m) => m.dispose());
       } else {
         (child.material as THREE.Material).dispose();
       }

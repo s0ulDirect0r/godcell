@@ -17,45 +17,45 @@ import * as THREE from 'three';
  */
 const CONFIG = {
   // Trunk properties
-  TRUNK_SEGMENTS: 12,          // Cylinder segments (enough for fiber lines)
-  TRUNK_HEIGHT_RATIO: 0.55,    // Height proportion used for trunk (shorter for taller canopy)
-  TRUNK_TAPER: 0.6,            // Top radius ratio (more tapered for organic feel)
+  TRUNK_SEGMENTS: 12, // Cylinder segments (enough for fiber lines)
+  TRUNK_HEIGHT_RATIO: 0.55, // Height proportion used for trunk (shorter for taller canopy)
+  TRUNK_TAPER: 0.6, // Top radius ratio (more tapered for organic feel)
 
   // Fiber-optic bark (vertical glowing lines on trunk)
-  FIBER_LINE_COUNT: 6,         // Number of glowing vertical lines
-  FIBER_LINE_WIDTH: 0.08,      // Width as ratio of trunk radius
-  FIBER_LINE_COLOR: 0x00ffff,  // Cyan fiber glow
-  FIBER_LINE_INTENSITY: 0.8,   // Fiber emissive strength
+  FIBER_LINE_COUNT: 6, // Number of glowing vertical lines
+  FIBER_LINE_WIDTH: 0.08, // Width as ratio of trunk radius
+  FIBER_LINE_COLOR: 0x00ffff, // Cyan fiber glow
+  FIBER_LINE_INTENSITY: 0.8, // Fiber emissive strength
 
   // Canopy properties - now multi-layered crystalline structure
-  CANOPY_LAYERS: 3,            // Number of canopy layers (inner, mid, outer)
-  CANOPY_RADIUS_RATIO: 2.0,    // Outer canopy radius relative to trunk radius
-  CANOPY_LAYER_SCALE: [0.5, 0.75, 1.0],  // Scale of each layer (inner to outer)
+  CANOPY_LAYERS: 3, // Number of canopy layers (inner, mid, outer)
+  CANOPY_RADIUS_RATIO: 2.0, // Outer canopy radius relative to trunk radius
+  CANOPY_LAYER_SCALE: [0.5, 0.75, 1.0], // Scale of each layer (inner to outer)
   CANOPY_LAYER_OPACITY: [0.9, 0.6, 0.3], // Opacity of each layer
-  CANOPY_SEGMENTS: 2,          // Icosahedron detail (lower = more crystalline)
+  CANOPY_SEGMENTS: 2, // Icosahedron detail (lower = more crystalline)
 
   // Colors and materials
-  TRUNK_BASE_COLOR: 0x1a1a2e,  // Darker blue-black base (more contrast for fibers)
-  TRUNK_GLOW_COLOR: 0x00ffff,  // Cyan glow (matching jungle grid)
+  TRUNK_BASE_COLOR: 0x1a1a2e, // Darker blue-black base (more contrast for fibers)
+  TRUNK_GLOW_COLOR: 0x00ffff, // Cyan glow (matching jungle grid)
   CANOPY_CORE_COLOR: 0x00ff88, // Green-cyan inner glow
   CANOPY_OUTER_COLOR: 0x00ffaa, // Slightly different outer tint
 
   // Glow intensity (emissive strength)
-  TRUNK_GLOW_INTENSITY: 0.1,   // Very subtle trunk base glow
-  CANOPY_GLOW_INTENSITY: 0.4,  // Brighter canopy glow
+  TRUNK_GLOW_INTENSITY: 0.1, // Very subtle trunk base glow
+  CANOPY_GLOW_INTENSITY: 0.4, // Brighter canopy glow
 
   // Energy roots at base
-  ROOT_COUNT: 4,               // Number of root tendrils
-  ROOT_LENGTH_RATIO: 0.6,      // Root length as ratio of trunk radius
-  ROOT_COLOR: 0x00ffff,        // Cyan root glow
-  ROOT_INTENSITY: 0.5,         // Root emissive strength
+  ROOT_COUNT: 4, // Number of root tendrils
+  ROOT_LENGTH_RATIO: 0.6, // Root length as ratio of trunk radius
+  ROOT_COLOR: 0x00ffff, // Cyan root glow
+  ROOT_INTENSITY: 0.5, // Root emissive strength
 
   // Animation parameters
-  GLOW_PULSE_SPEED: 0.4,       // Pulse frequency (Hz) - slightly slower for majesty
-  GLOW_PULSE_RANGE: 0.25,      // Intensity variation (±25%)
-  FIBER_PULSE_OFFSET: 0.3,     // Phase offset between fiber lines
-  SWAY_AMPLITUDE: 0.015,       // Subtle sway amount
-  SWAY_SPEED: 0.25,            // Sway frequency (Hz)
+  GLOW_PULSE_SPEED: 0.4, // Pulse frequency (Hz) - slightly slower for majesty
+  GLOW_PULSE_RANGE: 0.25, // Intensity variation (±25%)
+  FIBER_PULSE_OFFSET: 0.3, // Phase offset between fiber lines
+  SWAY_AMPLITUDE: 0.015, // Subtle sway amount
+  SWAY_SPEED: 0.25, // Sway frequency (Hz)
 };
 
 /**

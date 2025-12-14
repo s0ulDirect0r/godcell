@@ -48,12 +48,15 @@ export class SystemRunner {
       try {
         system.update(world, deltaTime, io);
       } catch (error) {
-        logger.error({
-          event: 'system_error',
-          system: system.name,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        }, `System ${system.name} threw an error`);
+        logger.error(
+          {
+            event: 'system_error',
+            system: system.name,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          `System ${system.name} threw an error`
+        );
         // Continue with next system - don't crash the game loop
       }
       const systemMs = performance.now() - systemStart;
@@ -67,15 +70,20 @@ export class SystemRunner {
       // Sort by time descending to show slowest first
       const sorted = [...timings].sort((a, b) => b.ms - a.ms);
       const breakdown = sorted
-        .filter(t => t.ms > 0.5) // Only show systems that took > 0.5ms
-        .map(t => `${t.name}:${t.ms.toFixed(1)}`)
+        .filter((t) => t.ms > 0.5) // Only show systems that took > 0.5ms
+        .map((t) => `${t.name}:${t.ms.toFixed(1)}`)
         .join(' ');
 
-      perfLogger.info({
-        event: 'slow_tick_breakdown',
-        totalMs: totalMs.toFixed(1),
-        breakdown: sorted.filter(t => t.ms > 0.5).map(t => ({ name: t.name, ms: parseFloat(t.ms.toFixed(2)) })),
-      }, `Slow tick ${totalMs.toFixed(1)}ms: ${breakdown}`);
+      perfLogger.info(
+        {
+          event: 'slow_tick_breakdown',
+          totalMs: totalMs.toFixed(1),
+          breakdown: sorted
+            .filter((t) => t.ms > 0.5)
+            .map((t) => ({ name: t.name, ms: parseFloat(t.ms.toFixed(2)) })),
+        },
+        `Slow tick ${totalMs.toFixed(1)}ms: ${breakdown}`
+      );
     }
   }
 
@@ -83,6 +91,6 @@ export class SystemRunner {
    * Get list of registered systems (for debugging)
    */
   getSystemNames(): string[] {
-    return this.systems.map(s => `${s.system.name} (priority: ${s.priority})`);
+    return this.systems.map((s) => `${s.system.name} (priority: ${s.priority})`);
   }
 }

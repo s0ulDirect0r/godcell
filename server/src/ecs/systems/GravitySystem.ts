@@ -5,7 +5,6 @@
 
 import type { Server } from 'socket.io';
 import { type World } from '#shared';
-import type { VelocityComponent } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,
@@ -18,9 +17,6 @@ import {
   requireStage,
   requireVelocity,
   Components,
-  type EnergyComponent,
-  type PositionComponent,
-  type StageComponent,
   type SpawnImmunityComponent,
 } from '../index';
 import { distance, isJungleStage } from '../../helpers';
@@ -40,7 +36,6 @@ export class GravitySystem implements System {
   readonly name = 'GravitySystem';
 
   update(world: World, deltaTime: number, _io: Server): void {
-
     // Apply gravity to players (iterate ECS directly)
     forEachPlayer(world, (entity, playerId) => {
       const energyComponent = requireEnergy(world, entity);
@@ -51,7 +46,10 @@ export class GravitySystem implements System {
       if (energyComponent.current <= 0 || stageComponent.isEvolving) return;
 
       // Check spawn immunity - skip gravity during immunity period
-      const spawnImmunity = world.getComponent<SpawnImmunityComponent>(entity, Components.SpawnImmunity);
+      const spawnImmunity = world.getComponent<SpawnImmunityComponent>(
+        entity,
+        Components.SpawnImmunity
+      );
       if (spawnImmunity && Date.now() < spawnImmunity.until) return;
 
       // NOTE: Friction is handled in MovementSystem for all stages
@@ -81,7 +79,7 @@ export class GravitySystem implements System {
 
         // Light energy drain based on proximity to center
         // Closer = stronger drain (simulates energy being pulled into the singularity)
-        const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
+        const proximityFactor = 1 - dist / obstacle.radius; // 0 at edge, 1 at center
         const drainRate = getConfig('OBSTACLE_ENERGY_DRAIN_RATE');
         const energyDrain = drainRate * proximityFactor * proximityFactor * deltaTime; // Squared for steeper curve near center
 

@@ -14,90 +14,90 @@ import * as THREE from 'three';
  */
 export const CONFIG = {
   // === SCALE ===
-  SCALE: 0.5,              // Overall size multiplier applied to input radius
-  REF_UNIT: 1.8,           // Reference unit (original head radius) for conversion
+  SCALE: 0.5, // Overall size multiplier applied to input radius
+  REF_UNIT: 1.8, // Reference unit (original head radius) for conversion
 
   // === HEAD ===
   HEAD: {
-    radius: 1.8,           // Head sphere radius
-    position: -3,          // X position along body axis (negative = front)
+    radius: 1.8, // Head sphere radius
+    position: -3, // X position along body axis (negative = front)
     eye: {
-      radius: 0.8,         // Eye sphere radius
-      position: -1.5,      // X offset from head center (negative = forward)
-      lightIntensity: 3,   // PointLight intensity
-      lightRange: 7,       // PointLight distance
+      radius: 0.8, // Eye sphere radius
+      position: -1.5, // X offset from head center (negative = forward)
+      lightIntensity: 3, // PointLight intensity
+      lightRange: 7, // PointLight distance
     },
   },
 
   // === BODY SEGMENTS ===
   BODY: {
-    segmentCount: 3,       // Number of body segments
-    baseRadius: 1.4,       // Radius of first (largest) segment
-    startX: -0.5,          // X position of first segment
-    spacing: 2,            // X distance between segment centers
-    taper: 0.15,           // Size reduction per segment (0.15 = 15% smaller each)
-    squash: 0.7,           // Z-axis scale (flattens dorsal-ventral)
-    centerOffset: 2.5,     // Body group X offset to center visual mass at origin
+    segmentCount: 3, // Number of body segments
+    baseRadius: 1.4, // Radius of first (largest) segment
+    startX: -0.5, // X position of first segment
+    spacing: 2, // X distance between segment centers
+    taper: 0.15, // Size reduction per segment (0.15 = 15% smaller each)
+    squash: 0.7, // Z-axis scale (flattens dorsal-ventral)
+    centerOffset: 2.5, // Body group X offset to center visual mass at origin
     orb: {
-      radius: 0.4,         // Dorsal orb radius (scales with segment)
-      zOffset: 0.8,        // Z position on segment (scales with segment)
+      radius: 0.4, // Dorsal orb radius (scales with segment)
+      zOffset: 0.8, // Z position on segment (scales with segment)
       lightIntensity: 1.5, // PointLight intensity
-      lightRange: 4,       // PointLight distance
+      lightRange: 4, // PointLight distance
     },
   },
 
   // === TAIL ===
   TAIL: {
-    segmentCount: 5,       // Number of tail segments
-    startX: 4.5,           // X position of first tail segment
-    startZ: 0.2,           // Initial Z offset (dorsal direction)
-    initialSize: 0.8,      // Radius of first tail segment
-    decay: 0.85,           // Size multiplier per segment (0.85 = 15% smaller each)
-    xStep: 1.3,            // X progression multiplier (tailSize * xStep)
-    zStep: 0.4,            // Z progression multiplier (tailSize * zStep)
+    segmentCount: 5, // Number of tail segments
+    startX: 4.5, // X position of first tail segment
+    startZ: 0.2, // Initial Z offset (dorsal direction)
+    initialSize: 0.8, // Radius of first tail segment
+    decay: 0.85, // Size multiplier per segment (0.85 = 15% smaller each)
+    xStep: 1.3, // X progression multiplier (tailSize * xStep)
+    zStep: 0.4, // Z progression multiplier (tailSize * zStep)
     spike: {
-      radiusRatio: 0.3,    // Spike base radius as fraction of segment size
-      heightRatio: 1.2,    // Spike height as fraction of segment size
-      zOffset: 0.8,        // Z position as fraction of segment size
+      radiusRatio: 0.3, // Spike base radius as fraction of segment size
+      heightRatio: 1.2, // Spike height as fraction of segment size
+      zOffset: 0.8, // Z position as fraction of segment size
     },
     tip: {
-      radius: 1.0,         // Tail tip orb radius
-      xOffset: 0.5,        // Additional X offset from last segment
-      zOffset: 0.5,        // Additional Z offset from last segment
-      lightIntensity: 4,   // PointLight intensity
-      lightRange: 10,      // PointLight distance
+      radius: 1.0, // Tail tip orb radius
+      xOffset: 0.5, // Additional X offset from last segment
+      zOffset: 0.5, // Additional Z offset from last segment
+      lightIntensity: 4, // PointLight intensity
+      lightRange: 10, // PointLight distance
     },
   },
 
   // === LEGS ===
   LEGS: {
     positions: [-1, 1, 3], // X positions along body for each leg pair
-    attachmentY: 0.8,      // Y offset from body center (left +, right -)
-    angleSpread: 0,        // Rotation per leg index from center (radians)
+    attachmentY: 0.8, // Y offset from body center (left +, right -)
+    angleSpread: 0, // Rotation per leg index from center (radians)
     joint: {
-      radius: 0.6,         // Hip joint sphere radius
+      radius: 0.6, // Hip joint sphere radius
     },
     tube: {
-      radius: 0.39,        // Leg tube radius
-      length: 2.8,         // Overall leg length reference
+      radius: 0.39, // Leg tube radius
+      length: 2.8, // Overall leg length reference
       // Curve control points as fractions of tube length
       // Each point: [yMultiplier, zMultiplier] where y is splay, z is drop
       curve: [
-        [0, 0],            // Start at joint
-        [0.6, -0.15],      // Splay out, slight drop
-        [1.1, -0.4],       // Continue outward, more drop
-        [1.3, -0.7],       // End position (foot)
+        [0, 0], // Start at joint
+        [0.6, -0.15], // Splay out, slight drop
+        [1.1, -0.4], // Continue outward, more drop
+        [1.3, -0.7], // End position (foot)
       ],
     },
     foot: {
-      radiusRatio: 1.5,    // Foot radius as multiple of tube radius
+      radiusRatio: 1.5, // Foot radius as multiple of tube radius
     },
   },
 
   // === MATERIALS ===
   MATERIALS: {
     body: {
-      color: 0xdddddd,     // Body/leg color (light gray)
+      color: 0xdddddd, // Body/leg color (light gray)
       roughness: 0.4,
       metalness: 0.1,
     },
@@ -110,28 +110,28 @@ export const CONFIG = {
 
   // === ANIMATION ===
   ANIMATION: {
-    floatAmplitude: 0.03,    // Vertical bobbing amplitude
+    floatAmplitude: 0.03, // Vertical bobbing amplitude
     tailSwayAmplitude: 0.03, // Tail tip sway amplitude
-    glowPulseMin: 4,         // Minimum light intensity
-    glowPulseRange: 1,       // Light intensity variation
+    glowPulseMin: 4, // Minimum light intensity
+    glowPulseRange: 1, // Light intensity variation
   },
 
   // === HEXAPOD GAIT ===
   GAIT: {
-    cycleSpeed: 1.5,       // Walk cycles per second
+    cycleSpeed: 1.5, // Walk cycles per second
     strideAmplitude: 0.15, // Hip rotation amplitude (radians)
-    liftAmplitude: 0.15,   // Foot lift rotation amplitude (radians)
-    stanceRatio: 0.5,      // Fraction of cycle with foot planted
-    bodyBob: 0.02,         // Vertical body oscillation amplitude
-    bodySway: 0.01,        // Lateral body sway amplitude
+    liftAmplitude: 0.15, // Foot lift rotation amplitude (radians)
+    stanceRatio: 0.5, // Fraction of cycle with foot planted
+    bodyBob: 0.02, // Vertical body oscillation amplitude
+    bodySway: 0.01, // Lateral body sway amplitude
   },
 
   // === DEBUG ===
   DEBUG: {
-    gait: false,           // Show gait debug markers
+    gait: false, // Show gait debug markers
     stanceColor: 0x00ff00, // Green for stance phase
-    swingColor: 0xff0000,  // Red for swing phase
-    sphereSize: 0.3,       // Debug marker size multiplier
+    swingColor: 0xff0000, // Red for swing phase
+    sphereSize: 0.3, // Debug marker size multiplier
   },
 };
 
@@ -155,8 +155,7 @@ if (typeof window !== 'undefined') {
  */
 function getTripodPhaseOffset(side: string, index: number): number {
   // Tripod A: left legs with index 0 or 2, OR right leg with index 1
-  const isTripodA = (side === 'left' && index !== 1) ||
-                   (side === 'right' && index === 1);
+  const isTripodA = (side === 'left' && index !== 1) || (side === 'right' && index === 1);
   return isTripodA ? 0 : 0.5;
 }
 
@@ -179,7 +178,6 @@ function calculateLegGait(
   strideAmp: number,
   liftAmp: number
 ): { hipRotation: number; liftRotation: number } {
-
   if (phase < stanceRatio) {
     // STANCE PHASE: foot planted, pushing body forward
     // Hip rotates from +strideAmp (leg forward) to -strideAmp (leg backward)
@@ -209,7 +207,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   group.name = 'cyberOrganism';
 
   // Scale factor: convert original units to our radius
-  const s = radius * CONFIG.SCALE / CONFIG.REF_UNIT;
+  const s = (radius * CONFIG.SCALE) / CONFIG.REF_UNIT;
 
   group.userData.baseRadius = radius * CONFIG.SCALE;
   group.userData.colorHex = colorHex;
@@ -251,7 +249,9 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   eye.position.set(CONFIG.HEAD.eye.position * s, 0, 0);
   eye.name = 'eye';
   head.add(eye);
-  eye.add(new THREE.PointLight(colorHex, CONFIG.HEAD.eye.lightIntensity, CONFIG.HEAD.eye.lightRange * s));
+  eye.add(
+    new THREE.PointLight(colorHex, CONFIG.HEAD.eye.lightIntensity, CONFIG.HEAD.eye.lightRange * s)
+  );
 
   // === BODY SEGMENTS ===
   for (let i = 0; i < CONFIG.BODY.segmentCount; i++) {
@@ -271,7 +271,9 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     orb.position.z = CONFIG.BODY.orb.zOffset * s * scaleFactor;
     orb.name = `bodyOrb-${i}`;
     seg.add(orb);
-    orb.add(new THREE.PointLight(colorHex, CONFIG.BODY.orb.lightIntensity, CONFIG.BODY.orb.lightRange * s));
+    orb.add(
+      new THREE.PointLight(colorHex, CONFIG.BODY.orb.lightIntensity, CONFIG.BODY.orb.lightRange * s)
+    );
   }
 
   // === TAIL ===
@@ -308,10 +310,16 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   // Tail tip orb
   const tipGeo = new THREE.SphereGeometry(CONFIG.TAIL.tip.radius * s, 24, 24);
   const tip = new THREE.Mesh(tipGeo, glowMat.clone());
-  tip.position.set(tailPosX + CONFIG.TAIL.tip.xOffset * s, 0, tailPosZ + CONFIG.TAIL.tip.zOffset * s);
+  tip.position.set(
+    tailPosX + CONFIG.TAIL.tip.xOffset * s,
+    0,
+    tailPosZ + CONFIG.TAIL.tip.zOffset * s
+  );
   tip.name = 'tailTip';
   bodyGroup.add(tip);
-  tip.add(new THREE.PointLight(colorHex, CONFIG.TAIL.tip.lightIntensity, CONFIG.TAIL.tip.lightRange * s));
+  tip.add(
+    new THREE.PointLight(colorHex, CONFIG.TAIL.tip.lightIntensity, CONFIG.TAIL.tip.lightRange * s)
+  );
 
   group.userData.tailTip = tip;
   group.userData.tailSegments = tailSegments;
@@ -366,8 +374,8 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   const tubeLength = CONFIG.LEGS.tube.length * s;
 
   // Build curve from config control points
-  const curvePoints = CONFIG.LEGS.tube.curve.map(([yMult, zMult]) =>
-    new THREE.Vector3(0, side * yMult * tubeLength, zMult * tubeLength)
+  const curvePoints = CONFIG.LEGS.tube.curve.map(
+    ([yMult, zMult]) => new THREE.Vector3(0, side * yMult * tubeLength, zMult * tubeLength)
   );
   const curve = new THREE.CatmullRomCurve3(curvePoints);
 
@@ -433,7 +441,8 @@ export function updateCyberOrganismAnimation(
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
   if (tip) {
     if (tip.userData.baseZ === undefined) tip.userData.baseZ = tip.position.z;
-    tip.position.z = tip.userData.baseZ + Math.sin(time * 2) * radius * CONFIG.ANIMATION.tailSwayAmplitude;
+    tip.position.z =
+      tip.userData.baseZ + Math.sin(time * 2) * radius * CONFIG.ANIMATION.tailSwayAmplitude;
   }
 
   // Hexapod walking animation with alternating tripod gait
@@ -453,7 +462,7 @@ export function updateCyberOrganismAnimation(
     const liftAmp = CONFIG.GAIT.liftAmplitude * speedFactor;
 
     // Animate each leg with proper tripod phasing
-    bodyGroup.children.forEach(child => {
+    bodyGroup.children.forEach((child) => {
       if (child.name.startsWith('leg-')) {
         const { side, index } = child.userData;
 
@@ -484,8 +493,10 @@ export function updateCyberOrganismAnimation(
 
         // Update debug marker color if present
         if (CONFIG.DEBUG.gait) {
-          const foot = child.children.find(c => c.name === 'legFoot') as THREE.Mesh | undefined;
-          const debugMarker = foot?.children.find(c => c.name === 'gaitDebug') as THREE.Mesh | undefined;
+          const foot = child.children.find((c) => c.name === 'legFoot') as THREE.Mesh | undefined;
+          const debugMarker = foot?.children.find((c) => c.name === 'gaitDebug') as
+            | THREE.Mesh
+            | undefined;
           if (debugMarker) {
             const inStance = legPhase < CONFIG.GAIT.stanceRatio;
             (debugMarker.material as THREE.MeshBasicMaterial).color.setHex(
@@ -499,25 +510,28 @@ export function updateCyberOrganismAnimation(
     // Body secondary motion: subtle bob and sway synced to gait
     const bodyBob = Math.sin(walkCycle * Math.PI * 2) * radius * CONFIG.GAIT.bodyBob;
     const bodySway = Math.sin(walkCycle * Math.PI) * radius * CONFIG.GAIT.bodySway;
-    bodyGroup.position.y = bodySway;  // Lateral sway in local space
-    group.position.y = group.userData.baseY + floatOffset + bodyBob;  // Combine float + bob
+    bodyGroup.position.y = bodySway; // Lateral sway in local space
+    group.position.y = group.userData.baseY + floatOffset + bodyBob; // Combine float + bob
 
     // Debug logging (only for one leg to avoid spam)
     if (CONFIG.DEBUG.gait) {
-      const firstLeg = bodyGroup.children.find(c => c.name === 'leg-L-0');
+      const firstLeg = bodyGroup.children.find((c) => c.name === 'leg-L-0');
       if (firstLeg) {
         const legPhase = (walkCycle + getTripodPhaseOffset('left', 0)) % 1;
         // Log every ~60 frames (once per second at 60fps)
         if (Math.floor(walkCycle * 60) % 60 === 0) {
-          console.log(`[Gait] cycle: ${walkCycle.toFixed(2)}, L0 phase: ${legPhase.toFixed(2)}, stance: ${legPhase < CONFIG.GAIT.stanceRatio}`);
+          console.log(
+            `[Gait] cycle: ${walkCycle.toFixed(2)}, L0 phase: ${legPhase.toFixed(2)}, stance: ${legPhase < CONFIG.GAIT.stanceRatio}`
+          );
         }
       }
     }
   }
 
   // Glow pulse (always active)
-  const intensity = CONFIG.ANIMATION.glowPulseMin + Math.sin(time * 2) * CONFIG.ANIMATION.glowPulseRange;
-  group.traverse(child => {
+  const intensity =
+    CONFIG.ANIMATION.glowPulseMin + Math.sin(time * 2) * CONFIG.ANIMATION.glowPulseRange;
+  group.traverse((child) => {
     if (child instanceof THREE.PointLight) {
       child.intensity = intensity * (child.parent?.name === 'tailTip' ? 1.5 : 1);
     }
@@ -530,7 +544,7 @@ export function updateCyberOrganismAnimation(
 export function updateCyberOrganismEnergy(group: THREE.Group, energyRatio: number): void {
   const ratio = Math.max(0, Math.min(1, energyRatio));
 
-  group.traverse(child => {
+  group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       const mat = child.material as THREE.MeshStandardMaterial;
       if (mat.emissiveIntensity > 1) {
@@ -547,11 +561,11 @@ export function updateCyberOrganismEnergy(group: THREE.Group, energyRatio: numbe
  * Dispose resources
  */
 export function disposeCyberOrganism(group: THREE.Group): void {
-  group.traverse(child => {
+  group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
-        child.material.forEach(m => m.dispose());
+        child.material.forEach((m) => m.dispose());
       } else {
         child.material.dispose();
       }

@@ -46,11 +46,11 @@ export const SystemPriority = {
 
   // AI decisions - before physics
   BOT_AI: 100,
-  CYBER_BUG_AI: 105,       // Stage 3 skittish prey AI
+  CYBER_BUG_AI: 105, // Stage 3 skittish prey AI
   JUNGLE_CREATURE_AI: 106, // Stage 3 predator/grazer AI
   ENTROPY_SERPENT_AI: 107, // Stage 3 apex predator AI (SUPER AGGRESSIVE)
   SWARM_AI: 110,
-  SPECIALIZATION: 120,     // Stage 3 combat specialization timeout check
+  SPECIALIZATION: 120, // Stage 3 combat specialization timeout check
 
   // Lifecycle systems (fruit ripening, etc.)
   DATA_FRUIT: 150,
@@ -61,7 +61,7 @@ export const SystemPriority = {
   // Abilities (pseudopods, EMP effects, projectiles, traps)
   PSEUDOPOD: 300,
   PROJECTILE: 310, // Stage 3 ranged specialization attack
-  TRAP: 320,       // Stage 3 traps specialization trigger/lifetime
+  TRAP: 320, // Stage 3 traps specialization trigger/lifetime
 
   // Collisions and interactions (before movement)
   PREDATION: 400,

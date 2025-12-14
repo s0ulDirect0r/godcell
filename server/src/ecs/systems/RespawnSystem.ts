@@ -31,7 +31,10 @@ export class RespawnSystem implements System {
     const pendingEntities = world.query(Components.PendingRespawn);
 
     for (const entity of pendingEntities) {
-      const pending = world.getComponent<PendingRespawnComponent>(entity, Components.PendingRespawn);
+      const pending = world.getComponent<PendingRespawnComponent>(
+        entity,
+        Components.PendingRespawn
+      );
       if (!pending) continue;
 
       // Check if respawn time has been reached
@@ -46,7 +49,13 @@ export class RespawnSystem implements System {
               respawnBotNow(botId, stage, io, world);
               logger.debug({ event: 'pending_respawn_processed', entityType: 'bot', botId, stage });
             } catch (error) {
-              logger.error({ event: 'pending_respawn_failed', entityType: 'bot', botId, stage, error });
+              logger.error({
+                event: 'pending_respawn_failed',
+                entityType: 'bot',
+                botId,
+                stage,
+                error,
+              });
             }
           } else {
             logger.warn({ event: 'pending_respawn_invalid_botId', metadata: pending.metadata });

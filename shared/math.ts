@@ -43,7 +43,9 @@ export function poissonDiscSampling(
   const gridHeight = Math.ceil(height / cellSize);
 
   // Grid for O(1) neighbor lookups
-  const grid: (Position | null)[][] = Array(gridWidth).fill(null).map(() => Array(gridHeight).fill(null));
+  const grid: (Position | null)[][] = Array(gridWidth)
+    .fill(null)
+    .map(() => Array(gridHeight).fill(null));
 
   const points: Position[] = [];
   const active: Position[] = [];

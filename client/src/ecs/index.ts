@@ -3,14 +3,7 @@
 // ============================================
 
 // Re-export core types and classes from shared
-export {
-  World,
-  ComponentStore,
-  Components,
-  Tags,
-  GAME_CONFIG,
-  getEntityScale,
-} from '#shared';
+export { World, ComponentStore, Components, Tags, GAME_CONFIG, getEntityScale } from '#shared';
 export type {
   EntityId,
   EntityScale,
@@ -37,11 +30,7 @@ export type {
 
 // Client-only component types and interfaces
 export { ClientComponents, ClientComponentType } from './types';
-export type {
-  DrainAuraComponent,
-  GainAuraComponent,
-  EvolutionAuraComponent,
-} from './components';
+export type { DrainAuraComponent, GainAuraComponent, EvolutionAuraComponent } from './components';
 
 // Client-specific factories and helpers
 export {

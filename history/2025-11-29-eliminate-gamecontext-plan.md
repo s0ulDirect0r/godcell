@@ -10,22 +10,23 @@
 
 ### What each system currently pulls from ctx:
 
-| System | Core (keep) | Helpers (Phase A) | tickData (Phase B) | Legacy Functions (Phase C) |
-|--------|-------------|-------------------|--------------------|-----------------------------|
-| BotAISystem | world | - | - | updateBots, abilitySystem |
-| SwarmAISystem | world, io, deltaTime | - | - | updateSwarms, updateSwarmPositions, processSwarmRespawns |
-| SwarmCollisionSystem | world, io, deltaTime | getPlayerRadius, distance | tickData (writes) | checkSwarmCollisions, removeSwarm, recordDamage |
-| MovementSystem | world, io, deltaTime | getPlayerRadius, getWorldBoundsForStage | tickData (reads) | - |
-| GravitySystem | world, deltaTime | - | - | - |
-| PredationSystem | world, io | - | - | - |
-| PseudopodSystem | world, io, deltaTime | - | - | - |
-| DeathSystem | world, io | - | - | - |
-| MetabolismSystem | world, io, deltaTime | getEnergyDecayRate | - | recordDamage, isBot |
-| NutrientCollisionSystem | world, io | - | - | respawnNutrient |
-| NutrientAttractionSystem | world, io, deltaTime | - | - | respawnNutrient |
-| NetworkBroadcastSystem | world, io | - | - | - |
+| System                   | Core (keep)          | Helpers (Phase A)                       | tickData (Phase B) | Legacy Functions (Phase C)                               |
+| ------------------------ | -------------------- | --------------------------------------- | ------------------ | -------------------------------------------------------- |
+| BotAISystem              | world                | -                                       | -                  | updateBots, abilitySystem                                |
+| SwarmAISystem            | world, io, deltaTime | -                                       | -                  | updateSwarms, updateSwarmPositions, processSwarmRespawns |
+| SwarmCollisionSystem     | world, io, deltaTime | getPlayerRadius, distance               | tickData (writes)  | checkSwarmCollisions, removeSwarm, recordDamage          |
+| MovementSystem           | world, io, deltaTime | getPlayerRadius, getWorldBoundsForStage | tickData (reads)   | -                                                        |
+| GravitySystem            | world, deltaTime     | -                                       | -                  | -                                                        |
+| PredationSystem          | world, io            | -                                       | -                  | -                                                        |
+| PseudopodSystem          | world, io, deltaTime | -                                       | -                  | -                                                        |
+| DeathSystem              | world, io            | -                                       | -                  | -                                                        |
+| MetabolismSystem         | world, io, deltaTime | getEnergyDecayRate                      | -                  | recordDamage, isBot                                      |
+| NutrientCollisionSystem  | world, io            | -                                       | -                  | respawnNutrient                                          |
+| NutrientAttractionSystem | world, io, deltaTime | -                                       | -                  | respawnNutrient                                          |
+| NetworkBroadcastSystem   | world, io            | -                                       | -                  | -                                                        |
 
 ### Already importing directly (good examples):
+
 - **PredationSystem**: imports `distance`, `getPlayerRadius` from `../../helpers`, `isBot` from `../../bots`
 - **GravitySystem**: imports `distance` from `../../helpers`
 
@@ -40,6 +41,7 @@
 Replace ctx helper function references with direct imports.
 
 ### A1. MovementSystem
+
 ```typescript
 // Remove from destructuring:
 // getPlayerRadius, getWorldBoundsForStage
@@ -49,6 +51,7 @@ import { getPlayerRadius, getWorldBoundsForStage } from '../../helpers';
 ```
 
 ### A2. SwarmCollisionSystem
+
 ```typescript
 // Remove from destructuring:
 // getPlayerRadius, distance
@@ -58,6 +61,7 @@ import { distance, getPlayerRadius } from '../../helpers';
 ```
 
 ### A3. MetabolismSystem
+
 ```typescript
 // Remove from destructuring:
 // getEnergyDecayRate, isBot
@@ -68,7 +72,9 @@ import { isBot } from '../../bots';
 ```
 
 ### A4. Update GameContext interface
+
 Remove from interface:
+
 - `distance`
 - `getPlayerRadius`
 - `getWorldBoundsForStage`
@@ -88,10 +94,12 @@ Remove from interface:
 **Risk:** Medium (behavioral change in cross-system communication)
 
 tickData is used for SwarmCollisionSystem → MovementSystem communication:
+
 - SwarmCollisionSystem sets `damagedPlayerIds` and `slowedPlayerIds`
 - MovementSystem reads `slowedPlayerIds` to apply speed reduction
 
 ### B1. Add transient tags to shared/ecs
+
 ```typescript
 // In shared/ecs/types.ts or components.ts
 export const Tags = {
@@ -102,6 +110,7 @@ export const Tags = {
 ```
 
 ### B2. SwarmCollisionSystem: Add tags instead of writing to tickData
+
 ```typescript
 // Instead of:
 tickData.damagedPlayerIds = damagedPlayerIds;
@@ -119,6 +128,7 @@ for (const playerId of slowedPlayerIds) {
 ```
 
 ### B3. MovementSystem: Read from tags instead of tickData
+
 ```typescript
 // Instead of:
 const slowedPlayerIds = tickData.slowedPlayerIds;
@@ -129,7 +139,9 @@ const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
 ```
 
 ### B4. Clear tags at tick end (or start of next tick)
+
 Add to SystemRunner or game loop:
+
 ```typescript
 // After all systems run:
 world.clearAllWithTag(Tags.SlowedThisTick);
@@ -139,12 +151,13 @@ world.clearAllWithTag(Tags.DamagedThisTick);
 Note: World may need a `clearAllWithTag` helper or we iterate and remove.
 
 ### B5. Remove tickData from GameContext
+
 ```typescript
 // Remove:
 tickData: {
   damagedPlayerIds: Set<string>;
   slowedPlayerIds: Set<string>;
-};
+}
 ```
 
 ---
@@ -171,12 +184,14 @@ if (damageTracking) {
 ```
 
 **Systems using recordDamage:**
+
 - SwarmCollisionSystem (via checkSwarmCollisions)
 - MetabolismSystem (for starvation)
 
 ### C2. respawnNutrient → NutrientSystem or inline
 
 Currently wraps nutrient respawn logic. Options:
+
 1. Create a NutrientLifecycleSystem that handles spawning/respawning
 2. Inline the logic into NutrientCollisionSystem and NutrientAttractionSystem
 3. Keep as a utility function but import directly, not through ctx
@@ -186,6 +201,7 @@ Recommend option 3 for now: move to a nutrients utility module, import directly.
 ### C3. removeSwarm → Direct ECS destruction
 
 Currently wraps `destroyEntity`. Systems can call `destroyEntity` directly:
+
 ```typescript
 import { destroyEntity } from '../factories';
 destroyEntity(world, swarmEntity);
@@ -194,6 +210,7 @@ destroyEntity(world, swarmEntity);
 ### C4. checkSwarmCollisions → Inline into SwarmCollisionSystem
 
 This is the big one. The function in swarms.ts handles:
+
 - Iterating swarms and players
 - Distance checks
 - Damage application with resistance
@@ -203,6 +220,7 @@ This is the big one. The function in swarms.ts handles:
 All this logic should move INTO SwarmCollisionSystem. The system already exists and delegates to this function - just inline it.
 
 **Steps:**
+
 1. Copy logic from `checkSwarmCollisions` in swarms.ts
 2. Paste into SwarmCollisionSystem.update()
 3. Replace function calls with direct ECS operations
@@ -212,11 +230,13 @@ All this logic should move INTO SwarmCollisionSystem. The system already exists 
 ### C5. updateSwarms, updateSwarmPositions, processSwarmRespawns → SwarmAISystem
 
 SwarmAISystem currently just calls these three functions. The logic should be:
+
 1. **updateSwarms**: AI decision making (patrol/chase state) - already mostly ECS-native
 2. **updateSwarmPositions**: Apply velocities, handle movement - should be in MovementSystem or merged
 3. **processSwarmRespawns**: Check respawn timers, spawn new swarms
 
 **Steps:**
+
 1. Inline `updateSwarms` logic into SwarmAISystem (most of it is already ECS-based)
 2. Move swarm position updates to MovementSystem (or keep separate SwarmMovementSystem)
 3. Create SwarmSpawnSystem or inline respawn logic
@@ -228,12 +248,14 @@ SwarmAISystem currently just calls these three functions. The logic should be:
 BotAISystem currently just calls `updateBots(timestamp, world, swarms, abilitySystem)`.
 
 The bots.ts `updateBots` function handles:
+
 - Bot steering/movement decisions
 - Ability usage (EMP, pseudopod)
 - Target selection
 - Obstacle avoidance
 
 This is complex AI code. Options:
+
 1. Inline all logic into BotAISystem
 2. Keep bots.ts as a utility module, but have BotAISystem call specific functions directly (not through ctx)
 
@@ -242,6 +264,7 @@ Recommend option 2 initially: break `updateBots` into smaller functions that Bot
 ### C7. abilitySystem → Direct import or dependency injection
 
 Currently passed through ctx. Options:
+
 1. Import AbilitySystem singleton directly
 2. Systems that need abilities create/receive their own reference
 3. Move ability logic into ECS systems (AbilitySystem becomes multiple systems)

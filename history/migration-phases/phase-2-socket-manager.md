@@ -18,6 +18,7 @@ Extract socket.io connection and message handling from GameScene into a dedicate
 ## Files to Create
 
 ### `client/src/core/net/SocketManager.ts`
+
 Socket.io lifecycle and message handling.
 
 ```typescript
@@ -115,7 +116,10 @@ export class SocketManager {
 
     this.socket.on('connect_error', (error) => {
       this.reconnectAttempts++;
-      console.error(`[Socket] Connection error (${this.reconnectAttempts}/${this.maxReconnectAttempts}):`, error);
+      console.error(
+        `[Socket] Connection error (${this.reconnectAttempts}/${this.maxReconnectAttempts}):`,
+        error
+      );
 
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         eventBus.emit('socket:failed', { error: 'Max reconnect attempts reached' });
@@ -229,14 +233,17 @@ export class SocketManager {
 ## Files to Modify
 
 ### `client/src/scenes/GameScene.ts`
+
 Remove socket handling, consume state via EventBus.
 
 **Remove:**
+
 - `private socket!: Socket;`
 - All `socket.on(...)` handlers
 - Socket emit calls (replace with SocketManager methods)
 
 **Add at top of class:**
+
 ```typescript
 import { SocketManager } from '../core/net/SocketManager';
 
@@ -244,11 +251,10 @@ private socketManager!: SocketManager;
 ```
 
 **In `create()` method:**
+
 ```typescript
 // Replace socket initialization with:
-const serverUrl = import.meta.env.DEV
-  ? 'http://localhost:3000'
-  : window.location.origin;
+const serverUrl = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin;
 
 this.socketManager = new SocketManager(serverUrl, this.gameState);
 
@@ -266,6 +272,7 @@ eventBus.on('pseudopod:retracted', this.onPseudopodRetracted.bind(this));
 ```
 
 **Convert handlers to methods:**
+
 ```typescript
 private onGameStateLoaded(data: { state: GameState }): void {
   // Create sprites for all entities
@@ -298,6 +305,7 @@ private onPlayerLeft(data: PlayerLeftMessage): void {
 ```
 
 **Replace socket emits:**
+
 ```typescript
 // OLD:
 this.socket.emit('player:move', { vx, vy });
@@ -307,6 +315,7 @@ this.socketManager.sendMove(vx, vy);
 ```
 
 **In `shutdown()` method:**
+
 ```typescript
 // Add cleanup
 this.socketManager.disconnect();
@@ -343,6 +352,7 @@ npm run dev
 ```
 
 **Test reconnection:**
+
 ```bash
 # With game running:
 # 1. Stop server
@@ -352,6 +362,7 @@ npm run dev
 ```
 
 **Test multiple clients:**
+
 ```bash
 # Open two browser tabs
 # Verify:
@@ -374,18 +385,21 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Must bind event handler methods (`.bind(this)`) when subscribing to EventBus
 - Don't forget to call `socketManager.disconnect()` in shutdown/cleanup
 - EventBus should be cleared on scene shutdown to prevent memory leaks
 - Server URL detection: use `import.meta.env.DEV` for Vite dev mode check
 
 **Architecture benefits:**
+
 - GameScene is now ~200 lines shorter
 - Socket logic can be tested independently (future)
 - Easy to add socket reconnection strategies
 - Can swap socket.io for different transport later
 
 **Event flow:**
+
 ```
 Server → Socket.io → SocketManager → GameState update → EventBus → GameScene → Render
 ```

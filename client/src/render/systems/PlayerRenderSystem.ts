@@ -31,13 +31,13 @@ import {
   setHumanoidRotation,
   type HumanoidAnimationState,
 } from '../meshes/HumanoidMesh';
-import {
-  createGodcell,
-  updateGodcellEnergy,
-  animateGodcell,
-} from '../meshes/GodcellMesh';
+import { createGodcell, updateGodcellEnergy, animateGodcell } from '../meshes/GodcellMesh';
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
-import { calculateEntityWarp, applyEntityWarp, resetEntityWarp } from '../utils/GravityDistortionUtils';
+import {
+  calculateEntityWarp,
+  applyEntityWarp,
+  resetEntityWarp,
+} from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
 import {
   calculateEvolutionProgress,
@@ -167,8 +167,14 @@ export class PlayerRenderSystem {
       currentPlayerIds.add(playerId);
 
       // Get interpolation target and damage info from components
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
-      const damageInfo = this.world.getComponent<ClientDamageInfoComponent>(entity, Components.ClientDamageInfo);
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
+      const damageInfo = this.world.getComponent<ClientDamageInfoComponent>(
+        entity,
+        Components.ClientDamageInfo
+      );
 
       const id = playerId;
       let cellGroup = this.playerMeshes.get(id);
@@ -185,7 +191,7 @@ export class PlayerRenderSystem {
           if (child instanceof THREE.Mesh) {
             child.geometry?.dispose();
             if (Array.isArray(child.material)) {
-              child.material.forEach(m => m.dispose());
+              child.material.forEach((m) => m.dispose());
             } else {
               child.material?.dispose();
             }
@@ -230,24 +236,26 @@ export class PlayerRenderSystem {
             // Start async load if not already loading
             if (!this.pendingHumanoidLoads.has(id)) {
               this.pendingHumanoidLoads.add(id);
-              createHumanoidModel(colorHex).then(({ model }) => {
-                this.pendingHumanoidLoads.delete(id);
-                this.humanoidModels.set(id, model);
+              createHumanoidModel(colorHex)
+                .then(({ model }) => {
+                  this.pendingHumanoidLoads.delete(id);
+                  this.humanoidModels.set(id, model);
 
-                // Replace placeholder with loaded model - but only if player is still humanoid
-                // This prevents race condition where player evolves to godcell before model loads
-                const placeholder = this.playerMeshes.get(id);
-                if (placeholder && placeholder.userData.stage === 'humanoid') {
-                  this.scene.remove(placeholder);
-                  model.userData.stage = 'humanoid';
-                  model.userData.isHumanoid = true;
-                  this.scene.add(model);
-                  this.playerMeshes.set(id, model);
-                }
-              }).catch(err => {
-                console.error('Failed to load humanoid model:', err);
-                this.pendingHumanoidLoads.delete(id);
-              });
+                  // Replace placeholder with loaded model - but only if player is still humanoid
+                  // This prevents race condition where player evolves to godcell before model loads
+                  const placeholder = this.playerMeshes.get(id);
+                  if (placeholder && placeholder.userData.stage === 'humanoid') {
+                    this.scene.remove(placeholder);
+                    model.userData.stage = 'humanoid';
+                    model.userData.isHumanoid = true;
+                    this.scene.add(model);
+                    this.playerMeshes.set(id, model);
+                  }
+                })
+                .catch((err) => {
+                  console.error('Failed to load humanoid model:', err);
+                  this.pendingHumanoidLoads.delete(id);
+                });
             }
             // Use cyber-organism as placeholder while humanoid loads
             cellGroup = createCyberOrganism(radius, colorHex);
@@ -272,7 +280,12 @@ export class PlayerRenderSystem {
 
         // Position group at player location on XZ plane (Y=height)
         // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        const heightOffset =
+          player.stage === 'cyber_organism' ||
+          player.stage === 'humanoid' ||
+          player.stage === 'godcell'
+            ? 5
+            : 0;
         cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         // Store stage for change detection
@@ -285,8 +298,9 @@ export class PlayerRenderSystem {
         if (isMyPlayer) {
           // Outline radius accounts for visual extent (legs extend beyond body for cyber-organism)
           const outlineRadius = this.getOutlineRadius(player.stage, radius);
-          const outlineGeometry = this.getGeometry(`ring-outline-${outlineRadius}`, () =>
-            new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
+          const outlineGeometry = this.getGeometry(
+            `ring-outline-${outlineRadius}`,
+            () => new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
           );
           // Don't cache outline material - needs to change color and opacity dynamically
           const outlineMaterial = new THREE.MeshStandardMaterial({
@@ -317,11 +331,13 @@ export class PlayerRenderSystem {
       // Update outline opacity and color for client player
       if (isMyPlayer) {
         // Convert component to PlayerDamageInfo if present
-        const damageInfoForOutline = damageInfo ? {
-          totalDamageRate: damageInfo.totalDamageRate,
-          primarySource: damageInfo.primarySource,
-          proximityFactor: damageInfo.proximityFactor,
-        } : undefined;
+        const damageInfoForOutline = damageInfo
+          ? {
+              totalDamageRate: damageInfo.totalDamageRate,
+              primarySource: damageInfo.primarySource,
+              proximityFactor: damageInfo.proximityFactor,
+            }
+          : undefined;
         this.updatePlayerOutline(id, player, damageInfoForOutline);
       }
 
@@ -335,7 +351,12 @@ export class PlayerRenderSystem {
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
         // Fallback to direct position if no target
-        const heightOffset = (player.stage === 'cyber_organism' || player.stage === 'humanoid' || player.stage === 'godcell') ? 5 : 0;
+        const heightOffset =
+          player.stage === 'cyber_organism' ||
+          player.stage === 'humanoid' ||
+          player.stage === 'godcell'
+            ? 5
+            : 0;
         cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
 
         const outline = this.playerOutlines.get(id);
@@ -366,8 +387,9 @@ export class PlayerRenderSystem {
 
       // Apply gravity well distortion to soup-stage players
       // This creates a visual "spaghettification" effect when near gravity wells
-      const isSoupStage = player.stage === EvolutionStageEnum.SINGLE_CELL ||
-                          player.stage === EvolutionStageEnum.MULTI_CELL;
+      const isSoupStage =
+        player.stage === EvolutionStageEnum.SINGLE_CELL ||
+        player.stage === EvolutionStageEnum.MULTI_CELL;
       const outline = this.playerOutlines.get(id);
       if (isSoupStage && !isJungleMode) {
         // Calculate warp based on game-space position
@@ -389,12 +411,11 @@ export class PlayerRenderSystem {
       }
 
       // Cross-stage visibility
-      const playerIsJungleStage = (
+      const playerIsJungleStage =
         player.stage === EvolutionStageEnum.CYBER_ORGANISM ||
         player.stage === EvolutionStageEnum.HUMANOID ||
-        player.stage === EvolutionStageEnum.GODCELL
-      );
-      const shouldBeVisible = isMyPlayer || (isJungleMode === playerIsJungleStage);
+        player.stage === EvolutionStageEnum.GODCELL;
+      const shouldBeVisible = isMyPlayer || isJungleMode === playerIsJungleStage;
       cellGroup.visible = shouldBeVisible;
 
       if (outline) {
@@ -621,7 +642,8 @@ export class PlayerRenderSystem {
           const flash = new THREE.Color(0xffffff); // Pure white for more visible flash
           mat.emissive.lerpColors(original, flash, flashIntensity);
           // Much higher intensity for visibility (up to 15)
-          mat.emissiveIntensity = mat.userData.originalIntensity + (15 - mat.userData.originalIntensity) * flashIntensity;
+          mat.emissiveIntensity =
+            mat.userData.originalIntensity + (15 - mat.userData.originalIntensity) * flashIntensity;
         }
       }
     });
@@ -674,8 +696,9 @@ export class PlayerRenderSystem {
     // Create new outline with correct size (accounting for visual extent)
     const bodyRadius = this.getPlayerRadius(stage);
     const outlineRadius = this.getOutlineRadius(stage, bodyRadius);
-    const outlineGeometry = this.getGeometry(`ring-outline-${outlineRadius}`, () =>
-      new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
+    const outlineGeometry = this.getGeometry(
+      `ring-outline-${outlineRadius}`,
+      () => new THREE.RingGeometry(outlineRadius, outlineRadius + 3, 32)
     );
     const outlineMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -757,7 +780,7 @@ export class PlayerRenderSystem {
       if (child instanceof THREE.Mesh) {
         child.geometry?.dispose();
         if (Array.isArray(child.material)) {
-          child.material.forEach(m => m.dispose());
+          child.material.forEach((m) => m.dispose());
         } else {
           (child.material as THREE.Material)?.dispose();
         }
@@ -817,7 +840,8 @@ export class PlayerRenderSystem {
 
       // Calculate speed for animation blending (distance / dt = units per second)
       const speed = prevPos
-        ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) / (this.dt / 1000)
+        ? Math.sqrt(Math.pow(currPos.x - prevPos.x, 2) + Math.pow(currPos.y - prevPos.y, 2)) /
+          (this.dt / 1000)
         : 0;
 
       // Update humanoid animation
@@ -837,7 +861,6 @@ export class PlayerRenderSystem {
       }
 
       cellGroup.position.set(player.position.x, 0, -player.position.y);
-
     } else if (player.stage === 'godcell') {
       // Stage 5: Godcell - 3D flying sphere
       const energyRatio = player.energy / player.maxEnergy;
@@ -848,7 +871,6 @@ export class PlayerRenderSystem {
       const posZ = player.position.z ?? 0;
       // Convert game coordinates to Three.js: game Y → -Z, game Z → Y
       cellGroup.position.set(player.position.x, posZ, -player.position.y);
-
     } else if (player.stage === 'cyber_organism') {
       // Stage 3: Cyber-organism
       const energyRatio = player.energy / player.maxEnergy;
@@ -888,7 +910,6 @@ export class PlayerRenderSystem {
       }
 
       updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
-
     } else if (player.stage === 'multi_cell') {
       updateMultiCellEnergy(cellGroup, this.multiCellStyle, player.energy, player.maxEnergy);
     } else {
@@ -1020,13 +1041,17 @@ export class PlayerRenderSystem {
   }
 
   private setGroupOpacity(group: THREE.Group, opacity: number): void {
-    group.children.forEach(child => {
+    group.children.forEach((child) => {
       if (child instanceof THREE.Mesh) {
         const material = child.material as THREE.Material;
+        // THREE.js materials have complex type hierarchy; runtime check + cast is pragmatic
         if ('opacity' in material) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (material as any).opacity = opacity;
         }
-        if ('uniforms' in material && (material as any).uniforms.opacity) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ('uniforms' in material && (material as any).uniforms?.opacity) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (material as any).uniforms.opacity.value = opacity;
         }
       } else if (child instanceof THREE.Points) {
@@ -1038,10 +1063,7 @@ export class PlayerRenderSystem {
     });
   }
 
-  private getGeometry(
-    key: string,
-    factory: () => THREE.BufferGeometry
-  ): THREE.BufferGeometry {
+  private getGeometry(key: string, factory: () => THREE.BufferGeometry): THREE.BufferGeometry {
     let geometry = this.geometryCache.get(key);
     if (!geometry) {
       geometry = factory();

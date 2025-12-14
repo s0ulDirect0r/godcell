@@ -63,7 +63,7 @@ If you add a system that sets state another system reads, check the priorities.
 
 ### Bot AI runs before everything else
 
-`BotAISystem` (priority 100) sets bot `InputComponent` before movement processing. This means bots make decisions based on *last tick's* state, same as human players.
+`BotAISystem` (priority 100) sets bot `InputComponent` before movement processing. This means bots make decisions based on _last tick's_ state, same as human players.
 
 ---
 
@@ -105,10 +105,10 @@ When an entity is removed from the world, render systems must clean up their Thr
 
 Three different ID systems:
 
-| ID Type | Format | Used For |
-|---------|--------|----------|
-| `EntityId` | number (1, 2, 3...) | ECS internal |
-| `socketId` | string (Socket.io ID) | Players (network identity) |
+| ID Type    | Format                           | Used For                               |
+| ---------- | -------------------------------- | -------------------------------------- |
+| `EntityId` | number (1, 2, 3...)              | ECS internal                           |
+| `socketId` | string (Socket.io ID)            | Players (network identity)             |
 | `stringId` | string ("nutrient_5", "swarm_3") | Non-player entities (network messages) |
 
 Use the lookup functions in `server/src/ecs/factories.ts` to convert between them.
@@ -142,6 +142,7 @@ toggleDebug(): boolean {
 ```
 
 Expose via `window` for console access:
+
 ```typescript
 // In main.ts
 (window as any).debugSerpent = () => renderer.toggleSerpentDebug();
@@ -197,4 +198,4 @@ const offsetY = 10;
 
 ---
 
-*Add to this file when you discover something non-obvious!*
+_Add to this file when you discover something non-obvious!_

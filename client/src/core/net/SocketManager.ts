@@ -120,7 +120,8 @@ export class SocketManager {
 
     // Check for playground mode - connects to separate server on port 3001
     // Can be enabled via URL param (?playground) OR passed directly from start screen
-    const isPlayground = isPlaygroundParam || new URLSearchParams(window.location.search).has('playground');
+    const isPlayground =
+      isPlaygroundParam || new URLSearchParams(window.location.search).has('playground');
     let targetUrl = serverUrl;
     if (isPlayground) {
       console.log('[Socket] Playground mode - connecting to port 3001');
@@ -322,7 +323,7 @@ export class SocketManager {
     this.socket.emit('clientLog', {
       type: 'clientLog',
       level,
-      args: args.map(arg => {
+      args: args.map((arg) => {
         try {
           return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
         } catch {
@@ -357,7 +358,10 @@ export class SocketManager {
 
     this.socket.on('connect_error', (error) => {
       this.reconnectAttempts++;
-      console.error(`[Socket] Connection error (${this.reconnectAttempts}/${this.maxReconnectAttempts}):`, error);
+      console.error(
+        `[Socket] Connection error (${this.reconnectAttempts}/${this.maxReconnectAttempts}):`,
+        error
+      );
 
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         eventBus.emit({ type: 'client:socketFailed', error: 'Max reconnect attempts reached' });
@@ -387,7 +391,13 @@ export class SocketManager {
     });
 
     this.socket.on('playerMoved', (data: PlayerMovedMessage) => {
-      updatePlayerTarget(this.world, data.playerId, data.position.x, data.position.y, data.position.z);
+      updatePlayerTarget(
+        this.world,
+        data.playerId,
+        data.position.x,
+        data.position.y,
+        data.position.z
+      );
       eventBus.emit(data);
     });
 
@@ -452,7 +462,14 @@ export class SocketManager {
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
-      updateSwarmTarget(this.world, data.swarmId, data.position.x, data.position.y, data.disabledUntil, data.energy);
+      updateSwarmTarget(
+        this.world,
+        data.swarmId,
+        data.position.x,
+        data.position.y,
+        data.disabledUntil,
+        data.energy
+      );
       eventBus.emit(data);
     });
 
@@ -554,12 +571,25 @@ export class SocketManager {
     });
 
     this.socket.on('jungleCreatureMoved', (data: JungleCreatureMovedMessage) => {
-      updateJungleCreaturePosition(this.world, data.creatureId, data.position.x, data.position.y, data.state);
+      updateJungleCreaturePosition(
+        this.world,
+        data.creatureId,
+        data.position.x,
+        data.position.y,
+        data.state
+      );
     });
 
     // EntropySerpent events (jungle apex predator)
     this.socket.on('entropySerpentMoved', (data: EntropySerpentMovedMessage) => {
-      updateEntropySerpentPosition(this.world, data.serpentId, data.position.x, data.position.y, data.state, data.heading);
+      updateEntropySerpentPosition(
+        this.world,
+        data.serpentId,
+        data.position.x,
+        data.position.y,
+        data.state,
+        data.heading
+      );
     });
 
     this.socket.on('entropySerpentAttack', (data: EntropySerpentAttackMessage) => {
@@ -652,36 +682,36 @@ export class SocketManager {
     this.resetWorld();
 
     // Populate from snapshot
-    Object.values(snapshot.players).forEach(p => upsertPlayer(this.world, p));
-    Object.values(snapshot.nutrients).forEach(n => upsertNutrient(this.world, n));
-    Object.values(snapshot.obstacles).forEach(o => upsertObstacle(this.world, o));
-    Object.values(snapshot.swarms).forEach(s => upsertSwarm(this.world, s));
+    Object.values(snapshot.players).forEach((p) => upsertPlayer(this.world, p));
+    Object.values(snapshot.nutrients).forEach((n) => upsertNutrient(this.world, n));
+    Object.values(snapshot.obstacles).forEach((o) => upsertObstacle(this.world, o));
+    Object.values(snapshot.swarms).forEach((s) => upsertSwarm(this.world, s));
     // Trees are optional in the message (Stage 3+ environment)
     if (snapshot.trees) {
-      Object.values(snapshot.trees).forEach(t => upsertTree(this.world, t));
+      Object.values(snapshot.trees).forEach((t) => upsertTree(this.world, t));
     }
     // Stage 3+ macro-resources (optional in message)
     if (snapshot.dataFruits) {
       const fruitCount = Object.keys(snapshot.dataFruits).length;
       console.log('[DEBUG] applySnapshot: received dataFruits count:', fruitCount);
-      Object.values(snapshot.dataFruits).forEach(f => upsertDataFruit(this.world, f));
+      Object.values(snapshot.dataFruits).forEach((f) => upsertDataFruit(this.world, f));
     } else {
       console.log('[DEBUG] applySnapshot: NO dataFruits in snapshot');
     }
     if (snapshot.cyberBugs) {
-      Object.values(snapshot.cyberBugs).forEach(b => upsertCyberBug(this.world, b));
+      Object.values(snapshot.cyberBugs).forEach((b) => upsertCyberBug(this.world, b));
     }
     if (snapshot.jungleCreatures) {
-      Object.values(snapshot.jungleCreatures).forEach(c => upsertJungleCreature(this.world, c));
+      Object.values(snapshot.jungleCreatures).forEach((c) => upsertJungleCreature(this.world, c));
     }
     if (snapshot.entropySerpents) {
-      Object.values(snapshot.entropySerpents).forEach(s => upsertEntropySerpent(this.world, s));
+      Object.values(snapshot.entropySerpents).forEach((s) => upsertEntropySerpent(this.world, s));
     }
     if (snapshot.projectiles) {
-      Object.values(snapshot.projectiles).forEach(p => upsertProjectile(this.world, p));
+      Object.values(snapshot.projectiles).forEach((p) => upsertProjectile(this.world, p));
     }
     if (snapshot.traps) {
-      Object.values(snapshot.traps).forEach(t => upsertTrap(this.world, t));
+      Object.values(snapshot.traps).forEach((t) => upsertTrap(this.world, t));
     }
   }
 
@@ -704,7 +734,7 @@ export class SocketManager {
     this.world.forEachWithTag(Tags.EntropySerpent, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Projectile, (entity) => toDestroy.push(entity));
     this.world.forEachWithTag(Tags.Trap, (entity) => toDestroy.push(entity));
-    toDestroy.forEach(entity => this.world.destroyEntity(entity));
+    toDestroy.forEach((entity) => this.world.destroyEntity(entity));
 
     // Clear string ID lookups
     clearLookups();
@@ -714,7 +744,10 @@ export class SocketManager {
    * Update damage info for players and swarms.
    */
   private updateDamageInfo(
-    damageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }>,
+    damageInfo: Record<
+      string,
+      { totalDamageRate: number; primarySource: DamageSource; proximityFactor?: number }
+    >,
     swarmDamageInfo: Record<string, { totalDamageRate: number; primarySource: DamageSource }>
   ): void {
     // Clear existing damage info from all players
@@ -745,12 +778,7 @@ export class SocketManager {
 
     // Set new swarm damage info
     for (const [id, info] of Object.entries(swarmDamageInfo)) {
-      setSwarmDamageInfo(
-        this.world,
-        id,
-        info.totalDamageRate,
-        info.primarySource
-      );
+      setSwarmDamageInfo(this.world, id, info.totalDamageRate, info.primarySource);
     }
   }
 }

@@ -17,6 +17,7 @@ Establish baseline performance metrics and runtime toggles before making any arc
 ## Files to Create
 
 ### `client/src/utils/performance.ts`
+
 Performance monitoring utilities.
 
 ```typescript
@@ -72,12 +73,15 @@ export class PerformanceMonitor {
    */
   log(): void {
     const metrics = this.getMetrics();
-    console.log(`[Perf] FPS: ${metrics.fps} | Frame: ${metrics.avgFrameTime}ms | Mem: ${(metrics.memoryUsage || 0) / 1024 / 1024}MB`);
+    console.log(
+      `[Perf] FPS: ${metrics.fps} | Frame: ${metrics.avgFrameTime}ms | Mem: ${(metrics.memoryUsage || 0) / 1024 / 1024}MB`
+    );
   }
 }
 ```
 
 ### `client/src/config/renderer-flags.ts`
+
 Runtime flags for renderer selection.
 
 ```typescript
@@ -120,6 +124,7 @@ export function setRendererMode(mode: RendererMode): void {
 ```
 
 ### `client/src/ui/DebugOverlay.ts`
+
 DOM-based debug overlay for performance metrics.
 
 ```typescript
@@ -174,6 +179,7 @@ export class DebugOverlay {
 ## Files to Modify
 
 ### `client/src/main.ts`
+
 Add performance monitoring and renderer flags.
 
 ```typescript
@@ -228,9 +234,11 @@ new Phaser.Game(config);
 ```
 
 ### `client/src/scenes/GameScene.ts`
+
 No logic changes, just expose renderer mode for future phases.
 
 Add near the top of the class:
+
 ```typescript
 // Renderer mode (for future dual-render support)
 private rendererMode: RendererMode = 'phaser-only';
@@ -247,6 +255,7 @@ constructor() {
 ### Manual Testing
 
 **Baseline capture:**
+
 ```bash
 npm run dev
 # Open: http://localhost:8080?baseline
@@ -255,6 +264,7 @@ npm run dev
 ```
 
 **Debug overlay:**
+
 ```bash
 npm run dev
 # Open: http://localhost:8080?debug
@@ -263,6 +273,7 @@ npm run dev
 ```
 
 **Renderer mode toggle:**
+
 ```bash
 # Test all three modes (should all work with Phaser for now)
 http://localhost:8080?renderer=phaser-only
@@ -275,6 +286,7 @@ http://localhost:8080?renderer=three-only
 ### Expected Baseline Metrics
 
 Approximate targets on modern hardware:
+
 - **FPS:** 55-60 (vsync limited)
 - **Frame time:** 16-18ms
 - **Memory:** 30-50MB initially, stabilizing under 100MB
@@ -295,16 +307,19 @@ Document your actual baseline in a `BASELINE.md` file for reference.
 ## Implementation Notes
 
 **Gotchas:**
+
 - `performance.memory` is non-standard (Chrome/Edge only) - gracefully handle undefined
 - Debug overlay must have high z-index to render over game canvas
 - Phaser's `postRender` callback fires after every frame render
 - Don't call `perfMonitor.log()` every frame - too much console spam
 
 **Performance considerations:**
+
 - Performance monitoring overhead should be negligible (<0.1ms per frame)
 - Debug overlay updates are cheap (just innerHTML assignments)
 
 **Browser compatibility:**
+
 - Use `performance.now()` (universally supported)
 - Fallback for memory metrics when unavailable
 

@@ -55,7 +55,15 @@ export interface EMPEffect {
  */
 export interface SwarmDeathAnimation {
   particles: THREE.Points;
-  particleData: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }>;
+  particleData: Array<{
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+  }>;
   startTime: number;
   duration: number;
 }
@@ -128,11 +136,7 @@ export function spawnDeathParticles(
  * Red particle burst with higher velocity than death particles
  * @returns Animation object to track (uses deathAnimations array)
  */
-export function spawnHitSparks(
-  scene: THREE.Scene,
-  x: number,
-  y: number
-): DeathAnimation {
+export function spawnHitSparks(scene: THREE.Scene, x: number, y: number): DeathAnimation {
   const particleCount = 40; // More particles than death for intense effect
   const duration = 500; // 0.5 seconds - quick and punchy
 
@@ -257,11 +261,7 @@ export function spawnEvolutionParticles(
  * Spawn EMP pulse - expanding blue/white electromagnetic ring
  * @returns Animation object to track
  */
-export function spawnEMPPulse(
-  scene: THREE.Scene,
-  x: number,
-  y: number
-): EMPEffect {
+export function spawnEMPPulse(scene: THREE.Scene, x: number, y: number): EMPEffect {
   const particleCount = 80; // Dense ring of particles
   const duration = 600; // 0.6 seconds to expand and fade
   const initialRadius = 20; // Start small
@@ -455,10 +455,12 @@ export function spawnSwarmDeathExplosion(
 
     // Store in Three.js coordinates since velocities are in Three.js space
     particleData.push({
-      x,          // Three.js X (= game X)
-      y: 0.2,     // Three.js Y (height)
-      z: -y,      // Three.js Z (= -game Y)
-      vx, vy, vz,
+      x, // Three.js X (= game X)
+      y: 0.2, // Three.js Y (height)
+      z: -y, // Three.js Z (= -game Y)
+      vx,
+      vy,
+      vz,
       life: 1.0, // Full life at start
     });
   }
@@ -553,7 +555,7 @@ export function spawnEnergyTransferParticles(
     positions[i * 3 + 1] = 0.25; // Height (above entities)
     positions[i * 3 + 2] = -startY;
 
-    sizes[i] = 5 + Math.random() * 2;  // 5-7px for all energy transfer particles
+    sizes[i] = 5 + Math.random() * 2; // 5-7px for all energy transfer particles
 
     // Stagger particle speeds for wave effect (faster particles arrive first)
     // Store game coordinates (AnimationUpdater converts to XZ)
@@ -604,16 +606,16 @@ export function spawnEnergyTransferParticles(
  * Intense visual with solid arc mesh, particles, trails, and sparks
  */
 export interface MeleeArcAnimation {
-  particles: THREE.Points;           // Main arc particles
-  trailParticles: THREE.Points;      // Trailing particles behind the arc
-  sparkParticles: THREE.Points;      // Spark particles that fly off
-  arcMesh: THREE.Mesh;               // Solid arc sweep mesh
-  hitboxMesh?: THREE.Line;           // Debug visualization of actual hitbox
+  particles: THREE.Points; // Main arc particles
+  trailParticles: THREE.Points; // Trailing particles behind the arc
+  sparkParticles: THREE.Points; // Spark particles that fly off
+  arcMesh: THREE.Mesh; // Solid arc sweep mesh
+  hitboxMesh?: THREE.Line; // Debug visualization of actual hitbox
   particleData: Array<{
-    angle: number;      // Current angle in arc
-    radius: number;     // Distance from center
+    angle: number; // Current angle in arc
+    radius: number; // Distance from center
     radiusSpeed: number; // How fast it expands outward
-    life: number;       // Remaining life (1.0 → 0.0)
+    life: number; // Remaining life (1.0 → 0.0)
   }>;
   trailData: Array<{
     angle: number;
@@ -624,17 +626,17 @@ export interface MeleeArcAnimation {
   sparkData: Array<{
     x: number;
     y: number;
-    vx: number;         // Velocity X
-    vy: number;         // Velocity Y
+    vx: number; // Velocity X
+    vy: number; // Velocity Y
     life: number;
   }>;
   startTime: number;
   duration: number;
   centerX: number;
   centerY: number;
-  baseAngle: number;   // Direction player is facing
-  arcAngle: number;    // Width of arc (swipe = 90°, thrust = 30°)
-  colorHex: number;    // Store color for updates
+  baseAngle: number; // Direction player is facing
+  arcAngle: number; // Width of arc (swipe = 90°, thrust = 30°)
+  colorHex: number; // Store color for updates
 }
 
 /**
@@ -647,8 +649,8 @@ export interface MeleeArcAnimation {
  * Used for entropy serpent attack visual
  */
 export interface ClawSlashAnimation {
-  arcLine: THREE.Line;           // Arc-shaped slash trail
-  sparkParticles: THREE.Points;  // Sparks flying off the slash
+  arcLine: THREE.Line; // Arc-shaped slash trail
+  sparkParticles: THREE.Points; // Sparks flying off the slash
   sparkData: Array<{
     x: number;
     y: number;
@@ -681,9 +683,9 @@ export function spawnClawSlash(
   // Effect duration: 250ms for quick, punchy claw swipe
   const duration = 250;
   // Arc parameters: 60° swipe arc, 80px reach (matches serpent arm length)
-  const arcAngle = Math.PI / 3;  // 60 degrees
-  const radius = 80;             // Slash reach
-  const segments = 16;           // Arc smoothness
+  const arcAngle = Math.PI / 3; // 60 degrees
+  const radius = 80; // Slash reach
+  const segments = 16; // Arc smoothness
 
   // ============================================
   // 1. ARC LINE - The main slash trail
@@ -696,11 +698,13 @@ export function spawnClawSlash(
     const t = i / segments;
     const angle = startAngle + t * arcAngle;
     // XZ plane: X=game X, Y=height, Z=-game Y
-    arcPoints.push(new THREE.Vector3(
-      x + Math.cos(angle) * radius,
-      45,  // Height: at serpent arm level (Y=40 + arm offset)
-      -(y + Math.sin(angle) * radius)
-    ));
+    arcPoints.push(
+      new THREE.Vector3(
+        x + Math.cos(angle) * radius,
+        45, // Height: at serpent arm level (Y=40 + arm offset)
+        -(y + Math.sin(angle) * radius)
+      )
+    );
   }
 
   const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
@@ -730,7 +734,7 @@ export function spawnClawSlash(
     const sparkY = y + Math.sin(angle) * radius;
 
     sparkPositions[i * 3] = sparkX;
-    sparkPositions[i * 3 + 1] = 45 + Math.random() * 5;  // Slight height variation
+    sparkPositions[i * 3 + 1] = 45 + Math.random() * 5; // Slight height variation
     sparkPositions[i * 3 + 2] = -sparkY;
 
     sparkSizes[i] = 4 + Math.random() * 4;
@@ -780,9 +784,9 @@ export function spawnClawSlash(
  * Used for multi-cell pseudopod attack
  */
 export interface EnergyWhipAnimation {
-  boltLine: THREE.Line;              // Main lightning bolt line
-  impactParticles: THREE.Points;     // AoE explosion particles at target
-  boltParticles: THREE.Points;       // Particles along the bolt
+  boltLine: THREE.Line; // Main lightning bolt line
+  impactParticles: THREE.Points; // AoE explosion particles at target
+  boltParticles: THREE.Points; // Particles along the bolt
   particleData: Array<{
     x: number;
     y: number;
@@ -791,9 +795,9 @@ export interface EnergyWhipAnimation {
     life: number;
   }>;
   boltData: Array<{
-    baseX: number;                   // Original position on bolt
+    baseX: number; // Original position on bolt
     baseY: number;
-    offsetX: number;                 // Current jitter offset
+    offsetX: number; // Current jitter offset
     offsetY: number;
   }>;
   startTime: number;
@@ -847,15 +851,17 @@ export function spawnEnergyWhipStrike(
     // Perpendicular offset for jaggedness (less at endpoints, more in middle)
     // Max offset: 20px creates visible zigzag without being chaotic
     const offsetScale = Math.sin(t * Math.PI) * 20;
-    const offsetX = (i === 0 || i === boltSegments) ? 0 : (Math.random() - 0.5) * offsetScale * 2;
-    const offsetY = (i === 0 || i === boltSegments) ? 0 : (Math.random() - 0.5) * offsetScale * 2;
+    const offsetX = i === 0 || i === boltSegments ? 0 : (Math.random() - 0.5) * offsetScale * 2;
+    const offsetY = i === 0 || i === boltSegments ? 0 : (Math.random() - 0.5) * offsetScale * 2;
 
     // XZ plane: X=game X, Y=height, Z=-game Y
-    boltPoints.push(new THREE.Vector3(
-      baseX + offsetX,
-      0.4, // Height above ground
-      -(baseY + offsetY)
-    ));
+    boltPoints.push(
+      new THREE.Vector3(
+        baseX + offsetX,
+        0.4, // Height above ground
+        -(baseY + offsetY)
+      )
+    );
 
     boltData.push({ baseX, baseY, offsetX, offsetY });
   }
@@ -987,11 +993,11 @@ export function spawnMeleeArc(
   const trailCount = attackType === 'swipe' ? 100 : 50;
   const sparkCount = attackType === 'swipe' ? 40 : 20;
   const duration = 300; // Slightly longer for visual impact
-  const initialRadius = 210;  // Min range (starts outside player edge)
-  const maxRadius = 512;      // Max range (30% smaller)
+  const initialRadius = 210; // Min range (starts outside player edge)
+  const maxRadius = 512; // Max range (30% smaller)
 
   // Calculate arc parameters
-  const arcAngle = attackType === 'swipe' ? (Math.PI / 2) : (Math.PI / 6);
+  const arcAngle = attackType === 'swipe' ? Math.PI / 2 : Math.PI / 6;
   const baseAngle = Math.atan2(directionY, directionX);
   const halfArc = arcAngle / 2;
 
@@ -1000,7 +1006,8 @@ export function spawnMeleeArc(
   const g = (colorHex >> 8) & 0xff;
   const b = colorHex & 0xff;
   // Brighter version of the color
-  const brightColor = ((Math.min(255, r + 100) << 16) | (Math.min(255, g + 100) << 8) | Math.min(255, b + 100));
+  const brightColor =
+    (Math.min(255, r + 100) << 16) | (Math.min(255, g + 100) << 8) | Math.min(255, b + 100);
 
   // ============================================
   // 1. SOLID ARC MESH - The main visual impact
@@ -1010,29 +1017,20 @@ export function spawnMeleeArc(
 
   // Start at inner arc
   const startAngle = baseAngle - halfArc;
-  arcShape.moveTo(
-    Math.cos(startAngle) * initialRadius,
-    Math.sin(startAngle) * initialRadius
-  );
+  arcShape.moveTo(Math.cos(startAngle) * initialRadius, Math.sin(startAngle) * initialRadius);
 
   // Draw inner arc
   for (let i = 1; i <= segments; i++) {
     const t = i / segments;
     const angle = startAngle + t * arcAngle;
-    arcShape.lineTo(
-      Math.cos(angle) * initialRadius,
-      Math.sin(angle) * initialRadius
-    );
+    arcShape.lineTo(Math.cos(angle) * initialRadius, Math.sin(angle) * initialRadius);
   }
 
   // Draw outer arc (reverse)
   for (let i = segments; i >= 0; i--) {
     const t = i / segments;
     const angle = startAngle + t * arcAngle;
-    arcShape.lineTo(
-      Math.cos(angle) * maxRadius,
-      Math.sin(angle) * maxRadius
-    );
+    arcShape.lineTo(Math.cos(angle) * maxRadius, Math.sin(angle) * maxRadius);
   }
 
   arcShape.closePath();
@@ -1061,7 +1059,7 @@ export function spawnMeleeArc(
   const particleData: MeleeArcAnimation['particleData'] = [];
 
   for (let i = 0; i < particleCount; i++) {
-    const arcProgress = (i / (particleCount - 1)) - 0.5;
+    const arcProgress = i / (particleCount - 1) - 0.5;
     const angle = baseAngle + arcProgress * arcAngle;
     // Distribute along the arc width (inner to outer)
     const radiusOffset = Math.random();
@@ -1079,7 +1077,8 @@ export function spawnMeleeArc(
 
     sizes[i] = 8 + Math.random() * 8; // Larger particles
 
-    const radiusSpeed = (maxRadius - initialRadius) / (duration / 1000) * (0.8 + Math.random() * 0.4);
+    const radiusSpeed =
+      ((maxRadius - initialRadius) / (duration / 1000)) * (0.8 + Math.random() * 0.4);
 
     particleData.push({
       angle,
@@ -1115,7 +1114,7 @@ export function spawnMeleeArc(
   const trailData: MeleeArcAnimation['trailData'] = [];
 
   for (let i = 0; i < trailCount; i++) {
-    const arcProgress = (i / (trailCount - 1)) - 0.5;
+    const arcProgress = i / (trailCount - 1) - 0.5;
     const angle = baseAngle + arcProgress * arcAngle;
     // Start behind the main arc (smaller radius)
     const startRadius = initialRadius * 0.7 + Math.random() * initialRadius * 0.3;
@@ -1125,16 +1124,16 @@ export function spawnMeleeArc(
     trailPositions[i * 3 + 2] = -(y + Math.sin(angle) * startRadius);
 
     // Dimmer color for trails
-    trailColors[i * 3] = r / 255 * 0.6;
-    trailColors[i * 3 + 1] = g / 255 * 0.6;
-    trailColors[i * 3 + 2] = b / 255 * 0.6;
+    trailColors[i * 3] = (r / 255) * 0.6;
+    trailColors[i * 3 + 1] = (g / 255) * 0.6;
+    trailColors[i * 3 + 2] = (b / 255) * 0.6;
 
     trailSizes[i] = 4 + Math.random() * 4;
 
     trailData.push({
       angle,
       radius: startRadius,
-      radiusSpeed: (maxRadius - startRadius) / (duration / 1000) * (0.6 + Math.random() * 0.4),
+      radiusSpeed: ((maxRadius - startRadius) / (duration / 1000)) * (0.6 + Math.random() * 0.4),
       life: 1.0,
     });
   }
@@ -1213,21 +1212,17 @@ export function spawnMeleeArc(
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
     const angle = baseAngle - halfArc + t * arcAngle;
-    hitboxPoints.push(new THREE.Vector3(
-      x + Math.cos(angle) * minRange,
-      0.5,
-      -(y + Math.sin(angle) * minRange)
-    ));
+    hitboxPoints.push(
+      new THREE.Vector3(x + Math.cos(angle) * minRange, 0.5, -(y + Math.sin(angle) * minRange))
+    );
   }
 
   for (let i = segments; i >= 0; i--) {
     const t = i / segments;
     const angle = baseAngle - halfArc + t * arcAngle;
-    hitboxPoints.push(new THREE.Vector3(
-      x + Math.cos(angle) * maxRadius,
-      0.5,
-      -(y + Math.sin(angle) * maxRadius)
-    ));
+    hitboxPoints.push(
+      new THREE.Vector3(x + Math.cos(angle) * maxRadius, 0.5, -(y + Math.sin(angle) * maxRadius))
+    );
   }
 
   hitboxPoints.push(hitboxPoints[0].clone());

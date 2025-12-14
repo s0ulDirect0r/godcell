@@ -22,12 +22,12 @@ export function createGainAura(cellRadius: number, color: number = 0x00ffff): TH
   // Create outer glow sphere
   const geometry = new THREE.SphereGeometry(glowRadius, 32, 32);
   const material = new THREE.MeshStandardMaterial({
-    color: color,                 // Configurable color
-    emissive: color,              // Matching glow
-    emissiveIntensity: 2.0,       // Strong glow
+    color: color, // Configurable color
+    emissive: color, // Matching glow
+    emissiveIntensity: 2.0, // Strong glow
     transparent: true,
-    opacity: 0.0,                 // Starts invisible
-    side: THREE.BackSide,         // Render inside
+    opacity: 0.0, // Starts invisible
+    side: THREE.BackSide, // Render inside
     depthWrite: false,
     depthTest: false,
   });
@@ -40,7 +40,7 @@ export function createGainAura(cellRadius: number, color: number = 0x00ffff): TH
     triggerTime: 0,
     duration: 500, // 500ms flash duration
     active: false,
-    color: color,  // Store for color changes
+    color: color, // Store for color changes
   };
 
   return auraGroup;
