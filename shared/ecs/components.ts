@@ -422,6 +422,32 @@ export interface PendingRespawnComponent {
   metadata?: Record<string, unknown>; // Extra data (e.g., nutrient value)
 }
 
+/**
+ * AbilityIntent - entity wants to use an ability this tick.
+ * Socket handlers add this component; AbilityIntentSystem processes and removes it.
+ *
+ * This enables tick-based ability execution instead of immediate socket-handler execution,
+ * ensuring consistent timing between players (socket events) and bots (tick-based AI).
+ *
+ * Discriminated union ensures each ability type has exactly the fields it needs.
+ */
+export type AbilityIntentComponent =
+  | { abilityType: 'emp' }
+  | { abilityType: 'trap' }
+  | { abilityType: 'pseudopod'; targetX: number; targetY: number }
+  | { abilityType: 'projectile'; targetX: number; targetY: number }
+  | { abilityType: 'melee'; targetX: number; targetY: number; meleeAttackType: 'swipe' | 'thrust' };
+
+/**
+ * PendingExpiration - entity should be destroyed after timestamp.
+ * Replaces setTimeout patterns for entity cleanup.
+ * Simple: just a timestamp. System destroys entity when time's up.
+ * Client handles entity disappearance via normal state updates.
+ */
+export interface PendingExpirationComponent {
+  expiresAt: number; // Server timestamp when to destroy entity
+}
+
 // ============================================
 // Client-Only Components
 // ============================================

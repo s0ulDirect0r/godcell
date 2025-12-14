@@ -39,6 +39,9 @@ export type {
   // Combat specialization components
   CombatSpecializationComponent,
   KnockbackComponent,
+  // Deferred action components
+  AbilityIntentComponent,
+  PendingExpirationComponent,
 } from '#shared';
 
 // Factories and World Setup
@@ -188,6 +191,8 @@ export {
   getAllEntropySerpentSnapshots,
   getEntropySerpentCount,
   buildEntropySerpentsRecord,
+  // Ability intent helpers
+  tryAddAbilityIntent,
 } from './factories';
 export type {
   PlayerSnapshot,

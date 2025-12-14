@@ -1,9 +1,11 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components } from '#shared';
 import type {
   Projectile,
   ProjectileSpawnedMessage,
   CombatSpecializationComponent,
   EntityId,
+  World,
 } from '#shared';
 import { logger } from '../logger';
 import { isJungleStage } from '../helpers/stages';
@@ -16,7 +18,6 @@ import {
   getStunned,
   getCooldowns,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
 
 /**
  * Fire projectile (Stage 3 Ranged specialization only)
@@ -24,13 +25,13 @@ import type { AbilityContext } from './types';
  * @returns true if projectile was fired successfully
  */
 export function fireProjectile(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   targetX: number,
   targetY: number
 ): boolean {
-  const { world } = ctx;
 
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
@@ -106,7 +107,7 @@ export function fireProjectile(
     state: 'traveling',
     color: player.color,
   };
-  ctx.io.emit('projectileSpawned', {
+  io.emit('projectileSpawned', {
     type: 'projectileSpawned',
     projectile,
   } as ProjectileSpawnedMessage);
@@ -125,8 +126,7 @@ export function fireProjectile(
 /**
  * Check if a player can fire projectile (ranged specialization and off cooldown)
  */
-export function canFireProjectile(ctx: AbilityContext, entity: EntityId): boolean {
-  const { world } = ctx;
+export function canFireProjectile(world: World, entity: EntityId): boolean {
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const stunnedComp = getStunned(world, entity);

@@ -1,3 +1,4 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components } from '#shared';
 import type {
   MeleeAttackType,
@@ -5,11 +6,11 @@ import type {
   CombatSpecializationComponent,
   KnockbackComponent,
   EntityId,
+  World,
 } from '#shared';
 import { logger } from '../logger';
 import { isJungleStage } from '../helpers/stages';
 import {
-  getPlayerBySocketId,
   getEnergy,
   getStage,
   getPosition,
@@ -17,12 +18,12 @@ import {
   getCooldowns,
   addEnergy,
   setMaxEnergy,
+  subtractEnergy,
   forEachPlayer,
   forEachCyberBug,
   forEachJungleCreature,
   destroyEntity,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
 import { distance } from '../helpers/math';
 
 /**
@@ -32,7 +33,8 @@ import { distance } from '../helpers/math';
  * @returns true if attack was executed successfully
  */
 export function fireMeleeAttack(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   attackType: MeleeAttackType,
@@ -42,15 +44,12 @@ export function fireMeleeAttack(
   // Validate target coordinates
   if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return false;
 
-  const { world } = ctx;
-
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const posComp = getPosition(world, entity);
   const stunnedComp = getStunned(world, entity);
-  const player = getPlayerBySocketId(world, playerId);
 
-  if (!energyComp || !stageComp || !posComp || !player) return false;
+  if (!energyComp || !stageComp || !posComp) return false;
 
   // Stage 3+ only
   if (!isJungleStage(stageComp.stage)) return false;
@@ -90,8 +89,8 @@ export function fireMeleeAttack(
     : cooldowns.lastMeleeThrustTime || 0;
   if (now - lastUse < cooldown) return false;
 
-  // Deduct energy
-  energyComp.current -= energyCost;
+  // Deduct energy (subtractEnergy clamps to 0)
+  subtractEnergy(world, entity, energyCost);
 
   const playerPosition = { x: posComp.x, y: posComp.y };
 
@@ -141,8 +140,8 @@ export function fireMeleeAttack(
       hitPlayerIds.push(targetPlayerId);
       hitEntities.push(targetEntity);
 
-      // Apply damage
-      targetEnergy.current -= damage;
+      // Apply damage (subtractEnergy clamps to 0)
+      subtractEnergy(world, targetEntity, damage);
 
       // Apply knockback via KnockbackComponent
       const knockbackDir = Math.atan2(
@@ -212,7 +211,7 @@ export function fireMeleeAttack(
       setMaxEnergy(world, entity, attackerEnergy.max + bug.capacityIncrease);
     }
 
-    ctx.io.emit('cyberBugKilled', {
+    io.emit('cyberBugKilled', {
       type: 'cyberBugKilled',
       bugId: bug.id,
       killerId: playerId,
@@ -276,7 +275,7 @@ export function fireMeleeAttack(
       setMaxEnergy(world, entity, attackerEnergy2.max + creature.capacityIncrease);
     }
 
-    ctx.io.emit('jungleCreatureKilled', {
+    io.emit('jungleCreatureKilled', {
       type: 'jungleCreatureKilled',
       creatureId: creature.id,
       killerId: playerId,
@@ -315,7 +314,7 @@ export function fireMeleeAttack(
     direction: { x: Math.cos(attackAngle), y: Math.sin(attackAngle) },
     hitPlayerIds,
   };
-  ctx.io.emit('meleeAttackExecuted', attackMessage);
+  io.emit('meleeAttackExecuted', attackMessage);
 
   logger.info({
     event: 'melee_attack_executed',
@@ -328,4 +327,42 @@ export function fireMeleeAttack(
   });
 
   return true;
+}
+
+/**
+ * Check if a player can fire melee attack (melee specialization and off cooldown)
+ * Returns true if either swipe or thrust is available
+ */
+export function canFireMeleeAttack(world: World, entity: EntityId): boolean {
+  const energyComp = getEnergy(world, entity);
+  const stageComp = getStage(world, entity);
+  const stunnedComp = getStunned(world, entity);
+  if (!energyComp || !stageComp) return false;
+
+  if (!isJungleStage(stageComp.stage)) return false;
+  if (energyComp.current <= 0) return false;
+  if (stageComp.isEvolving) return false;
+
+  // Check specialization - must be melee
+  const specComp = world.getComponent<CombatSpecializationComponent>(
+    entity,
+    Components.CombatSpecialization
+  );
+  if (!specComp || specComp.specialization !== 'melee') return false;
+
+  const now = Date.now();
+  if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+  const cooldowns = getCooldowns(world, entity);
+  if (!cooldowns) return false;
+
+  // Check if either swipe or thrust is available
+  const swipeReady =
+    energyComp.current >= GAME_CONFIG.MELEE_SWIPE_ENERGY_COST &&
+    now - (cooldowns.lastMeleeSwipeTime || 0) >= GAME_CONFIG.MELEE_SWIPE_COOLDOWN;
+  const thrustReady =
+    energyComp.current >= GAME_CONFIG.MELEE_THRUST_ENERGY_COST &&
+    now - (cooldowns.lastMeleeThrustTime || 0) >= GAME_CONFIG.MELEE_THRUST_COOLDOWN;
+
+  return swipeReady || thrustReady;
 }

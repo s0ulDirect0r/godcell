@@ -1,5 +1,6 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage, Components } from '#shared';
-import type { EMPActivatedMessage, StunnedComponent, EntityId } from '#shared';
+import type { EMPActivatedMessage, StunnedComponent, EntityId, World } from '#shared';
 import { getConfig } from '../dev';
 import { logger } from '../logger';
 import {
@@ -12,7 +13,6 @@ import {
   forEachPlayer,
   forEachSwarm,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
 import { distance } from '../helpers/math';
 
 /**
@@ -20,8 +20,12 @@ import { distance } from '../helpers/math';
  * Disables nearby swarms and stuns nearby players
  * @returns true if EMP was fired successfully
  */
-export function fireEMP(ctx: AbilityContext, entity: EntityId, playerId: string): boolean {
-  const { world } = ctx;
+export function fireEMP(
+  world: World,
+  io: Server,
+  entity: EntityId,
+  playerId: string
+): boolean {
 
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
@@ -105,13 +109,14 @@ export function fireEMP(ctx: AbilityContext, entity: EntityId, playerId: string)
   cooldowns.lastEMPTime = now;
 
   // Broadcast to clients
-  ctx.io.emit('empActivated', {
+  const empMessage: EMPActivatedMessage = {
     type: 'empActivated',
-    playerId: playerId,
+    playerId,
     position: playerPosition,
     affectedSwarmIds,
     affectedPlayerIds,
-  } as EMPActivatedMessage);
+  };
+  io.emit('empActivated', empMessage);
 
   logger.info({
     event: 'emp_activated',
@@ -128,8 +133,7 @@ export function fireEMP(ctx: AbilityContext, entity: EntityId, playerId: string)
 /**
  * Check if a player can use EMP (has the ability and it's off cooldown)
  */
-export function canFireEMP(ctx: AbilityContext, entity: EntityId): boolean {
-  const { world } = ctx;
+export function canFireEMP(world: World, entity: EntityId): boolean {
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const stunnedComp = getStunned(world, entity);

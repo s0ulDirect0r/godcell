@@ -19,7 +19,6 @@ import {
   clearSpawnTime,
 } from './logger';
 import { getConfig } from './dev';
-import type { AbilitySystem } from './abilities';
 import {
   createBot as ecsCreateBot,
   getPlayerBySocketId,
@@ -33,6 +32,7 @@ import {
   forEachPlayer,
   getStringIdByEntity,
   getAllObstacleSnapshots,
+  tryAddAbilityIntent,
   Components,
   Tags,
   type World,
@@ -40,6 +40,13 @@ import {
 } from './ecs';
 import type { EnergyComponent, PositionComponent, StageComponent } from '#shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
+import {
+  canFireEMP,
+  canFirePseudopod,
+  canFireProjectile,
+  canFireMeleeAttack,
+  canPlaceTrap,
+} from './abilities';
 
 // ============================================
 // Bot System - AI-controlled players for testing multiplayer dynamics
@@ -828,7 +835,6 @@ function updateMultiCellBotAI(
   world: World,
   obstacles: ObstacleSnapshot[],
   swarms: EntropySwarm[],
-  abilitySystem: AbilitySystem,
   nutrients: NutrientSnapshot[]
 ) {
   const player = bot.player;
@@ -960,12 +966,15 @@ function updateMultiCellBotAI(
   // - Fire if total nearby energy > 600 (worth it even for just 2 medium swarms)
   const shouldEMP =
     nearbyActiveSwarmCount >= 2 || fatSwarmNearby !== null || nearbyActiveSwarmTotalEnergy >= 600;
-  if (shouldEMP && abilitySystem.canFireEMP(botEntity)) {
-    const success = abilitySystem.fireEMP(botEntity, player.id);
+  if (
+    shouldEMP &&
+    canFireEMP(world, botEntity) &&
+    tryAddAbilityIntent(world, botEntity, { abilityType: 'emp' })
+  ) {
     logger.info({
       event: 'bot_emp_decision',
       botId: player.id,
-      triggered: success,
+      intentAdded: true,
       context: {
         nearbyActiveSwarms: nearbyActiveSwarmCount,
         nearbySwarmEnergy: nearbyActiveSwarmTotalEnergy,
@@ -983,54 +992,58 @@ function updateMultiCellBotAI(
 
   // Pseudopod: Fire at nearby enemy multi-cells (territorial control)
   // Or at nearby single-cells that are just out of contact range
-  if (abilitySystem.canFirePseudopod(botEntity)) {
+  // Check canFirePseudopod first to avoid spamming failed intents every tick
+  if (canFirePseudopod(world, botEntity)) {
     if (nearestEnemyMultiCell) {
       // Attack rival multi-cell
-      const success = abilitySystem.firePseudopod(
-        botEntity,
-        player.id,
-        nearestEnemyMultiCell.position.x,
-        nearestEnemyMultiCell.position.y
-      );
-      logger.info({
-        event: 'bot_pseudopod_decision',
-        botId: player.id,
-        triggered: success,
-        context: {
-          targetType: 'enemy_multicell',
-          targetId: nearestEnemyMultiCell.id,
-          targetDistance: nearestEnemyMultiCellDist.toFixed(0),
-          botEnergy: player.energy,
-          reason: 'territorial_attack',
-        },
-      });
+      if (
+        tryAddAbilityIntent(world, botEntity, {
+          abilityType: 'pseudopod',
+          targetX: nearestEnemyMultiCell.position.x,
+          targetY: nearestEnemyMultiCell.position.y,
+        })
+      ) {
+        logger.info({
+          event: 'bot_pseudopod_decision',
+          botId: player.id,
+          intentAdded: true,
+          context: {
+            targetType: 'enemy_multicell',
+            targetId: nearestEnemyMultiCell.id,
+            targetDistance: nearestEnemyMultiCellDist.toFixed(0),
+            botEnergy: player.energy,
+            reason: 'territorial_attack',
+          },
+        });
+      }
     } else if (
       nearestPrey &&
-      !nearestEnemyMultiCell && // No bigger threats to save pseudopod for
       player.energy > player.maxEnergy * 0.5 && // Plenty of energy to spare
       nearestPreyDist > 200 && // Too far to catch on contact
       nearestPreyDist < 400 // But within pseudopod range
     ) {
       // Low-priority: snipe escaping single-cell only when conditions are favorable
-      const success = abilitySystem.firePseudopod(
-        botEntity,
-        player.id,
-        nearestPrey.position.x,
-        nearestPrey.position.y
-      );
-      logger.info({
-        event: 'bot_pseudopod_decision',
-        botId: player.id,
-        triggered: success,
-        context: {
-          targetType: 'single_cell_prey',
-          targetId: nearestPrey.id,
-          targetDistance: nearestPreyDist.toFixed(0),
-          botEnergy: player.energy,
-          botEnergyPercent: ((player.energy / player.maxEnergy) * 100).toFixed(0),
-          reason: 'opportunistic_snipe',
-        },
-      });
+      if (
+        tryAddAbilityIntent(world, botEntity, {
+          abilityType: 'pseudopod',
+          targetX: nearestPrey.position.x,
+          targetY: nearestPrey.position.y,
+        })
+      ) {
+        logger.info({
+          event: 'bot_pseudopod_decision',
+          botId: player.id,
+          intentAdded: true,
+          context: {
+            targetType: 'single_cell_prey',
+            targetId: nearestPrey.id,
+            targetDistance: nearestPreyDist.toFixed(0),
+            botEnergy: player.energy,
+            botEnergyPercent: ((player.energy / player.maxEnergy) * 100).toFixed(0),
+            reason: 'opportunistic_snipe',
+          },
+        });
+      }
     }
   }
 
@@ -1123,7 +1136,6 @@ function updateCyberOrganismBotAI(
   bot: BotController,
   currentTime: number,
   world: World,
-  abilitySystem: AbilitySystem,
   fauna: FaunaSnapshot[]
 ) {
   const player = bot.player;
@@ -1166,9 +1178,24 @@ function updateCyberOrganismBotAI(
     const idealDistance = projectileRange * 0.5; // Stay at ~400px
 
     if (nearestTarget) {
-      // Fire if in range and able (entity-based ability calls)
-      if (nearestDist < projectileRange * 0.8 && abilitySystem.canFireProjectile(botEntity)) {
-        abilitySystem.fireProjectile(botEntity, player.id, nearestTarget.x, nearestTarget.y);
+      // Fire if in range and off cooldown
+      if (nearestDist < projectileRange * 0.8 && canFireProjectile(world, botEntity)) {
+        if (tryAddAbilityIntent(world, botEntity, {
+          abilityType: 'projectile',
+          targetX: nearestTarget.x,
+          targetY: nearestTarget.y,
+        })) {
+          logger.info({
+            event: 'bot_projectile_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'ranged',
+            },
+          });
+        }
       }
 
       // Movement: approach if too far, retreat if too close
@@ -1206,16 +1233,27 @@ function updateCyberOrganismBotAI(
     const meleeRange = 120; // Close range for melee attacks
 
     if (nearestTarget) {
-      // Attack if in melee range (entity-based ability calls)
-      if (nearestDist < meleeRange) {
+      // Attack if in melee range and can fire
+      if (nearestDist < meleeRange && canFireMeleeAttack(world, botEntity)) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        abilitySystem.fireMeleeAttack(
-          botEntity,
-          player.id,
-          attackType,
-          nearestTarget.x,
-          nearestTarget.y
-        );
+        if (tryAddAbilityIntent(world, botEntity, {
+          abilityType: 'melee',
+          meleeAttackType: attackType,
+          targetX: nearestTarget.x,
+          targetY: nearestTarget.y,
+        })) {
+          logger.info({
+            event: 'bot_melee_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              attackType,
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'melee',
+            },
+          });
+        }
       }
 
       // Always chase - melee wants to close distance
@@ -1235,13 +1273,24 @@ function updateCyberOrganismBotAI(
     const trapTriggerRadius = getConfig('TRAP_TRIGGER_RADIUS') || 100;
 
     if (nearestTarget) {
-      // Place trap if enemy is approaching and ability ready (entity-based)
+      // Place trap if enemy is approaching and we can place one
       if (
         nearestDist < 300 &&
         nearestDist > trapTriggerRadius &&
-        abilitySystem.canPlaceTrap(botEntity, player.id)
+        canPlaceTrap(world, botEntity, player.id)
       ) {
-        abilitySystem.placeTrap(botEntity, player.id);
+        if (tryAddAbilityIntent(world, botEntity, { abilityType: 'trap' })) {
+          logger.info({
+            event: 'bot_trap_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'traps',
+            },
+          });
+        }
       }
 
       // Kite behavior: retreat while leading enemy through traps
@@ -1300,12 +1349,7 @@ interface NutrientSnapshot {
   value: number;
 }
 
-export function updateBots(
-  currentTime: number,
-  world: World,
-  swarms: EntropySwarm[],
-  abilitySystem: AbilitySystem
-) {
+export function updateBots(currentTime: number, world: World, swarms: EntropySwarm[]) {
   // Query obstacles from ECS once per tick (shared across all bots)
   const obstacles = getAllObstacleSnapshots(world);
 
@@ -1337,7 +1381,7 @@ export function updateBots(
     if (freshPlayer) {
       bot.player = freshPlayer;
     }
-    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, abilitySystem, nutrients);
+    updateMultiCellBotAI(bot, currentTime, world, obstacles, swarms, nutrients);
   }
 
   // Pre-collect jungle fauna for cyber-organism bots
@@ -1391,7 +1435,7 @@ export function updateBots(
     }
     // Filter out self from fauna targets
     const targetsForThisBot = fauna.filter((f) => f.id !== botId);
-    updateCyberOrganismBotAI(bot, currentTime, world, abilitySystem, targetsForThisBot);
+    updateCyberOrganismBotAI(bot, currentTime, world, targetsForThisBot);
   }
 }
 
