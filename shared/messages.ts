@@ -400,11 +400,8 @@ export interface EntropySerpentKilledMessage {
   position: Position;
 }
 
-export interface EntropySerpentRespawnedMessage {
-  type: 'entropySerpentSpawned'; // Server emits this type
-  serpentId: string;
-  position: Position;
-}
+// Note: Server emits 'entropySerpentSpawned' for both initial spawn and respawn
+// Use EntropySerpentSpawnedMessage for both cases
 
 // Projectile messages (ranged specialization)
 export interface ProjectileSpawnedMessage {
@@ -664,7 +661,6 @@ export type ServerMessage =
   | EntropySerpentAttackMessage
   | EntropySerpentDamagedMessage
   | EntropySerpentKilledMessage
-  | EntropySerpentRespawnedMessage
   | ProjectileSpawnedMessage
   | ProjectileHitMessage
   | ProjectileRetractedMessage
@@ -676,4 +672,5 @@ export type ServerMessage =
   | TrapTriggeredMessage
   | TrapDespawnedMessage
   | KnockbackAppliedMessage
-  | DevConfigUpdatedMessage;
+  | DevConfigUpdatedMessage
+  | DevStateMessage;
