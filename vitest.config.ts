@@ -8,6 +8,8 @@ export default defineConfig({
     include: ['**/*.test.ts'],
     // Exclude node_modules and Playwright tests
     exclude: ['**/node_modules/**', '**/*.spec.ts', '**/dist/**'],
+    // Shared setup for server system tests (mocks modules with side effects)
+    setupFiles: ['./server/src/ecs/systems/__tests__/setup.ts'],
   },
   resolve: {
     alias: {
