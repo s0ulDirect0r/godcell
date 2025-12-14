@@ -343,7 +343,67 @@ logger.info({
 
 ---
 
-## 7. Work Tracking: bd (beads) & MCP
+## 7. Testing & Quality
+
+Write tests. Run tests. Keep them passing.
+
+### Test-Driven Development
+
+1. **Before writing new code:** Check if tests exist. If not, write tests first.
+2. **For new systems:** Create a test file in `__tests__/` alongside the system.
+3. **For bug fixes:** Write a failing test that reproduces the bug, then fix it.
+4. **Run tests after every change.** Do not commit if tests fail.
+
+### Running Tests and Quality Checks
+
+```bash
+npm test              # Run all unit tests (vitest)
+npm run lint          # Run ESLint on all code
+npm run format        # Run Prettier to fix formatting
+npm run format:check  # Check formatting without changing files
+```
+
+**Workflow:**
+1. Make your change.
+2. Run `npm test` — fix any failures.
+3. Run `npm run lint` — fix any errors.
+4. Run `npm run format` — auto-fix formatting.
+5. Commit.
+
+### Test File Locations
+
+| Code Location                     | Test Location                                        |
+| --------------------------------- | ---------------------------------------------------- |
+| `server/src/ecs/systems/*.ts`     | `server/src/ecs/systems/__tests__/*.test.ts`         |
+| `client/src/core/events/*.ts`     | `client/src/core/events/*.test.ts`                   |
+
+### Test Utilities
+
+Server system tests use shared utilities in `server/src/ecs/systems/__tests__/testUtils.ts`:
+
+- `createTestWorld()` — fresh ECS world (clears lookups)
+- `createTestPlayer(world, options)` — creates player entity
+- `createTestNutrient(world, options)` — creates nutrient entity
+- `createMockIO()` — mock Socket.IO server that captures emits
+- `SOUP_CENTER`, `COLLECTION_RADIUS` — constants from GAME_CONFIG
+
+Mocks for server dependencies live in `__tests__/setup.ts` (vitest setupFiles).
+
+### What to Test
+
+- **Systems:** Test behavior, not implementation. Test edge cases.
+- **Factories:** Test entity creation and component initialization.
+- **Utils/Helpers:** Test pure functions with various inputs.
+
+### What NOT to Test
+
+- Three.js render output (visual tests are manual)
+- Network round-trips (use integration tests sparingly)
+- Trivial getters/setters
+
+---
+
+## 8. Work Tracking: bd (beads) & MCP
 
 All work tracking uses **beads**. No issue tracking via TODOs or ad-hoc notes.
 
@@ -397,7 +457,7 @@ bd close <issue-id> --reason "Completed" --json
 
 ---
 
-## 8. Common Tasks (Recipes)
+## 9. Common Tasks (Recipes)
 
 Use these as templates for how to apply changes.
 
@@ -462,7 +522,7 @@ Use these as templates for how to apply changes.
 
 ---
 
-## 9. Development Philosophy (Compressed)
+## 10. Development Philosophy (Compressed)
 
 This project is intentionally experimental and emergent:
 
@@ -476,7 +536,7 @@ Keep the game fun and legible, but keep the codebase stable and predictable.
 
 ---
 
-## 10. Documentation Map
+## 11. Documentation Map
 
 ### When to Read These Docs
 
