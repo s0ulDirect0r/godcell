@@ -32,6 +32,9 @@ import {
 // Type for hitscan collision check function (used in hitscan mode only)
 type CheckBeamHitscan = (start: Position, end: Position, shooterId: string) => string | null;
 
+// Duration pseudopod visual effects persist (beam entity lifetime, hit flash duration)
+const PSEUDOPOD_VISUAL_DURATION_MS = 500;
+
 /**
  * Fire pseudopod beam (Stage 2 Multi-Cell only)
  * Fires a damaging beam toward the target position
@@ -182,7 +185,7 @@ function handleStrikeMode(
       const targetDamageTracking = getDamageTracking(world, targetEntity);
       if (targetDamageTracking) {
         targetDamageTracking.pseudopodHitRate = drainPerHit;
-        targetDamageTracking.pseudopodHitExpiresAt = Date.now() + 500;
+        targetDamageTracking.pseudopodHitExpiresAt = Date.now() + PSEUDOPOD_VISUAL_DURATION_MS;
       }
 
       logger.info({
@@ -310,7 +313,7 @@ function handleHitscanMode(
   // Add expiration - AbilityIntentSystem will destroy entity when time's up
   // Client handles entity disappearance via normal state updates (no event needed)
   world.addComponent<PendingExpirationComponent>(beamEntity, Components.PendingExpiration, {
-    expiresAt: now + 500,
+    expiresAt: now + PSEUDOPOD_VISUAL_DURATION_MS,
   });
 
   io.emit('pseudopodSpawned', {

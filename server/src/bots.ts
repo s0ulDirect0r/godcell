@@ -1180,11 +1180,22 @@ function updateCyberOrganismBotAI(
     if (nearestTarget) {
       // Fire if in range and off cooldown
       if (nearestDist < projectileRange * 0.8 && canFireProjectile(world, botEntity)) {
-        tryAddAbilityIntent(world, botEntity, {
+        if (tryAddAbilityIntent(world, botEntity, {
           abilityType: 'projectile',
           targetX: nearestTarget.x,
           targetY: nearestTarget.y,
-        });
+        })) {
+          logger.info({
+            event: 'bot_projectile_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'ranged',
+            },
+          });
+        }
       }
 
       // Movement: approach if too far, retreat if too close
@@ -1225,12 +1236,24 @@ function updateCyberOrganismBotAI(
       // Attack if in melee range and can fire
       if (nearestDist < meleeRange && canFireMeleeAttack(world, botEntity)) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        tryAddAbilityIntent(world, botEntity, {
+        if (tryAddAbilityIntent(world, botEntity, {
           abilityType: 'melee',
           meleeAttackType: attackType,
           targetX: nearestTarget.x,
           targetY: nearestTarget.y,
-        });
+        })) {
+          logger.info({
+            event: 'bot_melee_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              attackType,
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'melee',
+            },
+          });
+        }
       }
 
       // Always chase - melee wants to close distance
@@ -1256,7 +1279,18 @@ function updateCyberOrganismBotAI(
         nearestDist > trapTriggerRadius &&
         canPlaceTrap(world, botEntity, player.id)
       ) {
-        tryAddAbilityIntent(world, botEntity, { abilityType: 'trap' });
+        if (tryAddAbilityIntent(world, botEntity, { abilityType: 'trap' })) {
+          logger.info({
+            event: 'bot_trap_decision',
+            botId: player.id,
+            intentAdded: true,
+            context: {
+              targetDistance: nearestDist.toFixed(0),
+              botEnergy: player.energy,
+              specialization: 'traps',
+            },
+          });
+        }
       }
 
       // Kite behavior: retreat while leading enemy through traps

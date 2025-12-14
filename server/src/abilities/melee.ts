@@ -11,7 +11,6 @@ import type {
 import { logger } from '../logger';
 import { isJungleStage } from '../helpers/stages';
 import {
-  getPlayerBySocketId,
   getEnergy,
   getStage,
   getPosition,
@@ -19,6 +18,7 @@ import {
   getCooldowns,
   addEnergy,
   setMaxEnergy,
+  subtractEnergy,
   forEachPlayer,
   forEachCyberBug,
   forEachJungleCreature,
@@ -48,9 +48,8 @@ export function fireMeleeAttack(
   const stageComp = getStage(world, entity);
   const posComp = getPosition(world, entity);
   const stunnedComp = getStunned(world, entity);
-  const player = getPlayerBySocketId(world, playerId);
 
-  if (!energyComp || !stageComp || !posComp || !player) return false;
+  if (!energyComp || !stageComp || !posComp) return false;
 
   // Stage 3+ only
   if (!isJungleStage(stageComp.stage)) return false;
@@ -90,8 +89,8 @@ export function fireMeleeAttack(
     : cooldowns.lastMeleeThrustTime || 0;
   if (now - lastUse < cooldown) return false;
 
-  // Deduct energy
-  energyComp.current -= energyCost;
+  // Deduct energy (subtractEnergy clamps to 0)
+  subtractEnergy(world, entity, energyCost);
 
   const playerPosition = { x: posComp.x, y: posComp.y };
 
@@ -141,8 +140,8 @@ export function fireMeleeAttack(
       hitPlayerIds.push(targetPlayerId);
       hitEntities.push(targetEntity);
 
-      // Apply damage
-      targetEnergy.current -= damage;
+      // Apply damage (subtractEnergy clamps to 0)
+      subtractEnergy(world, targetEntity, damage);
 
       // Apply knockback via KnockbackComponent
       const knockbackDir = Math.atan2(

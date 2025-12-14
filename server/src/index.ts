@@ -826,15 +826,16 @@ io.on('connection', (socket) => {
  * 1. BotAISystem (100) - Bot decision making
  * 2. SwarmAISystem (110) - Swarm AI, movement, respawns
  * 3. GravitySystem (200) - Apply gravity forces
- * 4. PseudopodSystem (300) - Beam physics
- * 5. PredationSystem (400) - Player-player eating
- * 6. SwarmCollisionSystem (410) - Swarm damage + consumption
- * 7. MovementSystem (500) - Player movement
- * 8. MetabolismSystem (600) - Energy decay
- * 9. NutrientCollisionSystem (610) - Nutrient pickup
- * 10. NutrientAttractionSystem (620) - Nutrient visual attraction
- * 11. DeathSystem (700) - Death checks
- * 12. NetworkBroadcastSystem (900) - State broadcasts
+ * 4. AbilityIntentSystem (250) - Process queued ability intents
+ * 5. PseudopodSystem (300) - Beam physics
+ * 6. PredationSystem (400) - Player-player eating
+ * 7. SwarmCollisionSystem (410) - Swarm damage + consumption
+ * 8. MovementSystem (500) - Player movement
+ * 9. MetabolismSystem (600) - Energy decay
+ * 10. NutrientCollisionSystem (610) - Nutrient pickup
+ * 11. NutrientAttractionSystem (620) - Nutrient visual attraction
+ * 12. DeathSystem (700) - Death checks
+ * 13. NetworkBroadcastSystem (900) - State broadcasts
  */
 // Track actual tick timing to detect variance
 let lastTickTime = performance.now();

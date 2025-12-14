@@ -109,13 +109,14 @@ export function fireEMP(
   cooldowns.lastEMPTime = now;
 
   // Broadcast to clients
-  io.emit('empActivated', {
+  const empMessage: EMPActivatedMessage = {
     type: 'empActivated',
-    playerId: playerId,
+    playerId,
     position: playerPosition,
     affectedSwarmIds,
     affectedPlayerIds,
-  } as EMPActivatedMessage);
+  };
+  io.emit('empActivated', empMessage);
 
   logger.info({
     event: 'emp_activated',
