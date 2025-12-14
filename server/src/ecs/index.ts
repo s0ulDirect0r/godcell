@@ -191,6 +191,8 @@ export {
   getAllEntropySerpentSnapshots,
   getEntropySerpentCount,
   buildEntropySerpentsRecord,
+  // Ability intent helpers
+  tryAddAbilityIntent,
 } from './factories';
 export type {
   PlayerSnapshot,

@@ -101,8 +101,8 @@ import {
   NetworkBroadcastSystem,
   SpecializationSystem,
   RespawnSystem,
+  tryAddAbilityIntent,
   type CombatSpecializationComponent,
-  type AbilityIntentComponent,
 } from './ecs';
 import {
   isJungleStage,
@@ -585,12 +585,9 @@ io.on('connection', (socket) => {
   socket.on(
     'pseudopodFire',
     safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
-      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      // Prevent spam - only one intent at a time
-      if (world.hasComponent(entity, Components.AbilityIntent)) return;
-      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+      tryAddAbilityIntent(world, entity, {
         abilityType: 'pseudopod',
         targetX: message.targetX,
         targetY: message.targetY,
@@ -605,12 +602,9 @@ io.on('connection', (socket) => {
   socket.on(
     'projectileFire',
     safeHandler('projectileFire', (message: ProjectileFireMessage) => {
-      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      // Prevent spam - only one intent at a time
-      if (world.hasComponent(entity, Components.AbilityIntent)) return;
-      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+      tryAddAbilityIntent(world, entity, {
         abilityType: 'projectile',
         targetX: message.targetX,
         targetY: message.targetY,
@@ -625,14 +619,9 @@ io.on('connection', (socket) => {
   socket.on(
     'empActivate',
     safeHandler('empActivate', (_message: EMPActivateMessage) => {
-      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      // Prevent spam - only one intent at a time
-      if (world.hasComponent(entity, Components.AbilityIntent)) return;
-      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
-        abilityType: 'emp',
-      });
+      tryAddAbilityIntent(world, entity, { abilityType: 'emp' });
     })
   );
 
@@ -723,12 +712,9 @@ io.on('connection', (socket) => {
   socket.on(
     'meleeAttack',
     safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
-      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      // Prevent spam - only one intent at a time
-      if (world.hasComponent(entity, Components.AbilityIntent)) return;
-      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+      tryAddAbilityIntent(world, entity, {
         abilityType: 'melee',
         meleeAttackType: message.attackType,
         targetX: message.targetX,
@@ -741,14 +727,9 @@ io.on('connection', (socket) => {
     'placeTrap',
     safeHandler('placeTrap', () => {
       logger.debug({ event: 'socket_place_trap', socketId: socket.id });
-      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      // Prevent spam - only one intent at a time
-      if (world.hasComponent(entity, Components.AbilityIntent)) return;
-      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
-        abilityType: 'trap',
-      });
+      tryAddAbilityIntent(world, entity, { abilityType: 'trap' });
     })
   );
 

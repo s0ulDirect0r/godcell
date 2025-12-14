@@ -61,7 +61,7 @@ export class AbilityIntentSystem implements System {
 
       const playerId = playerComp.socketId;
 
-      // Process based on ability type - call ability functions directly
+      // Process based on ability type - discriminated union guarantees required fields
       let success = false;
       switch (intent.abilityType) {
         case 'emp':
@@ -69,58 +69,40 @@ export class AbilityIntentSystem implements System {
           break;
 
         case 'pseudopod':
-          if (intent.targetX !== undefined && intent.targetY !== undefined) {
-            success = firePseudopod(world, io, entity, playerId, intent.targetX, intent.targetY);
-          }
+          success = firePseudopod(world, io, entity, playerId, intent.targetX, intent.targetY);
           break;
 
         case 'projectile':
-          if (intent.targetX !== undefined && intent.targetY !== undefined) {
-            success = fireProjectile(world, io, entity, playerId, intent.targetX, intent.targetY);
-          }
+          success = fireProjectile(world, io, entity, playerId, intent.targetX, intent.targetY);
           break;
 
         case 'melee':
-          if (
-            intent.meleeAttackType &&
-            intent.targetX !== undefined &&
-            intent.targetY !== undefined
-          ) {
-            success = fireMeleeAttack(
-              world,
-              io,
-              entity,
-              playerId,
-              intent.meleeAttackType,
-              intent.targetX,
-              intent.targetY
-            );
-          }
+          success = fireMeleeAttack(
+            world,
+            io,
+            entity,
+            playerId,
+            intent.meleeAttackType,
+            intent.targetX,
+            intent.targetY
+          );
           break;
 
         case 'trap':
           success = placeTrap(world, io, entity, playerId);
           break;
-
-        default:
-          logger.warn({
-            event: 'unknown_ability_intent',
-            playerId,
-            abilityType: intent.abilityType,
-          });
       }
 
       // Always remove intent after processing (success or failure)
       world.removeComponent(entity, Components.AbilityIntent);
 
-      // Log intent processing (only failures, successes logged by ability functions)
-      if (!success) {
-        logger.debug({
-          event: 'ability_intent_failed',
-          playerId,
-          abilityType: intent.abilityType,
-        });
-      }
+      // Log intent processing result
+      logger.debug({
+        event: success ? 'ability_intent_processed' : 'ability_intent_failed',
+        playerId,
+        abilityType: intent.abilityType,
+        success,
+      });
     }
   }
 

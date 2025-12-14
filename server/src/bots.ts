@@ -32,17 +32,13 @@ import {
   forEachPlayer,
   getStringIdByEntity,
   getAllObstacleSnapshots,
+  tryAddAbilityIntent,
   Components,
   Tags,
   type World,
   type ObstacleSnapshot,
 } from './ecs';
-import type {
-  EnergyComponent,
-  PositionComponent,
-  StageComponent,
-  AbilityIntentComponent,
-} from '#shared';
+import type { EnergyComponent, PositionComponent, StageComponent } from '#shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
@@ -963,10 +959,7 @@ function updateMultiCellBotAI(
   // - Fire if total nearby energy > 600 (worth it even for just 2 medium swarms)
   const shouldEMP =
     nearbyActiveSwarmCount >= 2 || fatSwarmNearby !== null || nearbyActiveSwarmTotalEnergy >= 600;
-  if (shouldEMP && !world.hasComponent(botEntity, Components.AbilityIntent)) {
-    world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
-      abilityType: 'emp',
-    });
+  if (shouldEMP && tryAddAbilityIntent(world, botEntity, { abilityType: 'emp' })) {
     logger.info({
       event: 'bot_emp_decision',
       botId: player.id,
@@ -988,14 +981,15 @@ function updateMultiCellBotAI(
 
   // Pseudopod: Fire at nearby enemy multi-cells (territorial control)
   // Or at nearby single-cells that are just out of contact range
-  if (!world.hasComponent(botEntity, Components.AbilityIntent)) {
-    if (nearestEnemyMultiCell) {
-      // Attack rival multi-cell
-      world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
+  if (nearestEnemyMultiCell) {
+    // Attack rival multi-cell
+    if (
+      tryAddAbilityIntent(world, botEntity, {
         abilityType: 'pseudopod',
         targetX: nearestEnemyMultiCell.position.x,
         targetY: nearestEnemyMultiCell.position.y,
-      });
+      })
+    ) {
       logger.info({
         event: 'bot_pseudopod_decision',
         botId: player.id,
@@ -1008,19 +1002,21 @@ function updateMultiCellBotAI(
           reason: 'territorial_attack',
         },
       });
-    } else if (
-      nearestPrey &&
-      !nearestEnemyMultiCell && // No bigger threats to save pseudopod for
-      player.energy > player.maxEnergy * 0.5 && // Plenty of energy to spare
-      nearestPreyDist > 200 && // Too far to catch on contact
-      nearestPreyDist < 400 // But within pseudopod range
-    ) {
-      // Low-priority: snipe escaping single-cell only when conditions are favorable
-      world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
+    }
+  } else if (
+    nearestPrey &&
+    player.energy > player.maxEnergy * 0.5 && // Plenty of energy to spare
+    nearestPreyDist > 200 && // Too far to catch on contact
+    nearestPreyDist < 400 // But within pseudopod range
+  ) {
+    // Low-priority: snipe escaping single-cell only when conditions are favorable
+    if (
+      tryAddAbilityIntent(world, botEntity, {
         abilityType: 'pseudopod',
         targetX: nearestPrey.position.x,
         targetY: nearestPrey.position.y,
-      });
+      })
+    ) {
       logger.info({
         event: 'bot_pseudopod_decision',
         botId: player.id,
@@ -1168,9 +1164,9 @@ function updateCyberOrganismBotAI(
     const idealDistance = projectileRange * 0.5; // Stay at ~400px
 
     if (nearestTarget) {
-      // Fire if in range and no pending intent
-      if (nearestDist < projectileRange * 0.8 && !world.hasComponent(botEntity, Components.AbilityIntent)) {
-        world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
+      // Fire if in range
+      if (nearestDist < projectileRange * 0.8) {
+        tryAddAbilityIntent(world, botEntity, {
           abilityType: 'projectile',
           targetX: nearestTarget.x,
           targetY: nearestTarget.y,
@@ -1212,10 +1208,10 @@ function updateCyberOrganismBotAI(
     const meleeRange = 120; // Close range for melee attacks
 
     if (nearestTarget) {
-      // Attack if in melee range and no pending intent
-      if (nearestDist < meleeRange && !world.hasComponent(botEntity, Components.AbilityIntent)) {
+      // Attack if in melee range
+      if (nearestDist < meleeRange) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
+        tryAddAbilityIntent(world, botEntity, {
           abilityType: 'melee',
           meleeAttackType: attackType,
           targetX: nearestTarget.x,
@@ -1240,15 +1236,9 @@ function updateCyberOrganismBotAI(
     const trapTriggerRadius = getConfig('TRAP_TRIGGER_RADIUS') || 100;
 
     if (nearestTarget) {
-      // Place trap if enemy is approaching and no pending intent
-      if (
-        nearestDist < 300 &&
-        nearestDist > trapTriggerRadius &&
-        !world.hasComponent(botEntity, Components.AbilityIntent)
-      ) {
-        world.addComponent<AbilityIntentComponent>(botEntity, Components.AbilityIntent, {
-          abilityType: 'trap',
-        });
+      // Place trap if enemy is approaching
+      if (nearestDist < 300 && nearestDist > trapTriggerRadius) {
+        tryAddAbilityIntent(world, botEntity, { abilityType: 'trap' });
       }
 
       // Kite behavior: retreat while leading enemy through traps

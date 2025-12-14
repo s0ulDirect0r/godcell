@@ -2968,3 +2968,24 @@ export function buildEntropySerpentsRecord(world: World): Record<
 
   return result;
 }
+
+// ============================================
+// Ability Intent Helpers
+// ============================================
+
+/**
+ * Try to add an ability intent to an entity.
+ * Returns false if entity already has an intent (prevents spam).
+ * Returns true if intent was added successfully.
+ */
+export function tryAddAbilityIntent(
+  world: World,
+  entity: EntityId,
+  intent: AbilityIntentComponent
+): boolean {
+  if (world.hasComponent(entity, Components.AbilityIntent)) {
+    return false;
+  }
+  world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, intent);
+  return true;
+}

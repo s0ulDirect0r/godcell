@@ -428,13 +428,15 @@ export interface PendingRespawnComponent {
  *
  * This enables tick-based ability execution instead of immediate socket-handler execution,
  * ensuring consistent timing between players (socket events) and bots (tick-based AI).
+ *
+ * Discriminated union ensures each ability type has exactly the fields it needs.
  */
-export interface AbilityIntentComponent {
-  abilityType: 'emp' | 'pseudopod' | 'projectile' | 'melee' | 'trap';
-  targetX?: number; // Target position for aimed abilities
-  targetY?: number;
-  meleeAttackType?: 'swipe' | 'thrust'; // Melee-specific attack variant
-}
+export type AbilityIntentComponent =
+  | { abilityType: 'emp' }
+  | { abilityType: 'trap' }
+  | { abilityType: 'pseudopod'; targetX: number; targetY: number }
+  | { abilityType: 'projectile'; targetX: number; targetY: number }
+  | { abilityType: 'melee'; targetX: number; targetY: number; meleeAttackType: 'swipe' | 'thrust' };
 
 /**
  * PendingExpiration - entity should be destroyed after timestamp.
