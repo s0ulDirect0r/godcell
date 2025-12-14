@@ -2,28 +2,9 @@
 // MetabolismSystem Unit Tests
 // ============================================
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-// Mock the main server entry point to prevent side effects
-vi.mock('../../../index', () => ({
-  abilitySystem: {},
-}));
-
-// Mock the bots module
-vi.mock('../../../bots', () => ({
-  isBot: vi.fn(() => false),
-  updateBots: vi.fn(),
-}));
-
-// Mock the logger to prevent file system operations
-vi.mock('../../../logger', () => ({
-  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-  perfLogger: { info: vi.fn() },
-  recordEvolution: vi.fn(),
-}));
-
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MetabolismSystem } from '../MetabolismSystem';
-import { createTestWorld, createTestPlayer, cleanupTestWorld, createMockIO } from './testUtils';
+import { createTestWorld, createTestPlayer, createMockIO, clearLookups } from './testUtils';
 import { requireEnergy, requireStage, getDamageTracking } from '../../factories';
 
 describe('MetabolismSystem', () => {
@@ -36,12 +17,12 @@ describe('MetabolismSystem', () => {
   });
 
   afterEach(() => {
-    cleanupTestWorld();
+    clearLookups();
   });
 
   describe('energy decay', () => {
     it('decays energy over time', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       const initialEnergy = requireEnergy(world, entity).current;
@@ -54,7 +35,7 @@ describe('MetabolismSystem', () => {
     });
 
     it('does not go below zero', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set energy very low
@@ -68,7 +49,7 @@ describe('MetabolismSystem', () => {
     });
 
     it('marks player for death when energy hits zero', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set energy very low
@@ -86,7 +67,7 @@ describe('MetabolismSystem', () => {
 
   describe('skip conditions', () => {
     it('skips players that are already dead', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set energy below zero (already dead, waiting for respawn)
@@ -101,7 +82,7 @@ describe('MetabolismSystem', () => {
     });
 
     it('skips players during evolution molting', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       const initialEnergy = requireEnergy(world, entity).current;
@@ -121,8 +102,8 @@ describe('MetabolismSystem', () => {
 
   describe('multiple players', () => {
     it('processes all players', () => {
-      const entity1 = createTestPlayer(world, { x: 0, y: 0, socketId: 'player-1' });
-      const entity2 = createTestPlayer(world, { x: 100, y: 100, socketId: 'player-2' });
+      const entity1 = createTestPlayer(world, { socketId: 'player-1' });
+      const entity2 = createTestPlayer(world, { socketId: 'player-2' });
       const mockIO = createMockIO();
 
       const initial1 = requireEnergy(world, entity1).current;
@@ -136,6 +117,30 @@ describe('MetabolismSystem', () => {
       // Both should have decayed
       expect(new1).toBeLessThan(initial1);
       expect(new2).toBeLessThan(initial2);
+    });
+  });
+
+  describe('starvation tracking', () => {
+    it('sets starvation cause when energy reaches exactly zero', () => {
+      const entity = createTestPlayer(world);
+      const mockIO = createMockIO();
+
+      // Set energy to exactly zero (edge case: hit zero from other source)
+      const energy = requireEnergy(world, entity);
+      energy.current = 0;
+
+      // Clear any existing damage tracking
+      const tracking = getDamageTracking(world, entity);
+      if (tracking) {
+        tracking.lastDamageSource = undefined;
+      }
+
+      // Run metabolism
+      system.update(world, 1, mockIO);
+
+      // Should have set starvation as the cause
+      const newTracking = getDamageTracking(world, entity);
+      expect(newTracking?.lastDamageSource).toBe('starvation');
     });
   });
 });

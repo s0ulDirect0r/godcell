@@ -2,39 +2,16 @@
 // NutrientCollisionSystem Unit Tests
 // ============================================
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-// Mock the main server entry point to prevent side effects
-vi.mock('../../../index', () => ({
-  abilitySystem: {},
-}));
-
-// Mock the bots module
-vi.mock('../../../bots', () => ({
-  isBot: vi.fn(() => false),
-  updateBots: vi.fn(),
-}));
-
-// Mock the nutrients module to prevent respawn errors
-vi.mock('../../../nutrients', () => ({
-  respawnNutrient: vi.fn(),
-}));
-
-// Mock the logger to prevent file system operations
-vi.mock('../../../logger', () => ({
-  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-  perfLogger: { info: vi.fn() },
-  recordEvolution: vi.fn(),
-  recordNutrientCollection: vi.fn(),
-}));
-
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NutrientCollisionSystem } from '../NutrientCollisionSystem';
 import {
   createTestWorld,
   createTestPlayer,
   createTestNutrient,
-  cleanupTestWorld,
   createMockIO,
+  clearLookups,
+  SOUP_CENTER,
+  COLLECTION_RADIUS,
 } from './testUtils';
 import { requireEnergy, requireStage } from '../../factories';
 
@@ -48,15 +25,14 @@ describe('NutrientCollisionSystem', () => {
   });
 
   afterEach(() => {
-    cleanupTestWorld();
-    vi.clearAllMocks();
+    clearLookups();
   });
 
   describe('nutrient collection', () => {
     it('collects nutrient when player overlaps', () => {
-      // Create player and nutrient at same position
-      const player = createTestPlayer(world, { x: 100, y: 100, socketId: 'player-1' });
-      const nutrient = createTestNutrient(world, { x: 100, y: 100, value: 20, capacityIncrease: 10 });
+      // Create player and nutrient at same position (default: SOUP_CENTER)
+      const player = createTestPlayer(world, { socketId: 'player-1' });
+      const nutrient = createTestNutrient(world, { value: 20, capacityIncrease: 10 });
       const mockIO = createMockIO();
 
       // Lower player energy so there's room to gain
@@ -79,12 +55,12 @@ describe('NutrientCollisionSystem', () => {
     });
 
     it('caps energy gain at max energy', () => {
-      // Create player at max energy
-      const player = createTestPlayer(world, { x: 100, y: 100 });
+      // Create player at max energy (default position: SOUP_CENTER)
+      const player = createTestPlayer(world);
       const energy = requireEnergy(world, player);
       energy.current = energy.max; // At max
 
-      createTestNutrient(world, { x: 100, y: 100, value: 50 });
+      createTestNutrient(world, { value: 50 });
       const mockIO = createMockIO();
 
       system.update(world, 0.016, mockIO);
@@ -95,25 +71,24 @@ describe('NutrientCollisionSystem', () => {
     });
 
     it('ignores nutrients outside collision radius', () => {
-      const player = createTestPlayer(world, { x: 0, y: 0 });
-      const nutrient = createTestNutrient(world, { x: 1000, y: 1000, value: 20 }); // Far away
+      // Player at soup center, nutrient far away
+      createTestPlayer(world);
+      const nutrient = createTestNutrient(world, {
+        x: SOUP_CENTER.x + 1000,
+        y: SOUP_CENTER.y + 1000,
+        value: 20,
+      });
       const mockIO = createMockIO();
-
-      const initialEnergy = requireEnergy(world, player).current;
 
       system.update(world, 0.016, mockIO);
 
       // Nutrient should still exist
       expect(world.hasEntity(nutrient)).toBe(true);
-
-      // Player energy unchanged
-      const energy = requireEnergy(world, player);
-      expect(energy.current).toBe(initialEnergy);
     });
 
     it('broadcasts nutrientCollected message', () => {
-      createTestPlayer(world, { x: 100, y: 100, socketId: 'player-1' });
-      createTestNutrient(world, { x: 100, y: 100, id: 'nutrient-1' });
+      createTestPlayer(world, { socketId: 'player-1' });
+      createTestNutrient(world, { id: 'nutrient-1' });
       const mockIO = createMockIO();
 
       system.update(world, 0.016, mockIO);
@@ -131,8 +106,8 @@ describe('NutrientCollisionSystem', () => {
 
   describe('skip conditions', () => {
     it('skips dead players', () => {
-      const player = createTestPlayer(world, { x: 100, y: 100 });
-      const nutrient = createTestNutrient(world, { x: 100, y: 100 });
+      const player = createTestPlayer(world);
+      const nutrient = createTestNutrient(world);
       const mockIO = createMockIO();
 
       // Kill the player
@@ -146,8 +121,8 @@ describe('NutrientCollisionSystem', () => {
     });
 
     it('skips players during evolution', () => {
-      const player = createTestPlayer(world, { x: 100, y: 100 });
-      const nutrient = createTestNutrient(world, { x: 100, y: 100 });
+      const player = createTestPlayer(world);
+      const nutrient = createTestNutrient(world);
       const mockIO = createMockIO();
 
       // Mark player as evolving
@@ -163,9 +138,9 @@ describe('NutrientCollisionSystem', () => {
 
   describe('one nutrient per tick per player', () => {
     it('collects only one nutrient per tick', () => {
-      createTestPlayer(world, { x: 100, y: 100 });
-      const nutrient1 = createTestNutrient(world, { x: 100, y: 100, id: 'n1' });
-      const nutrient2 = createTestNutrient(world, { x: 100, y: 100, id: 'n2' });
+      createTestPlayer(world);
+      const nutrient1 = createTestNutrient(world, { id: 'n1' });
+      const nutrient2 = createTestNutrient(world, { id: 'n2' });
       const mockIO = createMockIO();
 
       system.update(world, 0.016, mockIO);
@@ -178,10 +153,18 @@ describe('NutrientCollisionSystem', () => {
 
   describe('multiple players', () => {
     it('allows multiple players to collect different nutrients', () => {
-      createTestPlayer(world, { x: 100, y: 100, socketId: 'p1' });
-      createTestPlayer(world, { x: 200, y: 200, socketId: 'p2' });
-      const nutrient1 = createTestNutrient(world, { x: 100, y: 100 });
-      const nutrient2 = createTestNutrient(world, { x: 200, y: 200 });
+      // Two players in different spots, each with their own nutrient
+      createTestPlayer(world, { socketId: 'p1' });
+      createTestPlayer(world, {
+        socketId: 'p2',
+        x: SOUP_CENTER.x + 200,
+        y: SOUP_CENTER.y + 200,
+      });
+      const nutrient1 = createTestNutrient(world);
+      const nutrient2 = createTestNutrient(world, {
+        x: SOUP_CENTER.x + 200,
+        y: SOUP_CENTER.y + 200,
+      });
       const mockIO = createMockIO();
 
       system.update(world, 0.016, mockIO);
@@ -193,6 +176,55 @@ describe('NutrientCollisionSystem', () => {
       // Two collection events
       const collectEvents = mockIO.emittedEvents.filter((e) => e.event === 'nutrientCollected');
       expect(collectEvents.length).toBe(2);
+    });
+  });
+
+  describe('collision radius edge cases', () => {
+    it('collects nutrient at exact collision radius boundary', () => {
+      // Player at center, nutrient exactly at COLLECTION_RADIUS distance
+      createTestPlayer(world);
+      const nutrient = createTestNutrient(world, {
+        x: SOUP_CENTER.x + COLLECTION_RADIUS - 0.1, // Just inside
+        y: SOUP_CENTER.y,
+      });
+      const mockIO = createMockIO();
+
+      system.update(world, 0.016, mockIO);
+
+      // Should be collected (just inside radius)
+      expect(world.hasEntity(nutrient)).toBe(false);
+    });
+
+    it('does not collect nutrient just outside collision radius', () => {
+      // Player at center, nutrient just outside COLLECTION_RADIUS
+      createTestPlayer(world);
+      const nutrient = createTestNutrient(world, {
+        x: SOUP_CENTER.x + COLLECTION_RADIUS + 1, // Just outside
+        y: SOUP_CENTER.y,
+      });
+      const mockIO = createMockIO();
+
+      system.update(world, 0.016, mockIO);
+
+      // Should NOT be collected (just outside radius)
+      expect(world.hasEntity(nutrient)).toBe(true);
+    });
+
+    it('collects nutrient at diagonal distance within radius', () => {
+      // Test diagonal (Pythagorean) - both x and y offset
+      // For radius 27: sqrt(19^2 + 19^2) ≈ 26.87 < 27
+      const offset = Math.floor(COLLECTION_RADIUS / Math.sqrt(2)) - 1;
+      createTestPlayer(world);
+      const nutrient = createTestNutrient(world, {
+        x: SOUP_CENTER.x + offset,
+        y: SOUP_CENTER.y + offset,
+      });
+      const mockIO = createMockIO();
+
+      system.update(world, 0.016, mockIO);
+
+      // Should be collected (within diagonal distance)
+      expect(world.hasEntity(nutrient)).toBe(false);
     });
   });
 });

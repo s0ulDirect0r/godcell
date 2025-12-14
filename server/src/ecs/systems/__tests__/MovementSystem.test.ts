@@ -2,29 +2,16 @@
 // MovementSystem Unit Tests
 // ============================================
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-// Mock the main server entry point to prevent side effects
-vi.mock('../../../index', () => ({
-  abilitySystem: {},
-}));
-
-// Mock the bots module
-vi.mock('../../../bots', () => ({
-  isBot: vi.fn(() => false),
-  updateBots: vi.fn(),
-}));
-
-// Mock the logger to prevent file system operations
-vi.mock('../../../logger', () => ({
-  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-  perfLogger: { info: vi.fn() },
-  recordEvolution: vi.fn(),
-}));
-
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Components, Tags } from '#shared';
 import { MovementSystem } from '../MovementSystem';
-import { createTestWorld, createTestPlayer, cleanupTestWorld, createMockIO } from './testUtils';
+import {
+  createTestWorld,
+  createTestPlayer,
+  createMockIO,
+  clearLookups,
+  SOUP_CENTER,
+} from './testUtils';
 import { setInput, requirePosition, requireVelocity, requireEnergy } from '../../factories';
 
 describe('MovementSystem', () => {
@@ -37,12 +24,12 @@ describe('MovementSystem', () => {
   });
 
   afterEach(() => {
-    cleanupTestWorld();
+    clearLookups();
   });
 
   describe('basic movement', () => {
     it('applies input to velocity', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set input direction (wants to move right)
@@ -58,8 +45,7 @@ describe('MovementSystem', () => {
     });
 
     it('updates position based on velocity', () => {
-      // Use position within soup bounds (soup starts at 7200, 4800)
-      const entity = createTestPlayer(world, { x: 8000, y: 6000 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set velocity directly (to bypass acceleration calculations)
@@ -79,7 +65,7 @@ describe('MovementSystem', () => {
     });
 
     it('broadcasts playerMoved message', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0, socketId: 'player-1' });
+      const entity = createTestPlayer(world, { socketId: 'player-1' });
       const mockIO = createMockIO();
 
       // Set velocity to trigger movement
@@ -100,9 +86,9 @@ describe('MovementSystem', () => {
 
   describe('SlowedThisTick debuff', () => {
     it('reduces acceleration when slowed', () => {
-      // Create two players at same position with same input
-      const normalEntity = createTestPlayer(world, { x: 0, y: 0, socketId: 'normal' });
-      const slowedEntity = createTestPlayer(world, { x: 0, y: 0, socketId: 'slowed' });
+      // Create two players with same input
+      const normalEntity = createTestPlayer(world, { socketId: 'normal' });
+      const slowedEntity = createTestPlayer(world, { socketId: 'slowed' });
       const mockIO = createMockIO();
 
       // Apply slow tag to one player
@@ -125,7 +111,7 @@ describe('MovementSystem', () => {
 
   describe('friction', () => {
     it('applies friction to reduce velocity over time', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Set initial velocity with no input
@@ -146,7 +132,7 @@ describe('MovementSystem', () => {
 
   describe('energy cost', () => {
     it('deducts energy for movement', () => {
-      const entity = createTestPlayer(world, { x: 0, y: 0 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       const initialEnergy = requireEnergy(world, entity).current;
@@ -162,7 +148,7 @@ describe('MovementSystem', () => {
     });
 
     it('does not move dead players', () => {
-      const entity = createTestPlayer(world, { x: 100, y: 100 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Kill the player
@@ -186,7 +172,7 @@ describe('MovementSystem', () => {
 
   describe('stunned players', () => {
     it('stops movement for stunned players', () => {
-      const entity = createTestPlayer(world, { x: 100, y: 100 });
+      const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
       // Stun the player (stun ends in the future)
@@ -205,6 +191,44 @@ describe('MovementSystem', () => {
       // Velocity should be zeroed out
       expect(vel.x).toBe(0);
       expect(vel.y).toBe(0);
+    });
+
+    it('allows movement after stun expires', () => {
+      const entity = createTestPlayer(world);
+      const mockIO = createMockIO();
+
+      // Stun already expired (in the past)
+      world.addComponent(entity, Components.Stunned, {
+        until: Date.now() - 1000,
+        source: 'test',
+      });
+
+      // Set input direction
+      setInput(world, entity, 1, 0);
+
+      system.update(world, 0.1, mockIO);
+
+      // Velocity should have increased (stun expired, can move)
+      const vel = requireVelocity(world, entity);
+      expect(vel.x).toBeGreaterThan(0);
+    });
+  });
+
+  describe('world bounds', () => {
+    it('clamps position to soup bounds for single-cell', () => {
+      // Create player at soup center
+      const entity = createTestPlayer(world);
+      const mockIO = createMockIO();
+
+      // Set huge velocity trying to escape soup
+      const vel = requireVelocity(world, entity);
+      vel.x = 100000;
+
+      system.update(world, 1, mockIO);
+
+      // Position should be clamped (not at soup center + 100000)
+      const pos = requirePosition(world, entity);
+      expect(pos.x).toBeLessThan(SOUP_CENTER.x + 100000);
     });
   });
 });
