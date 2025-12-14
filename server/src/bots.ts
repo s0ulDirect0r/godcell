@@ -1,4 +1,4 @@
-import { GAME_CONFIG, EvolutionStage } from '#shared';
+import { GAME_CONFIG, EvolutionStage, distance } from '#shared';
 import type {
   Player,
   Position,
@@ -115,12 +115,6 @@ function randomSpawnPosition(): Position {
     x: GAME_CONFIG.WORLD_WIDTH / 2,
     y: GAME_CONFIG.WORLD_HEIGHT / 2,
   };
-}
-
-function distance(p1: Position, p2: Position): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 // NOTE: isSpawnSafe removed - spawn safety is handled by randomSpawnPosition via ECS getObstacleZones
