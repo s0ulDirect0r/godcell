@@ -4,7 +4,7 @@
 
 import type { Server } from 'socket.io';
 import type { World } from '#shared';
-import { EvolutionStage } from '#shared';
+import { EvolutionStage, GAME_CONFIG } from '#shared';
 import {
   createWorld,
   createPlayer,
@@ -12,30 +12,44 @@ import {
   clearLookups,
 } from '../../factories';
 
+// Re-export clearLookups for direct use in afterEach
+export { clearLookups };
+
+// ============================================
+// Test Constants (from GAME_CONFIG, for clarity)
+// ============================================
+
+// Soup bounds - where single-cell and multi-cell players live
+export const SOUP_CENTER = {
+  x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
+  y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
+};
+
+// Collision detection
+export const PLAYER_RADIUS = GAME_CONFIG.SINGLE_CELL_RADIUS; // 15
+export const NUTRIENT_RADIUS = GAME_CONFIG.NUTRIENT_SIZE; // 12
+export const COLLECTION_RADIUS = PLAYER_RADIUS + NUTRIENT_RADIUS; // 27
+
+// ============================================
+// World Setup
+// ============================================
+
 /**
  * Create a fresh ECS World for testing.
- * This uses the same createWorld function as production,
- * ensuring all component stores are properly registered.
+ * Clears lookups first to ensure clean state.
  */
 export function createTestWorld(): World {
-  // Clear any existing lookups from previous tests
   clearLookups();
   return createWorld();
 }
 
-/**
- * Clean up after tests.
- * Call this in afterEach to reset module-level state.
- */
-export function cleanupTestWorld(): void {
-  clearLookups();
-}
+// ============================================
+// Entity Factories
+// ============================================
 
 /**
- * Create a test player entity with all necessary components.
- * Uses the real createPlayer factory to ensure consistency.
- *
- * @returns The entity ID of the created player
+ * Create a test player entity.
+ * Default position is soup center (valid for single-cell movement).
  */
 export function createTestPlayer(
   world: World,
@@ -52,8 +66,8 @@ export function createTestPlayer(
     socketId = `test-player-${Date.now()}-${Math.random()}`,
     name = 'TestPlayer',
     color = '#00ff00',
-    x = 0,
-    y = 0,
+    x = SOUP_CENTER.x,
+    y = SOUP_CENTER.y,
     stage = EvolutionStage.SINGLE_CELL,
   } = options;
 
@@ -62,9 +76,7 @@ export function createTestPlayer(
 
 /**
  * Create a test nutrient entity.
- * Uses the real createNutrient factory.
- *
- * @returns The entity ID of the created nutrient
+ * Default position is soup center.
  */
 export function createTestNutrient(
   world: World,
@@ -78,26 +90,21 @@ export function createTestNutrient(
 ): number {
   const {
     id = `nutrient-${Date.now()}-${Math.random()}`,
-    x = 0,
-    y = 0,
+    x = SOUP_CENTER.x,
+    y = SOUP_CENTER.y,
     value = 10,
     capacityIncrease = 5,
   } = options;
 
-  return createNutrient(
-    world,
-    id,
-    { x, y },
-    value,
-    capacityIncrease,
-    1.0, // valueMultiplier
-    false // isHighValue
-  );
+  return createNutrient(world, id, { x, y }, value, capacityIncrease, 1.0, false);
 }
 
+// ============================================
+// Mock IO
+// ============================================
+
 /**
- * Create a mock Socket.IO server for testing.
- * Captures emitted events for assertions.
+ * Create a mock Socket.IO server that captures emitted events.
  */
 export function createMockIO(): Server & { emittedEvents: Array<{ event: string; data: unknown }> } {
   const emittedEvents: Array<{ event: string; data: unknown }> = [];
@@ -108,7 +115,6 @@ export function createMockIO(): Server & { emittedEvents: Array<{ event: string;
       emittedEvents.push({ event, data });
       return true;
     },
-    // Add other methods as needed for tests
     to: () => mockIO,
     in: () => mockIO,
   } as unknown as Server & { emittedEvents: Array<{ event: string; data: unknown }> };
