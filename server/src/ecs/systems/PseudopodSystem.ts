@@ -226,14 +226,6 @@ export class PseudopodSystem implements System {
         // Mark this target as hit by this beam (store entity ID)
         hitEntities.add(targetEntity);
 
-        logger.info({
-          event: 'beam_hit',
-          shooter: pseudopodComp.ownerSocketId,
-          target: targetId,
-          damage,
-          targetEnergyRemaining: targetEnergy.current.toFixed(0),
-        });
-
         // Emit hit event for visual effects
         io.emit('pseudopodHit', {
           type: 'pseudopodHit',
@@ -280,14 +272,6 @@ export class PseudopodSystem implements System {
             damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
           }
 
-          logger.info({
-            event: 'beam_hit_swarm',
-            shooter: pseudopodComp.ownerSocketId,
-            swarmId,
-            damage,
-            maxDrained: actualMaxDrain.toFixed(1),
-            swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
-          });
         }
       }
     );

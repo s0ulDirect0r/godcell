@@ -65,6 +65,7 @@ import {
   createEntropySerpent,
   buildProjectilesRecord,
   buildTrapsRecord,
+  getEnergy,
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
@@ -467,6 +468,9 @@ logger.info({
 // ============================================
 
 io.on('connection', (socket) => {
+  // Store connect time for session duration tracking
+  socket.data.connectTime = Date.now();
+
   logPlayerConnected(socket.id);
 
   // Create a new player in ECS (source of truth)
@@ -697,10 +701,11 @@ io.on('connection', (socket) => {
       io.emit('specializationSelected', selectedMessage);
 
       logger.info({
-        event: 'specialization_selected',
+        event: 'spec_selected',
         playerId: socket.id,
         specialization: specComp.specialization,
         isBot: isBot(socket.id),
+        wasAutoAssigned: false,
       });
     })
   );
@@ -793,11 +798,31 @@ io.on('connection', (socket) => {
 
   socket.on(
     'disconnect',
-    safeHandler('disconnect', () => {
+    safeHandler('disconnect', (reason: string) => {
+      // Compute session duration before any cleanup
+      const sessionDuration = Date.now() - (socket.data.connectTime ?? Date.now());
+
+      // Check if player was alive before destroying entity
+      const entity = getEntityBySocketId(socket.id);
+      let wasAlive = false;
+      if (entity !== undefined) {
+        const energy = getEnergy(world, entity);
+        wasAlive = energy !== undefined && energy.current > 0;
+      }
+
+      // Log session end with context
+      logger.info({
+        event: 'session_end',
+        playerId: socket.id,
+        duration: sessionDuration,
+        durationSec: Math.round(sessionDuration / 1000),
+        reason,
+        wasAlive,
+      });
+
       logPlayerDisconnected(socket.id);
 
       // Remove from ECS (source of truth)
-      const entity = getEntityBySocketId(socket.id);
       if (entity !== undefined) {
         ecsDestroyEntity(world, entity);
       }

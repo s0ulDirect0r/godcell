@@ -9,7 +9,6 @@ import { GAME_CONFIG, Components, type World } from '#shared';
 import type { PositionComponent, StageComponent, EnergyComponent } from '#shared';
 import type { System } from './types';
 import { forEachPlayer, forEachDataFruit, destroyEntity } from '../factories';
-import { logger } from '../../logger';
 import { distance, isJungleStage } from '../../helpers';
 
 /**
@@ -64,14 +63,6 @@ export class MacroResourceCollisionSystem implements System {
           // Emit collection event
           io.emit('dataFruitCollected', {
             type: 'dataFruitCollected',
-            fruitId,
-            playerId,
-            energyGained: energyGain,
-            capacityGained: fruitComp.capacityIncrease,
-          });
-
-          logger.info({
-            event: 'player_fruit_collected',
             fruitId,
             playerId,
             energyGained: energyGain,
