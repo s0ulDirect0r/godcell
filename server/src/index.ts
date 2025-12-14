@@ -17,13 +17,7 @@ import type {
   CombatSpecialization,
   MeleeAttackMessage,
 } from '#shared';
-import {
-  initializeBots,
-  isBot,
-  spawnBotAt,
-  removeBotPermanently,
-  setBotEcsWorld,
-} from './bots';
+import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { AbilitySystem } from './abilities';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
 import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
