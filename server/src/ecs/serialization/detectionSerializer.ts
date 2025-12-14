@@ -10,7 +10,6 @@ import type {
   PositionComponent,
   EnergyComponent,
   StageComponent,
-  NutrientComponent,
   DetectedEntity,
   DetectionUpdateMessage,
 } from '#shared';

@@ -5,18 +5,17 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
+import { GAME_CONFIG, Components, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
-  CyberBugComponent,
   StageComponent,
   EnergyComponent,
   EntityId,
   CyberBugMovedMessage,
 } from '#shared';
 import type { System } from './types';
-import { forEachCyberBug, forEachPlayer, getStringIdByEntity } from '../factories';
+import { forEachCyberBug, forEachPlayer } from '../factories';
 import { processCyberBugRespawns } from '../../jungleFauna';
 import { isJungleStage } from '../../helpers/stages';
 

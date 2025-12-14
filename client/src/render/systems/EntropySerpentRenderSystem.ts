@@ -48,6 +48,8 @@ export class EntropySerpentRenderSystem {
   // Debug visualization
   private debugMode = false;
   private debugMarkers: Map<string, THREE.Group> = new Map();
+  private _lastDebugLog = 0;
+  private _lastPosLogs: Map<string, number> = new Map();
 
   /**
    * Initialize system with scene and world references
@@ -296,8 +298,8 @@ export class EntropySerpentRenderSystem {
     const attackRange = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE;
 
     // Debug: log once per second
-    if (Math.floor(Date.now() / 1000) !== (this as any)._lastDebugLog) {
-      (this as any)._lastDebugLog = Math.floor(Date.now() / 1000);
+    if (Math.floor(Date.now() / 1000) !== this._lastDebugLog) {
+      this._lastDebugLog = Math.floor(Date.now() / 1000);
       console.log(
         `[SerpentDebug] updateDebugMarkers called, serpents: ${this.serpentMeshes.size}, markers: ${this.debugMarkers.size}`
       );
@@ -326,8 +328,9 @@ export class EntropySerpentRenderSystem {
       const headY = bodyY + Math.sin(heading) * headOffset;
 
       // Log positions once per second per serpent
-      if (Math.floor(Date.now() / 2000) !== (debugGroup as any)._lastPosLog) {
-        (debugGroup as any)._lastPosLog = Math.floor(Date.now() / 2000);
+      const lastPosLog = this._lastPosLogs.get(id) ?? 0;
+      if (Math.floor(Date.now() / 2000) !== lastPosLog) {
+        this._lastPosLogs.set(id, Math.floor(Date.now() / 2000));
         console.log(
           `[SerpentDebug] ${id}: body=(${bodyX.toFixed(0)}, ${bodyY.toFixed(0)}), head=(${headX.toFixed(0)}, ${headY.toFixed(0)}), heading=${((heading * 180) / Math.PI).toFixed(1)}°, offset=${headOffset}`
         );

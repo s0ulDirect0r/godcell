@@ -5,7 +5,6 @@
 
 import type { Server } from 'socket.io';
 import { type World } from '#shared';
-import type { VelocityComponent } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,
@@ -18,9 +17,6 @@ import {
   requireStage,
   requireVelocity,
   Components,
-  type EnergyComponent,
-  type PositionComponent,
-  type StageComponent,
   type SpawnImmunityComponent,
 } from '../index';
 import { distance, isJungleStage } from '../../helpers';

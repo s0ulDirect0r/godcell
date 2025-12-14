@@ -14,7 +14,6 @@ import type {
   JungleCreatureComponent,
   EntropySerpentComponent,
   PlayerComponent,
-  StageComponent,
   EnergyComponent,
   EntityId,
 } from '#shared';

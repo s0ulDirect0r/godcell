@@ -28,8 +28,6 @@ import type {
   CanFireEMPComponent,
   CanFirePseudopodComponent,
   CanSprintComponent,
-  CanEngulfComponent,
-  CanDetectComponent,
   DamageSource,
   // Stage 3+ macro-resources
   DataFruitComponent,
@@ -530,10 +528,9 @@ export function setPlayerStage(world: World, entity: EntityId, newStage: Evoluti
     stageComp.radius = stageValues.radius;
   }
 
-  // Update energy capacity (keep current ratio)
+  // Update energy capacity
   const energyComp = world.getComponent<EnergyComponent>(entity, Components.Energy);
   if (energyComp) {
-    const ratio = energyComp.current / energyComp.max;
     energyComp.max = stageValues.maxEnergy;
     energyComp.current = Math.min(stageValues.maxEnergy, energyComp.current);
   }

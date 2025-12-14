@@ -22,7 +22,6 @@ import {
 } from '#shared';
 import { logger } from './logger';
 import {
-  // Entity-based helpers (preferred)
   setEnergy,
   setMaxEnergy,
   setStage,
@@ -32,22 +31,17 @@ import {
   getPosition,
   getEntityBySocketId,
   forEachPlayer,
-  hasPlayer,
-  // Nutrient ECS helpers
   forEachNutrient,
   getEntityByStringId,
   destroyEntity,
   getNutrientCount,
-  // Swarm ECS helpers
   forEachSwarm,
   getSwarmCount,
   getSwarmComponents,
-  Tags,
   Components,
 } from './ecs';
 import { removeSwarm } from './swarms';
 import { getNextEvolutionStage } from './helpers/stages';
-import type { PositionComponent } from '#shared';
 
 // ============================================
 // Dev State

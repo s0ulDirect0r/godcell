@@ -486,7 +486,6 @@ export function recordEvolution(
 // Internal function to avoid circular reference - will be set up after lifetime stats section
 let recordLifetimeEvolutionInternal = (_isBot: boolean) => {};
 let recordLifetimeCollectionInternal = (_isBot: boolean, _energy: number) => {};
-let recordLifetimeDeathInternal = (_cause: DeathCause) => {};
 
 /**
  * Clean up spawn tracking when entity dies/disconnects
@@ -785,7 +784,6 @@ export function recordLifetimeCollection(isBot: boolean, energy: number): void {
 // Wire up the internal functions now that they're defined
 recordLifetimeEvolutionInternal = recordLifetimeEvolution;
 recordLifetimeCollectionInternal = recordLifetimeCollection;
-recordLifetimeDeathInternal = recordLifetimeDeath;
 
 /**
  * Get lifetime average stats

@@ -1,11 +1,7 @@
 import { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage } from '#shared';
 import type {
-  Player,
   Position,
-  DeathCause,
-  DamageSource,
-  Pseudopod,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
   PlayerSprintMessage,
@@ -23,36 +19,17 @@ import type {
 } from '#shared';
 import {
   initializeBots,
-  updateBots,
   isBot,
   spawnBotAt,
   removeBotPermanently,
   setBotEcsWorld,
 } from './bots';
 import { AbilitySystem } from './abilities';
-import {
-  initializeSwarms,
-  updateSwarms,
-  updateSwarmPositions,
-  processSwarmRespawns,
-  spawnSwarmAt,
-} from './swarms';
+import { initializeSwarms, spawnSwarmAt } from './swarms';
 import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
-import {
-  initNutrientModule,
-  initializeNutrients,
-  respawnNutrient,
-  spawnNutrientAt,
-} from './nutrients';
-import {
-  initDevHandler,
-  handleDevCommand,
-  isGamePaused,
-  getTimeScale,
-  shouldRunTick,
-  getConfig,
-} from './dev';
+import { initNutrientModule, initializeNutrients, spawnNutrientAt } from './nutrients';
+import { initDevHandler, handleDevCommand, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '#shared';
 import {
   logger,
@@ -79,21 +56,16 @@ import {
   createPlayer as ecsCreatePlayer,
   createObstacle,
   createTree,
-  createSwarm as ecsCreateSwarm,
-  createPseudopod as ecsCreatePseudopod,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
-  getEntityByStringId,
   Components,
   Tags,
   buildAlivePlayersRecord,
-  buildPlayersRecord,
   buildNutrientsRecord,
   buildObstaclesRecord,
   getObstacleCount,
   buildTreesRecord,
   getTreeCount,
-  // Stage 3+ entity builders
   buildDataFruitsRecord,
   buildCyberBugsRecord,
   buildJungleCreaturesRecord,
@@ -101,36 +73,19 @@ import {
   createEntropySerpent,
   buildProjectilesRecord,
   buildTrapsRecord,
-  // Direct component access helpers
-  getPlayerBySocketId,
-  hasPlayer,
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
   getStunnedBySocketId,
-  getVelocityBySocketId,
-  getSprintBySocketId,
-  getCooldownsBySocketId,
   getDamageTrackingBySocketId,
-  isBotBySocketId,
-  deletePlayerBySocketId,
   forEachPlayer,
   forEachSwarm,
   setPlayerStage,
   subtractEnergyBySocketId,
-  // ECS setters - update component values directly
-  setEnergyBySocketId,
-  setMaxEnergyBySocketId,
-  addEnergyBySocketId,
   setInputBySocketId,
   setVelocityBySocketId,
   setSprintBySocketId,
   type World,
-  type EntityId,
-  type EnergyComponent,
-  type PositionComponent,
-  type StageComponent,
-  // Systems
   SystemRunner,
   SystemPriority,
   BotAISystem,
@@ -158,19 +113,9 @@ import {
   type CombatSpecializationComponent,
 } from './ecs';
 import {
-  // Math utilities
-  distance,
   rayCircleIntersection,
-  poissonDiscSampling,
-  gridJitterDistribution,
-  // Stage helpers
-  getStageMaxEnergy,
-  getEnergyDecayRate,
-  getWorldBoundsForStage,
-  isSoupStage,
   isJungleStage,
   getStageEnergy,
-  // Spawning utilities
   randomColor,
   randomSpawnPosition,
 } from './helpers';
@@ -704,7 +649,7 @@ io.on('connection', (socket) => {
 
   socket.on(
     'playerRespawnRequest',
-    safeHandler('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
+    safeHandler('playerRespawnRequest', (_message: PlayerRespawnRequestMessage) => {
       // Check player exists and is dead using ECS
       const energyComp = getEnergyBySocketId(world, socket.id);
       if (!energyComp) return;

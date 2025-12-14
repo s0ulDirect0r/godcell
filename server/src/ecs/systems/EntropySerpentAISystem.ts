@@ -19,13 +19,11 @@ import type {
   StageComponent,
   EnergyComponent,
   EntropySerpentComponent,
-  DamageTrackingComponent,
 } from '#shared';
 import type { System } from './types';
 import {
   forEachEntropySerpent,
   getSocketIdByEntity,
-  getStringIdByEntity,
   recordDamage,
   createEntropySerpent,
   destroyEntity,
@@ -257,7 +255,7 @@ export class EntropySerpentAISystem implements System {
     serpentEntity: number,
     serpentId: string,
     serpent: EntropySerpentComponent,
-    now: number
+    _now: number
   ): void {
     const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
     if (!serpentPos) return;
@@ -375,10 +373,6 @@ export class EntropySerpentAISystem implements System {
     } else {
       // Emit one event per hit player
       for (const playerId of hitPlayerIds) {
-        const playerEntity = world.forEachWithTag(Tags.Player, (entity) => {
-          if (getSocketIdByEntity(entity) === playerId) return entity;
-        });
-
         // Get player position for hit effect
         let hitPos = { x: headPos.x, y: headPos.y };
         world.forEachWithTag(Tags.Player, (entity) => {
@@ -419,7 +413,7 @@ export class EntropySerpentAISystem implements System {
     pos: PositionComponent,
     vel: VelocityComponent,
     serpent: EntropySerpentComponent,
-    deltaTime: number
+    _deltaTime: number
   ): void {
     const patrolRadius = GAME_CONFIG.ENTROPY_SERPENT_PATROL_RADIUS;
     const patrolSpeed = GAME_CONFIG.ENTROPY_SERPENT_SPEED;

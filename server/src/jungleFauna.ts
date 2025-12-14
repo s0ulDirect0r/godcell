@@ -12,11 +12,8 @@ import {
   createJungleCreature,
   forEachTree,
   forEachCyberBug,
-  destroyEntity,
-  getStringIdByEntity,
 } from './ecs';
 import { logger } from './logger';
-import { poissonDiscSampling } from './helpers';
 
 // ============================================
 // ID Counters
@@ -56,7 +53,7 @@ const treeLastFruitSpawn = new Map<number, number>();
  * Spawn initial DataFruits near trees
  * Simple: spawn on ground, ready to collect, despawn after timeout
  */
-export function initializeDataFruits(world: World, io: Server): void {
+export function initializeDataFruits(world: World, _io: Server): void {
   let fruitCount = 0;
   const now = Date.now();
 
@@ -318,7 +315,7 @@ export function processCyberBugRespawns(world: World, io: Server): void {
 /**
  * Initialize all JungleCreatures in the jungle
  */
-export function initializeJungleCreatures(world: World, io: Server): void {
+export function initializeJungleCreatures(world: World, _io: Server): void {
   // Distribute creature variants: 50% grazers, 30% stalkers, 20% ambushers
   const creatureCount = GAME_CONFIG.JUNGLE_CREATURE_COUNT;
   const grazerCount = Math.floor(creatureCount * 0.5);
@@ -383,7 +380,7 @@ export function scheduleCreatureRespawn(
 /**
  * Process pending creature respawns
  */
-export function processCreatureRespawns(world: World, io: Server): void {
+export function processCreatureRespawns(world: World, _io: Server): void {
   const now = Date.now();
 
   while (creatureRespawnQueue.length > 0 && creatureRespawnQueue[0].respawnTime <= now) {

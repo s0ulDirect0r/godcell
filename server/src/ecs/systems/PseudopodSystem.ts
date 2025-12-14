@@ -17,7 +17,6 @@ import {
   requireEnergy,
   requirePosition,
   requireStage,
-  requireVelocity,
   Components,
   type EntityId,
   type EnergyComponent,

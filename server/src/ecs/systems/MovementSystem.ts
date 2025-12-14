@@ -7,12 +7,7 @@ import type { Server } from 'socket.io';
 import { EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
   PlayerMovedMessage,
-  EnergyComponent,
-  PositionComponent,
-  StageComponent,
   StunnedComponent,
-  VelocityComponent,
-  InputComponent,
   SprintComponent,
   KnockbackComponent,
 } from '#shared';

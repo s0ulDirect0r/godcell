@@ -134,7 +134,6 @@ function formatBytes(bytes: number): string {
 
 function reportStats(elapsedSec: number) {
   const connectedClients = Array.from(stats.values()).filter((s) => s.connected).length;
-  const avgMsgPerClient = totalMessagesReceived / Math.max(1, CLIENT_COUNT);
   const msgPerSec = totalMessagesReceived / Math.max(1, elapsedSec);
   const bytesPerSec = totalBytesReceived / Math.max(1, elapsedSec);
 

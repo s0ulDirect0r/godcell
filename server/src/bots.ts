@@ -2,7 +2,6 @@ import { GAME_CONFIG, EvolutionStage } from '#shared';
 import type {
   Player,
   Position,
-  Nutrient,
   EntropySwarm,
   PlayerJoinedMessage,
   PlayerRespawnedMessage,
@@ -39,13 +38,7 @@ import {
   type World,
   type ObstacleSnapshot,
 } from './ecs';
-import type {
-  EnergyComponent,
-  PositionComponent,
-  StageComponent,
-  VelocityComponent,
-  InputComponent,
-} from '#shared';
+import type { EnergyComponent, PositionComponent, StageComponent } from '#shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
@@ -382,38 +375,6 @@ function updateBotWander(bot: BotController, currentTime: number) {
   // Apply wander direction to input (will be combined with gravity in movement loop)
   bot.inputDirection.x = bot.ai.wanderDirection.x;
   bot.inputDirection.y = bot.ai.wanderDirection.y;
-}
-
-/**
- * Find the nearest nutrient within search radius
- * Uses ECS as source of truth for nutrients
- */
-function findNearestNutrient(botPosition: Position, world: World): Nutrient | null {
-  let nearest: Nutrient | null = null;
-  let nearestDist = BOT_CONFIG.SEARCH_RADIUS;
-
-  // Query nutrients from ECS
-  world.forEachWithTag(Tags.Nutrient, (entity) => {
-    const pos = world.getComponent<PositionComponent>(entity, Components.Position);
-    const nutrientComp = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
-    const id = getStringIdByEntity(entity);
-    if (!pos || !nutrientComp || !id) return;
-
-    const dist = distance(botPosition, { x: pos.x, y: pos.y });
-    if (dist < nearestDist) {
-      nearest = {
-        id,
-        position: { x: pos.x, y: pos.y },
-        value: nutrientComp.value,
-        capacityIncrease: nutrientComp.capacityIncrease,
-        valueMultiplier: nutrientComp.valueMultiplier,
-        isHighValue: nutrientComp.isHighValue,
-      };
-      nearestDist = dist;
-    }
-  });
-
-  return nearest;
 }
 
 /**
@@ -1462,7 +1423,7 @@ export function getBotCount(): number {
  * Handle bot death - schedule auto-respawn after delay
  * @param cause - What killed the bot (for death rate tracking)
  */
-export function handleBotDeath(botId: string, cause: DeathCause, io: Server) {
+export function handleBotDeath(botId: string, cause: DeathCause, _io: Server) {
   if (!ecsWorld) {
     logger.warn({ event: 'bot_death_no_ecs', botId });
     return;

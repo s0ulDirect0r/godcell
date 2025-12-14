@@ -11,7 +11,6 @@ import type {
   SwarmMovedMessage,
   DetectedEntity,
   DamageSource,
-  DamageTrackingComponent,
 } from '#shared';
 import { EvolutionStage, GAME_CONFIG, Components, type World } from '#shared';
 import type { System } from './types';

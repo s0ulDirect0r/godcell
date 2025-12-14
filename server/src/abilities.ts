@@ -29,7 +29,6 @@ import {
   createTrap,
   countTrapsForPlayer,
   destroyEntity as ecsDestroyEntity,
-  getEntityBySocketId,
   getEntityByStringId,
   getPlayerBySocketId,
   // Entity-based component helpers (game layer)

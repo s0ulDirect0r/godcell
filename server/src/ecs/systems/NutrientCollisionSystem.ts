@@ -8,16 +8,12 @@ import type { NutrientCollectedMessage } from '#shared';
 import { GAME_CONFIG, type World } from '#shared';
 import type { System } from './types';
 import {
-  Components,
   forEachPlayer,
   getAllNutrientSnapshots,
   destroyEntity as ecsDestroyEntity,
   requireEnergy,
   requirePosition,
   requireStage,
-  type PositionComponent,
-  type StageComponent,
-  type EnergyComponent,
 } from '../index';
 import { distance, isJungleStage } from '../../helpers';
 import { recordNutrientCollection } from '../../logger';

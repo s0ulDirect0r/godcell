@@ -4,19 +4,18 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
+import { EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
   EnergyComponent,
   PositionComponent,
-  StageComponent,
   DamageTrackingComponent,
+  SwarmComponent,
 } from '#shared';
 import type { System } from './types';
 import {
   getSocketIdByEntity,
   getDamageTracking,
   forEachSwarm,
-  getEntityBySocketId,
   forEachPlayer,
   recordDamage,
   requireEnergy,
@@ -41,7 +40,7 @@ import { logger } from '../../logger';
 export class SwarmCollisionSystem implements System {
   readonly name = 'SwarmCollisionSystem';
 
-  update(world: World, deltaTime: number, io: Server): void {
+  update(world: World, deltaTime: number, _io: Server): void {
     // ============================================
     // Part 1: Swarm collision detection (damage + slow)
     // Optimized: Pre-filter players by stage to avoid O(S×P) on all players
@@ -78,7 +77,7 @@ export class SwarmCollisionSystem implements System {
         const swarmX = swarmPos.x;
         const swarmY = swarmPos.y;
 
-        for (const { entity, playerId, energyComp, posComp, radius } of soupPlayers) {
+        for (const { entity, energyComp, posComp, radius } of soupPlayers) {
           // Collision distance = swarm size + player radius (no energy-based scaling)
           const BASE_ENERGY = 100;
           const MAX_ENERGY = 500;
@@ -148,7 +147,7 @@ export class SwarmCollisionSystem implements System {
       x: number;
       y: number;
       size: number;
-      swarmComp: any;
+      swarmComp: SwarmComponent;
       energyComp: EnergyComponent;
     }[] = [];
     forEachSwarm(world, (entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {

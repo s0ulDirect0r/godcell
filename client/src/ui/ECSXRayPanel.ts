@@ -392,7 +392,11 @@ export class ECSXRayPanel {
   }
 
   toggle(): void {
-    this.isVisible ? this.hide() : this.show();
+    if (this.isVisible) {
+      this.hide();
+    } else {
+      this.show();
+    }
   }
 
   show(): void {

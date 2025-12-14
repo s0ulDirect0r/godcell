@@ -66,11 +66,9 @@ export class TreeRenderSystem {
 
     // Track which trees exist in ECS
     const currentTreeIds = new Set<string>();
-    let treeCount = 0;
 
     // Query ECS World for all trees
     this.world.forEachWithTag(Tags.Tree, (entity) => {
-      treeCount++;
       const treeId = getStringIdByEntity(entity);
       if (!treeId) return;
 

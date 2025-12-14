@@ -5,7 +5,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Tags, Components, type World } from '#shared';
+import { GAME_CONFIG, Components, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
@@ -107,8 +107,6 @@ export class JungleCreatureAISystem implements System {
     forEachJungleCreature(world, (entity, _creatureId, posComp, creatureComp) => {
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!velComp) return;
-
-      const creaturePosition = { x: posComp.x, y: posComp.y };
 
       // Dispatch to variant-specific behavior
       switch (creatureComp.variant) {

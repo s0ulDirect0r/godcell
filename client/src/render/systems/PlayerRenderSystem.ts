@@ -1044,10 +1044,14 @@ export class PlayerRenderSystem {
     group.children.forEach((child) => {
       if (child instanceof THREE.Mesh) {
         const material = child.material as THREE.Material;
+        // THREE.js materials have complex type hierarchy; runtime check + cast is pragmatic
         if ('opacity' in material) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (material as any).opacity = opacity;
         }
-        if ('uniforms' in material && (material as any).uniforms.opacity) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ('uniforms' in material && (material as any).uniforms?.opacity) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (material as any).uniforms.opacity.value = opacity;
         }
       } else if (child instanceof THREE.Points) {

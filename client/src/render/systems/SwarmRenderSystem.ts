@@ -224,7 +224,6 @@ export class SwarmRenderSystem {
    */
   interpolate(dt: number = 16.67): void {
     const lerpFactor = frameLerp(0.3, dt);
-    const time = performance.now() * 0.001;
 
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
@@ -473,7 +472,7 @@ export class SwarmRenderSystem {
     swarmId: string,
     group: THREE.Group,
     energy: number,
-    energyScale: number
+    _energyScale: number
   ): void {
     const baseSize = this.swarmBaseSizes.get(swarmId) ?? 30;
     const absorbedEnergy = energy - this.BASE_ENERGY;

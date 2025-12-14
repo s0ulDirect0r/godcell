@@ -11,7 +11,6 @@ import {
   Components,
   forEachPlayer,
   forEachSwarm,
-  getPlayerBySocketId,
   getEntityBySocketId,
   getEnergy,
   setEnergy,
@@ -21,10 +20,7 @@ import {
   getDrainPredatorId,
   clearDrainTarget,
   entityToLegacyPlayer,
-  destroyEntity,
   requireEnergy,
-  requireDamageTracking,
-  type EnergyComponent,
   type DamageTrackingComponent,
 } from '../index';
 import { isBot, handleBotDeath } from '../../bots';
@@ -46,7 +42,7 @@ export class DeathSystem implements System {
   readonly name = 'DeathSystem';
 
   update(world: World, _deltaTime: number, io: Server): void {
-    forEachPlayer(world, (entity, playerId) => {
+    forEachPlayer(world, (entity, _playerId) => {
       const energyComp = requireEnergy(world, entity);
 
       // Get damage tracking from ECS (entity-based)

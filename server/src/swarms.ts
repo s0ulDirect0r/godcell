@@ -1,4 +1,4 @@
-import { GAME_CONFIG, EvolutionStage } from '#shared';
+import { GAME_CONFIG } from '#shared';
 import type { EntropySwarm, Position, SwarmSpawnedMessage } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -16,9 +16,7 @@ import {
   type EntityId,
   type EnergyComponent,
   type PositionComponent,
-  type VelocityComponent,
   type StageComponent,
-  type SwarmComponent,
 } from './ecs';
 
 // ============================================
@@ -400,7 +398,7 @@ export function updateSwarmPositions(world: World, deltaTime: number, _io: Serve
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
   const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, energyComp) => {
+  forEachSwarm(world, (entity, swarmId, posComp, velComp, _swarmComp, _energyComp) => {
     // Update position based on velocity (like players)
     posComp.x += velComp.x * deltaTime;
     posComp.y += velComp.y * deltaTime;

@@ -4,10 +4,9 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Tags, type World, Components } from '#shared';
+import { Tags, type World, Components } from '#shared';
 import type {
   PositionComponent,
-  TrapComponent,
   StunnedComponent,
   EntropySerpentComponent,
   EnergyComponent,
@@ -23,7 +22,6 @@ import {
   getStage,
   getEnergy,
   subtractEnergy,
-  getEntityBySocketId,
 } from '../factories';
 import { distance } from '../../helpers';
 import { isJungleStage } from '../../helpers/stages';

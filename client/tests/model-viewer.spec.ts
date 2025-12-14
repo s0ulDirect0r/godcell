@@ -181,9 +181,6 @@ test.describe('Model Viewer with lil-gui Controls', () => {
 
     await expect(slider).toBeVisible();
 
-    // Get initial value
-    const initialValue = await slider.inputValue();
-
     // Set to a specific value by clicking on the slider
     await slider.fill('25');
 

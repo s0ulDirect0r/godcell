@@ -38,7 +38,7 @@ export class PerformanceMonitor {
     const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
     const fps = 1000 / avgFrameTime;
 
-    // @ts-ignore - performance.memory is non-standard but available in Chrome
+    // @ts-expect-error - performance.memory is non-standard but available in Chrome
     const memoryUsage = performance.memory?.usedJSHeapSize;
 
     return {

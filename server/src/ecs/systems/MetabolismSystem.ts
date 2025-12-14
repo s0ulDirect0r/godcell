@@ -15,8 +15,6 @@ import type { System } from './types';
 import {
   Components,
   forEachPlayer,
-  getStage,
-  getEnergy,
   getEntityBySocketId,
   setPlayerStage,
   hasPlayer,
@@ -24,8 +22,6 @@ import {
   recordDamage,
   requireEnergy,
   requireStage,
-  type EnergyComponent,
-  type StageComponent,
   type CombatSpecializationComponent,
 } from '../index';
 import { getConfig } from '../../dev';
