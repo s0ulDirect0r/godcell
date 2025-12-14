@@ -1,3 +1,4 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components } from '#shared';
 import type {
   MeleeAttackType,
@@ -5,6 +6,7 @@ import type {
   CombatSpecializationComponent,
   KnockbackComponent,
   EntityId,
+  World,
 } from '#shared';
 import { logger } from '../logger';
 import { isJungleStage } from '../helpers/stages';
@@ -22,7 +24,6 @@ import {
   forEachJungleCreature,
   destroyEntity,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
 import { distance } from '../helpers/math';
 
 /**
@@ -32,7 +33,8 @@ import { distance } from '../helpers/math';
  * @returns true if attack was executed successfully
  */
 export function fireMeleeAttack(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   attackType: MeleeAttackType,
@@ -41,8 +43,6 @@ export function fireMeleeAttack(
 ): boolean {
   // Validate target coordinates
   if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return false;
-
-  const { world } = ctx;
 
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
@@ -212,7 +212,7 @@ export function fireMeleeAttack(
       setMaxEnergy(world, entity, attackerEnergy.max + bug.capacityIncrease);
     }
 
-    ctx.io.emit('cyberBugKilled', {
+    io.emit('cyberBugKilled', {
       type: 'cyberBugKilled',
       bugId: bug.id,
       killerId: playerId,
@@ -276,7 +276,7 @@ export function fireMeleeAttack(
       setMaxEnergy(world, entity, attackerEnergy2.max + creature.capacityIncrease);
     }
 
-    ctx.io.emit('jungleCreatureKilled', {
+    io.emit('jungleCreatureKilled', {
       type: 'jungleCreatureKilled',
       creatureId: creature.id,
       killerId: playerId,
@@ -315,7 +315,7 @@ export function fireMeleeAttack(
     direction: { x: Math.cos(attackAngle), y: Math.sin(attackAngle) },
     hitPlayerIds,
   };
-  ctx.io.emit('meleeAttackExecuted', attackMessage);
+  io.emit('meleeAttackExecuted', attackMessage);
 
   logger.info({
     event: 'melee_attack_executed',

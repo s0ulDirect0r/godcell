@@ -51,4 +51,6 @@ export type {
   ClientDamageInfoComponent,
   // Deferred action components
   PendingRespawnComponent,
+  AbilityIntentComponent,
+  PendingExpirationComponent,
 } from './components';

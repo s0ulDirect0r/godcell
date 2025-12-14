@@ -58,6 +58,9 @@ export const SystemPriority = {
   // Physics and forces
   GRAVITY: 200,
 
+  // Ability intent processing - converts intents to ability execution
+  ABILITY_INTENT: 250,
+
   // Abilities (pseudopods, EMP effects, projectiles, traps)
   PSEUDOPOD: 300,
   PROJECTILE: 310, // Stage 3 ranged specialization attack

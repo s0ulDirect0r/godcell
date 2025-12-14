@@ -41,6 +41,8 @@ import type {
   KnockbackComponent,
   // Server-only components
   PendingRespawnComponent,
+  AbilityIntentComponent,
+  PendingExpirationComponent,
 } from '#shared';
 
 // ============================================
@@ -94,6 +96,8 @@ export function createWorld(): World {
 
   // Server-only components (deferred actions, timers)
   world.registerStore<PendingRespawnComponent>(Components.PendingRespawn, new ComponentStore());
+  world.registerStore<AbilityIntentComponent>(Components.AbilityIntent, new ComponentStore());
+  world.registerStore<PendingExpirationComponent>(Components.PendingExpiration, new ComponentStore());
 
   return world;
 }
@@ -757,7 +761,7 @@ export function buildAlivePlayersRecord(world: World): Record<string, Player> {
  */
 export function getPlayerBySocketId(world: World, socketId: string): Player | null {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return null;
+  if (entity === undefined) return null;
   return entityToLegacyPlayer(world, entity);
 }
 
@@ -775,7 +779,7 @@ export function hasPlayer(world: World, socketId: string): boolean {
  */
 export function getEnergyBySocketId(world: World, socketId: string): EnergyComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<EnergyComponent>(entity, Components.Energy);
 }
 
@@ -787,7 +791,7 @@ export function getPositionBySocketId(
   socketId: string
 ): PositionComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<PositionComponent>(entity, Components.Position);
 }
 
@@ -796,7 +800,7 @@ export function getPositionBySocketId(
  */
 export function getStageBySocketId(world: World, socketId: string): StageComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<StageComponent>(entity, Components.Stage);
 }
 
@@ -808,7 +812,7 @@ export function getVelocityBySocketId(
   socketId: string
 ): VelocityComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<VelocityComponent>(entity, Components.Velocity);
 }
 
@@ -834,7 +838,7 @@ export function setVelocityBySocketId(
  */
 export function getInputBySocketId(world: World, socketId: string): InputComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<InputComponent>(entity, Components.Input);
 }
 
@@ -862,7 +866,7 @@ export function setInputBySocketId(
  */
 export function getSprintBySocketId(world: World, socketId: string): SprintComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<SprintComponent>(entity, Components.Sprint);
 }
 
@@ -882,7 +886,7 @@ export function setSprintBySocketId(world: World, socketId: string, isSprinting:
  */
 export function getStunnedBySocketId(world: World, socketId: string): StunnedComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<StunnedComponent>(entity, Components.Stunned);
 }
 
@@ -894,7 +898,7 @@ export function getCooldownsBySocketId(
   socketId: string
 ): CooldownsComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
 }
 
@@ -906,7 +910,7 @@ export function getDamageTrackingBySocketId(
   socketId: string
 ): DamageTrackingComponent | undefined {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return undefined;
+  if (entity === undefined) return undefined;
   return world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
 }
 
@@ -915,7 +919,7 @@ export function getDamageTrackingBySocketId(
  */
 export function isBotBySocketId(world: World, socketId: string): boolean {
   const entity = getEntityBySocketId(socketId);
-  if (!entity) return false;
+  if (entity === undefined) return false;
   return world.hasTag(entity, Tags.Bot);
 }
 
@@ -924,7 +928,7 @@ export function isBotBySocketId(world: World, socketId: string): boolean {
  */
 export function deletePlayerBySocketId(world: World, socketId: string): void {
   const entity = getEntityBySocketId(socketId);
-  if (entity) {
+  if (entity !== undefined) {
     destroyEntity(world, entity);
   }
 }

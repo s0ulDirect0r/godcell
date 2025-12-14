@@ -1,12 +1,25 @@
 // ============================================
-// AbilitySystem Unit Tests
+// Ability Functions Unit Tests
 // ============================================
+//
+// Tests for standalone ability functions.
+// These are called by AbilityIntentSystem during game tick.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Server } from 'socket.io';
 import { EvolutionStage, Components, GAME_CONFIG } from '#shared';
-import type { CombatSpecialization, CombatSpecializationComponent } from '#shared';
-import { AbilitySystem, AbilityContext } from '../abilities';
+import type { CombatSpecialization, CombatSpecializationComponent, World } from '#shared';
+import {
+  fireEMP,
+  canFireEMP,
+  firePseudopod,
+  canFirePseudopod,
+  fireProjectile,
+  canFireProjectile,
+  fireMeleeAttack,
+  placeTrap,
+  canPlaceTrap,
+} from '../abilities';
 import {
   createWorld,
   createPlayer,
@@ -16,7 +29,6 @@ import {
   getCooldowns,
   getStunned,
 } from '../ecs/factories';
-import type { World } from '#shared';
 
 // ============================================
 // Test Constants
@@ -50,14 +62,6 @@ function createMockIO(): Server & { emittedEvents: Array<{ event: string; data: 
   } as unknown as Server & { emittedEvents: Array<{ event: string; data: unknown }> };
 
   return mockIO;
-}
-
-function createAbilityContext(world: World, io: Server): AbilityContext {
-  return {
-    world,
-    io,
-    checkBeamHitscan: () => null, // Default: no hits
-  };
 }
 
 function createMultiCellPlayer(
@@ -116,16 +120,14 @@ function createCyberOrganism(
 // EMP Tests
 // ============================================
 
-describe('AbilitySystem', () => {
+describe('Ability Functions', () => {
   let world: World;
-  let mockIO: ReturnType<typeof createMockIO>;
-  let abilitySystem: AbilitySystem;
+  let io: ReturnType<typeof createMockIO>;
 
   beforeEach(() => {
     clearLookups();
     world = createWorld();
-    mockIO = createMockIO();
-    abilitySystem = new AbilitySystem(createAbilityContext(world, mockIO));
+    io = createMockIO();
   });
 
   afterEach(() => {
@@ -137,18 +139,18 @@ describe('AbilitySystem', () => {
       it('fires EMP successfully for multi-cell player', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(true);
-        expect(mockIO.emittedEvents).toHaveLength(1);
-        expect(mockIO.emittedEvents[0].event).toBe('empActivated');
+        expect(io.emittedEvents).toHaveLength(1);
+        expect(io.emittedEvents[0].event).toBe('empActivated');
       });
 
       it('deducts energy on success', () => {
         const entity = createMultiCellPlayer(world, 'player-1', { energy: 100 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.fireEMP(entity, 'player-1');
+        fireEMP(world, io,entity, 'player-1');
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.EMP_ENERGY_COST);
@@ -157,7 +159,7 @@ describe('AbilitySystem', () => {
       it('sets cooldown after firing', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        abilitySystem.fireEMP(entity, 'player-1');
+        fireEMP(world, io,entity, 'player-1');
 
         const cooldowns = getCooldowns(world, entity);
         expect(cooldowns?.lastEMPTime).toBeGreaterThan(0);
@@ -173,38 +175,38 @@ describe('AbilitySystem', () => {
           EvolutionStage.SINGLE_CELL
         );
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
-        expect(mockIO.emittedEvents).toHaveLength(0);
+        expect(io.emittedEvents).toHaveLength(0);
       });
 
       it('fails when on cooldown', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
         // Fire once to set cooldown
-        abilitySystem.fireEMP(entity, 'player-1');
+        fireEMP(world, io,entity, 'player-1');
 
         // Try to fire again immediately
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
-        expect(mockIO.emittedEvents).toHaveLength(1); // Only first fire
+        expect(io.emittedEvents).toHaveLength(1); // Only first fire
       });
 
       it('fails when insufficient energy', () => {
         const entity = createMultiCellPlayer(world, 'player-1', { energy: 1 });
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
-        expect(mockIO.emittedEvents).toHaveLength(0);
+        expect(io.emittedEvents).toHaveLength(0);
       });
 
       it('fails when player is dead', () => {
         const entity = createMultiCellPlayer(world, 'player-1', { energy: 0 });
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -214,7 +216,7 @@ describe('AbilitySystem', () => {
         const stage = getStage(world, entity);
         if (stage) stage.isEvolving = true;
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -225,7 +227,7 @@ describe('AbilitySystem', () => {
           until: Date.now() + 10000,
         });
 
-        const result = abilitySystem.fireEMP(entity, 'player-1');
+        const result = fireEMP(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -234,7 +236,7 @@ describe('AbilitySystem', () => {
         const attacker = createMultiCellPlayer(world, 'attacker');
         const victim = createMultiCellPlayer(world, 'victim'); // Same position = in range
 
-        abilitySystem.fireEMP(attacker, 'attacker');
+        fireEMP(world, io,attacker, 'attacker');
 
         const stunnedComp = getStunned(world, victim);
         expect(stunnedComp).toBeDefined();
@@ -247,7 +249,7 @@ describe('AbilitySystem', () => {
           x: SOUP_CENTER.x + GAME_CONFIG.EMP_RANGE + 100,
         });
 
-        abilitySystem.fireEMP(attacker, 'attacker');
+        fireEMP(world, io,attacker, 'attacker');
 
         // Check that stun is not active (component may exist with until=0)
         const stunnedComp = getStunned(world, farPlayer);
@@ -260,14 +262,14 @@ describe('AbilitySystem', () => {
       it('returns true when conditions are met', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        expect(abilitySystem.canFireEMP(entity)).toBe(true);
+        expect(canFireEMP(world,entity)).toBe(true);
       });
 
       it('returns false on cooldown', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
-        abilitySystem.fireEMP(entity, 'player-1');
+        fireEMP(world, io,entity, 'player-1');
 
-        expect(abilitySystem.canFireEMP(entity)).toBe(false);
+        expect(canFireEMP(world,entity)).toBe(false);
       });
 
       it('returns false for wrong stage', () => {
@@ -280,7 +282,7 @@ describe('AbilitySystem', () => {
           EvolutionStage.SINGLE_CELL
         );
 
-        expect(abilitySystem.canFireEMP(entity)).toBe(false);
+        expect(canFireEMP(world,entity)).toBe(false);
       });
     });
   });
@@ -292,18 +294,18 @@ describe('AbilitySystem', () => {
         const targetX = SOUP_CENTER.x + 100;
         const targetY = SOUP_CENTER.y;
 
-        const result = abilitySystem.firePseudopod(entity, 'player-1', targetX, targetY);
+        const result = firePseudopod(world, io,entity, 'player-1', targetX, targetY);
 
         expect(result).toBe(true);
         // Should emit either pseudopodSpawned or pseudopodStrike depending on mode
-        expect(mockIO.emittedEvents.length).toBeGreaterThan(0);
+        expect(io.emittedEvents.length).toBeGreaterThan(0);
       });
 
       it('deducts energy on success', () => {
         const entity = createMultiCellPlayer(world, 'player-1', { energy: 100 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.PSEUDOPOD_ENERGY_COST);
@@ -312,7 +314,7 @@ describe('AbilitySystem', () => {
       it('sets cooldown after firing', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
         const cooldowns = getCooldowns(world, entity);
         expect(cooldowns?.lastPseudopodTime).toBeGreaterThan(0);
@@ -328,7 +330,7 @@ describe('AbilitySystem', () => {
           EvolutionStage.SINGLE_CELL
         );
 
-        const result = abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        const result = firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -336,8 +338,8 @@ describe('AbilitySystem', () => {
       it('fails when on cooldown', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
-        const result = abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        const result = firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -345,7 +347,7 @@ describe('AbilitySystem', () => {
       it('fails when target is at same position (no direction)', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        const result = abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x, SOUP_CENTER.y);
+        const result = firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -356,7 +358,7 @@ describe('AbilitySystem', () => {
           until: Date.now() + 10000,
         });
 
-        const result = abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        const result = firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -366,14 +368,14 @@ describe('AbilitySystem', () => {
       it('returns true when conditions are met', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        expect(abilitySystem.canFirePseudopod(entity)).toBe(true);
+        expect(canFirePseudopod(world,entity)).toBe(true);
       });
 
       it('returns false on cooldown', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
-        abilitySystem.firePseudopod(entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
+        firePseudopod(world, io,entity, 'player-1', SOUP_CENTER.x + 100, SOUP_CENTER.y);
 
-        expect(abilitySystem.canFirePseudopod(entity)).toBe(false);
+        expect(canFirePseudopod(world,entity)).toBe(false);
       });
     });
   });
@@ -385,17 +387,17 @@ describe('AbilitySystem', () => {
         const targetX = JUNGLE_CENTER.x + 200;
         const targetY = JUNGLE_CENTER.y;
 
-        const result = abilitySystem.fireProjectile(entity, 'player-1', targetX, targetY);
+        const result = fireProjectile(world, io,entity, 'player-1', targetX, targetY);
 
         expect(result).toBe(true);
-        expect(mockIO.emittedEvents.some(e => e.event === 'projectileSpawned')).toBe(true);
+        expect(io.emittedEvents.some(e => e.event === 'projectileSpawned')).toBe(true);
       });
 
       it('deducts energy on success', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged', { energy: 500 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.fireProjectile(entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
+        fireProjectile(world, io,entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.PROJECTILE_ENERGY_COST);
@@ -404,7 +406,7 @@ describe('AbilitySystem', () => {
       it('fails for melee specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee');
 
-        const result = abilitySystem.fireProjectile(entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
+        const result = fireProjectile(world, io,entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -412,7 +414,7 @@ describe('AbilitySystem', () => {
       it('fails for traps specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
 
-        const result = abilitySystem.fireProjectile(entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
+        const result = fireProjectile(world, io,entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -420,7 +422,7 @@ describe('AbilitySystem', () => {
       it('fails for multi-cell player (wrong stage)', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        const result = abilitySystem.fireProjectile(entity, 'player-1', SOUP_CENTER.x + 200, SOUP_CENTER.y);
+        const result = fireProjectile(world, io,entity, 'player-1', SOUP_CENTER.x + 200, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -428,8 +430,8 @@ describe('AbilitySystem', () => {
       it('fails when on cooldown', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged');
 
-        abilitySystem.fireProjectile(entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
-        const result = abilitySystem.fireProjectile(entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
+        fireProjectile(world, io,entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
+        const result = fireProjectile(world, io,entity, 'player-1', JUNGLE_CENTER.x + 200, JUNGLE_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -439,13 +441,13 @@ describe('AbilitySystem', () => {
       it('returns true for ranged specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged');
 
-        expect(abilitySystem.canFireProjectile(entity)).toBe(true);
+        expect(canFireProjectile(world,entity)).toBe(true);
       });
 
       it('returns false for wrong specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee');
 
-        expect(abilitySystem.canFireProjectile(entity)).toBe(false);
+        expect(canFireProjectile(world,entity)).toBe(false);
       });
     });
   });
@@ -457,10 +459,10 @@ describe('AbilitySystem', () => {
         const targetX = JUNGLE_CENTER.x + 300;
         const targetY = JUNGLE_CENTER.y;
 
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', targetX, targetY);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'swipe', targetX, targetY);
 
         expect(result).toBe(true);
-        expect(mockIO.emittedEvents.some(e => e.event === 'meleeAttackExecuted')).toBe(true);
+        expect(io.emittedEvents.some(e => e.event === 'meleeAttackExecuted')).toBe(true);
       });
 
       it('fires thrust attack for melee cyber-organism', () => {
@@ -468,17 +470,17 @@ describe('AbilitySystem', () => {
         const targetX = JUNGLE_CENTER.x + 400;
         const targetY = JUNGLE_CENTER.y;
 
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'thrust', targetX, targetY);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'thrust', targetX, targetY);
 
         expect(result).toBe(true);
-        expect(mockIO.emittedEvents.some(e => e.event === 'meleeAttackExecuted')).toBe(true);
+        expect(io.emittedEvents.some(e => e.event === 'meleeAttackExecuted')).toBe(true);
       });
 
       it('deducts energy on swipe', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee', { energy: 500 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
+        fireMeleeAttack(world, io,entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.MELEE_SWIPE_ENERGY_COST);
@@ -488,7 +490,7 @@ describe('AbilitySystem', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee', { energy: 500 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.fireMeleeAttack(entity, 'player-1', 'thrust', JUNGLE_CENTER.x + 400, JUNGLE_CENTER.y);
+        fireMeleeAttack(world, io,entity, 'player-1', 'thrust', JUNGLE_CENTER.x + 400, JUNGLE_CENTER.y);
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.MELEE_THRUST_ENERGY_COST);
@@ -497,7 +499,7 @@ describe('AbilitySystem', () => {
       it('fails for ranged specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged');
 
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -505,7 +507,7 @@ describe('AbilitySystem', () => {
       it('fails for multi-cell player (wrong stage)', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', SOUP_CENTER.x + 300, SOUP_CENTER.y);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'swipe', SOUP_CENTER.x + 300, SOUP_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -513,8 +515,8 @@ describe('AbilitySystem', () => {
       it('fails when on cooldown', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee');
 
-        abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
+        fireMeleeAttack(world, io,entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
 
         expect(result).toBe(false);
       });
@@ -522,9 +524,9 @@ describe('AbilitySystem', () => {
       it('allows different attack types on separate cooldowns', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee');
 
-        abilitySystem.fireMeleeAttack(entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
+        fireMeleeAttack(world, io,entity, 'player-1', 'swipe', JUNGLE_CENTER.x + 300, JUNGLE_CENTER.y);
         // Thrust should work even though swipe is on cooldown
-        const result = abilitySystem.fireMeleeAttack(entity, 'player-1', 'thrust', JUNGLE_CENTER.x + 400, JUNGLE_CENTER.y);
+        const result = fireMeleeAttack(world, io,entity, 'player-1', 'thrust', JUNGLE_CENTER.x + 400, JUNGLE_CENTER.y);
 
         expect(result).toBe(true);
       });
@@ -536,17 +538,17 @@ describe('AbilitySystem', () => {
       it('places trap for traps cyber-organism', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
 
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
 
         expect(result).toBe(true);
-        expect(mockIO.emittedEvents.some(e => e.event === 'trapPlaced')).toBe(true);
+        expect(io.emittedEvents.some(e => e.event === 'trapPlaced')).toBe(true);
       });
 
       it('deducts energy on success', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps', { energy: 500 });
         const initialEnergy = getEnergy(world, entity)!.current;
 
-        abilitySystem.placeTrap(entity, 'player-1');
+        placeTrap(world, io,entity, 'player-1');
 
         const newEnergy = getEnergy(world, entity)!.current;
         expect(newEnergy).toBe(initialEnergy - GAME_CONFIG.TRAP_ENERGY_COST);
@@ -555,7 +557,7 @@ describe('AbilitySystem', () => {
       it('sets cooldown after placing', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
 
-        abilitySystem.placeTrap(entity, 'player-1');
+        placeTrap(world, io,entity, 'player-1');
 
         const cooldowns = getCooldowns(world, entity);
         expect(cooldowns?.lastTrapPlaceTime).toBeGreaterThan(0);
@@ -564,7 +566,7 @@ describe('AbilitySystem', () => {
       it('fails for ranged specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged');
 
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -572,7 +574,7 @@ describe('AbilitySystem', () => {
       it('fails for melee specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'melee');
 
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -580,7 +582,7 @@ describe('AbilitySystem', () => {
       it('fails for multi-cell player (wrong stage)', () => {
         const entity = createMultiCellPlayer(world, 'player-1');
 
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -588,8 +590,8 @@ describe('AbilitySystem', () => {
       it('fails when on cooldown', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
 
-        abilitySystem.placeTrap(entity, 'player-1');
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        placeTrap(world, io,entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
 
         expect(result).toBe(false);
       });
@@ -601,14 +603,14 @@ describe('AbilitySystem', () => {
         for (let i = 0; i < GAME_CONFIG.TRAP_MAX_ACTIVE; i++) {
           const cooldowns = getCooldowns(world, entity);
           if (cooldowns) cooldowns.lastTrapPlaceTime = 0; // Reset cooldown
-          abilitySystem.placeTrap(entity, 'player-1');
+          placeTrap(world, io,entity, 'player-1');
         }
 
         // Reset cooldown for final attempt
         const cooldowns = getCooldowns(world, entity);
         if (cooldowns) cooldowns.lastTrapPlaceTime = 0;
 
-        const result = abilitySystem.placeTrap(entity, 'player-1');
+        const result = placeTrap(world, io,entity, 'player-1');
         expect(result).toBe(false);
       });
     });
@@ -617,20 +619,20 @@ describe('AbilitySystem', () => {
       it('returns true for traps specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
 
-        expect(abilitySystem.canPlaceTrap(entity, 'player-1')).toBe(true);
+        expect(canPlaceTrap(world,entity, 'player-1')).toBe(true);
       });
 
       it('returns false for wrong specialization', () => {
         const entity = createCyberOrganism(world, 'player-1', 'ranged');
 
-        expect(abilitySystem.canPlaceTrap(entity, 'player-1')).toBe(false);
+        expect(canPlaceTrap(world,entity, 'player-1')).toBe(false);
       });
 
       it('returns false on cooldown', () => {
         const entity = createCyberOrganism(world, 'player-1', 'traps');
-        abilitySystem.placeTrap(entity, 'player-1');
+        placeTrap(world, io,entity, 'player-1');
 
-        expect(abilitySystem.canPlaceTrap(entity, 'player-1')).toBe(false);
+        expect(canPlaceTrap(world,entity, 'player-1')).toBe(false);
       });
     });
   });

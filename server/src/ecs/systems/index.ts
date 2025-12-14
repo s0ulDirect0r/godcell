@@ -22,6 +22,7 @@ export { GravitySystem } from './GravitySystem';
 export { MovementSystem } from './MovementSystem';
 
 // Ability Systems
+export { AbilityIntentSystem } from './AbilityIntentSystem';
 export { PseudopodSystem } from './PseudopodSystem';
 export { ProjectileSystem } from './ProjectileSystem';
 export { TrapSystem } from './TrapSystem';

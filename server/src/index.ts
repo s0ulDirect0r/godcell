@@ -1,7 +1,6 @@
 import { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage } from '#shared';
 import type {
-  Position,
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
   PlayerSprintMessage,
@@ -18,7 +17,6 @@ import type {
   MeleeAttackMessage,
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
-import { AbilitySystem } from './abilities';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
 import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
@@ -70,12 +68,9 @@ import {
   getEnergyBySocketId,
   getPositionBySocketId,
   getStageBySocketId,
-  getStunnedBySocketId,
-  getDamageTrackingBySocketId,
   forEachPlayer,
   forEachSwarm,
   setPlayerStage,
-  subtractEnergyBySocketId,
   setInputBySocketId,
   setVelocityBySocketId,
   setSprintBySocketId,
@@ -89,6 +84,7 @@ import {
   CyberBugAISystem,
   JungleCreatureAISystem,
   EntropySerpentAISystem,
+  AbilityIntentSystem,
   PseudopodSystem,
   ProjectileSystem,
   TrapSystem,
@@ -106,9 +102,9 @@ import {
   SpecializationSystem,
   RespawnSystem,
   type CombatSpecializationComponent,
+  type AbilityIntentComponent,
 } from './ecs';
 import {
-  rayCircleIntersection,
   isJungleStage,
   getStageEnergy,
   randomColor,
@@ -148,71 +144,6 @@ const world: World = createWorld();
 // NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
 
 // NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount/buildObstaclesRecord
-
-/**
- * Hitscan raycast for pseudopod beam
- * Checks line-circle intersection against all multi-cell players
- * Applies damage to closest hit and returns target ID
- */
-function checkBeamHitscan(start: Position, end: Position, shooterId: string): string | null {
-  // Use object wrapper pattern for closure mutation
-  const result: { closestHit: { playerId: string; distance: number } | null } = {
-    closestHit: null,
-  };
-
-  forEachPlayer(world, (entity, playerId) => {
-    // Skip shooter
-    if (playerId === shooterId) return;
-
-    const energyComp = getEnergyBySocketId(world, playerId);
-    const stageComp = getStageBySocketId(world, playerId);
-    const posComp = getPositionBySocketId(world, playerId);
-    const stunnedComp = getStunnedBySocketId(world, playerId);
-    if (!energyComp || !stageComp || !posComp) return;
-
-    // Skip dead/evolving/stunned players
-    if (energyComp.current <= 0) return;
-    if (stageComp.isEvolving) return;
-    if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
-
-    const targetRadius = stageComp.radius;
-    const targetPosition = { x: posComp.x, y: posComp.y };
-    const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
-
-    if (hitDist !== null) {
-      // Track closest hit
-      if (!result.closestHit || hitDist < result.closestHit.distance) {
-        result.closestHit = { playerId, distance: hitDist };
-      }
-    }
-  });
-
-  // Apply damage to closest hit
-  if (result.closestHit) {
-    const targetId = result.closestHit.playerId;
-    subtractEnergyBySocketId(world, targetId, getConfig('PSEUDOPOD_DRAIN_RATE'));
-
-    // Track damage source in ECS for death cause logging
-    const damageTracking = getDamageTrackingBySocketId(world, targetId);
-    if (damageTracking) {
-      damageTracking.lastDamageSource = 'beam';
-      damageTracking.lastBeamShooter = shooterId;
-    }
-
-    const energyComp = getEnergyBySocketId(world, targetId);
-    logger.info({
-      event: 'beam_hit',
-      shooter: shooterId,
-      target: targetId,
-      damage: getConfig('PSEUDOPOD_DRAIN_RATE'),
-      targetEnergyRemaining: energyComp ? energyComp.current.toFixed(0) : 'unknown',
-    });
-
-    return targetId;
-  }
-
-  return null;
-}
 
 /**
  * Initialize gravity obstacles using Bridson's Poisson Disc Sampling
@@ -480,19 +411,6 @@ initDevHandler({
 });
 
 // ============================================
-// Ability System
-// ============================================
-
-const abilitySystem = new AbilitySystem({
-  world,
-  io,
-  checkBeamHitscan,
-});
-
-// Export for use by bot AI
-export { abilitySystem };
-
-// ============================================
 // ECS System Runner Setup
 // ============================================
 
@@ -516,6 +434,9 @@ systemRunner.register(new DataFruitSystem(), SystemPriority.DATA_FRUIT);
 
 // Physics
 systemRunner.register(new GravitySystem(), SystemPriority.GRAVITY);
+
+// Ability Intent Processing (before individual ability systems)
+systemRunner.register(new AbilityIntentSystem(), SystemPriority.ABILITY_INTENT);
 
 // Abilities
 systemRunner.register(new PseudopodSystem(), SystemPriority.PSEUDOPOD);
@@ -664,10 +585,16 @@ io.on('connection', (socket) => {
   socket.on(
     'pseudopodFire',
     safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
-      // Lookup entity at socket boundary, then use entity-based API
+      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      abilitySystem.firePseudopod(entity, socket.id, message.targetX, message.targetY);
+      // Prevent spam - only one intent at a time
+      if (world.hasComponent(entity, Components.AbilityIntent)) return;
+      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+        abilityType: 'pseudopod',
+        targetX: message.targetX,
+        targetY: message.targetY,
+      });
     })
   );
 
@@ -678,10 +605,16 @@ io.on('connection', (socket) => {
   socket.on(
     'projectileFire',
     safeHandler('projectileFire', (message: ProjectileFireMessage) => {
-      // Lookup entity at socket boundary, then use entity-based API
+      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      abilitySystem.fireProjectile(entity, socket.id, message.targetX, message.targetY);
+      // Prevent spam - only one intent at a time
+      if (world.hasComponent(entity, Components.AbilityIntent)) return;
+      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+        abilityType: 'projectile',
+        targetX: message.targetX,
+        targetY: message.targetY,
+      });
     })
   );
 
@@ -692,10 +625,14 @@ io.on('connection', (socket) => {
   socket.on(
     'empActivate',
     safeHandler('empActivate', (_message: EMPActivateMessage) => {
-      // Lookup entity at socket boundary, then use entity-based API
+      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      abilitySystem.fireEMP(entity, socket.id);
+      // Prevent spam - only one intent at a time
+      if (world.hasComponent(entity, Components.AbilityIntent)) return;
+      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+        abilityType: 'emp',
+      });
     })
   );
 
@@ -729,7 +666,7 @@ io.on('connection', (socket) => {
     'selectSpecialization',
     safeHandler('selectSpecialization', (message: SelectSpecializationMessage) => {
       const entity = getEntityBySocketId(socket.id);
-      if (!entity) return;
+      if (entity === undefined) return;
 
       const specComp = world.getComponent<CombatSpecializationComponent>(
         entity,
@@ -786,16 +723,17 @@ io.on('connection', (socket) => {
   socket.on(
     'meleeAttack',
     safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
-      // Lookup entity at socket boundary, then use entity-based API
+      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      abilitySystem.fireMeleeAttack(
-        entity,
-        socket.id,
-        message.attackType,
-        message.targetX,
-        message.targetY
-      );
+      // Prevent spam - only one intent at a time
+      if (world.hasComponent(entity, Components.AbilityIntent)) return;
+      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+        abilityType: 'melee',
+        meleeAttackType: message.attackType,
+        targetX: message.targetX,
+        targetY: message.targetY,
+      });
     })
   );
 
@@ -803,10 +741,14 @@ io.on('connection', (socket) => {
     'placeTrap',
     safeHandler('placeTrap', () => {
       logger.debug({ event: 'socket_place_trap', socketId: socket.id });
-      // Lookup entity at socket boundary, then use entity-based API
+      // Lookup entity at socket boundary, then add intent for tick-based processing
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
-      abilitySystem.placeTrap(entity, socket.id);
+      // Prevent spam - only one intent at a time
+      if (world.hasComponent(entity, Components.AbilityIntent)) return;
+      world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
+        abilityType: 'trap',
+      });
     })
   );
 

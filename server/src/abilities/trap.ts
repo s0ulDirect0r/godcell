@@ -1,5 +1,12 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components } from '#shared';
-import type { Trap, TrapPlacedMessage, CombatSpecializationComponent, EntityId } from '#shared';
+import type {
+  Trap,
+  TrapPlacedMessage,
+  CombatSpecializationComponent,
+  EntityId,
+  World,
+} from '#shared';
 import { logger } from '../logger';
 import { isJungleStage } from '../helpers/stages';
 import {
@@ -12,15 +19,18 @@ import {
   getStunned,
   getCooldowns,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
 
 /**
  * Place a trap (Stage 3 Traps specialization only)
  * Places a disguised mine at the player's current position
  * @returns true if trap was placed successfully
  */
-export function placeTrap(ctx: AbilityContext, entity: EntityId, playerId: string): boolean {
-  const { world } = ctx;
+export function placeTrap(
+  world: World,
+  io: Server,
+  entity: EntityId,
+  playerId: string
+): boolean {
 
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
@@ -142,7 +152,7 @@ export function placeTrap(ctx: AbilityContext, entity: EntityId, playerId: strin
     lifetime: GAME_CONFIG.TRAP_LIFETIME,
     color: player.color,
   };
-  ctx.io.emit('trapPlaced', {
+  io.emit('trapPlaced', {
     type: 'trapPlaced',
     trap,
   } as TrapPlacedMessage);
@@ -163,8 +173,7 @@ export function placeTrap(ctx: AbilityContext, entity: EntityId, playerId: strin
 /**
  * Check if a player can place a trap (traps specialization and off cooldown)
  */
-export function canPlaceTrap(ctx: AbilityContext, entity: EntityId, playerId: string): boolean {
-  const { world } = ctx;
+export function canPlaceTrap(world: World, entity: EntityId, playerId: string): boolean {
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const stunnedComp = getStunned(world, entity);

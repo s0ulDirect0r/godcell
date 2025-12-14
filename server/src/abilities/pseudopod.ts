@@ -1,20 +1,21 @@
+import type { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage, Components } from '#shared';
 import type {
   Pseudopod,
   PseudopodSpawnedMessage,
-  PseudopodRetractedMessage,
   PseudopodStrikeMessage,
   StageComponent,
   EnergyComponent,
   DamageTrackingComponent,
   EntityId,
+  PendingExpirationComponent,
+  World,
+  Position,
 } from '#shared';
 import { getConfig } from '../dev';
 import { logger } from '../logger';
 import {
   createPseudopod as ecsCreatePseudopod,
-  destroyEntity as ecsDestroyEntity,
-  getEntityByStringId,
   getPlayerBySocketId,
   getEnergy,
   getStage,
@@ -27,7 +28,9 @@ import {
   forEachSwarm,
   recordDamage,
 } from '../ecs/factories';
-import type { AbilityContext } from './types';
+
+// Type for hitscan collision check function (used in hitscan mode only)
+type CheckBeamHitscan = (start: Position, end: Position, shooterId: string) => string | null;
 
 /**
  * Fire pseudopod beam (Stage 2 Multi-Cell only)
@@ -35,13 +38,14 @@ import type { AbilityContext } from './types';
  * @returns true if pseudopod was fired successfully
  */
 export function firePseudopod(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   targetX: number,
-  targetY: number
+  targetY: number,
+  checkBeamHitscan: CheckBeamHitscan = () => null
 ): boolean {
-  const { world } = ctx;
 
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
@@ -93,10 +97,12 @@ export function firePseudopod(
   energyComp.current -= getConfig('PSEUDOPOD_ENERGY_COST');
 
   if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike') {
-    handleStrikeMode(ctx, entity, playerId, playerPosition, targetX, targetY, player.color);
+    handleStrikeMode(world, io, entity, playerId, playerPosition, targetX, targetY, player.color);
   } else if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
     handleHitscanMode(
-      ctx,
+      world,
+      io,
+      checkBeamHitscan,
       entity,
       playerId,
       playerPosition,
@@ -109,7 +115,8 @@ export function firePseudopod(
     );
   } else {
     handleProjectileMode(
-      ctx,
+      world,
+      io,
       entity,
       playerId,
       playerPosition,
@@ -127,7 +134,8 @@ export function firePseudopod(
 }
 
 function handleStrikeMode(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   playerPosition: { x: number; y: number },
@@ -135,7 +143,6 @@ function handleStrikeMode(
   targetY: number,
   color: string
 ): void {
-  const { world } = ctx;
   const aoeRadius = getConfig('PSEUDOPOD_AOE_RADIUS');
   const drainPerHit = getConfig('PSEUDOPOD_DRAIN_RATE');
   const hitTargetIds: string[] = [];
@@ -235,7 +242,7 @@ function handleStrikeMode(
     });
   }
 
-  ctx.io.emit('pseudopodStrike', {
+  io.emit('pseudopodStrike', {
     type: 'pseudopodStrike',
     strikerId: playerId,
     strikerPosition: playerPosition,
@@ -257,7 +264,9 @@ function handleStrikeMode(
 }
 
 function handleHitscanMode(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
+  checkBeamHitscan: CheckBeamHitscan,
   entity: EntityId,
   playerId: string,
   playerPosition: { x: number; y: number },
@@ -268,12 +277,11 @@ function handleHitscanMode(
   color: string,
   now: number
 ): void {
-  const { world } = ctx;
   const actualDist = Math.min(targetDist, maxRange);
   const endX = playerPosition.x + dirX * actualDist;
   const endY = playerPosition.y + dirY * actualDist;
 
-  const hitTargetId = ctx.checkBeamHitscan(playerPosition, { x: endX, y: endY }, playerId);
+  const hitTargetId = checkBeamHitscan(playerPosition, { x: endX, y: endY }, playerId);
 
   const pseudopod: Pseudopod = {
     id: `beam-${playerId}-${now}`,
@@ -287,7 +295,7 @@ function handleHitscanMode(
     color,
   };
 
-  ecsCreatePseudopod(
+  const beamEntity = ecsCreatePseudopod(
     world,
     pseudopod.id,
     entity,
@@ -299,19 +307,13 @@ function handleHitscanMode(
     pseudopod.color
   );
 
-  const beamId = pseudopod.id;
-  setTimeout(() => {
-    const beamEntity = getEntityByStringId(beamId);
-    if (beamEntity !== undefined) {
-      ecsDestroyEntity(world, beamEntity);
-    }
-    ctx.io.emit('pseudopodRetracted', {
-      type: 'pseudopodRetracted',
-      pseudopodId: beamId,
-    } as PseudopodRetractedMessage);
-  }, 500);
+  // Add expiration - AbilityIntentSystem will destroy entity when time's up
+  // Client handles entity disappearance via normal state updates (no event needed)
+  world.addComponent<PendingExpirationComponent>(beamEntity, Components.PendingExpiration, {
+    expiresAt: now + 500,
+  });
 
-  ctx.io.emit('pseudopodSpawned', {
+  io.emit('pseudopodSpawned', {
     type: 'pseudopodSpawned',
     pseudopod,
   } as PseudopodSpawnedMessage);
@@ -327,7 +329,8 @@ function handleHitscanMode(
 }
 
 function handleProjectileMode(
-  ctx: AbilityContext,
+  world: World,
+  io: Server,
   entity: EntityId,
   playerId: string,
   playerPosition: { x: number; y: number },
@@ -337,7 +340,6 @@ function handleProjectileMode(
   color: string,
   now: number
 ): void {
-  const { world } = ctx;
 
   const pseudopod: Pseudopod = {
     id: `beam-${playerId}-${now}`,
@@ -366,7 +368,7 @@ function handleProjectileMode(
     pseudopod.color
   );
 
-  ctx.io.emit('pseudopodSpawned', {
+  io.emit('pseudopodSpawned', {
     type: 'pseudopodSpawned',
     pseudopod,
   } as PseudopodSpawnedMessage);
@@ -383,8 +385,7 @@ function handleProjectileMode(
 /**
  * Check if a player can fire pseudopod
  */
-export function canFirePseudopod(ctx: AbilityContext, entity: EntityId): boolean {
-  const { world } = ctx;
+export function canFirePseudopod(world: World, entity: EntityId): boolean {
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const stunnedComp = getStunned(world, entity);

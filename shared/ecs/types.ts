@@ -66,6 +66,8 @@ export const Components = {
 
   // Server-only components (deferred actions, timers)
   PendingRespawn: 'PendingRespawn',
+  AbilityIntent: 'AbilityIntent',
+  PendingExpiration: 'PendingExpiration',
 } as const;
 
 /**
