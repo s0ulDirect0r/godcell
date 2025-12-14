@@ -24,7 +24,6 @@ import {
 } from '../factories';
 import { isSoupStage } from '../../helpers';
 import { getConfig } from '../../dev';
-import { logger } from '../../logger';
 
 /**
  * SwarmCollisionSystem - Handles swarm-player interactions
@@ -214,8 +213,6 @@ export class SwarmCollisionSystem implements System {
           // Flat 200/sec drain rate
           const drainRate = 200;
           const damageDealt = Math.min(drainRate * deltaTime, swarm.energyComp.current);
-          const playerEnergyBefore = player.energyComp.current;
-          const playerMaxBefore = player.energyComp.max;
           swarm.energyComp.current -= damageDealt;
 
           // Drained energy goes into both current AND max energy
@@ -224,19 +221,6 @@ export class SwarmCollisionSystem implements System {
             player.energyComp.max + damageDealt
           );
           player.energyComp.max += damageDealt;
-
-          logger.info({
-            event: 'swarm_consumption_tick',
-            playerId: player.playerId,
-            swarmId: swarm.swarmId,
-            drainRate: drainRate.toFixed(1),
-            damageDealt: damageDealt.toFixed(1),
-            swarmEnergyRemaining: swarm.energyComp.current.toFixed(1),
-            playerEnergyBefore: playerEnergyBefore.toFixed(1),
-            playerEnergyAfter: player.energyComp.current.toFixed(1),
-            playerMaxBefore: playerMaxBefore.toFixed(1),
-            playerMaxAfter: player.energyComp.max.toFixed(1),
-          });
 
           // Set damage tracking so DeathSystem knows who killed it
           const damageTracking = world.getComponent<DamageTrackingComponent>(

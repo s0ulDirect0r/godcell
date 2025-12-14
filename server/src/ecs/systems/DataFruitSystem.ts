@@ -8,7 +8,6 @@ import { GAME_CONFIG, type World } from '#shared';
 import type { EntityId } from '#shared';
 import type { System } from './types';
 import { forEachDataFruit, destroyEntity } from '../factories';
-import { logger } from '../../logger';
 
 /**
  * DataFruitSystem - Despawns fruits after timeout
@@ -36,12 +35,6 @@ export class DataFruitSystem implements System {
           io.emit('dataFruitDespawned', {
             type: 'dataFruitDespawned',
             fruitId,
-          });
-
-          logger.info({
-            event: 'system_fruit_despawn',
-            fruitId,
-            reason: 'timeout',
           });
         }
       }
