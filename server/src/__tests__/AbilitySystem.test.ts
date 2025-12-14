@@ -28,8 +28,8 @@ const SOUP_CENTER = {
 };
 
 const JUNGLE_CENTER = {
-  x: GAME_CONFIG.JUNGLE_ORIGIN_X + GAME_CONFIG.JUNGLE_WIDTH / 2,
-  y: GAME_CONFIG.JUNGLE_ORIGIN_Y + GAME_CONFIG.JUNGLE_HEIGHT / 2,
+  x: GAME_CONFIG.JUNGLE_WIDTH / 2,
+  y: GAME_CONFIG.JUNGLE_HEIGHT / 2,
 };
 
 // ============================================

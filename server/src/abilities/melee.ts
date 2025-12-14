@@ -39,6 +39,9 @@ export function fireMeleeAttack(
   targetX: number,
   targetY: number
 ): boolean {
+  // Validate target coordinates
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return false;
+
   const { world } = ctx;
 
   const energyComp = getEnergy(world, entity);
@@ -123,8 +126,8 @@ export function fireMeleeAttack(
     // Get target's collision radius
     const targetRadius = targetStage.radius;
 
-    // Check if within range (min 200px to match visual, max = range + target size)
-    if (dist < 200 || dist > range + targetRadius) return;
+    // Check if within range
+    if (dist > range + targetRadius) return;
 
     // Check if within arc
     const toTargetAngle = Math.atan2(
@@ -184,7 +187,7 @@ export function fireMeleeAttack(
     const bugPosition = { x: bugPos.x, y: bugPos.y };
     const dist = distance(playerPosition, bugPosition);
 
-    if (dist < 200 || dist > range + bugComp.size) return;
+    if (dist > range + bugComp.size) return;
 
     const toTargetAngle = Math.atan2(bugPos.y - playerPosition.y, bugPos.x - playerPosition.x);
     let angleDiff = Math.abs(toTargetAngle - attackAngle);
@@ -244,7 +247,7 @@ export function fireMeleeAttack(
     const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
     const dist = distance(playerPosition, creaturePosition);
 
-    if (dist < 200 || dist > range + creatureComp.size) return;
+    if (dist > range + creatureComp.size) return;
 
     const toTargetAngle = Math.atan2(
       creaturePos.y - playerPosition.y,

@@ -44,7 +44,7 @@ export function fireEMP(ctx: AbilityContext, entity: EntityId, playerId: string)
   if (now - lastUse < getConfig('EMP_COOLDOWN')) return false;
 
   // Apply energy cost
-  energyComp.current -= getConfig('EMP_ENERGY_COST');
+  subtractEnergy(world, entity, getConfig('EMP_ENERGY_COST'));
 
   const playerPosition = { x: posComp.x, y: posComp.y };
 
