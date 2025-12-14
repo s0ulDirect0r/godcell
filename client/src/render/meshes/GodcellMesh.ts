@@ -34,22 +34,23 @@ export function createGodcell(radius: number, colorHex: number): THREE.Group {
 
   // === OUTER SPHERE (Semi-transparent shell) ===
   // Large ethereal shell with god-like glow
-  const outerGeometry = getGeometry(`godcell-outer-${radius}`, () =>
-    new THREE.SphereGeometry(radius, 64, 64) // High detail for large sphere
+  const outerGeometry = getGeometry(
+    `godcell-outer-${radius}`,
+    () => new THREE.SphereGeometry(radius, 64, 64) // High detail for large sphere
   );
 
   const outerMaterial = new THREE.MeshPhysicalMaterial({
     color: colorHex,
     transparent: true,
-    opacity: 0.2,                // Semi-transparent ethereal shell
-    roughness: 0.05,             // Very smooth for god-like sheen
-    metalness: 0.1,              // Slight metallic for otherworldly look
-    clearcoat: 1.0,              // Maximum clearcoat for pristine surface
-    clearcoatRoughness: 0.1,     // Smooth clearcoat
+    opacity: 0.2, // Semi-transparent ethereal shell
+    roughness: 0.05, // Very smooth for god-like sheen
+    metalness: 0.1, // Slight metallic for otherworldly look
+    clearcoat: 1.0, // Maximum clearcoat for pristine surface
+    clearcoatRoughness: 0.1, // Smooth clearcoat
     emissive: colorHex,
-    emissiveIntensity: 0.3,      // Subtle outer glow (contributes to bloom)
-    side: THREE.DoubleSide,      // Visible from inside (for third-person camera)
-    depthWrite: false,           // Proper transparency blending
+    emissiveIntensity: 0.3, // Subtle outer glow (contributes to bloom)
+    side: THREE.DoubleSide, // Visible from inside (for third-person camera)
+    depthWrite: false, // Proper transparency blending
   });
 
   const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
@@ -59,14 +60,15 @@ export function createGodcell(radius: number, colorHex: number): THREE.Group {
   // === INNER NUCLEUS (Bright glowing core) ===
   // Concentrated energy at the center - main source of light
   const nucleusRadius = radius * 0.4; // 40% of outer radius
-  const nucleusGeometry = getGeometry(`godcell-nucleus-${nucleusRadius}`, () =>
-    new THREE.SphereGeometry(nucleusRadius, 32, 32)
+  const nucleusGeometry = getGeometry(
+    `godcell-nucleus-${nucleusRadius}`,
+    () => new THREE.SphereGeometry(nucleusRadius, 32, 32)
   );
 
   const nucleusMaterial = new THREE.MeshStandardMaterial({
     color: colorHex,
     emissive: colorHex,
-    emissiveIntensity: 4.0,      // Very bright for bloom (2x single-cell intensity)
+    emissiveIntensity: 4.0, // Very bright for bloom (2x single-cell intensity)
     transparent: true,
     opacity: 0.9,
     depthWrite: false,
@@ -110,8 +112,10 @@ export function updateGodcellEnergy(godcellGroup: THREE.Group, energyRatio: numb
   // Type-guard material access
   const outerMaterial = outerSphere.material;
   const nucleusMaterial = nucleus.material;
-  if (!(outerMaterial instanceof THREE.MeshPhysicalMaterial) ||
-      !(nucleusMaterial instanceof THREE.MeshStandardMaterial)) {
+  if (
+    !(outerMaterial instanceof THREE.MeshPhysicalMaterial) ||
+    !(nucleusMaterial instanceof THREE.MeshStandardMaterial)
+  ) {
     return;
   }
 

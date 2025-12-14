@@ -76,12 +76,13 @@ Every server message does TWO things:
 
 ```typescript
 this.socket.on('playerDied', (data) => {
-  removePlayer(this.world, data.playerId);  // Update ECS ✓
-  eventBus.emit(data);                       // ALSO emit event ???
+  removePlayer(this.world, data.playerId); // Update ECS ✓
+  eventBus.emit(data); // ALSO emit event ???
 });
 ```
 
 The ECS is the source of truth, but events are a parallel channel for "side effects". This means:
+
 - State flows through two paths
 - Debugging requires tracing both paths
 - Easy to forget to emit (or emit wrong data)
@@ -104,6 +105,7 @@ This is game logic (stage-based ability routing) sitting in the bootstrap file. 
 ### 3. Effects Depend on Ephemeral Events
 
 When `playerDied` fires, ThreeRenderer spawns a death burst. But:
+
 - If renderer isn't initialized yet, effect is missed
 - If you pause/resume, no way to "replay" missed effects
 - Can't inspect "what effects are pending" - they're gone
@@ -121,11 +123,13 @@ Currently tracking **30+ event types** across the codebase. Every new feature ad
 **Replace events with queryable component state.**
 
 Instead of:
+
 ```
 Server sends playerDied → SocketManager emits event → ThreeRenderer catches event → spawns burst
 ```
 
 Do:
+
 ```
 Server sends playerDied → SocketManager adds DeathEffect component → EffectsSystem queries DeathEffect → spawns burst → removes component
 ```
@@ -140,7 +144,7 @@ export interface VisualEffectComponent {
   type: 'death' | 'evolution' | 'spawn' | 'collect' | 'hit' | 'emp' | 'engulf';
   position: Position;
   color?: string;
-  data?: Record<string, unknown>;  // Effect-specific params
+  data?: Record<string, unknown>; // Effect-specific params
   createdAt: number;
 }
 
@@ -175,7 +179,7 @@ export interface EffectsQueueComponent {
 ```typescript
 // BEFORE (dual-write)
 this.socket.on('playerDied', (data) => {
-  eventBus.emit(data);  // For effects
+  eventBus.emit(data); // For effects
   removePlayer(this.world, data.playerId);
 });
 
@@ -272,12 +276,12 @@ intent.fire = { targetX, targetY };
 
 This is a significant refactor. Phased approach recommended:
 
-| Phase | Scope | Effort |
-|-------|-------|--------|
-| 1 | Add EffectsQueue + EffectsRenderSystem, migrate death/spawn effects | Medium |
-| 2 | Add InputIntent component, migrate input routing out of main.ts | Medium |
-| 3 | Remove remaining event listeners from ThreeRenderer | Small |
-| 4 | Remove EventBus (keep only for connection status) | Small |
+| Phase | Scope                                                               | Effort |
+| ----- | ------------------------------------------------------------------- | ------ |
+| 1     | Add EffectsQueue + EffectsRenderSystem, migrate death/spawn effects | Medium |
+| 2     | Add InputIntent component, migrate input routing out of main.ts     | Medium |
+| 3     | Remove remaining event listeners from ThreeRenderer                 | Small  |
+| 4     | Remove EventBus (keep only for connection status)                   | Small  |
 
 **Phase 1 alone** would fix the worst problem (dual-write for effects) and prove the pattern works.
 
@@ -286,6 +290,7 @@ This is a significant refactor. Phased approach recommended:
 ## Trade-offs
 
 **Pros:**
+
 - Single source of truth (ECS only)
 - All state is queryable/inspectable
 - Effects can be "replayed" (they're in a queue)
@@ -293,6 +298,7 @@ This is a significant refactor. Phased approach recommended:
 - Easier to debug - just inspect component state
 
 **Cons:**
+
 - More boilerplate for simple effects
 - Need to manage effect queue cleanup
 - Input latency slightly higher (processed in system tick, not immediate)

@@ -173,25 +173,25 @@ export class InputManager {
     // In first-person mode: W = forward (camera direction), S = back, A/D = strafe
     // In top-down mode: W = up (+Y), S = down (-Y), A = left (-X), D = right (+X)
     if (this.inputState.isKeyDown('w') || this.inputState.isKeyDown('arrowup')) {
-      vy = 1;  // Forward
+      vy = 1; // Forward
     }
     if (this.inputState.isKeyDown('s') || this.inputState.isKeyDown('arrowdown')) {
-      vy = -1;  // Back
+      vy = -1; // Back
     }
     if (this.inputState.isKeyDown('a') || this.inputState.isKeyDown('arrowleft')) {
-      vx = -1;  // Strafe left
+      vx = -1; // Strafe left
     }
     if (this.inputState.isKeyDown('d') || this.inputState.isKeyDown('arrowright')) {
-      vx = 1;  // Strafe right
+      vx = 1; // Strafe right
     }
 
     // Q/E for vertical movement (Stage 5 / Godcell 3D flight)
     // Q = ascend (positive Z), E = descend (negative Z)
     if (this.inputState.isKeyDown('q')) {
-      vz = 1;  // Ascend
+      vz = 1; // Ascend
     }
     if (this.inputState.isKeyDown('e')) {
-      vz = -1;  // Descend
+      vz = -1; // Descend
     }
 
     // Normalize diagonal movement (XY plane only for now)
@@ -238,7 +238,10 @@ export class InputManager {
 
   private updateSprint(): void {
     // Shift key for sprint (Stage 3+ ability)
-    const isSprinting = this.inputState.isKeyDown('shift') || this.inputState.isKeyDown('shiftleft') || this.inputState.isKeyDown('shiftright');
+    const isSprinting =
+      this.inputState.isKeyDown('shift') ||
+      this.inputState.isKeyDown('shiftleft') ||
+      this.inputState.isKeyDown('shiftright');
 
     // Only emit on state change (reduces network traffic)
     if (isSprinting !== this.wasSprinting) {
@@ -320,7 +323,11 @@ export class InputManager {
   /**
    * Handle left mouse button click
    */
-  private handleLMB(now: number, isJungleStage: boolean, specialization: CombatSpecialization): void {
+  private handleLMB(
+    now: number,
+    isJungleStage: boolean,
+    specialization: CombatSpecialization
+  ): void {
     if (!this.cameraProjection) return;
 
     const worldPos = this.cameraProjection.screenToWorld(
@@ -339,7 +346,6 @@ export class InputManager {
         targetY: worldPos.y,
       });
       this.lastMeleeTime = now;
-
     } else if (isJungleStage) {
       // Stage 3+ (ranged or traps): LMB = projectile
       if (now - this.lastProjectileTime < this.projectileClientCooldown) return;
@@ -350,7 +356,6 @@ export class InputManager {
         targetY: worldPos.y,
       });
       this.lastProjectileTime = now;
-
     } else {
       // Stage 1-2: LMB = pseudopod beam
       if (now - this.lastPseudopodTime < this.pseudopodClientCooldown) return;
@@ -367,7 +372,11 @@ export class InputManager {
   /**
    * Handle right mouse button click
    */
-  private handleRMB(now: number, isJungleStage: boolean, specialization: CombatSpecialization): void {
+  private handleRMB(
+    now: number,
+    isJungleStage: boolean,
+    specialization: CombatSpecialization
+  ): void {
     if (!this.cameraProjection) return;
     if (!isJungleStage) return; // RMB only used in Stage 3+
 
@@ -387,7 +396,6 @@ export class InputManager {
         targetY: worldPos.y,
       });
       this.lastMeleeTime = now;
-
     } else if (specialization === 'traps') {
       // Traps: RMB = place trap at player position
       if (now - this.lastTrapTime < this.trapClientCooldown) return;

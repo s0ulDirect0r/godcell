@@ -5,7 +5,17 @@
 
 import * as THREE from 'three';
 import { GAME_CONFIG } from '#shared';
-import type { DeathAnimation, EvolutionAnimation, EMPEffect, SwarmDeathAnimation, SpawnAnimation, EnergyTransferAnimation, MeleeArcAnimation, EnergyWhipAnimation, ClawSlashAnimation } from '../effects/ParticleEffects';
+import type {
+  DeathAnimation,
+  EvolutionAnimation,
+  EMPEffect,
+  SwarmDeathAnimation,
+  SpawnAnimation,
+  EnergyTransferAnimation,
+  MeleeArcAnimation,
+  EnergyWhipAnimation,
+  ClawSlashAnimation,
+} from '../effects/ParticleEffects';
 
 /**
  * Update death particle animations (radial burst that fades)
@@ -129,7 +139,7 @@ export function updateEvolutionAnimations(
 
     // Fade out near end
     const material = anim.particles.material as THREE.PointsMaterial;
-    material.opacity = progress < 0.8 ? 1.0 : (1.0 - (progress - 0.8) / 0.2);
+    material.opacity = progress < 0.8 ? 1.0 : 1.0 - (progress - 0.8) / 0.2;
   });
 
   // Clean up finished animations (reverse order to avoid index shifting)
@@ -152,10 +162,7 @@ export function updateEvolutionAnimations(
  * @param scene - Three.js scene (for removing finished particles)
  * @param animations - Array of EMP effects (mutated in place)
  */
-export function updateEMPEffects(
-  scene: THREE.Scene,
-  animations: EMPEffect[]
-): void {
+export function updateEMPEffects(scene: THREE.Scene, animations: EMPEffect[]): void {
   const now = Date.now();
   const finishedAnimations: number[] = [];
 
@@ -193,7 +200,7 @@ export function updateEMPEffects(
 
     // Fade out as it expands (starts fading at 40% progress)
     const material = anim.particles.material as THREE.PointsMaterial;
-    material.opacity = progress < 0.4 ? 1.0 : (1.0 - (progress - 0.4) / 0.6);
+    material.opacity = progress < 0.4 ? 1.0 : 1.0 - (progress - 0.4) / 0.6;
   });
 
   // Clean up finished animations (reverse order to avoid index shifting)
@@ -443,7 +450,7 @@ export function updateEnergyTransferAnimations(
 
     // Fade as particles converge (full opacity at start, fading near end)
     const material = anim.particles.material as THREE.PointsMaterial;
-    material.opacity = progress < 0.6 ? 1.0 : (1.0 - (progress - 0.6) / 0.4);
+    material.opacity = progress < 0.6 ? 1.0 : 1.0 - (progress - 0.6) / 0.4;
 
     // If most particles have arrived, mark as receiving
     if (arrivedCount > anim.particleData.length * 0.7) {
@@ -550,7 +557,7 @@ export function updateMeleeArcAnimations(
     // Fade out all elements near end
     // ============================================
     const fadeStart = 0.4;
-    const opacity = progress < fadeStart ? 1.0 : (1.0 - (progress - fadeStart) / (1 - fadeStart));
+    const opacity = progress < fadeStart ? 1.0 : 1.0 - (progress - fadeStart) / (1 - fadeStart);
 
     // Main particles
     const material = anim.particles.material as THREE.PointsMaterial;
@@ -758,7 +765,7 @@ export function updateClawSlashAnimations(
       s.life = 1 - progress;
 
       sparkPositions[i * 3] = s.x;
-      sparkPositions[i * 3 + 1] = 45 + Math.random() * 2;  // Slight flicker
+      sparkPositions[i * 3 + 1] = 45 + Math.random() * 2; // Slight flicker
       sparkPositions[i * 3 + 2] = -s.y;
     }
     anim.sparkParticles.geometry.attributes.position.needsUpdate = true;

@@ -5,11 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import {
-  createDataTree,
-  updateDataTreeAnimation,
-  disposeDataTree,
-} from '../meshes/DataTreeMesh';
+import { createDataTree, updateDataTreeAnimation, disposeDataTree } from '../meshes/DataTreeMesh';
 import { createRootNetworkFromTrees, updateRootNetworkAnimation } from '../three/JungleBackground';
 import {
   World,
@@ -119,8 +115,10 @@ export class TreeRenderSystem {
   debugLogBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
     if (this.treeMeshes.size === 0) return null;
 
-    let minX = Infinity, maxX = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity;
+    let minZ = Infinity,
+      maxZ = -Infinity;
 
     this.treeMeshes.forEach((group) => {
       minX = Math.min(minX, group.position.x);

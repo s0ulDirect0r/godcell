@@ -18,6 +18,7 @@ Migrate each entity type from Phaser to Three.js one at a time. After migrating 
 ## Process for Each Entity
 
 **Iterative approach:**
+
 1. Add sync method to `ThreeRenderer` (e.g., `syncPlayers()`)
 2. Create geometries/materials for that entity type
 3. Update `render()` to call new sync method
@@ -86,21 +87,25 @@ render(state: GameState, dt: number): void {
 ## Entity-Specific Notes
 
 ### Trails
+
 - Use `THREE.Line` with `LineBasicMaterial`
 - Store trail points per player
 - Fade alpha over time (update material opacity)
 
 ### Obstacles
+
 - Circle geometry for event horizon
 - Smaller circle for singularity core
 - Gradient effect: use shader or radial texture
 
 ### Swarms
+
 - Instanced meshes if many swarms (performance)
 - Or individual circles like players
 - Update positions from swarmTargets
 
 ### Pseudopods (Optional)
+
 - Line from player to target
 - Circle at tip
 - Can defer to later if not implemented
@@ -108,6 +113,7 @@ render(state: GameState, dt: number): void {
 ## Test Cases
 
 **After each entity migration:**
+
 ```bash
 npm run dev
 # Open: http://localhost:8080?renderer=three-only
@@ -140,6 +146,7 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Dispose geometries/materials when removing entities (prevent leaks)
 - Player trails need line rendering (not just sprites)
 - Obstacle gradients may need custom shaders
@@ -147,11 +154,13 @@ npm run dev
 - Color parsing: Phaser uses "#RRGGBB", Three.js uses 0xRRGGBB
 
 **Performance tips:**
+
 - Reuse geometries where possible (players of same size)
 - Use object pooling for frequently created/destroyed entities
 - Consider instanced rendering for swarms if >50 entities
 
 **Visual polish:**
+
 - Don't worry about making it "better" yet - that's Phase 9
 - Goal is functional parity
 - Glow/bloom/effects come later
@@ -159,6 +168,7 @@ npm run dev
 ## Rollback
 
 If an entity migration breaks things:
+
 1. Comment out that sync method
 2. Test with remaining entities working
 3. Fix the broken entity

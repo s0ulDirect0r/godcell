@@ -37,7 +37,6 @@ export class NutrientCollisionSystem implements System {
   readonly name = 'NutrientCollisionSystem';
 
   update(world: World, _deltaTime: number, io: Server): void {
-
     // Get nutrient snapshots once per tick (stable during iteration)
     const nutrientSnapshots = getAllNutrientSnapshots(world);
     // Track collected nutrients this tick to handle multiple players

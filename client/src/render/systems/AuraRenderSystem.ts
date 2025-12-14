@@ -19,16 +19,8 @@ import {
 import { ClientComponents } from '../../ecs/types';
 import type { DrainAuraComponent, GainAuraComponent } from '../../ecs/components';
 import { getStringIdByEntity } from '../../ecs/factories';
-import {
-  createCellAura,
-  getAuraColor,
-  applyAuraIntensity,
-} from '../effects/AuraEffect';
-import {
-  createGainAura,
-  triggerGainFlash,
-  updateGainAura,
-} from '../effects/GainAuraEffect';
+import { createCellAura, getAuraColor, applyAuraIntensity } from '../effects/AuraEffect';
+import { createGainAura, triggerGainFlash, updateGainAura } from '../effects/GainAuraEffect';
 
 /**
  * AuraRenderSystem - Renders visual feedback auras from ECS components
@@ -114,7 +106,14 @@ export class AuraRenderSystem {
 
       if (drainAura) {
         const auraId = `swarm-${entityId}`;
-        this.updateSwarmDrainAura(entity, auraId, drainAura, swarmComp.size, swarmMeshes.get(entityId), time);
+        this.updateSwarmDrainAura(
+          entity,
+          auraId,
+          drainAura,
+          swarmComp.size,
+          swarmMeshes.get(entityId),
+          time
+        );
       }
     });
 
@@ -240,7 +239,8 @@ export class AuraRenderSystem {
 
     // Recreate aura if swarm size changed significantly (>20% difference)
     if (auraMesh && auraMesh.userData.swarmSize) {
-      const sizeDiff = Math.abs(auraMesh.userData.swarmSize - swarmSize) / auraMesh.userData.swarmSize;
+      const sizeDiff =
+        Math.abs(auraMesh.userData.swarmSize - swarmSize) / auraMesh.userData.swarmSize;
       if (sizeDiff > 0.2) {
         this.scene.remove(auraMesh);
         this.disposeMesh(auraMesh);

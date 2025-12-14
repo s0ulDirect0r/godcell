@@ -6,7 +6,11 @@ import type { PerformanceMetrics } from '../utils/performance';
 
 // Valid renderer modes - extend this list as new modes are added
 type RendererMode = 'three-only' | 'phaser-only' | 'hybrid';
-const VALID_RENDERER_MODES: ReadonlySet<string> = new Set<RendererMode>(['three-only', 'phaser-only', 'hybrid']);
+const VALID_RENDERER_MODES: ReadonlySet<string> = new Set<RendererMode>([
+  'three-only',
+  'phaser-only',
+  'hybrid',
+]);
 
 export class DebugOverlay {
   private container: HTMLDivElement;

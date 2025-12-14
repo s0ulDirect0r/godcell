@@ -68,7 +68,10 @@ export class DataFruitRenderSystem {
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
       const fruit = this.world.getComponent<DataFruitComponent>(entity, Components.DataFruit);
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
       if (!pos || !fruit) return;
 
       currentFruitIds.add(fruitId);

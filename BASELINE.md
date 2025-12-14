@@ -49,6 +49,7 @@ http://localhost:8080?renderer=phaser-only&debug&baseline
 ## Future Comparisons
 
 This baseline will be compared against:
+
 - **Phase 5:** Three.js proof-of-concept (nutrients only)
 - **Phase 6:** Full Three.js entity rendering
 - **Phase 9:** Final polished Three.js renderer

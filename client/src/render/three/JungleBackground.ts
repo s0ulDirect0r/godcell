@@ -60,39 +60,39 @@ const JUNGLE_CONFIG = {
   ],
 
   // === UNDERGROWTH (ground-level glowing sprites) ===
-  UNDERGROWTH_COUNT: 1500,        // Number of undergrowth particles (denser)
-  UNDERGROWTH_HEIGHT: -0.2,       // Height above ground
+  UNDERGROWTH_COUNT: 1500, // Number of undergrowth particles (denser)
+  UNDERGROWTH_HEIGHT: -0.2, // Height above ground
   UNDERGROWTH_COLORS: [
     0x00ff88, // Green-cyan (most common)
     0x00ffaa, // Lighter green
     0x00ddff, // Cyan-blue
     0x88ff00, // Yellow-green
   ],
-  UNDERGROWTH_PULSE_SPEED: 0.3,   // How fast undergrowth pulses (Hz)
-  UNDERGROWTH_PULSE_RANGE: 0.4,   // Intensity variation (±40%)
+  UNDERGROWTH_PULSE_SPEED: 0.3, // How fast undergrowth pulses (Hz)
+  UNDERGROWTH_PULSE_RANGE: 0.4, // Intensity variation (±40%)
 
   // === HEX GRID FLOOR PATTERN ===
-  HEX_SIZE: 800,                  // Size of each hexagon (10x bigger)
-  HEX_LINE_COLOR: 0x004444,       // Dark teal hex edges
-  HEX_LINE_OPACITY: 0.4,          // Subtle but visible
-  HEX_FILL_COLOR: 0x001515,       // Very dark fill
-  HEX_FILL_OPACITY: 0.2,          // Subtle fill
-  HEX_HEIGHT: -0.6,               // Below everything
+  HEX_SIZE: 800, // Size of each hexagon (10x bigger)
+  HEX_LINE_COLOR: 0x004444, // Dark teal hex edges
+  HEX_LINE_OPACITY: 0.4, // Subtle but visible
+  HEX_FILL_COLOR: 0x001515, // Very dark fill
+  HEX_FILL_OPACITY: 0.2, // Subtle fill
+  HEX_HEIGHT: -0.6, // Below everything
 
   // === CIRCUIT TRACES FLOOR PATTERN ===
-  CIRCUIT_LINE_COUNT: 3000,       // Number of trace lines (dense PCB coverage)
-  CIRCUIT_LINE_COLOR: 0x005555,   // Teal circuit traces
-  CIRCUIT_LINE_OPACITY: 0.5,      // Visible but not overwhelming
-  CIRCUIT_NODE_COLOR: 0x00aaaa,   // Brighter nodes/pads
-  CIRCUIT_NODE_COUNT: 1500,       // Number of connection nodes (dense)
-  CIRCUIT_HEIGHT: -0.55,          // Below most things
+  CIRCUIT_LINE_COUNT: 3000, // Number of trace lines (dense PCB coverage)
+  CIRCUIT_LINE_COLOR: 0x005555, // Teal circuit traces
+  CIRCUIT_LINE_OPACITY: 0.5, // Visible but not overwhelming
+  CIRCUIT_NODE_COLOR: 0x00aaaa, // Brighter nodes/pads
+  CIRCUIT_NODE_COUNT: 1500, // Number of connection nodes (dense)
+  CIRCUIT_HEIGHT: -0.55, // Below most things
 
   // === TERRAIN PATCHES (color variation zones) ===
-  TERRAIN_PATCH_COUNT: 30,        // Number of terrain patches
-  TERRAIN_PATCH_MIN_RADIUS: 200,  // Minimum patch radius
-  TERRAIN_PATCH_MAX_RADIUS: 600,  // Maximum patch radius
-  TERRAIN_PATCH_OPACITY: 0.15,    // Subtle overlay
-  TERRAIN_PATCH_HEIGHT: -0.45,    // Below grid, above base
+  TERRAIN_PATCH_COUNT: 30, // Number of terrain patches
+  TERRAIN_PATCH_MIN_RADIUS: 200, // Minimum patch radius
+  TERRAIN_PATCH_MAX_RADIUS: 600, // Maximum patch radius
+  TERRAIN_PATCH_OPACITY: 0.15, // Subtle overlay
+  TERRAIN_PATCH_HEIGHT: -0.45, // Below grid, above base
   TERRAIN_PATCH_COLORS: [
     0x003322, // Dark green tint
     0x002233, // Dark blue tint
@@ -101,19 +101,19 @@ const JUNGLE_CONFIG = {
   ],
 
   // === ROOT NETWORK (glowing lines radiating from center) ===
-  ROOT_NETWORK_BRANCHES: 12,      // Number of main root branches
-  ROOT_NETWORK_SEGMENTS: 8,       // Segments per branch
-  ROOT_NETWORK_COLOR: 0x00ffff,   // Cyan glow
-  ROOT_NETWORK_OPACITY: 0.2,      // Subtle
-  ROOT_NETWORK_HEIGHT: -0.35,     // Between patches and grid
+  ROOT_NETWORK_BRANCHES: 12, // Number of main root branches
+  ROOT_NETWORK_SEGMENTS: 8, // Segments per branch
+  ROOT_NETWORK_COLOR: 0x00ffff, // Cyan glow
+  ROOT_NETWORK_OPACITY: 0.2, // Subtle
+  ROOT_NETWORK_HEIGHT: -0.35, // Between patches and grid
 
   // === FIREFLY PARTICLES (floating ambient life) ===
-  FIREFLY_COUNT: 80,              // Number of fireflies
-  FIREFLY_SIZE: 4,                // Base size
-  FIREFLY_HEIGHT_MIN: 20,         // Minimum height above ground
-  FIREFLY_HEIGHT_MAX: 150,        // Maximum height above ground
-  FIREFLY_SPEED: 8,               // Drift speed
-  FIREFLY_PULSE_SPEED: 1.5,       // Fast pulse for firefly effect
+  FIREFLY_COUNT: 80, // Number of fireflies
+  FIREFLY_SIZE: 4, // Base size
+  FIREFLY_HEIGHT_MIN: 20, // Minimum height above ground
+  FIREFLY_HEIGHT_MAX: 150, // Maximum height above ground
+  FIREFLY_SPEED: 8, // Drift speed
+  FIREFLY_PULSE_SPEED: 1.5, // Fast pulse for firefly effect
   FIREFLY_COLORS: [
     0x00ff88, // Green (most common)
     0xffff00, // Yellow
@@ -121,20 +121,20 @@ const JUNGLE_CONFIG = {
   ],
 
   // === DIGITAL GRASS FLOOR PATTERN ===
-  GRASS_BLADE_COUNT: 120000,      // Dense ground cover (halved)
-  GRASS_MIN_HEIGHT: 100,          // Min blade height (2x for first-person visibility)
-  GRASS_MAX_HEIGHT: 240,          // Max blade height (2x for first-person visibility)
-  GRASS_WIDTH: 24,                // Doubled blade width
+  GRASS_BLADE_COUNT: 120000, // Dense ground cover (halved)
+  GRASS_MIN_HEIGHT: 100, // Min blade height (2x for first-person visibility)
+  GRASS_MAX_HEIGHT: 240, // Max blade height (2x for first-person visibility)
+  GRASS_WIDTH: 24, // Doubled blade width
   GRASS_COLORS: [
     0x006633, // Dark green-cyan
     0x005522, // Dark green
     0x004418, // Very dark green
     0x006644, // Dark cyan-green
   ],
-  GRASS_OPACITY: 0.4,             // Base opacity (subtle glow)
-  GRASS_SWAY_SPEED: 0.8,          // How fast grass sways
-  GRASS_SWAY_AMOUNT: 5,           // How far grass tips move
-  GRASS_HEIGHT: 0,                // At ground level (raised for visibility)
+  GRASS_OPACITY: 0.4, // Base opacity (subtle glow)
+  GRASS_SWAY_SPEED: 0.8, // How fast grass sways
+  GRASS_SWAY_AMOUNT: 5, // How far grass tips move
+  GRASS_HEIGHT: 0, // At ground level (raised for visibility)
 };
 
 // Particle animation data
@@ -195,7 +195,7 @@ export function createJungleBackground(scene: THREE.Scene): {
   group.visible = false; // Hidden by default (soup is visible initially)
 
   // Create floor pattern (bottom layer) - uncomment one:
-  createHexGridFloor(group);  // Option 1: Hex grid
+  createHexGridFloor(group); // Option 1: Hex grid
   // createCircuitTraces(group); // Option 2: Circuit traces
   // createGroundTexture(group); // Option 3: Abstract noise shader (disabled for grass testing)
 
@@ -303,15 +303,15 @@ export function createCircuitTraces(group: THREE.Group): void {
     const seed = i * 12345;
 
     // Random starting point
-    let x = (seed % 1000) / 1000 * GAME_CONFIG.JUNGLE_WIDTH;
-    let y = ((seed * 7) % 1000) / 1000 * GAME_CONFIG.JUNGLE_HEIGHT;
+    let x = ((seed % 1000) / 1000) * GAME_CONFIG.JUNGLE_WIDTH;
+    let y = (((seed * 7) % 1000) / 1000) * GAME_CONFIG.JUNGLE_HEIGHT;
 
     const points: THREE.Vector3[] = [];
     points.push(new THREE.Vector3(x, height, -y));
 
     // Create 2-5 segments with 90-degree turns (PCB style)
     const segments = 2 + (seed % 4);
-    let direction = (seed % 4); // 0=right, 1=down, 2=left, 3=up
+    let direction = seed % 4; // 0=right, 1=down, 2=left, 3=up
 
     for (let seg = 0; seg < segments; seg++) {
       // Segment length
@@ -319,10 +319,18 @@ export function createCircuitTraces(group: THREE.Group): void {
 
       // Move in current direction
       switch (direction) {
-        case 0: x += length; break; // right
-        case 1: y += length; break; // down
-        case 2: x -= length; break; // left
-        case 3: y -= length; break; // up
+        case 0:
+          x += length;
+          break; // right
+        case 1:
+          y += length;
+          break; // down
+        case 2:
+          x -= length;
+          break; // left
+        case 3:
+          y -= length;
+          break; // up
       }
 
       // Clamp to bounds
@@ -345,8 +353,8 @@ export function createCircuitTraces(group: THREE.Group): void {
   const nodeGeometry = new THREE.CircleGeometry(8, 8);
   for (let i = 0; i < JUNGLE_CONFIG.CIRCUIT_NODE_COUNT; i++) {
     const seed = i * 54321;
-    const x = (seed % 10000) / 10000 * GAME_CONFIG.JUNGLE_WIDTH;
-    const y = ((seed * 3) % 10000) / 10000 * GAME_CONFIG.JUNGLE_HEIGHT;
+    const x = ((seed % 10000) / 10000) * GAME_CONFIG.JUNGLE_WIDTH;
+    const y = (((seed * 3) % 10000) / 10000) * GAME_CONFIG.JUNGLE_HEIGHT;
 
     const node = new THREE.Mesh(nodeGeometry, nodeMaterial);
     node.rotation.x = -Math.PI / 2; // Lie flat
@@ -368,19 +376,20 @@ export function createGroundTexture(group: THREE.Group): void {
   const geometry = new THREE.PlaneGeometry(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
-    1, 1
+    1,
+    1
   );
 
   // Abstract noise shader - layered simplex for atmospheric foggy glow
   const material = new THREE.ShaderMaterial({
     uniforms: {
       time: { value: 0 },
-      scale: { value: 8.0 },            // Noise scale (lower = larger patches)
-      glowColor: { value: new THREE.Vector3(0.0, 0.4, 0.2) },    // Dark green
+      scale: { value: 8.0 }, // Noise scale (lower = larger patches)
+      glowColor: { value: new THREE.Vector3(0.0, 0.4, 0.2) }, // Dark green
       baseColor: { value: new THREE.Vector3(0.005, 0.015, 0.01) }, // Very dark base
-      pulseSpeed: { value: 0.3 },       // Slow atmospheric pulse
-      flowSpeed: { value: 0.02 },       // Very slow drift
-      glowIntensity: { value: 0.3 },    // Subtle glow
+      pulseSpeed: { value: 0.3 }, // Slow atmospheric pulse
+      flowSpeed: { value: 0.02 }, // Very slow drift
+      glowIntensity: { value: 0.3 }, // Subtle glow
     },
     vertexShader: `
       varying vec2 vUv;
@@ -486,11 +495,7 @@ export function createGroundTexture(group: THREE.Group): void {
   groundMesh.name = 'groundTexture';
 
   // Position: center of jungle, well below entities
-  groundMesh.position.set(
-    GAME_CONFIG.JUNGLE_WIDTH / 2,
-    -3.0,
-    -GAME_CONFIG.JUNGLE_HEIGHT / 2
-  );
+  groundMesh.position.set(GAME_CONFIG.JUNGLE_WIDTH / 2, -3.0, -GAME_CONFIG.JUNGLE_HEIGHT / 2);
   groundMesh.rotation.x = -Math.PI / 2;
 
   group.add(groundMesh);
@@ -614,7 +619,8 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
     const baseY = Math.random() * GAME_CONFIG.JUNGLE_HEIGHT;
 
     // Random blade properties
-    const height = JUNGLE_CONFIG.GRASS_MIN_HEIGHT +
+    const height =
+      JUNGLE_CONFIG.GRASS_MIN_HEIGHT +
       Math.random() * (JUNGLE_CONFIG.GRASS_MAX_HEIGHT - JUNGLE_CONFIG.GRASS_MIN_HEIGHT);
     const width = JUNGLE_CONFIG.GRASS_WIDTH * (0.7 + Math.random() * 0.6);
     const rotation = Math.random() * Math.PI * 2; // Random facing direction
@@ -624,9 +630,8 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
     const tiltZ = (Math.random() - 0.5) * 0.3;
 
     // Random color from palette
-    const colorHex = JUNGLE_CONFIG.GRASS_COLORS[
-      Math.floor(Math.random() * JUNGLE_CONFIG.GRASS_COLORS.length)
-    ];
+    const colorHex =
+      JUNGLE_CONFIG.GRASS_COLORS[Math.floor(Math.random() * JUNGLE_CONFIG.GRASS_COLORS.length)];
     const r = ((colorHex >> 16) & 255) / 255;
     const g = ((colorHex >> 8) & 255) / 255;
     const b = (colorHex & 255) / 255;
@@ -641,11 +646,11 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
 
       // Local offset from blade center (before rotation)
       let localX = 0;
-      let localZ = 0;
+      const localZ = 0;
 
       // Bottom and middle vertices are offset left/right
       if (v === 0 || v === 2) localX = -width / 2; // Left vertices
-      if (v === 1 || v === 3) localX = width / 2;  // Right vertices
+      if (v === 1 || v === 3) localX = width / 2; // Right vertices
       // Top vertex stays at center (localX = 0)
 
       // Apply rotation
@@ -663,7 +668,7 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
       // Vertex color encodes animation intensity in all channels
       // We'll use it in the shader to determine sway amount
       const intensity = animIntensity[v];
-      colors[idx] = r * (0.5 + 0.5 * intensity);     // Slightly brighter at top
+      colors[idx] = r * (0.5 + 0.5 * intensity); // Slightly brighter at top
       colors[idx + 1] = g * (0.5 + 0.5 * intensity);
       colors[idx + 2] = b * (0.5 + 0.5 * intensity);
     }
@@ -839,13 +844,16 @@ function createTerrainPatches(group: THREE.Group): void {
     const y = Math.random() * GAME_CONFIG.JUNGLE_HEIGHT;
 
     // Random radius
-    const radius = JUNGLE_CONFIG.TERRAIN_PATCH_MIN_RADIUS +
-      Math.random() * (JUNGLE_CONFIG.TERRAIN_PATCH_MAX_RADIUS - JUNGLE_CONFIG.TERRAIN_PATCH_MIN_RADIUS);
+    const radius =
+      JUNGLE_CONFIG.TERRAIN_PATCH_MIN_RADIUS +
+      Math.random() *
+        (JUNGLE_CONFIG.TERRAIN_PATCH_MAX_RADIUS - JUNGLE_CONFIG.TERRAIN_PATCH_MIN_RADIUS);
 
     // Random color from palette
-    const color = JUNGLE_CONFIG.TERRAIN_PATCH_COLORS[
-      Math.floor(Math.random() * JUNGLE_CONFIG.TERRAIN_PATCH_COLORS.length)
-    ];
+    const color =
+      JUNGLE_CONFIG.TERRAIN_PATCH_COLORS[
+        Math.floor(Math.random() * JUNGLE_CONFIG.TERRAIN_PATCH_COLORS.length)
+      ];
 
     const geometry = new THREE.CircleGeometry(radius, 24);
     const material = new THREE.MeshBasicMaterial({
@@ -944,7 +952,7 @@ export function createRootNetworkFromTrees(
       const perpY = dx / dist;
 
       // Deterministic wiggle based on seed
-      const wiggleDir = ((seed + n) % 2 === 0) ? 1 : -1;
+      const wiggleDir = (seed + n) % 2 === 0 ? 1 : -1;
       const wiggleAmount = curveWiggle * (0.5 + ((seed * (n + 1)) % 100) / 200) * wiggleDir;
 
       // Control point 1 (1/3 of the way, curved to the side)
@@ -965,10 +973,10 @@ export function createRootNetworkFromTrees(
         const curve = new THREE.CatmullRomCurve3(points);
         const tubeGeo = new THREE.TubeGeometry(
           curve,
-          16,           // tubular segments
-          rootRadius,   // radius
-          6,            // radial segments
-          false         // closed
+          16, // tubular segments
+          rootRadius, // radius
+          6, // radial segments
+          false // closed
         );
         const tube = new THREE.Mesh(tubeGeo, material);
         group.add(tube);
@@ -1058,9 +1066,10 @@ function createUndergrowth(): {
     positions[i * 3 + 2] = -y;
 
     // Random color from palette
-    const colorHex = JUNGLE_CONFIG.UNDERGROWTH_COLORS[
-      Math.floor(Math.random() * JUNGLE_CONFIG.UNDERGROWTH_COLORS.length)
-    ];
+    const colorHex =
+      JUNGLE_CONFIG.UNDERGROWTH_COLORS[
+        Math.floor(Math.random() * JUNGLE_CONFIG.UNDERGROWTH_COLORS.length)
+      ];
     const r = ((colorHex >> 16) & 0xff) / 255;
     const g = ((colorHex >> 8) & 0xff) / 255;
     const b = (colorHex & 0xff) / 255;
@@ -1113,7 +1122,8 @@ function createFireflies(): {
     // Random position in jungle
     const x = Math.random() * GAME_CONFIG.JUNGLE_WIDTH;
     const y = Math.random() * GAME_CONFIG.JUNGLE_HEIGHT;
-    const z = JUNGLE_CONFIG.FIREFLY_HEIGHT_MIN +
+    const z =
+      JUNGLE_CONFIG.FIREFLY_HEIGHT_MIN +
       Math.random() * (JUNGLE_CONFIG.FIREFLY_HEIGHT_MAX - JUNGLE_CONFIG.FIREFLY_HEIGHT_MIN);
 
     // Position (XZ plane with height)
@@ -1122,9 +1132,8 @@ function createFireflies(): {
     positions[i * 3 + 2] = -y;
 
     // Random color from palette
-    const colorHex = JUNGLE_CONFIG.FIREFLY_COLORS[
-      Math.floor(Math.random() * JUNGLE_CONFIG.FIREFLY_COLORS.length)
-    ];
+    const colorHex =
+      JUNGLE_CONFIG.FIREFLY_COLORS[Math.floor(Math.random() * JUNGLE_CONFIG.FIREFLY_COLORS.length)];
     const r = ((colorHex >> 16) & 0xff) / 255;
     const g = ((colorHex >> 8) & 0xff) / 255;
     const b = (colorHex & 0xff) / 255;
@@ -1140,8 +1149,12 @@ function createFireflies(): {
     const vz = (Math.random() - 0.5) * speed * 0.3; // Slight vertical drift
 
     fireflyData.push({
-      x, y, z,
-      vx, vy, vz,
+      x,
+      y,
+      z,
+      vx,
+      vy,
+      vz,
       phase: Math.random() * Math.PI * 2,
       color: colorHex,
     });
@@ -1259,9 +1272,10 @@ function createSoupPool(group: THREE.Group): {
     const vy = Math.sin(vAngle) * speed;
 
     // Random color from activity colors
-    const colorHex = JUNGLE_CONFIG.SOUP_ACTIVITY_COLORS[
-      Math.floor(Math.random() * JUNGLE_CONFIG.SOUP_ACTIVITY_COLORS.length)
-    ];
+    const colorHex =
+      JUNGLE_CONFIG.SOUP_ACTIVITY_COLORS[
+        Math.floor(Math.random() * JUNGLE_CONFIG.SOUP_ACTIVITY_COLORS.length)
+      ];
 
     // Position (XZ plane: X=centerX+offsetX, Y=height, Z=-(centerY+offsetY))
     positions[i * 3] = centerX + x;
@@ -1394,7 +1408,8 @@ export function updateJungleParticles(
   particleData: JungleParticle[],
   dt: number
 ): void {
-  const positions = (particles.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+  const positions = (particles.geometry.attributes.position as THREE.BufferAttribute)
+    .array as Float32Array;
 
   for (let i = 0; i < particleData.length; i++) {
     const data = particleData[i];
@@ -1430,7 +1445,8 @@ export function updateSoupActivity(
   activityData: SoupActivityDot[],
   dt: number
 ): void {
-  const positions = (activityPoints.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+  const positions = (activityPoints.geometry.attributes.position as THREE.BufferAttribute)
+    .array as Float32Array;
 
   // Center of the soup region
   const centerX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2;
@@ -1589,7 +1605,8 @@ export function updateFireflies(
   fireflyData: FireflyParticle[],
   dt: number
 ): void {
-  const positions = (fireflyPoints.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+  const positions = (fireflyPoints.geometry.attributes.position as THREE.BufferAttribute)
+    .array as Float32Array;
   const time = performance.now() / 1000;
 
   for (let i = 0; i < fireflyData.length; i++) {
@@ -1648,13 +1665,15 @@ export function updateGroundTexture(jungleGroup: THREE.Group, _dtSeconds?: numbe
   const time = performance.now() / 1000;
 
   // Update ground shader time
-  const groundMaterial = (jungleGroup as unknown as { groundMaterial?: THREE.ShaderMaterial }).groundMaterial;
+  const groundMaterial = (jungleGroup as unknown as { groundMaterial?: THREE.ShaderMaterial })
+    .groundMaterial;
   if (groundMaterial) {
     groundMaterial.uniforms.time.value = time;
   }
 
   // Update grass shader time for wind animation (only if using ShaderMaterial)
-  const grassMaterial = (jungleGroup as unknown as { grassMaterial?: THREE.ShaderMaterial }).grassMaterial;
+  const grassMaterial = (jungleGroup as unknown as { grassMaterial?: THREE.ShaderMaterial })
+    .grassMaterial;
   if (grassMaterial && grassMaterial.uniforms) {
     grassMaterial.uniforms.time.value = time;
   }

@@ -92,7 +92,8 @@ export function calculateAggregateStats(world: World): AggregateStats {
     if (isAlive) {
       stats.alivePlayers++;
       stats.totalEnergy += energyComp.current;
-      stats.stageDistribution[stageComp.stage] = (stats.stageDistribution[stageComp.stage] || 0) + 1;
+      stats.stageDistribution[stageComp.stage] =
+        (stats.stageDistribution[stageComp.stage] || 0) + 1;
     } else {
       stats.deadPlayers++;
     }
@@ -145,12 +146,12 @@ export function createWorldSnapshot(world: World): WorldSnapshot {
   return {
     timestamp: Date.now(),
     players: playerSnapshots,
-    nutrients: getAllNutrientSnapshots(world).map(n => ({
+    nutrients: getAllNutrientSnapshots(world).map((n) => ({
       id: n.id,
       position: { x: n.position.x, y: n.position.y },
       value: n.value,
     })),
-    obstacles: getAllObstacleSnapshots(world).map(o => ({
+    obstacles: getAllObstacleSnapshots(world).map((o) => ({
       id: o.id,
       position: { x: o.position.x, y: o.position.y },
       radius: o.radius,

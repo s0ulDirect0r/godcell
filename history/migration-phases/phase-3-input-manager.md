@@ -18,6 +18,7 @@ Extract keyboard/mouse input handling from GameScene into a dedicated `InputMana
 ## Files to Create
 
 ### `client/src/core/input/InputState.ts`
+
 Raw input state (keyboard + mouse).
 
 ```typescript
@@ -91,6 +92,7 @@ export class InputState {
 ```
 
 ### `client/src/core/input/InputManager.ts`
+
 High-level input intent generation with camera projection.
 
 ```typescript
@@ -193,14 +195,17 @@ export class InputManager {
 ## Files to Modify
 
 ### `client/src/scenes/GameScene.ts`
+
 Remove input handling, consume intents via EventBus.
 
 **Remove:**
+
 - Keyboard cursors setup
 - Mouse/pointer event listeners
 - Input handling in `update()`
 
 **Add at top of class:**
+
 ```typescript
 import { InputManager, CameraProjection } from '../core/input/InputManager';
 import type { MoveIntent } from '../core/input/InputManager';
@@ -209,6 +214,7 @@ private inputManager!: InputManager;
 ```
 
 **In `create()` method:**
+
 ```typescript
 // Initialize input manager
 this.inputManager = new InputManager();
@@ -238,6 +244,7 @@ eventBus.on('input:respawn', this.onRespawnIntent.bind(this));
 ```
 
 **Add intent handlers:**
+
 ```typescript
 private onMoveIntent(intent: MoveIntent): void {
   this.socketManager.sendMove(intent.vx, intent.vy);
@@ -249,6 +256,7 @@ private onRespawnIntent(): void {
 ```
 
 **In `update()` method:**
+
 ```typescript
 // Remove all input handling code
 
@@ -257,6 +265,7 @@ this.inputManager.update(delta);
 ```
 
 **In `shutdown()` method:**
+
 ```typescript
 this.inputManager.dispose();
 ```
@@ -307,12 +316,14 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Respawn key must detect key-down transitions, not continuous holds
 - Camera projection adapter is specific to Phaser - will be replaced in Phase 5 for Three.js
 - Diagonal movement normalization prevents speed exploits
 - Pseudopod/click mechanics can be added later - focus on architecture now
 
 **Architecture benefits:**
+
 - Input handling is now testable (can mock InputState)
 - Camera projection is abstracted (supports 2D ortho and future 3D raycast)
 - High-level intents make GameScene simpler
@@ -320,12 +331,13 @@ npm run dev
 
 **Future 3D support:**
 For 3D cameras (orbit/TPS/FPS), the CameraProjection adapter will use raycasts:
+
 ```typescript
 screenToWorld: (screenX, screenY) => {
   const raycaster = new THREE.Raycaster();
   // ... raycast to ground plane z=0
   return { x: intersection.x, y: intersection.y };
-}
+};
 ```
 
 ## Rollback Instructions

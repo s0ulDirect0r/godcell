@@ -23,6 +23,7 @@ Add Three.js-specific visual improvements and performance optimizations. The mig
 Add glow effects to nutrients, players, and obstacles.
 
 #### Install postprocessing library:
+
 ```bash
 npm install postprocessing
 ```
@@ -51,9 +52,9 @@ export function createComposer(
   // Bloom pass (glow effect)
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(width, height),
-    0.5,  // strength
-    0.4,  // radius
-    0.85  // threshold
+    0.5, // strength
+    0.4, // radius
+    0.85 // threshold
   );
   composer.addPass(bloomPass);
 
@@ -62,6 +63,7 @@ export function createComposer(
 ```
 
 #### Modify `ThreeRenderer.ts`:
+
 ```typescript
 import { createComposer } from './postprocessing/composer';
 
@@ -85,6 +87,7 @@ render(state, dt): void {
 ### 2. Camera Effects (~30min)
 
 #### Smooth camera motion:
+
 ```typescript
 private cameraTarget = { x: 0, y: 0 };
 
@@ -102,6 +105,7 @@ render(state, dt): void {
 ```
 
 #### Camera shake on death:
+
 ```typescript
 private cameraShake = 0;
 
@@ -129,6 +133,7 @@ render(state, dt): void {
 ### 3. Improved Materials (~30min)
 
 #### Emissive materials for glow:
+
 ```typescript
 // For nutrients (glowing data packets)
 const material = new THREE.MeshStandardMaterial({
@@ -146,6 +151,7 @@ const material = new THREE.MeshStandardMaterial({
 ```
 
 #### Material caching (performance):
+
 ```typescript
 private materialCache: Map<string, THREE.Material> = new Map();
 
@@ -195,6 +201,7 @@ private createAmbientParticles(): void {
 ### 5. Performance Optimizations (~30min)
 
 #### Geometry pooling:
+
 ```typescript
 private geometryPool: Map<string, THREE.BufferGeometry> = new Map();
 
@@ -212,6 +219,7 @@ const geometry = this.getGeometry('circle-20', () =>
 ```
 
 #### Dispose resources properly:
+
 ```typescript
 dispose(): void {
   // Dispose meshes
@@ -281,12 +289,14 @@ http://localhost:8080?debug
 ## Implementation Notes
 
 **Gotchas:**
+
 - Postprocessing can tank FPS on low-end GPUs (make configurable?)
 - Emissive materials need proper lighting to look good
 - Camera shake intensity should be tunable
 - Test on different screen sizes/DPR
 
 **Optional enhancements:**
+
 - Vignette effect when low health
 - Color grading
 - Chromatic aberration
@@ -294,6 +304,7 @@ http://localhost:8080?debug
 - Custom shaders for obstacles
 
 **Performance:**
+
 - Profile with Chrome DevTools (Performance tab)
 - Check draw calls (should be <100)
 - Monitor texture memory
@@ -302,6 +313,7 @@ http://localhost:8080?debug
 ## Rollback Instructions
 
 If polish causes performance issues:
+
 ```bash
 # Revert specific features:
 # - Remove bloom pass from composer
@@ -329,6 +341,7 @@ Congratulations! The Three.js migration is now fully complete and polished.
 ### What's Next?
 
 Now that rendering is decoupled:
+
 - Easy to add 3D camera modes (orbit, TPS, FPS) for later evolution stages
 - Can add advanced visual effects without touching game logic
 - Core systems are testable independently

@@ -69,7 +69,11 @@ function createColonialCluster(baseRadius: number, colorHex: number): THREE.Grou
   return group;
 }
 
-function createIndividualCell(radius: number, colorHex: number, intensityMultiplier: number): THREE.Group {
+function createIndividualCell(
+  radius: number,
+  colorHex: number,
+  intensityMultiplier: number
+): THREE.Group {
   const cellGroup = new THREE.Group();
 
   // Membrane
@@ -131,17 +135,14 @@ function createEnergyTethers(ringRadius: number, cellCount: number, colorHex: nu
   // Connect adjacent ring cells
   for (let i = 0; i < cellCount; i++) {
     const angle1 = (i / cellCount) * Math.PI * 2;
-    const angle2 = ((i + 1) % cellCount / cellCount) * Math.PI * 2;
+    const angle2 = (((i + 1) % cellCount) / cellCount) * Math.PI * 2;
 
     const x1 = Math.cos(angle1) * ringRadius;
     const y1 = Math.sin(angle1) * ringRadius;
     const x2 = Math.cos(angle2) * ringRadius;
     const y2 = Math.sin(angle2) * ringRadius;
 
-    const points = [
-      new THREE.Vector3(x1, y1, 0),
-      new THREE.Vector3(x2, y2, 0),
-    ];
+    const points = [new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x2, y2, 0)];
 
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({
@@ -198,12 +199,15 @@ function createRadialOrganism(baseRadius: number, colorHex: number): THREE.Group
   return group;
 }
 
-function createEnergyFlowLine(x1: number, y1: number, x2: number, y2: number, colorHex: number): THREE.Mesh {
+function createEnergyFlowLine(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  colorHex: number
+): THREE.Mesh {
   // Create a thicker energy beam using a tube
-  const path = new THREE.LineCurve3(
-    new THREE.Vector3(x1, y1, 0),
-    new THREE.Vector3(x2, y2, 0)
-  );
+  const path = new THREE.LineCurve3(new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x2, y2, 0));
 
   const tubeGeometry = new THREE.TubeGeometry(path, 2, 1.5, 8, false);
   const tubeMaterial = new THREE.MeshBasicMaterial({
@@ -224,7 +228,11 @@ function createEnergyFlowLine(x1: number, y1: number, x2: number, y2: number, co
 /**
  * Animate colonial cluster (synchronized pulsing, gentle rotation)
  */
-export function animateColonialCluster(group: THREE.Group, time: number, energyRatio: number): void {
+export function animateColonialCluster(
+  group: THREE.Group,
+  time: number,
+  energyRatio: number
+): void {
   // No pulsing for now
   // const pulseSpeed = 2.0;
   // const pulseAmount = 0.04;
@@ -353,7 +361,7 @@ export function updateMultiCellEnergy(
   }
 
   // Energy affects overall opacity/dimming (apply to all cells)
-  const cellCount = style === 'colonial' ? (group.userData.cellCount || 7) : 1;
+  const cellCount = style === 'colonial' ? group.userData.cellCount || 7 : 1;
   for (let i = 0; i < cellCount; i++) {
     const cell = group.children[i] as THREE.Group;
     if (cell && cell.children) {

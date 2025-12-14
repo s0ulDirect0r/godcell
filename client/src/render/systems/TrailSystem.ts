@@ -67,7 +67,10 @@ export class TrailSystem {
       this.trailPoints,
       this.trailMeshes,
       playerMeshes as Map<string, THREE.Group>,
-      players as Map<string, { stage: any; color: string; energy: number; maxEnergy: number; radius: number }>
+      players as Map<
+        string,
+        { stage: any; color: string; energy: number; maxEnergy: number; radius: number }
+      >
     );
   }
 

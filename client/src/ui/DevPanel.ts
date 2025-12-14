@@ -43,40 +43,110 @@ const CONFIG_RANGES: Partial<Record<TunableConfigKey, ConfigValue>> = {
   MOVEMENT_ENERGY_COST: { value: GAME_CONFIG.MOVEMENT_ENERGY_COST, min: 0, max: 0.05, step: 0.001 },
 
   // Energy Decay
-  SINGLE_CELL_ENERGY_DECAY_RATE: { value: GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE, min: 0, max: 10, step: 0.1 },
-  MULTI_CELL_ENERGY_DECAY_RATE: { value: GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE, min: 0, max: 10, step: 0.1 },
-  CYBER_ORGANISM_ENERGY_DECAY_RATE: { value: GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE, min: 0, max: 10, step: 0.1 },
-  HUMANOID_ENERGY_DECAY_RATE: { value: GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE, min: 0, max: 10, step: 0.1 },
+  SINGLE_CELL_ENERGY_DECAY_RATE: {
+    value: GAME_CONFIG.SINGLE_CELL_ENERGY_DECAY_RATE,
+    min: 0,
+    max: 10,
+    step: 0.1,
+  },
+  MULTI_CELL_ENERGY_DECAY_RATE: {
+    value: GAME_CONFIG.MULTI_CELL_ENERGY_DECAY_RATE,
+    min: 0,
+    max: 10,
+    step: 0.1,
+  },
+  CYBER_ORGANISM_ENERGY_DECAY_RATE: {
+    value: GAME_CONFIG.CYBER_ORGANISM_ENERGY_DECAY_RATE,
+    min: 0,
+    max: 10,
+    step: 0.1,
+  },
+  HUMANOID_ENERGY_DECAY_RATE: {
+    value: GAME_CONFIG.HUMANOID_ENERGY_DECAY_RATE,
+    min: 0,
+    max: 10,
+    step: 0.1,
+  },
 
   // Evolution
   EVOLUTION_MULTI_CELL: { value: GAME_CONFIG.EVOLUTION_MULTI_CELL, min: 100, max: 1000, step: 50 },
-  EVOLUTION_CYBER_ORGANISM: { value: GAME_CONFIG.EVOLUTION_CYBER_ORGANISM, min: 500, max: 10000, step: 100 },
+  EVOLUTION_CYBER_ORGANISM: {
+    value: GAME_CONFIG.EVOLUTION_CYBER_ORGANISM,
+    min: 500,
+    max: 10000,
+    step: 100,
+  },
   EVOLUTION_HUMANOID: { value: GAME_CONFIG.EVOLUTION_HUMANOID, min: 1000, max: 20000, step: 100 },
   EVOLUTION_GODCELL: { value: GAME_CONFIG.EVOLUTION_GODCELL, min: 2000, max: 50000, step: 500 },
-  EVOLUTION_MOLTING_DURATION: { value: GAME_CONFIG.EVOLUTION_MOLTING_DURATION, min: 500, max: 5000, step: 100 },
+  EVOLUTION_MOLTING_DURATION: {
+    value: GAME_CONFIG.EVOLUTION_MOLTING_DURATION,
+    min: 500,
+    max: 5000,
+    step: 100,
+  },
 
   // Nutrients
   NUTRIENT_ENERGY_VALUE: { value: GAME_CONFIG.NUTRIENT_ENERGY_VALUE, min: 5, max: 100, step: 5 },
-  NUTRIENT_CAPACITY_INCREASE: { value: GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE, min: 1, max: 50, step: 1 },
-  NUTRIENT_RESPAWN_TIME: { value: GAME_CONFIG.NUTRIENT_RESPAWN_TIME, min: 5000, max: 120000, step: 1000 },
+  NUTRIENT_CAPACITY_INCREASE: {
+    value: GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE,
+    min: 1,
+    max: 50,
+    step: 1,
+  },
+  NUTRIENT_RESPAWN_TIME: {
+    value: GAME_CONFIG.NUTRIENT_RESPAWN_TIME,
+    min: 5000,
+    max: 120000,
+    step: 1000,
+  },
 
   // Obstacles
-  OBSTACLE_GRAVITY_STRENGTH: { value: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH, min: 0.1, max: 2, step: 0.05 },
-  OBSTACLE_GRAVITY_RADIUS: { value: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS, min: 200, max: 1200, step: 50 },
-  OBSTACLE_EVENT_HORIZON: { value: GAME_CONFIG.OBSTACLE_EVENT_HORIZON, min: 50, max: 400, step: 10 },
+  OBSTACLE_GRAVITY_STRENGTH: {
+    value: GAME_CONFIG.OBSTACLE_GRAVITY_STRENGTH,
+    min: 0.1,
+    max: 2,
+    step: 0.05,
+  },
+  OBSTACLE_GRAVITY_RADIUS: {
+    value: GAME_CONFIG.OBSTACLE_GRAVITY_RADIUS,
+    min: 200,
+    max: 1200,
+    step: 50,
+  },
+  OBSTACLE_EVENT_HORIZON: {
+    value: GAME_CONFIG.OBSTACLE_EVENT_HORIZON,
+    min: 50,
+    max: 400,
+    step: 10,
+  },
   OBSTACLE_CORE_RADIUS: { value: GAME_CONFIG.OBSTACLE_CORE_RADIUS, min: 20, max: 150, step: 5 },
   OBSTACLE_SPARK_RADIUS: { value: GAME_CONFIG.OBSTACLE_SPARK_RADIUS, min: 5, max: 60, step: 2 },
-  OBSTACLE_ENERGY_DRAIN_RATE: { value: GAME_CONFIG.OBSTACLE_ENERGY_DRAIN_RATE, min: 1, max: 20, step: 0.5 },
+  OBSTACLE_ENERGY_DRAIN_RATE: {
+    value: GAME_CONFIG.OBSTACLE_ENERGY_DRAIN_RATE,
+    min: 1,
+    max: 20,
+    step: 0.5,
+  },
 
   // Swarms
   SWARM_SPEED: { value: GAME_CONFIG.SWARM_SPEED, min: 50, max: 500, step: 10 },
   SWARM_DAMAGE_RATE: { value: GAME_CONFIG.SWARM_DAMAGE_RATE, min: 10, max: 200, step: 5 },
-  SWARM_DETECTION_RADIUS: { value: GAME_CONFIG.SWARM_DETECTION_RADIUS, min: 200, max: 1500, step: 50 },
+  SWARM_DETECTION_RADIUS: {
+    value: GAME_CONFIG.SWARM_DETECTION_RADIUS,
+    min: 200,
+    max: 1500,
+    step: 50,
+  },
   SWARM_SLOW_EFFECT: { value: GAME_CONFIG.SWARM_SLOW_EFFECT, min: 0.1, max: 1, step: 0.05 },
 
   // Combat
   CONTACT_DRAIN_RATE: { value: GAME_CONFIG.CONTACT_DRAIN_RATE, min: 50, max: 500, step: 10 },
-  PSEUDOPOD_PROJECTILE_SPEED: { value: GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED, min: 1000, max: 8000, step: 100 },
+  PSEUDOPOD_PROJECTILE_SPEED: {
+    value: GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED,
+    min: 1000,
+    max: 8000,
+    step: 100,
+  },
   PSEUDOPOD_DRAIN_RATE: { value: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE, min: 20, max: 300, step: 10 },
   PSEUDOPOD_COOLDOWN: { value: GAME_CONFIG.PSEUDOPOD_COOLDOWN, min: 200, max: 3000, step: 100 },
   PSEUDOPOD_ENERGY_COST: { value: GAME_CONFIG.PSEUDOPOD_ENERGY_COST, min: 5, max: 100, step: 5 },
@@ -84,11 +154,21 @@ const CONFIG_RANGES: Partial<Record<TunableConfigKey, ConfigValue>> = {
   // EMP
   EMP_COOLDOWN: { value: GAME_CONFIG.EMP_COOLDOWN, min: 2000, max: 30000, step: 1000 },
   EMP_RANGE: { value: GAME_CONFIG.EMP_RANGE, min: 200, max: 2000, step: 50 },
-  EMP_DISABLE_DURATION: { value: GAME_CONFIG.EMP_DISABLE_DURATION, min: 1000, max: 10000, step: 500 },
+  EMP_DISABLE_DURATION: {
+    value: GAME_CONFIG.EMP_DISABLE_DURATION,
+    min: 1000,
+    max: 10000,
+    step: 500,
+  },
   EMP_ENERGY_COST: { value: GAME_CONFIG.EMP_ENERGY_COST, min: 10, max: 200, step: 10 },
 
   // Detection
-  MULTI_CELL_DETECTION_RADIUS: { value: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS, min: 500, max: 4000, step: 100 },
+  MULTI_CELL_DETECTION_RADIUS: {
+    value: GAME_CONFIG.MULTI_CELL_DETECTION_RADIUS,
+    min: 500,
+    max: 4000,
+    step: 100,
+  },
 };
 
 // ============================================
@@ -121,7 +201,12 @@ export class DevPanel {
 
   // Spawn controls
   private spawnControls = {
-    entityType: 'nutrient' as 'nutrient' | 'swarm' | 'single-cell' | 'multi-cell' | 'cyber-organism',
+    entityType: 'nutrient' as
+      | 'nutrient'
+      | 'swarm'
+      | 'single-cell'
+      | 'multi-cell'
+      | 'cyber-organism',
     nutrientMultiplier: 1 as 1 | 2 | 3 | 5,
     spawnAtCursor: false,
   };
@@ -250,7 +335,8 @@ export class DevPanel {
     const range = CONFIG_RANGES[key];
     if (!range) return;
 
-    folder.add(this.configValues, key, range.min, range.max, range.step)
+    folder
+      .add(this.configValues, key, range.min, range.max, range.step)
       .name(this.formatConfigName(key))
       .onChange((value: number) => {
         this.sendDevCommand({
@@ -266,21 +352,28 @@ export class DevPanel {
     return key
       .toLowerCase()
       .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
   }
 
   private buildSpawnFolder(): void {
     const spawnFolder = this.gui.addFolder('Entity Spawning');
 
-    spawnFolder.add(this.spawnControls, 'entityType', ['nutrient', 'swarm', 'single-cell', 'multi-cell', 'cyber-organism'])
+    spawnFolder
+      .add(this.spawnControls, 'entityType', [
+        'nutrient',
+        'swarm',
+        'single-cell',
+        'multi-cell',
+        'cyber-organism',
+      ])
       .name('Entity Type');
 
-    spawnFolder.add(this.spawnControls, 'nutrientMultiplier', [1, 2, 3, 5])
-      .name('Nutrient Value');
+    spawnFolder.add(this.spawnControls, 'nutrientMultiplier', [1, 2, 3, 5]).name('Nutrient Value');
 
     // Click-to-spawn mode toggle
-    spawnFolder.add(this.spawnControls, 'spawnAtCursor')
+    spawnFolder
+      .add(this.spawnControls, 'spawnAtCursor')
       .name('Click to Spawn')
       .onChange((enabled: boolean) => {
         if (enabled) {
@@ -290,14 +383,13 @@ export class DevPanel {
         }
       });
 
-    spawnFolder.add({ spawn: () => this.spawnAtCenter() }, 'spawn')
-      .name('Spawn at Center');
+    spawnFolder.add({ spawn: () => this.spawnAtCenter() }, 'spawn').name('Spawn at Center');
 
-    spawnFolder.add({ spawnAtPlayer: () => this.spawnAtPlayer() }, 'spawnAtPlayer')
+    spawnFolder
+      .add({ spawnAtPlayer: () => this.spawnAtPlayer() }, 'spawnAtPlayer')
       .name('Spawn at Player');
 
-    spawnFolder.add({ spawn5: () => this.spawnMultiple(5) }, 'spawn5')
-      .name('Spawn 5 Random');
+    spawnFolder.add({ spawn5: () => this.spawnMultiple(5) }, 'spawn5').name('Spawn 5 Random');
 
     spawnFolder.close();
   }
@@ -306,7 +398,8 @@ export class DevPanel {
     const playerFolder = this.gui.addFolder('Player Controls');
 
     // Energy slider
-    playerFolder.add(this.playerControls, 'targetEnergy', 0, 10000, 10)
+    playerFolder
+      .add(this.playerControls, 'targetEnergy', 0, 10000, 10)
       .name('Set Energy')
       .onFinishChange((value: number) => {
         const playerId = getLocalPlayerId(this.world);
@@ -320,13 +413,14 @@ export class DevPanel {
       });
 
     // Stage selector
-    playerFolder.add(this.playerControls, 'targetStage', {
-      'Single Cell': EvolutionStage.SINGLE_CELL,
-      'Multi Cell': EvolutionStage.MULTI_CELL,
-      'Cyber Organism': EvolutionStage.CYBER_ORGANISM,
-      'Humanoid': EvolutionStage.HUMANOID,
-      'Godcell': EvolutionStage.GODCELL,
-    })
+    playerFolder
+      .add(this.playerControls, 'targetStage', {
+        'Single Cell': EvolutionStage.SINGLE_CELL,
+        'Multi Cell': EvolutionStage.MULTI_CELL,
+        'Cyber Organism': EvolutionStage.CYBER_ORGANISM,
+        Humanoid: EvolutionStage.HUMANOID,
+        Godcell: EvolutionStage.GODCELL,
+      })
       .name('Set Stage')
       .onChange((stage: EvolutionStage) => {
         const playerId = getLocalPlayerId(this.world);
@@ -340,12 +434,10 @@ export class DevPanel {
       });
 
     // Refill energy button
-    playerFolder.add({ refill: () => this.refillEnergy() }, 'refill')
-      .name('Refill Energy');
+    playerFolder.add({ refill: () => this.refillEnergy() }, 'refill').name('Refill Energy');
 
     // Max energy button
-    playerFolder.add({ maxAll: () => this.maxEverything() }, 'maxAll')
-      .name('Max Energy + Stage 5');
+    playerFolder.add({ maxAll: () => this.maxEverything() }, 'maxAll').name('Max Energy + Stage 5');
 
     playerFolder.close();
   }
@@ -353,23 +445,28 @@ export class DevPanel {
   private buildDebugFolder(): void {
     const debugFolder = this.gui.addFolder('Debug Visualization');
 
-    debugFolder.add(this.debugViz, 'showCollisionBoxes')
+    debugFolder
+      .add(this.debugViz, 'showCollisionBoxes')
       .name('Collision Boxes')
       .onChange((show: boolean) => this.updateDebugViz('collisionBoxes', show));
 
-    debugFolder.add(this.debugViz, 'showDetectionRanges')
+    debugFolder
+      .add(this.debugViz, 'showDetectionRanges')
       .name('Detection Ranges')
       .onChange((show: boolean) => this.updateDebugViz('detectionRanges', show));
 
-    debugFolder.add(this.debugViz, 'showGravityWells')
+    debugFolder
+      .add(this.debugViz, 'showGravityWells')
       .name('Gravity Wells')
       .onChange((show: boolean) => this.updateDebugViz('gravityWells', show));
 
-    debugFolder.add(this.debugViz, 'showVelocityVectors')
+    debugFolder
+      .add(this.debugViz, 'showVelocityVectors')
       .name('Velocity Vectors')
       .onChange((show: boolean) => this.updateDebugViz('velocityVectors', show));
 
-    debugFolder.add(this.debugViz, 'showAIState')
+    debugFolder
+      .add(this.debugViz, 'showAIState')
       .name('AI State')
       .onChange((show: boolean) => this.updateDebugViz('aiState', show));
 
@@ -380,7 +477,8 @@ export class DevPanel {
     const gameFolder = this.gui.addFolder('Game Control');
 
     // Pause toggle
-    gameFolder.add(this.devState, 'isPaused')
+    gameFolder
+      .add(this.devState, 'isPaused')
       .name('Paused')
       .onChange((paused: boolean) => {
         this.sendDevCommand({
@@ -390,7 +488,8 @@ export class DevPanel {
       });
 
     // Time scale slider
-    gameFolder.add(this.devState, 'timeScale', 0, 5, 0.25)
+    gameFolder
+      .add(this.devState, 'timeScale', 0, 5, 0.25)
       .name('Time Scale')
       .onChange((scale: number) => {
         this.sendDevCommand({
@@ -400,16 +499,13 @@ export class DevPanel {
       });
 
     // Step tick button
-    gameFolder.add({ step: () => this.stepTick() }, 'step')
-      .name('Step Tick');
+    gameFolder.add({ step: () => this.stepTick() }, 'step').name('Step Tick');
 
     // Clear world button (for playground mode)
-    gameFolder.add({ clear: () => this.clearWorld() }, 'clear')
-      .name('Clear World');
+    gameFolder.add({ clear: () => this.clearWorld() }, 'clear').name('Clear World');
 
     // Export config button
-    gameFolder.add({ export: () => this.exportConfig() }, 'export')
-      .name('Export Config');
+    gameFolder.add({ export: () => this.exportConfig() }, 'export').name('Export Config');
 
     gameFolder.open();
   }
@@ -603,7 +699,7 @@ export class DevPanel {
       if (message.key in this.configValues) {
         this.configValues[message.key] = message.value;
         // Update GUI controller
-        this.gui.controllersRecursive().forEach(controller => {
+        this.gui.controllersRecursive().forEach((controller) => {
           if (controller.property === message.key) {
             controller.setValue(message.value);
           }
@@ -616,7 +712,7 @@ export class DevPanel {
       this.devState.isPaused = state.isPaused;
       this.devState.timeScale = state.timeScale;
       // Refresh GUI
-      this.gui.controllersRecursive().forEach(controller => {
+      this.gui.controllersRecursive().forEach((controller) => {
         controller.updateDisplay();
       });
     });

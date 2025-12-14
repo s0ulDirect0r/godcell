@@ -55,7 +55,10 @@ const COMPONENT_FORMATTERS: Partial<Record<string, ComponentFormatter>> = {
       lines.push(`EMP: ${remaining > 0 ? remaining.toFixed(1) + 's' : 'ready'}`);
     }
     if (cd.lastPseudopodTime) {
-      const remaining = Math.max(0, (cd.lastPseudopodTime + GAME_CONFIG.PSEUDOPOD_COOLDOWN - now) / 1000);
+      const remaining = Math.max(
+        0,
+        (cd.lastPseudopodTime + GAME_CONFIG.PSEUDOPOD_COOLDOWN - now) / 1000
+      );
       lines.push(`Beam: ${remaining > 0 ? remaining.toFixed(1) + 's' : 'ready'}`);
     }
     return lines.length ? lines : ['ready'];
@@ -172,7 +175,8 @@ export class ECSXRayPanel {
 
     // Toolbar
     const toolbar = document.createElement('div');
-    toolbar.style.cssText = 'display: flex; justify-content: space-between; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333;';
+    toolbar.style.cssText =
+      'display: flex; justify-content: space-between; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333;';
 
     const quickBtns = document.createElement('div');
     quickBtns.style.cssText = 'display: flex; gap: 4px; flex-wrap: wrap;';
@@ -222,11 +226,19 @@ export class ECSXRayPanel {
       if (!btn) return;
       const action = btn.getAttribute('data-action');
       if (action === 'world') this.showWorldView();
-      else if (action === 'me') { this.currentView = 'entity'; this.selectLocalPlayer(); }
-      else if (action === 'swarm') { this.currentView = 'entity'; this.selectNearestOfType(Tags.Swarm); }
-      else if (action === 'bot') { this.currentView = 'entity'; this.selectNearestOfType(Tags.Bot); }
-      else if (action === 'serpent') { this.currentView = 'entity'; this.selectNearestOfType(Tags.EntropySerpent); }
-      else if (action === 'theme') this.toggleTheme();
+      else if (action === 'me') {
+        this.currentView = 'entity';
+        this.selectLocalPlayer();
+      } else if (action === 'swarm') {
+        this.currentView = 'entity';
+        this.selectNearestOfType(Tags.Swarm);
+      } else if (action === 'bot') {
+        this.currentView = 'entity';
+        this.selectNearestOfType(Tags.Bot);
+      } else if (action === 'serpent') {
+        this.currentView = 'entity';
+        this.selectNearestOfType(Tags.EntropySerpent);
+      } else if (action === 'theme') this.toggleTheme();
       else if (action === 'size') this.cycleSize();
     });
 
@@ -237,9 +249,13 @@ export class ECSXRayPanel {
   private setupKeyboardNavigation(): void {
     this.keyHandler = (e: KeyboardEvent) => {
       if (!this.isVisible) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); this.cycleEntity(1); }
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); this.cycleEntity(-1); }
-      else if (e.key === 'Escape') this.clearSelection();
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.cycleEntity(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.cycleEntity(-1);
+      } else if (e.key === 'Escape') this.clearSelection();
     };
     window.addEventListener('keydown', this.keyHandler);
   }
@@ -252,17 +268,27 @@ export class ECSXRayPanel {
         if (stringId) this.entityList.push({ entityId: entity, stringId, tag });
       });
     };
-    [Tags.Player, Tags.Swarm, Tags.EntropySerpent, Tags.JungleCreature, Tags.CyberBug,
-     Tags.Nutrient, Tags.DataFruit, Tags.Tree, Tags.Obstacle].forEach(addTag);
+    [
+      Tags.Player,
+      Tags.Swarm,
+      Tags.EntropySerpent,
+      Tags.JungleCreature,
+      Tags.CyberBug,
+      Tags.Nutrient,
+      Tags.DataFruit,
+      Tags.Tree,
+      Tags.Obstacle,
+    ].forEach(addTag);
   }
 
   private cycleEntity(dir: number): void {
     this.buildEntityList();
     if (this.entityList.length === 0) return;
     if (this.selectedStringId) {
-      this.entityListIndex = this.entityList.findIndex(e => e.stringId === this.selectedStringId);
+      this.entityListIndex = this.entityList.findIndex((e) => e.stringId === this.selectedStringId);
     }
-    this.entityListIndex = (this.entityListIndex + dir + this.entityList.length) % this.entityList.length;
+    this.entityListIndex =
+      (this.entityListIndex + dir + this.entityList.length) % this.entityList.length;
     this.selectEntity(this.entityList[this.entityListIndex].entityId);
   }
 
@@ -410,9 +436,12 @@ export class ECSXRayPanel {
     }
 
     // Header
-    const tagBadges = [...tags].map(t =>
-      `<span style="background:${this.currentTheme === 'dark' ? '#333' : '#ddd'};color:${theme.highlight};padding:2px 6px;border-radius:3px;margin-right:4px">${t}</span>`
-    ).join('');
+    const tagBadges = [...tags]
+      .map(
+        (t) =>
+          `<span style="background:${this.currentTheme === 'dark' ? '#333' : '#ddd'};color:${theme.highlight};padding:2px 6px;border-radius:3px;margin-right:4px">${t}</span>`
+      )
+      .join('');
 
     this.headerEl.innerHTML = `
       <div style="color:${theme.title};font-weight:bold;margin-bottom:8px">ECS X-Ray</div>
@@ -477,7 +506,8 @@ export class ECSXRayPanel {
     // Show entity IDs (truncate if too many)
     const maxShow = 20;
     const entityIds = allEntities.slice(0, maxShow).join(', ');
-    const truncated = allEntities.length > maxShow ? `, ... +${allEntities.length - maxShow} more` : '';
+    const truncated =
+      allEntities.length > maxShow ? `, ... +${allEntities.length - maxShow} more` : '';
     html += `<div style="padding-left:12px;color:${theme.muted};font-size:0.9em">[${entityIds}${truncated}]</div>`;
     html += `</div>`;
 
@@ -558,7 +588,8 @@ export class ECSXRayPanel {
   private formatResourceValue(value: unknown): string {
     if (value === null) return '<span style="color:#888">null</span>';
     if (value === undefined) return '<span style="color:#888">undefined</span>';
-    if (typeof value === 'string') return `"${this.escapeHtml(value.length > 50 ? value.slice(0, 47) + '...' : value)}"`;
+    if (typeof value === 'string')
+      return `"${this.escapeHtml(value.length > 50 ? value.slice(0, 47) + '...' : value)}"`;
     if (typeof value === 'number') return String(value);
     if (typeof value === 'boolean') return String(value);
     if (Array.isArray(value)) return `Array(${value.length})`;
@@ -567,9 +598,16 @@ export class ECSXRayPanel {
       if (entries.length === 0) return '{}';
       if (entries.length <= 4) {
         const lines = entries.map(([k, v]) => {
-          const vStr = typeof v === 'number' ? (Number.isInteger(v) ? v : (v as number).toFixed(2)) :
-                       typeof v === 'string' ? `"${this.escapeHtml(v.slice(0, 20))}"` :
-                       typeof v === 'boolean' ? v : typeof v;
+          const vStr =
+            typeof v === 'number'
+              ? Number.isInteger(v)
+                ? v
+                : (v as number).toFixed(2)
+              : typeof v === 'string'
+                ? `"${this.escapeHtml(v.slice(0, 20))}"`
+                : typeof v === 'boolean'
+                  ? v
+                  : typeof v;
           return `${this.escapeHtml(String(k))}: ${vStr}`;
         });
         return `{ ${lines.join(', ')} }`;

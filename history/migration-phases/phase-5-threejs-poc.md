@@ -161,7 +161,7 @@ export class ThreeRenderer implements Renderer {
 
   dispose(): void {
     // Clean up geometries/materials
-    this.nutrientMeshes.forEach(mesh => {
+    this.nutrientMeshes.forEach((mesh) => {
       mesh.geometry.dispose();
       (mesh.material as THREE.Material).dispose();
     });
@@ -175,6 +175,7 @@ export class ThreeRenderer implements Renderer {
 ## Files to Modify
 
 ### `client/package.json`
+
 Add Three.js dependencies.
 
 ```json
@@ -186,13 +187,14 @@ Add Three.js dependencies.
     "three": "^0.160.0"
   },
   "devDependencies": {
-    "@types/three": "^0.160.0",
+    "@types/three": "^0.160.0"
     // ... existing devDeps
   }
 }
 ```
 
 ### `client/src/main.ts`
+
 Choose renderer based on flag.
 
 ```typescript
@@ -216,6 +218,7 @@ if (flags.mode === 'three-only') {
 ```
 
 ### `client/src/config/renderer-flags.ts`
+
 Update renderer mode type (remove 'hybrid').
 
 ```typescript
@@ -229,6 +232,7 @@ export type RendererMode = 'phaser-only' | 'three-only';
 ### Manual Testing
 
 **Test Three.js (nutrients only):**
+
 ```bash
 npm install
 npm run dev
@@ -245,12 +249,14 @@ npm run dev
 ```
 
 **Test Phaser still works:**
+
 ```bash
 # Open: http://localhost:8080?renderer=phaser-only
 # Should be identical to Phase 4 - full game
 ```
 
 **Compare:**
+
 - Nutrients look similar in both?
 - FPS good in three-only mode?
 - Collection mechanics work?
@@ -270,18 +276,21 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Three.js coordinate system: Y-up vs Phaser Y-down (handle in projection)
 - OrthographicCamera frustum sizing for correct world scale
 - Dispose geometries/materials to prevent memory leaks
 - Test on different screen sizes (DPR scaling)
 
 **Visual notes:**
+
 - In `three-only` mode, you'll only see nutrients - this is expected
 - It's a proof-of-concept to validate Three.js works
 - Phase 6 will add all the other entity types
 
 **Decision point:**
 After this phase, evaluate:
+
 - Does Three.js integration work?
 - Performance acceptable?
 - Screen ↔ world projection correct (nutrient collection works)?

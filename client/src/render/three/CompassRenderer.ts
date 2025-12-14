@@ -19,7 +19,7 @@ export interface DetectedEntity {
  * @param compassIndicators - The group to dispose
  */
 export function disposeCompassIndicators(compassIndicators: THREE.Group): void {
-  compassIndicators.children.forEach(child => {
+  compassIndicators.children.forEach((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
       (child.material as THREE.Material).dispose();
@@ -86,9 +86,15 @@ export function updateCompassIndicators(
     // Create arrow geometry (pointier triangle)
     const arrowGeometry = new THREE.BufferGeometry();
     const vertices = new Float32Array([
-      0, arrowSize * 1.2, 0,           // Tip (pointing outward, longer)
-      -arrowSize * 0.35, -arrowSize * 0.4, 0,  // Base left (narrower)
-      arrowSize * 0.35, -arrowSize * 0.4, 0,   // Base right (narrower)
+      0,
+      arrowSize * 1.2,
+      0, // Tip (pointing outward, longer)
+      -arrowSize * 0.35,
+      -arrowSize * 0.4,
+      0, // Base left (narrower)
+      arrowSize * 0.35,
+      -arrowSize * 0.4,
+      0, // Base right (narrower)
     ]);
     arrowGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
 

@@ -74,8 +74,14 @@ export class EntropySerpentRenderSystem {
       if (!serpentId) return;
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
-      const serpent = this.world.getComponent<EntropySerpentComponent>(entity, Components.EntropySerpent);
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const serpent = this.world.getComponent<EntropySerpentComponent>(
+        entity,
+        Components.EntropySerpent
+      );
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
       if (!pos || !serpent) return;
 
       currentSerpentIds.add(serpentId);
@@ -254,7 +260,9 @@ export class EntropySerpentRenderSystem {
    */
   toggleDebug(): boolean {
     this.debugMode = !this.debugMode;
-    console.log(`[SerpentDebug] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}, serpentMeshes: ${this.serpentMeshes.size}`);
+    console.log(
+      `[SerpentDebug] Debug mode: ${this.debugMode ? 'ON' : 'OFF'}, serpentMeshes: ${this.serpentMeshes.size}`
+    );
 
     if (!this.debugMode) {
       // Remove all debug markers
@@ -264,7 +272,7 @@ export class EntropySerpentRenderSystem {
           if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
             child.geometry.dispose();
             if (Array.isArray(child.material)) {
-              child.material.forEach(m => m.dispose());
+              child.material.forEach((m) => m.dispose());
             } else {
               (child.material as THREE.Material).dispose();
             }
@@ -290,7 +298,9 @@ export class EntropySerpentRenderSystem {
     // Debug: log once per second
     if (Math.floor(Date.now() / 1000) !== (this as any)._lastDebugLog) {
       (this as any)._lastDebugLog = Math.floor(Date.now() / 1000);
-      console.log(`[SerpentDebug] updateDebugMarkers called, serpents: ${this.serpentMeshes.size}, markers: ${this.debugMarkers.size}`);
+      console.log(
+        `[SerpentDebug] updateDebugMarkers called, serpents: ${this.serpentMeshes.size}, markers: ${this.debugMarkers.size}`
+      );
     }
 
     this.serpentMeshes.forEach((group, id) => {
@@ -318,8 +328,12 @@ export class EntropySerpentRenderSystem {
       // Log positions once per second per serpent
       if (Math.floor(Date.now() / 2000) !== (debugGroup as any)._lastPosLog) {
         (debugGroup as any)._lastPosLog = Math.floor(Date.now() / 2000);
-        console.log(`[SerpentDebug] ${id}: body=(${bodyX.toFixed(0)}, ${bodyY.toFixed(0)}), head=(${headX.toFixed(0)}, ${headY.toFixed(0)}), heading=${(heading * 180 / Math.PI).toFixed(1)}°, offset=${headOffset}`);
-        console.log(`[SerpentDebug] ${id}: mesh.rotation.z=${(group.rotation.z * 180 / Math.PI).toFixed(1)}°, expected=${((heading + Math.PI) * 180 / Math.PI).toFixed(1)}°`);
+        console.log(
+          `[SerpentDebug] ${id}: body=(${bodyX.toFixed(0)}, ${bodyY.toFixed(0)}), head=(${headX.toFixed(0)}, ${headY.toFixed(0)}), heading=${((heading * 180) / Math.PI).toFixed(1)}°, offset=${headOffset}`
+        );
+        console.log(
+          `[SerpentDebug] ${id}: mesh.rotation.z=${((group.rotation.z * 180) / Math.PI).toFixed(1)}°, expected=${(((heading + Math.PI) * 180) / Math.PI).toFixed(1)}°`
+        );
       }
 
       // Update body center marker (blue sphere)
@@ -393,14 +407,22 @@ export class EntropySerpentRenderSystem {
 
     // Body center - blue sphere
     const bodyGeo = new THREE.SphereGeometry(15, 8, 8);
-    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x0066ff, transparent: true, opacity: 0.7 });
+    const bodyMat = new THREE.MeshBasicMaterial({
+      color: 0x0066ff,
+      transparent: true,
+      opacity: 0.7,
+    });
     const bodyMarker = new THREE.Mesh(bodyGeo, bodyMat);
     bodyMarker.name = 'bodyCenter';
     group.add(bodyMarker);
 
     // Head position - red sphere
     const headGeo = new THREE.SphereGeometry(20, 8, 8);
-    const headMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.7 });
+    const headMat = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      transparent: true,
+      opacity: 0.7,
+    });
     const headMarker = new THREE.Mesh(headGeo, headMat);
     headMarker.name = 'headPos';
     group.add(headMarker);

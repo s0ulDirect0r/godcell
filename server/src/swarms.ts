@@ -176,7 +176,8 @@ function findNearestPlayer(
   swarmPosition: Position,
   world: World
 ): { id: string; entityId: EntityId; position: { x: number; y: number } } | null {
-  let nearestPlayer: { id: string; entityId: EntityId; position: { x: number; y: number } } | null = null;
+  let nearestPlayer: { id: string; entityId: EntityId; position: { x: number; y: number } } | null =
+    null;
   let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
   forEachPlayer(world, (entity, playerId) => {
@@ -207,7 +208,10 @@ function findNearestPlayer(
  * Uses ECS to query obstacle positions
  * Returns a velocity adjustment to apply
  */
-function calculateObstacleAvoidance(swarmPosition: Position, world: World): { x: number; y: number } {
+function calculateObstacleAvoidance(
+  swarmPosition: Position,
+  world: World
+): { x: number; y: number } {
   let avoidanceX = 0;
   let avoidanceY = 0;
 
@@ -229,7 +233,8 @@ function calculateObstacleAvoidance(swarmPosition: Position, world: World): { x:
 
       // Stronger avoidance the closer we get (inverse square)
       // Treat as acceleration for consistency with movement system
-      const accelerationMagnitude = (avoidanceRadius * avoidanceRadius) / distSq * getConfig('SWARM_SPEED') * 16;
+      const accelerationMagnitude =
+        ((avoidanceRadius * avoidanceRadius) / distSq) * getConfig('SWARM_SPEED') * 16;
 
       avoidanceX += (dx / dist) * accelerationMagnitude;
       avoidanceY += (dy / dist) * accelerationMagnitude;
@@ -273,7 +278,8 @@ function calculateSwarmRepulsion(
 
       // Stronger repulsion the closer they get (inverse square)
       // Use moderate force - swarms should spread out but not violently
-      const accelerationMagnitude = (repulsionRadius * repulsionRadius) / distSq * getConfig('SWARM_SPEED') * 8;
+      const accelerationMagnitude =
+        ((repulsionRadius * repulsionRadius) / distSq) * getConfig('SWARM_SPEED') * 8;
 
       repulsionX += (dx / dist) * accelerationMagnitude;
       repulsionY += (dy / dist) * accelerationMagnitude;
@@ -287,11 +293,7 @@ function calculateSwarmRepulsion(
  * Update swarm AI decision-making with acceleration-based movement
  * Iterates ECS swarm entities and mutates their components directly.
  */
-export function updateSwarms(
-  currentTime: number,
-  world: World,
-  deltaTime: number
-) {
+export function updateSwarms(currentTime: number, world: World, deltaTime: number) {
   const now = Date.now();
 
   // Iterate all swarms via ECS

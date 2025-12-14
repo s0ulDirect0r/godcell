@@ -3,14 +3,7 @@
 // Functions to create entities with proper components
 // ============================================
 
-import {
-  GAME_CONFIG,
-  EvolutionStage,
-  World,
-  ComponentStore,
-  Components,
-  Tags,
-} from '#shared';
+import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags } from '#shared';
 import type {
   Position,
   Player,
@@ -90,7 +83,10 @@ export function createWorld(): World {
   world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
 
   // Stage 3 combat specialization
-  world.registerStore<CombatSpecializationComponent>(Components.CombatSpecialization, new ComponentStore());
+  world.registerStore<CombatSpecializationComponent>(
+    Components.CombatSpecialization,
+    new ComponentStore()
+  );
   world.registerStore<KnockbackComponent>(Components.Knockback, new ComponentStore());
 
   // Ability markers (no data, just presence)
@@ -432,7 +428,9 @@ export function createSwarm(
     size,
     state: 'patrol',
     homePosition: { x: position.x, y: position.y, z: position.z ?? 0 },
-    patrolTarget: patrolTarget ? { x: patrolTarget.x, y: patrolTarget.y, z: patrolTarget.z ?? 0 } : undefined,
+    patrolTarget: patrolTarget
+      ? { x: patrolTarget.x, y: patrolTarget.y, z: patrolTarget.z ?? 0 }
+      : undefined,
   });
   // DamageTracking for centralized death handling in DeathSystem
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
@@ -466,7 +464,11 @@ export function createPseudopod(
     y: position.y,
     z: position.z ?? 0,
   });
-  world.addComponent<VelocityComponent>(entity, Components.Velocity, { x: velocity.x, y: velocity.y, z: 0 });
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: velocity.x,
+    y: velocity.y,
+    z: 0,
+  });
   world.addComponent<PseudopodComponent>(entity, Components.Pseudopod, {
     ownerId: ownerEntity,
     ownerSocketId,
@@ -551,14 +553,17 @@ export function setPlayerStage(world: World, entity: EntityId, newStage: Evoluti
   // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
   // Stage 3-4: z = radius (bottom touches ground)
   // Stage 5: z = radius + 100 (starts slightly airborne for 3D flight)
-  if (newStage === EvolutionStage.CYBER_ORGANISM ||
-      newStage === EvolutionStage.HUMANOID ||
-      newStage === EvolutionStage.GODCELL) {
+  if (
+    newStage === EvolutionStage.CYBER_ORGANISM ||
+    newStage === EvolutionStage.HUMANOID ||
+    newStage === EvolutionStage.GODCELL
+  ) {
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
     if (posComp) {
       // Godcell starts airborne, others sit on ground
-      posComp.z = newStage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
+      posComp.z =
+        newStage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
     }
     if (velComp) {
       velComp.z = 0; // Reset z velocity
@@ -771,10 +776,7 @@ export function hasPlayer(world: World, socketId: string): boolean {
  * Get player's energy component by socket ID.
  * Returns undefined if not found.
  */
-export function getEnergyBySocketId(
-  world: World,
-  socketId: string
-): EnergyComponent | undefined {
+export function getEnergyBySocketId(world: World, socketId: string): EnergyComponent | undefined {
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -795,10 +797,7 @@ export function getPositionBySocketId(
 /**
  * Get player's stage component by socket ID.
  */
-export function getStageBySocketId(
-  world: World,
-  socketId: string
-): StageComponent | undefined {
+export function getStageBySocketId(world: World, socketId: string): StageComponent | undefined {
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<StageComponent>(entity, Components.Stage);
@@ -836,10 +835,7 @@ export function setVelocityBySocketId(
 /**
  * Get player's input component by socket ID.
  */
-export function getInputBySocketId(
-  world: World,
-  socketId: string
-): InputComponent | undefined {
+export function getInputBySocketId(world: World, socketId: string): InputComponent | undefined {
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<InputComponent>(entity, Components.Input);
@@ -867,10 +863,7 @@ export function setInputBySocketId(
 /**
  * Get player's sprint component by socket ID.
  */
-export function getSprintBySocketId(
-  world: World,
-  socketId: string
-): SprintComponent | undefined {
+export function getSprintBySocketId(world: World, socketId: string): SprintComponent | undefined {
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<SprintComponent>(entity, Components.Sprint);
@@ -880,11 +873,7 @@ export function getSprintBySocketId(
  * Set player's sprint state by socket ID.
  * Returns false if player doesn't have SprintComponent (Stage 1-2 players).
  */
-export function setSprintBySocketId(
-  world: World,
-  socketId: string,
-  isSprinting: boolean
-): boolean {
+export function setSprintBySocketId(world: World, socketId: string, isSprinting: boolean): boolean {
   const sprint = getSprintBySocketId(world, socketId);
   if (!sprint) return false;
   sprint.isSprinting = isSprinting;
@@ -894,10 +883,7 @@ export function setSprintBySocketId(
 /**
  * Get player's stunned component by socket ID.
  */
-export function getStunnedBySocketId(
-  world: World,
-  socketId: string
-): StunnedComponent | undefined {
+export function getStunnedBySocketId(world: World, socketId: string): StunnedComponent | undefined {
   const entity = getEntityBySocketId(socketId);
   if (!entity) return undefined;
   return world.getComponent<StunnedComponent>(entity, Components.Stunned);
@@ -954,11 +940,7 @@ export function deletePlayerBySocketId(world: World, socketId: string): void {
  * Set player energy by socket ID.
  * Updates the ECS component directly.
  */
-export function setEnergyBySocketId(
-  world: World,
-  socketId: string,
-  energy: number
-): void {
+export function setEnergyBySocketId(world: World, socketId: string, energy: number): void {
   const energyComp = getEnergyBySocketId(world, socketId);
   if (energyComp) {
     energyComp.current = energy;
@@ -969,11 +951,7 @@ export function setEnergyBySocketId(
  * Set player max energy by socket ID.
  * Updates the ECS component directly.
  */
-export function setMaxEnergyBySocketId(
-  world: World,
-  socketId: string,
-  maxEnergy: number
-): void {
+export function setMaxEnergyBySocketId(world: World, socketId: string, maxEnergy: number): void {
   const energyComp = getEnergyBySocketId(world, socketId);
   if (energyComp) {
     energyComp.max = maxEnergy;
@@ -1018,12 +996,7 @@ export function subtractEnergyBySocketId(
  * Set player position by socket ID.
  * Updates the ECS component directly.
  */
-export function setPositionBySocketId(
-  world: World,
-  socketId: string,
-  x: number,
-  y: number
-): void {
+export function setPositionBySocketId(world: World, socketId: string, x: number, y: number): void {
   const posComp = getPositionBySocketId(world, socketId);
   if (posComp) {
     posComp.x = x;
@@ -1040,80 +1013,56 @@ export function setPositionBySocketId(
 /**
  * Get player's energy component by entity ID.
  */
-export function getEnergy(
-  world: World,
-  entity: EntityId
-): EnergyComponent | undefined {
+export function getEnergy(world: World, entity: EntityId): EnergyComponent | undefined {
   return world.getComponent<EnergyComponent>(entity, Components.Energy);
 }
 
 /**
  * Get player's position component by entity ID.
  */
-export function getPosition(
-  world: World,
-  entity: EntityId
-): PositionComponent | undefined {
+export function getPosition(world: World, entity: EntityId): PositionComponent | undefined {
   return world.getComponent<PositionComponent>(entity, Components.Position);
 }
 
 /**
  * Get player's stage component by entity ID.
  */
-export function getStage(
-  world: World,
-  entity: EntityId
-): StageComponent | undefined {
+export function getStage(world: World, entity: EntityId): StageComponent | undefined {
   return world.getComponent<StageComponent>(entity, Components.Stage);
 }
 
 /**
  * Get player's velocity component by entity ID.
  */
-export function getVelocity(
-  world: World,
-  entity: EntityId
-): VelocityComponent | undefined {
+export function getVelocity(world: World, entity: EntityId): VelocityComponent | undefined {
   return world.getComponent<VelocityComponent>(entity, Components.Velocity);
 }
 
 /**
  * Get player's input component by entity ID.
  */
-export function getInput(
-  world: World,
-  entity: EntityId
-): InputComponent | undefined {
+export function getInput(world: World, entity: EntityId): InputComponent | undefined {
   return world.getComponent<InputComponent>(entity, Components.Input);
 }
 
 /**
  * Get player's sprint component by entity ID.
  */
-export function getSprint(
-  world: World,
-  entity: EntityId
-): SprintComponent | undefined {
+export function getSprint(world: World, entity: EntityId): SprintComponent | undefined {
   return world.getComponent<SprintComponent>(entity, Components.Sprint);
 }
 
 /**
  * Get player's stunned component by entity ID.
  */
-export function getStunned(
-  world: World,
-  entity: EntityId
-): StunnedComponent | undefined {
+export function getStunned(world: World, entity: EntityId): StunnedComponent | undefined {
   return world.getComponent<StunnedComponent>(entity, Components.Stunned);
 }
 
 /**
  * Get player's cooldowns component by entity ID.
  */
-export function getCooldowns(
-  world: World,
-  entity: EntityId
-): CooldownsComponent | undefined {
+export function getCooldowns(world: World, entity: EntityId): CooldownsComponent | undefined {
   return world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
 }
 
@@ -1250,12 +1199,7 @@ export function requirePlayer(world: World, entity: EntityId): PlayerComponent {
 /**
  * Set player's velocity by entity ID.
  */
-export function setVelocity(
-  world: World,
-  entity: EntityId,
-  x: number,
-  y: number
-): boolean {
+export function setVelocity(world: World, entity: EntityId, x: number, y: number): boolean {
   const vel = getVelocity(world, entity);
   if (!vel) return false;
   vel.x = x;
@@ -1284,11 +1228,7 @@ export function setInput(
 /**
  * Set player's sprint state by entity ID.
  */
-export function setSprint(
-  world: World,
-  entity: EntityId,
-  isSprinting: boolean
-): boolean {
+export function setSprint(world: World, entity: EntityId, isSprinting: boolean): boolean {
   const sprint = getSprint(world, entity);
   if (!sprint) return false;
   sprint.isSprinting = isSprinting;
@@ -1298,11 +1238,7 @@ export function setSprint(
 /**
  * Set player energy by entity ID.
  */
-export function setEnergy(
-  world: World,
-  entity: EntityId,
-  energy: number
-): void {
+export function setEnergy(world: World, entity: EntityId, energy: number): void {
   const energyComp = getEnergy(world, entity);
   if (energyComp) {
     energyComp.current = energy;
@@ -1312,11 +1248,7 @@ export function setEnergy(
 /**
  * Set player max energy by entity ID.
  */
-export function setMaxEnergy(
-  world: World,
-  entity: EntityId,
-  maxEnergy: number
-): void {
+export function setMaxEnergy(world: World, entity: EntityId, maxEnergy: number): void {
   const energyComp = getEnergy(world, entity);
   if (energyComp) {
     energyComp.max = maxEnergy;
@@ -1327,11 +1259,7 @@ export function setMaxEnergy(
  * Add energy to player by entity ID (clamped to max).
  * Returns the new energy value, or undefined if entity not found.
  */
-export function addEnergy(
-  world: World,
-  entity: EntityId,
-  amount: number
-): number | undefined {
+export function addEnergy(world: World, entity: EntityId, amount: number): number | undefined {
   const energyComp = getEnergy(world, entity);
   if (energyComp) {
     energyComp.current = Math.min(energyComp.max, energyComp.current + amount);
@@ -1344,11 +1272,7 @@ export function addEnergy(
  * Subtract energy from player by entity ID (clamped to 0).
  * Returns the new energy value, or undefined if entity not found.
  */
-export function subtractEnergy(
-  world: World,
-  entity: EntityId,
-  amount: number
-): number | undefined {
+export function subtractEnergy(world: World, entity: EntityId, amount: number): number | undefined {
   const energyComp = getEnergy(world, entity);
   if (energyComp) {
     energyComp.current = Math.max(0, energyComp.current - amount);
@@ -1361,11 +1285,7 @@ export function subtractEnergy(
  * Set player stage by entity ID.
  * Also initializes z position for Stage 3+ (ground placement / flight).
  */
-export function setStage(
-  world: World,
-  entity: EntityId,
-  stage: EvolutionStage
-): void {
+export function setStage(world: World, entity: EntityId, stage: EvolutionStage): void {
   const stageValues = getStageValues(stage);
 
   const stageComp = getStage(world, entity);
@@ -1375,9 +1295,11 @@ export function setStage(
   }
 
   // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
-  if (stage === EvolutionStage.CYBER_ORGANISM ||
-      stage === EvolutionStage.HUMANOID ||
-      stage === EvolutionStage.GODCELL) {
+  if (
+    stage === EvolutionStage.CYBER_ORGANISM ||
+    stage === EvolutionStage.HUMANOID ||
+    stage === EvolutionStage.GODCELL
+  ) {
     const posComp = getPosition(world, entity);
     const velComp = getVelocity(world, entity);
     if (posComp) {
@@ -1393,12 +1315,7 @@ export function setStage(
 /**
  * Set player position by entity ID.
  */
-export function setPosition(
-  world: World,
-  entity: EntityId,
-  x: number,
-  y: number
-): void {
+export function setPosition(world: World, entity: EntityId, x: number, y: number): void {
   const posComp = getPosition(world, entity);
   if (posComp) {
     posComp.x = x;
@@ -1514,9 +1431,7 @@ export function getAllObstacleSnapshots(world: World): ObstacleSnapshot[] {
  * Get all obstacle positions for spawn safety checks.
  * Returns array of { position, radius } for distance calculations.
  */
-export function getObstacleZones(
-  world: World
-): Array<{ position: Position; radius: number }> {
+export function getObstacleZones(world: World): Array<{ position: Position; radius: number }> {
   const zones: Array<{ position: Position; radius: number }> = [];
   forEachObstacle(world, (_entity, position, obstacle) => {
     zones.push({ position, radius: obstacle.radius });
@@ -1534,20 +1449,26 @@ export function getObstacleCount(world: World): number {
 /**
  * Convert ECS obstacles to legacy Obstacle record for network broadcasts.
  */
-export function buildObstaclesRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  radius: number;
-  strength: number;
-  damageRate: number;
-}> {
-  const result: Record<string, {
+export function buildObstaclesRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     radius: number;
     strength: number;
     damageRate: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      radius: number;
+      strength: number;
+      damageRate: number;
+    }
+  > = {};
 
   world.forEachWithTag(Tags.Obstacle, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -1592,12 +1513,7 @@ export interface NutrientSnapshot {
  */
 export function forEachNutrient(
   world: World,
-  callback: (
-    entity: EntityId,
-    id: string,
-    position: Position,
-    nutrient: NutrientComponent
-  ) => void
+  callback: (entity: EntityId, id: string, position: Position, nutrient: NutrientComponent) => void
 ): void {
   world.forEachWithTag(Tags.Nutrient, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -1652,22 +1568,28 @@ export function getNutrientCount(world: World): number {
 /**
  * Convert ECS nutrients to legacy Nutrient record for network broadcasts.
  */
-export function buildNutrientsRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  value: number;
-  capacityIncrease: number;
-  valueMultiplier: number;
-  isHighValue: boolean;
-}> {
-  const result: Record<string, {
+export function buildNutrientsRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     value: number;
     capacityIncrease: number;
     valueMultiplier: number;
     isHighValue: boolean;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      value: number;
+      capacityIncrease: number;
+      valueMultiplier: number;
+      isHighValue: boolean;
+    }
+  > = {};
 
   forEachNutrient(world, (_entity, id, position, nutrient) => {
     result[id] = {
@@ -1741,17 +1663,11 @@ export function hasDrainTarget(world: World, preySocketId: string): boolean {
  * @param preySocketId Socket ID of the prey
  * @returns Predator socket ID, or undefined if not being drained
  */
-export function getDrainPredatorId(
-  world: World,
-  preySocketId: string
-): string | undefined {
+export function getDrainPredatorId(world: World, preySocketId: string): string | undefined {
   const preyEntity = getEntityBySocketId(preySocketId);
   if (preyEntity === undefined) return undefined;
 
-  const drainComp = world.getComponent<DrainTargetComponent>(
-    preyEntity,
-    Components.DrainTarget
-  );
+  const drainComp = world.getComponent<DrainTargetComponent>(preyEntity, Components.DrainTarget);
   if (!drainComp) return undefined;
 
   return getSocketIdByEntity(drainComp.predatorId);
@@ -1793,7 +1709,7 @@ export interface SwarmSnapshot {
   velocity: { x: number; y: number };
   size: number;
   state: 'patrol' | 'chase';
-  targetPlayerId?: string;  // Socket ID (converted from EntityId)
+  targetPlayerId?: string; // Socket ID (converted from EntityId)
   patrolTarget?: Position;
   homePosition: Position;
   disabledUntil?: number;
@@ -1876,7 +1792,10 @@ export function getSwarmEntity(world: World, swarmId: string): EntityId | undefi
  * Get swarm components by string ID.
  * Returns all components needed for swarm operations.
  */
-export function getSwarmComponents(world: World, swarmId: string): {
+export function getSwarmComponents(
+  world: World,
+  swarmId: string
+): {
   entity: EntityId;
   position: PositionComponent;
   velocity: VelocityComponent;
@@ -1900,18 +1819,9 @@ export function getSwarmComponents(world: World, swarmId: string): {
  * Convert ECS swarms to EntropySwarm record for network broadcasts.
  * Matches the EntropySwarm interface expected by clients.
  */
-export function buildSwarmsRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  velocity: { x: number; y: number };
-  size: number;
-  state: 'patrol' | 'chase';
-  targetPlayerId?: string;
-  patrolTarget?: Position;
-  disabledUntil?: number;
-  energy?: number;
-}> {
-  const result: Record<string, {
+export function buildSwarmsRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     velocity: { x: number; y: number };
@@ -1921,7 +1831,22 @@ export function buildSwarmsRecord(world: World): Record<string, {
     patrolTarget?: Position;
     disabledUntil?: number;
     energy?: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      velocity: { x: number; y: number };
+      size: number;
+      state: 'patrol' | 'chase';
+      targetPlayerId?: string;
+      patrolTarget?: Position;
+      disabledUntil?: number;
+      energy?: number;
+    }
+  > = {};
 
   world.forEachWithTag(Tags.Swarm, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -1962,7 +1887,10 @@ export function recordDamage(
   source: DamageSource,
   proximityFactor?: number
 ): void {
-  const damageTracking = world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
+  const damageTracking = world.getComponent<DamageTrackingComponent>(
+    entity,
+    Components.DamageTracking
+  );
   if (damageTracking) {
     damageTracking.activeDamage.push({ damageRate, source, proximityFactor });
   }
@@ -1991,12 +1919,7 @@ export interface TreeSnapshot {
  */
 export function forEachTree(
   world: World,
-  callback: (
-    entity: EntityId,
-    id: string,
-    position: PositionComponent,
-    tree: TreeComponent
-  ) => void
+  callback: (entity: EntityId, id: string, position: PositionComponent, tree: TreeComponent) => void
 ): void {
   world.forEachWithTag(Tags.Tree, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -2038,20 +1961,26 @@ export function getTreeCount(world: World): number {
  * Convert ECS trees to Tree record for network broadcasts.
  * Matches the Tree interface expected by clients.
  */
-export function buildTreesRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  radius: number;
-  height: number;
-  variant: number;
-}> {
-  const result: Record<string, {
+export function buildTreesRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     radius: number;
     height: number;
     variant: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      radius: number;
+      height: number;
+      variant: number;
+    }
+  > = {};
 
   forEachTree(world, (_entity, id, pos, tree) => {
     result[id] = {
@@ -2087,11 +2016,11 @@ export function createDataFruitOnGround(
     z: 0,
   });
   world.addComponent<DataFruitComponent>(entity, Components.DataFruit, {
-    treeEntityId: 0,  // Not attached to tree
+    treeEntityId: 0, // Not attached to tree
     value: GAME_CONFIG.DATAFRUIT_VALUE,
     capacityIncrease: GAME_CONFIG.DATAFRUIT_CAPACITY,
     ripeness: 1.0,
-    fallenAt: Date.now(),  // Already on ground, starts despawn timer
+    fallenAt: Date.now(), // Already on ground, starts despawn timer
   });
 
   world.addTag(entity, Tags.DataFruit);
@@ -2356,16 +2285,9 @@ export function getAllDataFruitSnapshots(world: World): DataFruitSnapshot[] {
 /**
  * Convert ECS DataFruits to network format.
  */
-export function buildDataFruitsRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  treeEntityId: number;
-  value: number;
-  capacityIncrease: number;
-  ripeness: number;
-  fallenAt?: number;
-}> {
-  const result: Record<string, {
+export function buildDataFruitsRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     treeEntityId: number;
@@ -2373,7 +2295,20 @@ export function buildDataFruitsRecord(world: World): Record<string, {
     capacityIncrease: number;
     ripeness: number;
     fallenAt?: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      treeEntityId: number;
+      value: number;
+      capacityIncrease: number;
+      ripeness: number;
+      fallenAt?: number;
+    }
+  > = {};
 
   forEachDataFruit(world, (_entity, id, pos, fruit) => {
     result[id] = {
@@ -2451,22 +2386,28 @@ export function getAllCyberBugSnapshots(world: World): CyberBugSnapshot[] {
 /**
  * Convert ECS CyberBugs to network format.
  */
-export function buildCyberBugsRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  swarmId: string;
-  state: 'idle' | 'patrol' | 'flee';
-  value: number;
-  capacityIncrease: number;
-}> {
-  const result: Record<string, {
+export function buildCyberBugsRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     swarmId: string;
     state: 'idle' | 'patrol' | 'flee';
     value: number;
     capacityIncrease: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      swarmId: string;
+      state: 'idle' | 'patrol' | 'flee';
+      value: number;
+      capacityIncrease: number;
+    }
+  > = {};
 
   forEachCyberBug(world, (_entity, id, pos, bug) => {
     result[id] = {
@@ -2495,7 +2436,7 @@ export interface JungleCreatureSnapshot {
   position: Position;
   variant: 'grazer' | 'stalker' | 'ambusher';
   state: 'idle' | 'patrol' | 'hunt' | 'flee';
-  size: number;  // Collision radius
+  size: number; // Collision radius
   value: number;
   capacityIncrease: number;
 }
@@ -2545,22 +2486,28 @@ export function getAllJungleCreatureSnapshots(world: World): JungleCreatureSnaps
 /**
  * Convert ECS JungleCreatures to network format.
  */
-export function buildJungleCreaturesRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  variant: 'grazer' | 'stalker' | 'ambusher';
-  state: 'idle' | 'patrol' | 'hunt' | 'flee';
-  value: number;
-  capacityIncrease: number;
-}> {
-  const result: Record<string, {
+export function buildJungleCreaturesRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     variant: 'grazer' | 'stalker' | 'ambusher';
     state: 'idle' | 'patrol' | 'hunt' | 'flee';
     value: number;
     capacityIncrease: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      variant: 'grazer' | 'stalker' | 'ambusher';
+      state: 'idle' | 'patrol' | 'hunt' | 'flee';
+      value: number;
+      capacityIncrease: number;
+    }
+  > = {};
 
   forEachJungleCreature(world, (_entity, id, pos, creature) => {
     result[id] = {
@@ -2639,22 +2586,28 @@ export function getAllProjectileSnapshots(world: World): ProjectileSnapshot[] {
 /**
  * Convert ECS Projectiles to network format.
  */
-export function buildProjectilesRecord(world: World): Record<string, {
-  id: string;
-  ownerId: string;
-  position: Position;
-  targetPosition: Position;
-  state: 'traveling' | 'hit' | 'missed';
-  color: string;
-}> {
-  const result: Record<string, {
+export function buildProjectilesRecord(world: World): Record<
+  string,
+  {
     id: string;
     ownerId: string;
     position: Position;
     targetPosition: Position;
     state: 'traveling' | 'hit' | 'missed';
     color: string;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      ownerId: string;
+      position: Position;
+      targetPosition: Position;
+      state: 'traveling' | 'hit' | 'missed';
+      color: string;
+    }
+  > = {};
 
   forEachProjectile(world, (_entity, id, pos, projectile) => {
     result[id] = {
@@ -2716,12 +2669,7 @@ export function createTrap(
  */
 export function forEachTrap(
   world: World,
-  callback: (
-    entity: EntityId,
-    id: string,
-    position: PositionComponent,
-    trap: TrapComponent
-  ) => void
+  callback: (entity: EntityId, id: string, position: PositionComponent, trap: TrapComponent) => void
 ): void {
   world.forEachWithTag(Tags.Trap, (entity) => {
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
@@ -2780,18 +2728,9 @@ export function getAllTrapSnapshots(world: World): {
 /**
  * Convert ECS Traps to network format.
  */
-export function buildTrapsRecord(world: World): Record<string, {
-  id: string;
-  ownerId: string;
-  position: Position;
-  triggerRadius: number;
-  damage: number;
-  stunDuration: number;
-  placedAt: number;
-  lifetime: number;
-  color: string;
-}> {
-  const result: Record<string, {
+export function buildTrapsRecord(world: World): Record<
+  string,
+  {
     id: string;
     ownerId: string;
     position: Position;
@@ -2801,7 +2740,22 @@ export function buildTrapsRecord(world: World): Record<string, {
     placedAt: number;
     lifetime: number;
     color: string;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      ownerId: string;
+      position: Position;
+      triggerRadius: number;
+      damage: number;
+      stunDuration: number;
+      placedAt: number;
+      lifetime: number;
+      color: string;
+    }
+  > = {};
 
   forEachTrap(world, (_entity, id, pos, trap) => {
     result[id] = {
@@ -2966,16 +2920,9 @@ export function getSerpentHeadPosition(
 /**
  * Convert ECS EntropySerpents to network format.
  */
-export function buildEntropySerpentsRecord(world: World): Record<string, {
-  id: string;
-  position: Position;
-  state: 'patrol' | 'chase' | 'attack';
-  heading: number;
-  targetPlayerId?: string;
-  energy: number;
-  maxEnergy: number;
-}> {
-  const result: Record<string, {
+export function buildEntropySerpentsRecord(world: World): Record<
+  string,
+  {
     id: string;
     position: Position;
     state: 'patrol' | 'chase' | 'attack';
@@ -2983,7 +2930,20 @@ export function buildEntropySerpentsRecord(world: World): Record<string, {
     targetPlayerId?: string;
     energy: number;
     maxEnergy: number;
-  }> = {};
+  }
+> {
+  const result: Record<
+    string,
+    {
+      id: string;
+      position: Position;
+      state: 'patrol' | 'chase' | 'attack';
+      heading: number;
+      targetPlayerId?: string;
+      energy: number;
+      maxEnergy: number;
+    }
+  > = {};
 
   forEachEntropySerpent(world, (entity, id, pos, _vel, serpent) => {
     // Convert targetEntityId to targetPlayerId (socket ID)

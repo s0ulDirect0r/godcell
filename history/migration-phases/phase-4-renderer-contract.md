@@ -17,6 +17,7 @@ Define a renderer-agnostic contract and wrap existing Phaser rendering logic beh
 ## Files to Create
 
 ### `client/src/render/Renderer.ts`
+
 Renderer contract interface.
 
 ```typescript
@@ -69,6 +70,7 @@ export interface Renderer {
 ```
 
 ### `client/src/render/phaser/PhaserRenderer.ts`
+
 Phaser implementation of renderer contract.
 
 ```typescript
@@ -172,6 +174,7 @@ class PhaserRenderScene extends Phaser.Scene {
 ## Files to Modify
 
 ### `client/src/main.ts`
+
 Bootstrap using renderer contract.
 
 ```typescript
@@ -195,9 +198,7 @@ if (flags.showDebugOverlay) {
 const gameState = new GameState();
 const inputManager = new InputManager();
 
-const serverUrl = import.meta.env.DEV
-  ? 'http://localhost:3000'
-  : window.location.origin;
+const serverUrl = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin;
 const socketManager = new SocketManager(serverUrl, gameState);
 
 // Initialize renderer
@@ -235,6 +236,7 @@ console.log(`[Init] Renderer mode: ${flags.mode}`);
 ```
 
 ### `client/src/scenes/GameScene.ts`
+
 **This file can be deleted or gutted** - all logic moved to `PhaserRenderer` and `main.ts`.
 
 ## Test Cases
@@ -269,12 +271,14 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - This is the biggest code move of the migration (~1000 lines)
 - Mechanical copying - easy to miss a sprite type or handler
 - Test thoroughly after moving code
 - Camera projection must be wired to InputManager
 
 **Architecture benefits:**
+
 - GameScene no longer exists (or is minimal)
 - Phaser is now isolated in render/phaser/
 - Can swap to Three.js without touching core logic
@@ -282,6 +286,7 @@ npm run dev
 
 **Big refactor:**
 This phase involves moving a lot of code. Take time to:
+
 1. Copy rendering logic methodically
 2. Test each entity type (players, nutrients, obstacles, swarms)
 3. Verify trails, particles, camera follow all work

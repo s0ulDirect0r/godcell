@@ -129,12 +129,17 @@ export function getStageEnergy(stage: EvolutionStage): { energy: number; maxEner
 /**
  * Get next evolution stage and required maxEnergy threshold
  */
-export function getNextEvolutionStage(currentStage: EvolutionStage): { stage: EvolutionStage; threshold: number } | null {
+export function getNextEvolutionStage(
+  currentStage: EvolutionStage
+): { stage: EvolutionStage; threshold: number } | null {
   switch (currentStage) {
     case EvolutionStage.SINGLE_CELL:
       return { stage: EvolutionStage.MULTI_CELL, threshold: getConfig('EVOLUTION_MULTI_CELL') };
     case EvolutionStage.MULTI_CELL:
-      return { stage: EvolutionStage.CYBER_ORGANISM, threshold: getConfig('EVOLUTION_CYBER_ORGANISM') };
+      return {
+        stage: EvolutionStage.CYBER_ORGANISM,
+        threshold: getConfig('EVOLUTION_CYBER_ORGANISM'),
+      };
     case EvolutionStage.CYBER_ORGANISM:
       return { stage: EvolutionStage.HUMANOID, threshold: getConfig('EVOLUTION_HUMANOID') };
     case EvolutionStage.HUMANOID:

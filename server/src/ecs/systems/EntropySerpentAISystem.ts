@@ -112,8 +112,9 @@ export class EntropySerpentAISystem implements System {
           serpent.targetEntityId = target.entity;
 
           // Check attack cooldown
-          const canAttack = !serpent.lastAttackTime ||
-            (now - serpent.lastAttackTime) >= GAME_CONFIG.ENTROPY_SERPENT_ATTACK_COOLDOWN;
+          const canAttack =
+            !serpent.lastAttackTime ||
+            now - serpent.lastAttackTime >= GAME_CONFIG.ENTROPY_SERPENT_ATTACK_COOLDOWN;
 
           // Recalculate facing after heading update
           const currentHeadingDiff = Math.atan2(
@@ -149,7 +150,6 @@ export class EntropySerpentAISystem implements System {
             vel.x = 0;
             vel.y = 0;
           }
-
         } else {
           // CHASE MODE - pursue relentlessly
           serpent.state = 'chase';
@@ -213,9 +213,11 @@ export class EntropySerpentAISystem implements System {
       if (!stage || !pos || !energy) return;
 
       // Only hunt Stage 3+ (cyber-organism, humanoid, godcell)
-      if (stage.stage !== EvolutionStage.CYBER_ORGANISM &&
-          stage.stage !== EvolutionStage.HUMANOID &&
-          stage.stage !== EvolutionStage.GODCELL) {
+      if (
+        stage.stage !== EvolutionStage.CYBER_ORGANISM &&
+        stage.stage !== EvolutionStage.HUMANOID &&
+        stage.stage !== EvolutionStage.GODCELL
+      ) {
         return;
       }
 
@@ -274,18 +276,21 @@ export class EntropySerpentAISystem implements System {
     console.log('[SerpentAttack SERVER] Attack initiated:', {
       bodyPos: { x: serpentPos.x.toFixed(1), y: serpentPos.y.toFixed(1) },
       headPos: { x: headPos.x.toFixed(1), y: headPos.y.toFixed(1) },
-      headingDeg: (serpent.heading * 180 / Math.PI).toFixed(1) + '°',
+      headingDeg: ((serpent.heading * 180) / Math.PI).toFixed(1) + '°',
       headOffset: actualHeadOffset,
     });
-    logger.info({
-      event: 'serpent_attack_debug',
-      serpentId,
-      bodyPos: { x: serpentPos.x, y: serpentPos.y },
-      headPos,
-      heading: serpent.heading,
-      headingDeg: (serpent.heading * 180 / Math.PI).toFixed(1),
-      attackRange,
-    }, 'Serpent attack initiated');
+    logger.info(
+      {
+        event: 'serpent_attack_debug',
+        serpentId,
+        bodyPos: { x: serpentPos.x, y: serpentPos.y },
+        headPos,
+        heading: serpent.heading,
+        headingDeg: ((serpent.heading * 180) / Math.PI).toFixed(1),
+        attackRange,
+      },
+      'Serpent attack initiated'
+    );
 
     // Check all players for hits
     world.forEachWithTag(Tags.Player, (playerEntity) => {
@@ -305,16 +310,19 @@ export class EntropySerpentAISystem implements System {
       const playerId = getSocketIdByEntity(playerEntity);
 
       // Debug: Log every player check
-      logger.info({
-        event: 'serpent_attack_check',
-        serpentId,
-        playerId,
-        playerPos: { x: playerPos.x, y: playerPos.y },
-        headPos,
-        distFromHead: dist.toFixed(1),
-        attackRange,
-        inRange: dist <= attackRange,
-      }, 'Checking player for attack hit');
+      logger.info(
+        {
+          event: 'serpent_attack_check',
+          serpentId,
+          playerId,
+          playerPos: { x: playerPos.x, y: playerPos.y },
+          headPos,
+          distFromHead: dist.toFixed(1),
+          attackRange,
+          inRange: dist <= attackRange,
+        },
+        'Checking player for attack hit'
+      );
 
       // Must be within attack range of HEAD
       if (dist > attackRange) return;
@@ -327,16 +335,19 @@ export class EntropySerpentAISystem implements System {
       );
 
       // Debug: Log arc check
-      logger.info({
-        event: 'serpent_attack_arc_check',
-        serpentId,
-        playerId,
-        angleToPlayer: (angleToPlayer * 180 / Math.PI).toFixed(1),
-        serpentHeading: (serpent.heading * 180 / Math.PI).toFixed(1),
-        angleDiff: (angleDiff * 180 / Math.PI).toFixed(1),
-        halfArcDeg: (halfArc * 180 / Math.PI).toFixed(1),
-        inArc: Math.abs(angleDiff) <= halfArc,
-      }, 'Arc check');
+      logger.info(
+        {
+          event: 'serpent_attack_arc_check',
+          serpentId,
+          playerId,
+          angleToPlayer: ((angleToPlayer * 180) / Math.PI).toFixed(1),
+          serpentHeading: ((serpent.heading * 180) / Math.PI).toFixed(1),
+          angleDiff: ((angleDiff * 180) / Math.PI).toFixed(1),
+          halfArcDeg: ((halfArc * 180) / Math.PI).toFixed(1),
+          inArc: Math.abs(angleDiff) <= halfArc,
+        },
+        'Arc check'
+      );
 
       if (Math.abs(angleDiff) <= halfArc) {
         // HIT! Deal damage
@@ -388,13 +399,16 @@ export class EntropySerpentAISystem implements System {
         });
       }
 
-      logger.info({
-        event: 'entropy_serpent_attack',
-        serpentId,
-        hitPlayerIds,
-        damage,
-        headPos,
-      }, 'Entropy serpent melee attack');
+      logger.info(
+        {
+          event: 'entropy_serpent_attack',
+          serpentId,
+          hitPlayerIds,
+          damage,
+          headPos,
+        },
+        'Entropy serpent melee attack'
+      );
     }
   }
 
@@ -459,11 +473,14 @@ export class EntropySerpentAISystem implements System {
       position,
     });
 
-    logger.info({
-      event: 'entropy_serpent_killed',
-      serpentId,
-      position,
-    }, 'Entropy serpent killed');
+    logger.info(
+      {
+        event: 'entropy_serpent_killed',
+        serpentId,
+        position,
+      },
+      'Entropy serpent killed'
+    );
 
     // Schedule respawn
     pendingRespawns.set(serpentId, {
@@ -492,11 +509,14 @@ export class EntropySerpentAISystem implements System {
           position: respawn.homePosition,
         });
 
-        logger.info({
-          event: 'entropy_serpent_respawned',
-          serpentId,
-          position: respawn.homePosition,
-        }, 'Entropy serpent respawned');
+        logger.info(
+          {
+            event: 'entropy_serpent_respawned',
+            serpentId,
+            position: respawn.homePosition,
+          },
+          'Entropy serpent respawned'
+        );
       }
     }
   }

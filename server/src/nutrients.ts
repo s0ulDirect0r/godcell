@@ -11,7 +11,11 @@ import type { Server } from 'socket.io';
 import type { Nutrient, Position, World, NutrientSpawnedMessage } from '#shared';
 import { GAME_CONFIG } from '#shared';
 import { createNutrient, getNutrientCount, getAllObstacleSnapshots } from './ecs';
-import { isNutrientSpawnSafe, calculateNutrientValueMultiplier, poissonDiscSampling } from './helpers';
+import {
+  isNutrientSpawnSafe,
+  calculateNutrientValueMultiplier,
+  poissonDiscSampling,
+} from './helpers';
 import { getConfig } from './dev';
 import { logger, logNutrientsSpawned } from './logger';
 
@@ -89,7 +93,10 @@ export function spawnNutrient(emitEvent: boolean = false): Nutrient {
 
   // Log warning if we had to use fallback
   if (attempts >= maxAttempts) {
-    logger.warn({ event: 'nutrient_spawn_fallback', attempts: maxAttempts }, 'Could not find safe nutrient spawn position after max attempts, using fallback');
+    logger.warn(
+      { event: 'nutrient_spawn_fallback', attempts: maxAttempts },
+      'Could not find safe nutrient spawn position after max attempts, using fallback'
+    );
   }
 
   return spawnNutrientAt(position, undefined, emitEvent);
@@ -102,7 +109,11 @@ export function spawnNutrient(emitEvent: boolean = false): Nutrient {
  * @param overrideMultiplier - Optional multiplier override (1/2/3/5) for dev tools
  * @returns Nutrient data (for network messages)
  */
-export function spawnNutrientAt(position: Position, overrideMultiplier?: number, emitEvent: boolean = false): Nutrient {
+export function spawnNutrientAt(
+  position: Position,
+  overrideMultiplier?: number,
+  emitEvent: boolean = false
+): Nutrient {
   assertInitialized();
   // Calculate nutrient value based on proximity to obstacles (gradient system)
   // Or use override multiplier if provided (dev tool)
@@ -114,15 +125,7 @@ export function spawnNutrientAt(position: Position, overrideMultiplier?: number,
   const capacityIncrease = getConfig('NUTRIENT_CAPACITY_INCREASE') * valueMultiplier;
 
   // Create in ECS (source of truth)
-  createNutrient(
-    world,
-    id,
-    position,
-    value,
-    capacityIncrease,
-    valueMultiplier,
-    isHighValue
-  );
+  createNutrient(world, id, position, value, capacityIncrease, valueMultiplier, isHighValue);
 
   // Build nutrient data for return/broadcast
   const nutrient: Nutrient = {
@@ -177,7 +180,7 @@ export function initializeNutrients(): void {
   // Query obstacles from ECS (source of truth)
   // Obstacles are in soup-world coordinates, so offset them back to local space for sampling
   const obstacles = getAllObstacleSnapshots(world);
-  const avoidanceZones = obstacles.map(obstacle => ({
+  const avoidanceZones = obstacles.map((obstacle) => ({
     position: {
       x: obstacle.position.x - GAME_CONFIG.SOUP_ORIGIN_X,
       y: obstacle.position.y - GAME_CONFIG.SOUP_ORIGIN_Y,
@@ -207,10 +210,13 @@ export function initializeNutrients(): void {
   logNutrientsSpawned(count);
 
   if (count < GAME_CONFIG.NUTRIENT_COUNT) {
-    logger.warn({
-      event: 'nutrient_init_incomplete',
-      placed: count,
-      target: GAME_CONFIG.NUTRIENT_COUNT,
-    }, `Only placed ${count}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`);
+    logger.warn(
+      {
+        event: 'nutrient_init_incomplete',
+        placed: count,
+        target: GAME_CONFIG.NUTRIENT_COUNT,
+      },
+      `Only placed ${count}/${GAME_CONFIG.NUTRIENT_COUNT} nutrients (space constraints)`
+    );
   }
 }

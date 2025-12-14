@@ -168,7 +168,9 @@ export class ProjectileSystem implements System {
         });
 
         logger.info({
-          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_bug' : 'player_projectile_kill_bug',
+          event: isBot(projComp.ownerSocketId)
+            ? 'bot_projectile_kill_bug'
+            : 'player_projectile_kill_bug',
           shooter: projComp.ownerSocketId,
           bugId: bugToKill.id,
           energyGained: bugComp.value,
@@ -183,12 +185,19 @@ export class ProjectileSystem implements System {
 
     // Check JungleCreatures
     // Use for...of with break for true early exit
-    let creatureToKill: { entity: EntityId; id: string; pos: { x: number; y: number } } | null = null;
+    let creatureToKill: { entity: EntityId; id: string; pos: { x: number; y: number } } | null =
+      null;
 
     const creatureEntities = world.getEntitiesWithTag(Tags.JungleCreature);
     for (const creatureEntity of creatureEntities) {
-      const creaturePos = world.getComponent<PositionComponent>(creatureEntity, Components.Position);
-      const creatureComp = world.getComponent<JungleCreatureComponent>(creatureEntity, Components.JungleCreature);
+      const creaturePos = world.getComponent<PositionComponent>(
+        creatureEntity,
+        Components.Position
+      );
+      const creatureComp = world.getComponent<JungleCreatureComponent>(
+        creatureEntity,
+        Components.JungleCreature
+      );
       const creatureId = getStringIdByEntity(creatureEntity);
       if (!creaturePos || !creatureComp || !creatureId) continue;
 
@@ -205,7 +214,10 @@ export class ProjectileSystem implements System {
 
     // Process creature kill
     if (creatureToKill) {
-      const creatureComp = world.getComponent<JungleCreatureComponent>(creatureToKill.entity, Components.JungleCreature);
+      const creatureComp = world.getComponent<JungleCreatureComponent>(
+        creatureToKill.entity,
+        Components.JungleCreature
+      );
       const shooterEntity2 = getEntityBySocketId(projComp.ownerSocketId);
       if (creatureComp && shooterEntity2) {
         // Award energy and capacity to shooter (entity-based)
@@ -236,7 +248,9 @@ export class ProjectileSystem implements System {
         });
 
         logger.info({
-          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_kill_creature' : 'player_projectile_kill_creature',
+          event: isBot(projComp.ownerSocketId)
+            ? 'bot_projectile_kill_creature'
+            : 'player_projectile_kill_creature',
           shooter: projComp.ownerSocketId,
           creatureId: creatureToKill.id,
           variant: creatureComp.variant,
@@ -256,7 +270,10 @@ export class ProjectileSystem implements System {
     const serpentEntities = world.getEntitiesWithTag(Tags.EntropySerpent);
     for (const serpentEntity of serpentEntities) {
       const serpentPos = world.getComponent<PositionComponent>(serpentEntity, Components.Position);
-      const serpentComp = world.getComponent<EntropySerpentComponent>(serpentEntity, Components.EntropySerpent);
+      const serpentComp = world.getComponent<EntropySerpentComponent>(
+        serpentEntity,
+        Components.EntropySerpent
+      );
       const serpentId = getStringIdByEntity(serpentEntity);
       if (!serpentPos || !serpentComp || !serpentId) continue;
 
@@ -273,7 +290,10 @@ export class ProjectileSystem implements System {
 
     // Process serpent hit (damage but don't destroy - AI system handles death)
     if (serpentHit) {
-      const serpentEnergy = world.getComponent<EnergyComponent>(serpentHit.entity, Components.Energy);
+      const serpentEnergy = world.getComponent<EnergyComponent>(
+        serpentHit.entity,
+        Components.Energy
+      );
       if (serpentEnergy) {
         serpentEnergy.current = Math.max(0, serpentEnergy.current - projComp.damage);
 
@@ -296,7 +316,9 @@ export class ProjectileSystem implements System {
         });
 
         logger.info({
-          event: isBot(projComp.ownerSocketId) ? 'bot_projectile_hit_serpent' : 'player_projectile_hit_serpent',
+          event: isBot(projComp.ownerSocketId)
+            ? 'bot_projectile_hit_serpent'
+            : 'player_projectile_hit_serpent',
           shooter: projComp.ownerSocketId,
           serpentId: serpentHit.id,
           damage: projComp.damage,
@@ -390,7 +412,9 @@ export class ProjectileSystem implements System {
       });
 
       logger.info({
-        event: isBot(projComp.ownerSocketId) ? 'bot_projectile_hit_player' : 'player_projectile_hit_player',
+        event: isBot(projComp.ownerSocketId)
+          ? 'bot_projectile_hit_player'
+          : 'player_projectile_hit_player',
         shooter: projComp.ownerSocketId,
         targetId: socketId,
         damage,

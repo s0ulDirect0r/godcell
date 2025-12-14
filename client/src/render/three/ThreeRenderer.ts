@@ -203,7 +203,13 @@ export class ThreeRenderer implements Renderer {
     this.scene.add(keyLight);
 
     // Create postprocessing composer (store passes for camera switching and debug toggles)
-    const composerResult = createComposer(this.renderer, this.scene, this.cameraSystem.getOrthoCamera(), width, height);
+    const composerResult = createComposer(
+      this.renderer,
+      this.scene,
+      this.cameraSystem.getOrthoCamera(),
+      width,
+      height
+    );
     this.composer = composerResult.composer;
     this.renderPass = composerResult.renderPass;
     this.bloomPass = composerResult.bloomPass;
@@ -216,352 +222,428 @@ export class ThreeRenderer implements Renderer {
     // Import eventBus for death animations
     // All subscriptions are tracked for cleanup in dispose()
     import('../../core/events/EventBus').then(({ eventBus }) => {
-      this.eventSubscriptions.push(eventBus.on('playerDied', (event) => {
-        // Get position and color before removal
-        const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
-        const color = this.playerRenderSystem.getPlayerColor(event.playerId);
+      this.eventSubscriptions.push(
+        eventBus.on('playerDied', (event) => {
+          // Get position and color before removal
+          const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
+          const color = this.playerRenderSystem.getPlayerColor(event.playerId);
 
-        // Only spawn death effects in soup mode (soup-scale visual)
-        if (position && this.environmentSystem.getMode() === 'soup') {
-          this.effectsSystem.spawnDeathBurst(position.x, position.y, color);
-        }
+          // Only spawn death effects in soup mode (soup-scale visual)
+          if (position && this.environmentSystem.getMode() === 'soup') {
+            this.effectsSystem.spawnDeathBurst(position.x, position.y, color);
+          }
 
-        // Remove player mesh, outline, and evolution state
-        this.playerRenderSystem.removePlayer(event.playerId);
+          // Remove player mesh, outline, and evolution state
+          this.playerRenderSystem.removePlayer(event.playerId);
 
-        // Remove trail
-        this.trailSystem.removeTrail(event.playerId);
-      }));
+          // Remove trail
+          this.trailSystem.removeTrail(event.playerId);
+        })
+      );
 
       // Evolution started - delegate to player render system
-      this.eventSubscriptions.push(eventBus.on('playerEvolutionStarted', (event) => {
-        const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId);
-        const targetRadius = this.playerRenderSystem.getPlayerRadius(event.targetStage);
+      this.eventSubscriptions.push(
+        eventBus.on('playerEvolutionStarted', (event) => {
+          const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId);
+          const targetRadius = this.playerRenderSystem.getPlayerRadius(event.targetStage);
 
-        // Start evolution animation in player render system
-        this.playerRenderSystem.startEvolution(
-          event.playerId,
-          event.currentStage,
-          event.targetStage,
-          event.duration,
-          targetRadius,
-          colorHex
-        );
+          // Start evolution animation in player render system
+          this.playerRenderSystem.startEvolution(
+            event.playerId,
+            event.currentStage,
+            event.targetStage,
+            event.duration,
+            targetRadius,
+            colorHex
+          );
 
-        // Spawn evolution particles
-        const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
-        if (position) {
-          this.effectsSystem.spawnEvolution(position.x, position.y, colorHex, event.duration);
-        }
-      }));
+          // Spawn evolution particles
+          const position = this.playerRenderSystem.getPlayerPosition(event.playerId);
+          if (position) {
+            this.effectsSystem.spawnEvolution(position.x, position.y, colorHex, event.duration);
+          }
+        })
+      );
 
       // Evolution completed - finalize mesh swap
-      this.eventSubscriptions.push(eventBus.on('playerEvolved', (event) => {
-        // Complete evolution in player render system
-        this.playerRenderSystem.completeEvolution(event.playerId);
+      this.eventSubscriptions.push(
+        eventBus.on('playerEvolved', (event) => {
+          // Complete evolution in player render system
+          this.playerRenderSystem.completeEvolution(event.playerId);
 
-        // Update camera zoom if this is the local player
-        if (this.myPlayerId && event.playerId === this.myPlayerId) {
-          this.cameraSystem.setTargetZoom(CameraSystem.getStageZoom(event.newStage));
+          // Update camera zoom if this is the local player
+          if (this.myPlayerId && event.playerId === this.myPlayerId) {
+            this.cameraSystem.setTargetZoom(CameraSystem.getStageZoom(event.newStage));
 
-          // Update outline for new stage
-          this.playerRenderSystem.updateOutlineForStage(event.playerId, event.newStage);
-        }
-      }));
+            // Update outline for new stage
+            this.playerRenderSystem.updateOutlineForStage(event.playerId, event.newStage);
+          }
+        })
+      );
 
       // Player respawned - reset camera zoom
-      this.eventSubscriptions.push(eventBus.on('playerRespawned', (event) => {
-        // Update camera zoom if this is the local player
-        if (this.myPlayerId && event.player.id === this.myPlayerId) {
-          // Set zoom based on respawn stage (instant, no transition)
-          this.cameraSystem.setZoomInstant(CameraSystem.getStageZoom(event.player.stage));
-          this.initialZoomSet = false; // Allow re-initialization
-        }
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('playerRespawned', (event) => {
+          // Update camera zoom if this is the local player
+          if (this.myPlayerId && event.player.id === this.myPlayerId) {
+            // Set zoom based on respawn stage (instant, no transition)
+            this.cameraSystem.setZoomInstant(CameraSystem.getStageZoom(event.player.stage));
+            this.initialZoomSet = false; // Allow re-initialization
+          }
+        })
+      );
 
       // Detection update - chemical sensing for Stage 2+
-      this.eventSubscriptions.push(eventBus.on('detectionUpdate', (event) => {
-        this.playerRenderSystem.setDetectedEntities(event.detected);
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('detectionUpdate', (event) => {
+          this.playerRenderSystem.setDetectedEntities(event.detected);
+        })
+      );
 
       // EMP activation - spawn visual pulse effect (soup-scale ability)
-      this.eventSubscriptions.push(eventBus.on('empActivated', (event) => {
-        if (this.environmentSystem.getMode() === 'soup') {
-          this.effectsSystem.spawnEMP(event.position.x, event.position.y);
-        }
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('empActivated', (event) => {
+          if (this.environmentSystem.getMode() === 'soup') {
+            this.effectsSystem.spawnEMP(event.position.x, event.position.y);
+          }
+        })
+      );
 
       // Swarm consumed - spawn death explosion + energy transfer to consumer (soup-scale)
-      this.eventSubscriptions.push(eventBus.on('swarmConsumed', (event) => {
-        // Only spawn effects in soup mode
-        if (this.environmentSystem.getMode() !== 'soup') return;
+      this.eventSubscriptions.push(
+        eventBus.on('swarmConsumed', (event) => {
+          // Only spawn effects in soup mode
+          if (this.environmentSystem.getMode() !== 'soup') return;
 
-        // Get swarm position before removal (system returns game coordinates)
-        const position = this.swarmRenderSystem.getSwarmPosition(event.swarmId);
-        const consumerPos = this.playerRenderSystem.getPlayerPosition(event.consumerId);
+          // Get swarm position before removal (system returns game coordinates)
+          const position = this.swarmRenderSystem.getSwarmPosition(event.swarmId);
+          const consumerPos = this.playerRenderSystem.getPlayerPosition(event.consumerId);
 
-        if (position) {
-          this.effectsSystem.spawnSwarmDeath(position.x, position.y);
+          if (position) {
+            this.effectsSystem.spawnSwarmDeath(position.x, position.y);
 
-          // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
-          if (consumerPos) {
-            this.effectsSystem.spawnEnergyTransfer(
-              position.x,
-              position.y,
-              consumerPos.x,
-              consumerPos.y,
-              event.consumerId,
-              0xff6600, // Orange for swarm energy
-              30 // More particles for swarm consumption
-            );
+            // Energy transfer particles from swarm to consumer (orange/red for swarm energy)
+            if (consumerPos) {
+              this.effectsSystem.spawnEnergyTransfer(
+                position.x,
+                position.y,
+                consumerPos.x,
+                consumerPos.y,
+                event.consumerId,
+                0xff6600, // Orange for swarm energy
+                30 // More particles for swarm consumption
+              );
+            }
           }
-        }
-      }));
+        })
+      );
 
-      this.eventSubscriptions.push(eventBus.on('pseudopodHit', (event) => {
-        // Only spawn hit effects in soup mode (soup-scale combat)
-        if (this.environmentSystem.getMode() !== 'soup') return;
+      this.eventSubscriptions.push(
+        eventBus.on('pseudopodHit', (event) => {
+          // Only spawn hit effects in soup mode (soup-scale combat)
+          if (this.environmentSystem.getMode() !== 'soup') return;
 
-        // Spawn red spark explosion at hit location
-        this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
+          // Spawn red spark explosion at hit location
+          this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
-        // Flash the drain aura on the target (shows they're taking damage)
-        this.auraRenderSystem.flashDrainAura(event.targetId);
+          // Flash the drain aura on the target (shows they're taking damage)
+          this.auraRenderSystem.flashDrainAura(event.targetId);
 
-        // Note: No energy transfer particles here - pseudopod hits only damage the target,
-        // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
-        // continuous energy detection in updateGainAuras).
-      }));
+          // Note: No energy transfer particles here - pseudopod hits only damage the target,
+          // they don't grant energy to the attacker. Beam KILLS grant energy (handled via
+          // continuous energy detection in updateGainAuras).
+        })
+      );
 
       // Pseudopod strike (energy whip AoE attack)
-      this.eventSubscriptions.push(eventBus.on('pseudopodStrike', (event) => {
-        // Only spawn strike effects in soup mode (soup-scale combat)
-        if (this.environmentSystem.getMode() !== 'soup') return;
+      this.eventSubscriptions.push(
+        eventBus.on('pseudopodStrike', (event) => {
+          // Only spawn strike effects in soup mode (soup-scale combat)
+          if (this.environmentSystem.getMode() !== 'soup') return;
 
-        const colorHex = parseInt(event.color.replace('#', ''), 16);
+          const colorHex = parseInt(event.color.replace('#', ''), 16);
 
-        // Spawn lightning bolt from striker to target + AoE impact explosion
-        this.effectsSystem.spawnEnergyWhipStrike(
-          event.strikerPosition.x,
-          event.strikerPosition.y,
-          event.targetPosition.x,
-          event.targetPosition.y,
-          event.aoeRadius,
-          colorHex,
-          event.totalDrained
-        );
+          // Spawn lightning bolt from striker to target + AoE impact explosion
+          this.effectsSystem.spawnEnergyWhipStrike(
+            event.strikerPosition.x,
+            event.strikerPosition.y,
+            event.targetPosition.x,
+            event.targetPosition.y,
+            event.aoeRadius,
+            colorHex,
+            event.totalDrained
+          );
 
-        // Flash drain aura on all hit targets
-        for (const targetId of event.hitTargetIds) {
-          this.auraRenderSystem.flashDrainAura(targetId);
-        }
-      }));
+          // Flash drain aura on all hit targets
+          for (const targetId of event.hitTargetIds) {
+            this.auraRenderSystem.flashDrainAura(targetId);
+          }
+        })
+      );
 
       // === Spawn animations for entity materialization (soup-scale only) ===
 
       // Player joined - trigger spawn animation (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('playerJoined', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        const colorHex = parseInt(event.player.color.replace('#', ''), 16);
-        this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('playerJoined', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          const colorHex = parseInt(event.player.color.replace('#', ''), 16);
+          this.effectsSystem.spawnMaterialize(
+            event.player.id,
+            'player',
+            event.player.position.x,
+            event.player.position.y,
+            colorHex
+          );
+        })
+      );
 
       // Player respawned - trigger spawn animation (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('playerRespawned', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        const colorHex = parseInt(event.player.color.replace('#', ''), 16);
-        this.effectsSystem.spawnMaterialize(event.player.id, 'player', event.player.position.x, event.player.position.y, colorHex);
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('playerRespawned', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          const colorHex = parseInt(event.player.color.replace('#', ''), 16);
+          this.effectsSystem.spawnMaterialize(
+            event.player.id,
+            'player',
+            event.player.position.x,
+            event.player.position.y,
+            colorHex
+          );
+        })
+      );
 
       // Nutrient spawned - trigger spawn animation (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('nutrientSpawned', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        // Get color based on value multiplier
-        let colorHex = GAME_CONFIG.NUTRIENT_COLOR;
-        if (event.nutrient.valueMultiplier >= 5) {
-          colorHex = GAME_CONFIG.NUTRIENT_5X_COLOR;
-        } else if (event.nutrient.valueMultiplier >= 3) {
-          colorHex = GAME_CONFIG.NUTRIENT_3X_COLOR;
-        } else if (event.nutrient.valueMultiplier >= 2) {
-          colorHex = GAME_CONFIG.NUTRIENT_2X_COLOR;
-        }
-        this.effectsSystem.spawnMaterialize(event.nutrient.id, 'nutrient', event.nutrient.position.x, event.nutrient.position.y, colorHex, 25);
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('nutrientSpawned', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          // Get color based on value multiplier
+          let colorHex = GAME_CONFIG.NUTRIENT_COLOR;
+          if (event.nutrient.valueMultiplier >= 5) {
+            colorHex = GAME_CONFIG.NUTRIENT_5X_COLOR;
+          } else if (event.nutrient.valueMultiplier >= 3) {
+            colorHex = GAME_CONFIG.NUTRIENT_3X_COLOR;
+          } else if (event.nutrient.valueMultiplier >= 2) {
+            colorHex = GAME_CONFIG.NUTRIENT_2X_COLOR;
+          }
+          this.effectsSystem.spawnMaterialize(
+            event.nutrient.id,
+            'nutrient',
+            event.nutrient.position.x,
+            event.nutrient.position.y,
+            colorHex,
+            25
+          );
+        })
+      );
 
       // Swarm spawned - trigger spawn animation (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('swarmSpawned', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        this.effectsSystem.spawnMaterialize(event.swarm.id, 'swarm', event.swarm.position.x, event.swarm.position.y, 0xff6600, 50);
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('swarmSpawned', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          this.effectsSystem.spawnMaterialize(
+            event.swarm.id,
+            'swarm',
+            event.swarm.position.x,
+            event.swarm.position.y,
+            0xff6600,
+            50
+          );
+        })
+      );
 
       // === Energy gain visual feedback (soup-scale only) ===
 
       // Nutrient collected - trigger energy transfer particles (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('nutrientCollected', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        // Get nutrient position from cache (before it's removed)
-        const nutrientPos = this.nutrientRenderSystem.getNutrientPosition(event.nutrientId);
-        const collectorPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
+      this.eventSubscriptions.push(
+        eventBus.on('nutrientCollected', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          // Get nutrient position from cache (before it's removed)
+          const nutrientPos = this.nutrientRenderSystem.getNutrientPosition(event.nutrientId);
+          const collectorPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
 
-        if (nutrientPos && collectorPos) {
-          // Spawn particles flying from nutrient to collector
-          this.effectsSystem.spawnEnergyTransfer(
-            nutrientPos.x,
-            nutrientPos.y,
-            collectorPos.x,
-            collectorPos.y,
-            event.playerId,
-            0x00ffff // Cyan energy particles
-          );
-        }
+          if (nutrientPos && collectorPos) {
+            // Spawn particles flying from nutrient to collector
+            this.effectsSystem.spawnEnergyTransfer(
+              nutrientPos.x,
+              nutrientPos.y,
+              collectorPos.x,
+              collectorPos.y,
+              event.playerId,
+              0x00ffff // Cyan energy particles
+            );
+          }
 
-        // Clean up cached position
-        this.nutrientRenderSystem.clearNutrientPosition(event.nutrientId);
-      }));
+          // Clean up cached position
+          this.nutrientRenderSystem.clearNutrientPosition(event.nutrientId);
+        })
+      );
 
       // === DataFruit collected - trigger gold gain aura (jungle-scale) ===
-      this.eventSubscriptions.push(eventBus.on('dataFruitCollected', (event) => {
-        // Only trigger aura for local player
-        if (event.playerId === this.myPlayerId) {
-          this.auraStateSystem.triggerFruitCollectionAura(this.world, event.playerId);
-        }
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('dataFruitCollected', (event) => {
+          // Only trigger aura for local player
+          if (event.playerId === this.myPlayerId) {
+            this.auraStateSystem.triggerFruitCollectionAura(this.world, event.playerId);
+          }
+        })
+      );
 
       // Player engulfed another player - energy transfer (soup mode only)
-      this.eventSubscriptions.push(eventBus.on('playerEngulfed', (event) => {
-        if (this.environmentSystem.getMode() !== 'soup') return;
-        const predatorPos = this.playerRenderSystem.getPlayerPosition(event.predatorId);
+      this.eventSubscriptions.push(
+        eventBus.on('playerEngulfed', (event) => {
+          if (this.environmentSystem.getMode() !== 'soup') return;
+          const predatorPos = this.playerRenderSystem.getPlayerPosition(event.predatorId);
 
-        if (predatorPos) {
-          // Spawn particles from prey position to predator (larger burst for player kill)
-          this.effectsSystem.spawnEnergyTransfer(
-            event.position.x,
-            event.position.y,
-            predatorPos.x,
-            predatorPos.y,
-            event.predatorId,
-            0x00ff88, // Green-cyan for player energy
-            40 // Lots of particles for player kill
-          );
-        }
-      }));
+          if (predatorPos) {
+            // Spawn particles from prey position to predator (larger burst for player kill)
+            this.effectsSystem.spawnEnergyTransfer(
+              event.position.x,
+              event.position.y,
+              predatorPos.x,
+              predatorPos.y,
+              event.predatorId,
+              0x00ff88, // Green-cyan for player energy
+              40 // Lots of particles for player kill
+            );
+          }
+        })
+      );
 
       // === Melee attack visual feedback (jungle-scale) ===
-      this.eventSubscriptions.push(eventBus.on('meleeAttackExecuted', (event) => {
-        // Only show effects in jungle mode (Stage 3+ melee attacks)
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('meleeAttackExecuted', (event) => {
+          // Only show effects in jungle mode (Stage 3+ melee attacks)
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // Calculate direction from position to target
-        const dx = event.direction.x;
-        const dy = event.direction.y;
+          // Calculate direction from position to target
+          const dx = event.direction.x;
+          const dy = event.direction.y;
 
-        // Spawn melee arc effect at attacker position
-        // Use player color if available, otherwise default red-orange
-        const attackerPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
-        if (attackerPos) {
-          const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId) || 0xff6666;
-          this.effectsSystem.spawnMeleeAttack(
-            attackerPos.x,
-            attackerPos.y,
-            event.attackType,
-            dx,
-            dy,
-            colorHex
-          );
-        }
-
-        // Spawn hit effects on each player that was hit
-        for (const hitPlayerId of event.hitPlayerIds) {
-          const hitPos = this.playerRenderSystem.getPlayerPosition(hitPlayerId);
-          if (hitPos) {
-            // Spawn hit sparks at victim position
-            this.effectsSystem.spawnHitBurst(hitPos.x, hitPos.y);
-            // Flash the victim's mesh to indicate damage
-            this.playerRenderSystem.flashDamage(hitPlayerId);
+          // Spawn melee arc effect at attacker position
+          // Use player color if available, otherwise default red-orange
+          const attackerPos = this.playerRenderSystem.getPlayerPosition(event.playerId);
+          if (attackerPos) {
+            const colorHex = this.playerRenderSystem.getPlayerColor(event.playerId) || 0xff6666;
+            this.effectsSystem.spawnMeleeAttack(
+              attackerPos.x,
+              attackerPos.y,
+              event.attackType,
+              dx,
+              dy,
+              colorHex
+            );
           }
-        }
-      }));
+
+          // Spawn hit effects on each player that was hit
+          for (const hitPlayerId of event.hitPlayerIds) {
+            const hitPos = this.playerRenderSystem.getPlayerPosition(hitPlayerId);
+            if (hitPos) {
+              // Spawn hit sparks at victim position
+              this.effectsSystem.spawnHitBurst(hitPos.x, hitPos.y);
+              // Flash the victim's mesh to indicate damage
+              this.playerRenderSystem.flashDamage(hitPlayerId);
+            }
+          }
+        })
+      );
 
       // === Projectile hit visual feedback (jungle-scale ranged attacks) ===
-      this.eventSubscriptions.push(eventBus.on('projectileHit', (event) => {
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('projectileHit', (event) => {
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // Spawn hit sparks at impact location
-        this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
+          // Spawn hit sparks at impact location
+          this.effectsSystem.spawnHitBurst(event.hitPosition.x, event.hitPosition.y);
 
-        // Flash the victim if it's a player
-        if (event.targetType === 'player') {
-          this.playerRenderSystem.flashDamage(event.targetId);
-        }
-      }));
+          // Flash the victim if it's a player
+          if (event.targetType === 'player') {
+            this.playerRenderSystem.flashDamage(event.targetId);
+          }
+        })
+      );
 
       // === Trap triggered visual feedback (jungle-scale traps) ===
-      this.eventSubscriptions.push(eventBus.on('trapTriggered', (event) => {
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('trapTriggered', (event) => {
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // Spawn hit sparks at trap position
-        this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
+          // Spawn hit sparks at trap position
+          this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
 
-        // Flash the victim's mesh
-        this.playerRenderSystem.flashDamage(event.victimId);
-      }));
+          // Flash the victim's mesh
+          this.playerRenderSystem.flashDamage(event.victimId);
+        })
+      );
 
       // === EntropySerpent attack visual feedback ===
-      this.eventSubscriptions.push(eventBus.on('entropySerpentAttack', (event) => {
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('entropySerpentAttack', (event) => {
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // DEBUG: Log attack position data
-        console.log('[SerpentAttack] Event received:', {
-          serpentPosition: event.serpentPosition,
-          attackDirection: (event.attackDirection * 180 / Math.PI).toFixed(1) + '°',
-          position: event.position,
-        });
+          // DEBUG: Log attack position data
+          console.log('[SerpentAttack] Event received:', {
+            serpentPosition: event.serpentPosition,
+            attackDirection: ((event.attackDirection * 180) / Math.PI).toFixed(1) + '°',
+            position: event.position,
+          });
 
-        // Trigger claw swipe animation on the serpent mesh
-        this.entropySerpentRenderSystem.triggerAttack(event.serpentId);
+          // Trigger claw swipe animation on the serpent mesh
+          this.entropySerpentRenderSystem.triggerAttack(event.serpentId);
 
-        // Spawn claw slash trail effect at serpent position
-        this.effectsSystem.spawnClawSlash(
-          event.serpentPosition.x,
-          event.serpentPosition.y,
-          event.attackDirection
-        );
-        console.log('[SerpentAttack] Spawned slash at:', event.serpentPosition.x, event.serpentPosition.y);
+          // Spawn claw slash trail effect at serpent position
+          this.effectsSystem.spawnClawSlash(
+            event.serpentPosition.x,
+            event.serpentPosition.y,
+            event.attackDirection
+          );
+          console.log(
+            '[SerpentAttack] Spawned slash at:',
+            event.serpentPosition.x,
+            event.serpentPosition.y
+          );
 
-        // Spawn hit burst at attack position (where claws connect)
-        this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
+          // Spawn hit burst at attack position (where claws connect)
+          this.effectsSystem.spawnHitBurst(event.position.x, event.position.y);
 
-        // Flash the victim's mesh
-        this.playerRenderSystem.flashDamage(event.targetId);
+          // Flash the victim's mesh
+          this.playerRenderSystem.flashDamage(event.targetId);
 
-        // Camera shake if it's the local player being attacked
-        if (event.targetId === this.myPlayerId) {
-          this.cameraSystem.triggerShake(0.3);
-        }
-      }));
+          // Camera shake if it's the local player being attacked
+          if (event.targetId === this.myPlayerId) {
+            this.cameraSystem.triggerShake(0.3);
+          }
+        })
+      );
 
       // === EntropySerpent damaged visual feedback ===
-      this.eventSubscriptions.push(eventBus.on('entropySerpentDamaged', (event) => {
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('entropySerpentDamaged', (event) => {
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // Flash the serpent mesh to show it took damage
-        this.entropySerpentRenderSystem.flashDamage(event.serpentId);
-      }));
+          // Flash the serpent mesh to show it took damage
+          this.entropySerpentRenderSystem.flashDamage(event.serpentId);
+        })
+      );
 
       // === EntropySerpent killed visual feedback ===
-      this.eventSubscriptions.push(eventBus.on('entropySerpentKilled', (event) => {
-        if (this.environmentSystem.getMode() !== 'jungle') return;
+      this.eventSubscriptions.push(
+        eventBus.on('entropySerpentKilled', (event) => {
+          if (this.environmentSystem.getMode() !== 'jungle') return;
 
-        // Spawn death burst at serpent position
-        this.effectsSystem.spawnDeathBurst(event.position.x, event.position.y, 0xff6600);
-      }));
+          // Spawn death burst at serpent position
+          this.effectsSystem.spawnDeathBurst(event.position.x, event.position.y, 0xff6600);
+        })
+      );
 
       // Mouse look event - update first-person camera rotation
-      this.eventSubscriptions.push(eventBus.on('client:mouseLook', (event) => {
-        if (this.cameraSystem.getMode() === 'firstperson') {
-          this.cameraSystem.updateFirstPersonLook(event.deltaX, event.deltaY);
-        }
-      }));
+      this.eventSubscriptions.push(
+        eventBus.on('client:mouseLook', (event) => {
+          if (this.cameraSystem.getMode() === 'firstperson') {
+            this.cameraSystem.updateFirstPersonLook(event.deltaX, event.deltaY);
+          }
+        })
+      );
     });
   }
 
@@ -655,13 +737,20 @@ export class ThreeRenderer implements Renderer {
         forEachPlayer(this.world, (_entity, _playerId, player) => {
           // Skip players in jungle stages (they've transcended soup obstacles)
           // Note: EvolutionStage is a string enum, so use explicit comparison
-          const isSoupPlayer = player.stage === EvolutionStage.SINGLE_CELL ||
-                               player.stage === EvolutionStage.MULTI_CELL;
+          const isSoupPlayer =
+            player.stage === EvolutionStage.SINGLE_CELL ||
+            player.stage === EvolutionStage.MULTI_CELL;
           if (!isSoupPlayer) return;
 
           this.world.forEachWithTag(Tags.Obstacle, (obstacleEntity) => {
-            const pos = this.world.getComponent<PositionComponent>(obstacleEntity, Components.Position);
-            const obstacle = this.world.getComponent<ObstacleComponent>(obstacleEntity, Components.Obstacle);
+            const pos = this.world.getComponent<PositionComponent>(
+              obstacleEntity,
+              Components.Position
+            );
+            const obstacle = this.world.getComponent<ObstacleComponent>(
+              obstacleEntity,
+              Components.Obstacle
+            );
             if (!pos || !obstacle) return;
 
             const dx = pos.x - player.position.x;
@@ -671,7 +760,7 @@ export class ThreeRenderer implements Renderer {
             // Only spawn particles inside the obstacle's influence radius
             if (dist < obstacle.radius) {
               // Use same proximity² formula as server drain rate
-              const proximityFactor = 1 - (dist / obstacle.radius); // 0 at edge, 1 at center
+              const proximityFactor = 1 - dist / obstacle.radius; // 0 at edge, 1 at center
               const drainIntensity = proximityFactor * proximityFactor; // Squared for steeper curve
               // Scale particles based on drain intensity: 2 at edge → 12 at center
               // (matches visual intensity to actual energy drain rate from server)
@@ -728,11 +817,7 @@ export class ThreeRenderer implements Renderer {
       } else if (activeMode === 'thirdperson') {
         // Third-person camera for godcell - uses 3D position
         const posZ = myPlayer.position.z ?? 0;
-        this.cameraSystem.updateThirdPersonPosition(
-          myPlayer.position.x,
-          myPlayer.position.y,
-          posZ
-        );
+        this.cameraSystem.updateThirdPersonPosition(myPlayer.position.x, myPlayer.position.y, posZ);
       }
     }
 
@@ -816,7 +901,11 @@ export class ThreeRenderer implements Renderer {
     this.treeRenderSystem.updateAnimations(dt);
 
     // Update trails (soup mode only - trails are single-cell effects)
-    this.trailSystem.update(this.playerRenderSystem.getPlayerMeshes(), playersForTrail, this.environmentSystem.getMode());
+    this.trailSystem.update(
+      this.playerRenderSystem.getPlayerMeshes(),
+      playersForTrail,
+      this.environmentSystem.getMode()
+    );
 
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
@@ -881,7 +970,9 @@ export class ThreeRenderer implements Renderer {
       const vp = this.renderer.getSize(new THREE.Vector2());
       const pixels = vp.x * vp.y;
 
-      console.log(`[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`);
+      console.log(
+        `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
+      );
       this._perfFrameCount = 0;
       this._perfRenderTimeSum = 0;
       this._perfLastTime = now;
@@ -1018,7 +1109,9 @@ export class ThreeRenderer implements Renderer {
 
     // EnvironmentSystem handles ground plane visibility and background color
     // Both first-person and third-person need the ground plane visible
-    this.environmentSystem.setFirstPersonGroundVisible(mode === 'firstperson' || mode === 'thirdperson');
+    this.environmentSystem.setFirstPersonGroundVisible(
+      mode === 'firstperson' || mode === 'thirdperson'
+    );
   }
 
   /**
@@ -1069,20 +1162,26 @@ export class ThreeRenderer implements Renderer {
   /**
    * Build player data map for TrailSystem (needs stage, color, energy, maxEnergy, radius)
    */
-  private buildPlayersForTrail(): Map<string, {
-    stage: string;
-    color: string;
-    energy: number;
-    maxEnergy: number;
-    radius: number;
-  }> {
-    const result = new Map<string, {
+  private buildPlayersForTrail(): Map<
+    string,
+    {
       stage: string;
       color: string;
       energy: number;
       maxEnergy: number;
       radius: number;
-    }>();
+    }
+  > {
+    const result = new Map<
+      string,
+      {
+        stage: string;
+        color: string;
+        energy: number;
+        maxEnergy: number;
+        radius: number;
+      }
+    >();
     this.world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getStringIdByEntity(entity);
       if (!playerId) return;
@@ -1102,7 +1201,7 @@ export class ThreeRenderer implements Renderer {
 
   dispose(): void {
     // Clean up event subscriptions first (prevents stale callbacks)
-    this.eventSubscriptions.forEach(unsub => unsub());
+    this.eventSubscriptions.forEach((unsub) => unsub());
     this.eventSubscriptions = [];
 
     // Clean up player meshes (humanoids, outlines, compass, etc.)
@@ -1140,11 +1239,11 @@ export class ThreeRenderer implements Renderer {
     this.trapRenderSystem.dispose();
 
     // Dispose cached geometries
-    this.geometryCache.forEach(geo => geo.dispose());
+    this.geometryCache.forEach((geo) => geo.dispose());
     this.geometryCache.clear();
 
     // Dispose cached materials
-    this.materialCache.forEach(mat => mat.dispose());
+    this.materialCache.forEach((mat) => mat.dispose());
     this.materialCache.clear();
 
     // Dispose extracted module caches

@@ -25,14 +25,16 @@ export class NutrientAttractionSystem implements System {
   readonly name = 'NutrientAttractionSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     // Collect nutrients to destroy after iteration (can't modify during iteration)
     // Use Map to dedupe - nutrient may be near multiple obstacles
     const nutrientsToDestroy = new Map<number, string>(); // entity -> id
 
     // Iterate all nutrient entities
     world.forEachWithTag(Tags.Nutrient, (nutrientEntity) => {
-      const nutrientPos = world.getComponent<PositionComponent>(nutrientEntity, Components.Position);
+      const nutrientPos = world.getComponent<PositionComponent>(
+        nutrientEntity,
+        Components.Position
+      );
       const nutrientId = getStringIdByEntity(nutrientEntity);
       if (!nutrientPos || !nutrientId) return;
 
@@ -53,8 +55,10 @@ export class NutrientAttractionSystem implements System {
             const dirY = dy / dirLength;
 
             // Move nutrient toward obstacle (mutate ECS position directly)
-            nutrientPos.x += dirX * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
-            nutrientPos.y += dirY * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
+            nutrientPos.x +=
+              dirX * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
+            nutrientPos.y +=
+              dirY * forceMagnitude * GAME_CONFIG.OBSTACLE_NUTRIENT_ATTRACTION_SPEED * deltaTime;
 
             // Broadcast nutrient movement
             const moveMessage: NutrientMovedMessage = {

@@ -123,7 +123,11 @@ export function createCyberBug(size: number, state: string): CyberBugResult {
   group.add(body);
 
   // === GLOW SHELL ===
-  const glowGeometry = new THREE.SphereGeometry(size * GLOW_SHELL.sizeRatio, BODY.segments, BODY.segments);
+  const glowGeometry = new THREE.SphereGeometry(
+    size * GLOW_SHELL.sizeRatio,
+    BODY.segments,
+    BODY.segments
+  );
   const glowMaterial = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
@@ -140,20 +144,12 @@ export function createCyberBug(size: number, state: string): CyberBugResult {
   const eyeMaterial = new THREE.MeshBasicMaterial({ color: EYES.color });
 
   const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-  leftEye.position.set(
-    -size * EYES.xOffset,
-    size * EYES.yOffset,
-    size * EYES.zOffset
-  );
+  leftEye.position.set(-size * EYES.xOffset, size * EYES.yOffset, size * EYES.zOffset);
   leftEye.name = 'leftEye';
   group.add(leftEye);
 
   const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial.clone());
-  rightEye.position.set(
-    size * EYES.xOffset,
-    size * EYES.yOffset,
-    size * EYES.zOffset
-  );
+  rightEye.position.set(size * EYES.xOffset, size * EYES.yOffset, size * EYES.zOffset);
   rightEye.name = 'rightEye';
   group.add(rightEye);
 
@@ -181,7 +177,8 @@ export function updateCyberBugAnimation(
   group.position.y = ANIMATION.baseHeight + bobHeight;
 
   // Wing flutter effect - fast oscillation for insect-like movement
-  const scalePulse = 1 + Math.sin(time * ANIMATION.flutterSpeed + flutter) * ANIMATION.flutterAmount;
+  const scalePulse =
+    1 + Math.sin(time * ANIMATION.flutterSpeed + flutter) * ANIMATION.flutterAmount;
   group.scale.setScalar(scalePulse);
 }
 

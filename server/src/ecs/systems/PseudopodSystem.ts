@@ -66,7 +66,6 @@ export class PseudopodSystem implements System {
   readonly name = 'PseudopodSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     // Skip if using hitscan mode (beams are visual-only and auto-removed)
     if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') return;
 
@@ -135,7 +134,15 @@ export class PseudopodSystem implements System {
       }
 
       // Check collision with pre-collected targets
-      this.checkBeamCollisionFast(world, io, beamId, posComp, pseudopodComp, playerTargets, swarmTargets);
+      this.checkBeamCollisionFast(
+        world,
+        io,
+        beamId,
+        posComp,
+        pseudopodComp,
+        playerTargets,
+        swarmTargets
+      );
       // Beam continues traveling even if it hits (can hit multiple targets)
     });
 
@@ -144,7 +151,10 @@ export class PseudopodSystem implements System {
       const beamId = getStringIdByEntity(entity);
       ecsDestroyEntity(world, entity);
       if (beamId) {
-        io.emit('pseudopodRetracted', { type: 'pseudopodRetracted', pseudopodId: beamId } as PseudopodRetractedMessage);
+        io.emit('pseudopodRetracted', {
+          type: 'pseudopodRetracted',
+          pseudopodId: beamId,
+        } as PseudopodRetractedMessage);
       }
     }
   }
@@ -161,7 +171,6 @@ export class PseudopodSystem implements System {
     posComp: PositionComponent,
     pseudopodComp: PseudopodComponent
   ): boolean {
-
     // Get shooter stage from ECS
     const shooterEntity = getEntityBySocketId(pseudopodComp.ownerSocketId);
     if (shooterEntity === undefined) return false;
@@ -239,44 +248,50 @@ export class PseudopodSystem implements System {
     // Check collision with swarms (active or disabled) - from ECS
     // DeathSystem handles swarm deaths centrally
 
-    forEachSwarm(world, (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
-      // Swarms are now ECS entities, so we can use their entity ID directly
-      if (hitEntities.has(swarmEntity)) return; // Already hit this swarm
+    forEachSwarm(
+      world,
+      (swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, swarmEnergyComp) => {
+        // Swarms are now ECS entities, so we can use their entity ID directly
+        if (hitEntities.has(swarmEntity)) return; // Already hit this swarm
 
-      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
-      const dist = distance(beamPosition, swarmPosition);
-      const collisionDist = pseudopodComp.width / 2 + swarmComp.size;
+        const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+        const dist = distance(beamPosition, swarmPosition);
+        const collisionDist = pseudopodComp.width / 2 + swarmComp.size;
 
-      if (dist < collisionDist) {
-        // Hit! Deal damage to swarm via ECS component
-        const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
-        swarmEnergyComp.current -= damage;
-        hitSomething = true;
-        hitEntities.add(swarmEntity);
+        if (dist < collisionDist) {
+          // Hit! Deal damage to swarm via ECS component
+          const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
+          swarmEnergyComp.current -= damage;
+          hitSomething = true;
+          hitEntities.add(swarmEntity);
 
-        // Also drain/transfer max energy (75% of current drain rate)
-        const maxDrain = damage * 0.75;
-        const actualMaxDrain = Math.min(maxDrain, swarmEnergyComp.max);
-        swarmEnergyComp.max -= actualMaxDrain;
-        shooterEnergy.max += actualMaxDrain;
+          // Also drain/transfer max energy (75% of current drain rate)
+          const maxDrain = damage * 0.75;
+          const actualMaxDrain = Math.min(maxDrain, swarmEnergyComp.max);
+          swarmEnergyComp.max -= actualMaxDrain;
+          shooterEnergy.max += actualMaxDrain;
 
-        // Set damage tracking so DeathSystem knows who killed it
-        const damageTracking = world.getComponent<DamageTrackingComponent>(swarmEntity, Components.DamageTracking);
-        if (damageTracking) {
-          damageTracking.lastDamageSource = 'beam';
-          damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+          // Set damage tracking so DeathSystem knows who killed it
+          const damageTracking = world.getComponent<DamageTrackingComponent>(
+            swarmEntity,
+            Components.DamageTracking
+          );
+          if (damageTracking) {
+            damageTracking.lastDamageSource = 'beam';
+            damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
+          }
+
+          logger.info({
+            event: 'beam_hit_swarm',
+            shooter: pseudopodComp.ownerSocketId,
+            swarmId,
+            damage,
+            maxDrained: actualMaxDrain.toFixed(1),
+            swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
+          });
         }
-
-        logger.info({
-          event: 'beam_hit_swarm',
-          shooter: pseudopodComp.ownerSocketId,
-          swarmId,
-          damage,
-          maxDrained: actualMaxDrain.toFixed(1),
-          swarmEnergyRemaining: swarmEnergyComp.current.toFixed(0),
-        });
       }
-    });
+    );
 
     return hitSomething;
   }
@@ -377,7 +392,10 @@ export class PseudopodSystem implements System {
         shooterEnergy.max += actualMaxDrain;
 
         // Set damage tracking so DeathSystem knows who killed it
-        const damageTracking = world.getComponent<DamageTrackingComponent>(swarm.entity, Components.DamageTracking);
+        const damageTracking = world.getComponent<DamageTrackingComponent>(
+          swarm.entity,
+          Components.DamageTracking
+        );
         if (damageTracking) {
           damageTracking.lastDamageSource = 'beam';
           damageTracking.lastBeamShooter = pseudopodComp.ownerSocketId;
@@ -402,7 +420,6 @@ export class PseudopodSystem implements System {
    * Returns the ID of the player hit, or null if no hit
    */
   checkBeamHitscan(world: World, start: Position, end: Position, shooterId: string): string | null {
-
     type HitInfo = { playerId: string; distance: number; entity: number };
     let closestHit: HitInfo | null = null;
 

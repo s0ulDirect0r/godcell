@@ -199,9 +199,11 @@ export function updateNutrientAnimation(
   }
 
   // Pulse the inner core brightness
-  const core = group.children.find(c => c.name === 'core') as THREE.Mesh | undefined;
+  const core = group.children.find((c) => c.name === 'core') as THREE.Mesh | undefined;
   if (core && core.material instanceof THREE.MeshBasicMaterial) {
-    const pulse = INNER_CORE.pulseBase + Math.sin(now * INNER_CORE.pulseSpeed + bobPhase) * INNER_CORE.pulseAmplitude;
+    const pulse =
+      INNER_CORE.pulseBase +
+      Math.sin(now * INNER_CORE.pulseSpeed + bobPhase) * INNER_CORE.pulseAmplitude;
     core.material.opacity = pulse;
   }
 }
@@ -213,11 +215,11 @@ export function updateNutrientAnimation(
  * @param group - The nutrient THREE.Group to dispose
  */
 export function disposeNutrient(group: THREE.Group): void {
-  group.children.forEach(child => {
+  group.children.forEach((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
-        child.material.forEach(m => m.dispose());
+        child.material.forEach((m) => m.dispose());
       } else {
         child.material.dispose();
       }
@@ -246,7 +248,7 @@ export function getNutrientColor(valueMultiplier: number): number {
  * Used for spawn animations
  */
 export function setNutrientOpacity(group: THREE.Group, opacity: number): void {
-  group.children.forEach(child => {
+  group.children.forEach((child) => {
     if (child instanceof THREE.Mesh) {
       const material = child.material as THREE.Material;
       if ('opacity' in material) {

@@ -70,8 +70,14 @@ export class JungleCreatureRenderSystem {
       if (!creatureId) return;
 
       const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
-      const creature = this.world.getComponent<JungleCreatureComponent>(entity, Components.JungleCreature);
-      const interp = this.world.getComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget);
+      const creature = this.world.getComponent<JungleCreatureComponent>(
+        entity,
+        Components.JungleCreature
+      );
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
       if (!pos || !creature) return;
 
       currentCreatureIds.add(creatureId);

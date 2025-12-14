@@ -173,8 +173,7 @@ export function createJungleCreature(
   group.userData.variant = variant;
 
   const creatureSize = size ?? GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS;
-  const colors =
-    VARIANT_COLORS[variant as keyof typeof VARIANT_COLORS] || VARIANT_COLORS.grazer;
+  const colors = VARIANT_COLORS[variant as keyof typeof VARIANT_COLORS] || VARIANT_COLORS.grazer;
 
   if (variant === 'grazer') {
     createGrazerMesh(group, colors, creatureSize);
@@ -214,8 +213,7 @@ export function updateJungleCreatureAnimation(
 
   // Head bob for movement feel
   const bobAmount =
-    ANIMATION.bobAmount[variant as keyof typeof ANIMATION.bobAmount] ||
-    ANIMATION.bobAmount.grazer;
+    ANIMATION.bobAmount[variant as keyof typeof ANIMATION.bobAmount] || ANIMATION.bobAmount.grazer;
   group.position.y = ANIMATION.baseHeight + Math.sin(time * ANIMATION.bobSpeed + phase) * bobAmount;
 }
 

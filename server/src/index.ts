@@ -21,13 +21,38 @@ import type {
   CombatSpecialization,
   MeleeAttackMessage,
 } from '#shared';
-import { initializeBots, updateBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
+import {
+  initializeBots,
+  updateBots,
+  isBot,
+  spawnBotAt,
+  removeBotPermanently,
+  setBotEcsWorld,
+} from './bots';
 import { AbilitySystem } from './abilities';
-import { initializeSwarms, updateSwarms, updateSwarmPositions, processSwarmRespawns, spawnSwarmAt } from './swarms';
+import {
+  initializeSwarms,
+  updateSwarms,
+  updateSwarmPositions,
+  processSwarmRespawns,
+  spawnSwarmAt,
+} from './swarms';
 import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
-import { initNutrientModule, initializeNutrients, respawnNutrient, spawnNutrientAt } from './nutrients';
-import { initDevHandler, handleDevCommand, isGamePaused, getTimeScale, shouldRunTick, getConfig } from './dev';
+import {
+  initNutrientModule,
+  initializeNutrients,
+  respawnNutrient,
+  spawnNutrientAt,
+} from './nutrients';
+import {
+  initDevHandler,
+  handleDevCommand,
+  isGamePaused,
+  getTimeScale,
+  shouldRunTick,
+  getConfig,
+} from './dev';
 import type { DevCommandMessage } from '#shared';
 import {
   logger,
@@ -190,7 +215,9 @@ const world: World = createWorld();
  */
 function checkBeamHitscan(start: Position, end: Position, shooterId: string): string | null {
   // Use object wrapper pattern for closure mutation
-  const result: { closestHit: { playerId: string; distance: number } | null } = { closestHit: null };
+  const result: { closestHit: { playerId: string; distance: number } | null } = {
+    closestHit: null,
+  };
 
   forEachPlayer(world, (entity, playerId) => {
     // Skip shooter
@@ -271,7 +298,7 @@ function initializeObstacles() {
   );
 
   // Offset positions to account for padding AND soup origin in jungle
-  const offsetPositions = obstaclePositions.map(pos => ({
+  const offsetPositions = obstaclePositions.map((pos) => ({
     x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
     y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
   }));
@@ -292,7 +319,9 @@ function initializeObstacles() {
   logObstaclesSpawned(obstacleCount);
 
   if (obstacleCount < GAME_CONFIG.OBSTACLE_COUNT) {
-    logger.warn(`Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`);
+    logger.warn(
+      `Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`
+    );
   }
 }
 
@@ -344,12 +373,12 @@ function initializeTrees() {
     const sample = treePositions.slice(0, 5);
     logger.info({
       event: 'tree_positions_sample',
-      samplePositions: sample.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+      samplePositions: sample.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
       bounds: {
-        minX: Math.round(Math.min(...treePositions.map(p => p.x))),
-        maxX: Math.round(Math.max(...treePositions.map(p => p.x))),
-        minY: Math.round(Math.min(...treePositions.map(p => p.y))),
-        maxY: Math.round(Math.max(...treePositions.map(p => p.y))),
+        minX: Math.round(Math.min(...treePositions.map((p) => p.x))),
+        maxX: Math.round(Math.max(...treePositions.map((p) => p.x))),
+        minY: Math.round(Math.min(...treePositions.map((p) => p.y))),
+        maxY: Math.round(Math.max(...treePositions.map((p) => p.y))),
       },
     });
   }
@@ -359,9 +388,11 @@ function initializeTrees() {
     const treeId = `tree-${treeIdCounter++}`;
 
     // Randomize tree size within configured bounds
-    const radius = GAME_CONFIG.TREE_MIN_RADIUS +
+    const radius =
+      GAME_CONFIG.TREE_MIN_RADIUS +
       Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
-    const height = GAME_CONFIG.TREE_MIN_HEIGHT +
+    const height =
+      GAME_CONFIG.TREE_MIN_HEIGHT +
       Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
     const variant = Math.random(); // Seed for procedural generation (0-1)
 
@@ -459,7 +490,6 @@ function respawnPlayer(playerId: string) {
 
   logPlayerRespawn(playerId);
 }
-
 
 // ============================================
 // Socket.io Server Setup
@@ -635,13 +665,16 @@ io.on('connection', (socket) => {
       try {
         handler(message);
       } catch (error) {
-        logger.error({
-          event: 'socket_handler_error',
-          socketId: socket.id,
-          eventName,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        }, `Socket handler ${eventName} threw an error`);
+        logger.error(
+          {
+            event: 'socket_handler_error',
+            socketId: socket.id,
+            eventName,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          `Socket handler ${eventName} threw an error`
+        );
       }
     };
   };
@@ -650,219 +683,271 @@ io.on('connection', (socket) => {
   // Player Movement Input
   // ============================================
 
-  socket.on('playerMove', safeHandler('playerMove', (message: PlayerMoveMessage) => {
-    // Store player's input direction via ECS (will be combined with gravity in game loop)
-    // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
-    setInputBySocketId(world, socket.id, message.direction.x, message.direction.y, message.direction.z ?? 0);
-  }));
+  socket.on(
+    'playerMove',
+    safeHandler('playerMove', (message: PlayerMoveMessage) => {
+      // Store player's input direction via ECS (will be combined with gravity in game loop)
+      // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
+      setInputBySocketId(
+        world,
+        socket.id,
+        message.direction.x,
+        message.direction.y,
+        message.direction.z ?? 0
+      );
+    })
+  );
 
   // ============================================
   // Player Respawn Request
   // ============================================
 
-  socket.on('playerRespawnRequest', safeHandler('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
-    // Check player exists and is dead using ECS
-    const energyComp = getEnergyBySocketId(world, socket.id);
-    if (!energyComp) return;
+  socket.on(
+    'playerRespawnRequest',
+    safeHandler('playerRespawnRequest', (message: PlayerRespawnRequestMessage) => {
+      // Check player exists and is dead using ECS
+      const energyComp = getEnergyBySocketId(world, socket.id);
+      if (!energyComp) return;
 
-    // Only respawn if player is dead (energy <= 0)
-    if (energyComp.current <= 0) {
-      respawnPlayer(socket.id);
-    }
-  }));
+      // Only respawn if player is dead (energy <= 0)
+      if (energyComp.current <= 0) {
+        respawnPlayer(socket.id);
+      }
+    })
+  );
 
   // ============================================
   // Pseudopod Beam Fire (Lightning Projectile)
   // ============================================
 
-  socket.on('pseudopodFire', safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
-    // Lookup entity at socket boundary, then use entity-based API
-    const entity = getEntityBySocketId(socket.id);
-    if (entity === undefined) return;
-    abilitySystem.firePseudopod(entity, socket.id, message.targetX, message.targetY);
-  }));
+  socket.on(
+    'pseudopodFire',
+    safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
+      // Lookup entity at socket boundary, then use entity-based API
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+      abilitySystem.firePseudopod(entity, socket.id, message.targetX, message.targetY);
+    })
+  );
 
   // ============================================
   // Projectile Fire (Stage 3 ranged specialization attack)
   // ============================================
 
-  socket.on('projectileFire', safeHandler('projectileFire', (message: ProjectileFireMessage) => {
-    // Lookup entity at socket boundary, then use entity-based API
-    const entity = getEntityBySocketId(socket.id);
-    if (entity === undefined) return;
-    abilitySystem.fireProjectile(entity, socket.id, message.targetX, message.targetY);
-  }));
+  socket.on(
+    'projectileFire',
+    safeHandler('projectileFire', (message: ProjectileFireMessage) => {
+      // Lookup entity at socket boundary, then use entity-based API
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+      abilitySystem.fireProjectile(entity, socket.id, message.targetX, message.targetY);
+    })
+  );
 
   // ============================================
   // EMP Activation (Multi-cell AoE stun ability)
   // ============================================
 
-  socket.on('empActivate', safeHandler('empActivate', (_message: EMPActivateMessage) => {
-    // Lookup entity at socket boundary, then use entity-based API
-    const entity = getEntityBySocketId(socket.id);
-    if (entity === undefined) return;
-    abilitySystem.fireEMP(entity, socket.id);
-  }));
+  socket.on(
+    'empActivate',
+    safeHandler('empActivate', (_message: EMPActivateMessage) => {
+      // Lookup entity at socket boundary, then use entity-based API
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+      abilitySystem.fireEMP(entity, socket.id);
+    })
+  );
 
   // ============================================
   // Sprint State (Stage 3+ ability)
   // ============================================
 
-  socket.on('playerSprint', safeHandler('playerSprint', (message: PlayerSprintMessage) => {
-    // Get player state from ECS
-    const energyComp = getEnergyBySocketId(world, socket.id);
-    const stageComp = getStageBySocketId(world, socket.id);
-    if (!energyComp || !stageComp) return;
+  socket.on(
+    'playerSprint',
+    safeHandler('playerSprint', (message: PlayerSprintMessage) => {
+      // Get player state from ECS
+      const energyComp = getEnergyBySocketId(world, socket.id);
+      const stageComp = getStageBySocketId(world, socket.id);
+      if (!energyComp || !stageComp) return;
 
-    // Only Stage 3+ can sprint
-    if (!isJungleStage(stageComp.stage)) return;
-    if (energyComp.current <= 0) return; // Dead players can't sprint
-    if (stageComp.isEvolving) return; // Can't sprint while molting
+      // Only Stage 3+ can sprint
+      if (!isJungleStage(stageComp.stage)) return;
+      if (energyComp.current <= 0) return; // Dead players can't sprint
+      if (stageComp.isEvolving) return; // Can't sprint while molting
 
-    // Update sprint state in ECS
-    setSprintBySocketId(world, socket.id, message.sprinting);
-  }));
+      // Update sprint state in ECS
+      setSprintBySocketId(world, socket.id, message.sprinting);
+    })
+  );
 
   // ============================================
   // Combat Specialization Selection (Stage 3)
   // ============================================
 
-  socket.on('selectSpecialization', safeHandler('selectSpecialization', (message: SelectSpecializationMessage) => {
-    const entity = getEntityBySocketId(socket.id);
-    if (!entity) return;
+  socket.on(
+    'selectSpecialization',
+    safeHandler('selectSpecialization', (message: SelectSpecializationMessage) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (!entity) return;
 
-    const specComp = world.getComponent<CombatSpecializationComponent>(
-      entity,
-      Components.CombatSpecialization
-    );
+      const specComp = world.getComponent<CombatSpecializationComponent>(
+        entity,
+        Components.CombatSpecialization
+      );
 
-    // Validate: must have pending selection
-    if (!specComp || !specComp.selectionPending) {
-      logger.warn({
-        event: 'specialization_select_rejected',
+      // Validate: must have pending selection
+      if (!specComp || !specComp.selectionPending) {
+        logger.warn({
+          event: 'specialization_select_rejected',
+          playerId: socket.id,
+          reason: 'no_pending_selection',
+        });
+        return;
+      }
+
+      // Validate: must be a valid specialization choice
+      const validChoices: CombatSpecialization[] = ['melee', 'ranged', 'traps'];
+      if (!validChoices.includes(message.specialization as CombatSpecialization)) {
+        logger.warn({
+          event: 'specialization_select_rejected',
+          playerId: socket.id,
+          reason: 'invalid_choice',
+          received: message.specialization,
+        });
+        return;
+      }
+
+      // Apply the selection
+      specComp.specialization = message.specialization;
+      specComp.selectionPending = false;
+
+      // Broadcast the selection to all clients
+      const selectedMessage: SpecializationSelectedMessage = {
+        type: 'specializationSelected',
         playerId: socket.id,
-        reason: 'no_pending_selection',
-      });
-      return;
-    }
+        specialization: specComp.specialization,
+      };
+      io.emit('specializationSelected', selectedMessage);
 
-    // Validate: must be a valid specialization choice
-    const validChoices: CombatSpecialization[] = ['melee', 'ranged', 'traps'];
-    if (!validChoices.includes(message.specialization as CombatSpecialization)) {
-      logger.warn({
-        event: 'specialization_select_rejected',
+      logger.info({
+        event: 'specialization_selected',
         playerId: socket.id,
-        reason: 'invalid_choice',
-        received: message.specialization,
+        specialization: specComp.specialization,
+        isBot: isBot(socket.id),
       });
-      return;
-    }
-
-    // Apply the selection
-    specComp.specialization = message.specialization;
-    specComp.selectionPending = false;
-
-    // Broadcast the selection to all clients
-    const selectedMessage: SpecializationSelectedMessage = {
-      type: 'specializationSelected',
-      playerId: socket.id,
-      specialization: specComp.specialization,
-    };
-    io.emit('specializationSelected', selectedMessage);
-
-    logger.info({
-      event: 'specialization_selected',
-      playerId: socket.id,
-      specialization: specComp.specialization,
-      isBot: isBot(socket.id),
-    });
-  }));
+    })
+  );
 
   // ============================================
   // Melee Attack (Stage 3 Melee specialization)
   // ============================================
 
-  socket.on('meleeAttack', safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
-    // Lookup entity at socket boundary, then use entity-based API
-    const entity = getEntityBySocketId(socket.id);
-    if (entity === undefined) return;
-    abilitySystem.fireMeleeAttack(entity, socket.id, message.attackType, message.targetX, message.targetY);
-  }));
+  socket.on(
+    'meleeAttack',
+    safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
+      // Lookup entity at socket boundary, then use entity-based API
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+      abilitySystem.fireMeleeAttack(
+        entity,
+        socket.id,
+        message.attackType,
+        message.targetX,
+        message.targetY
+      );
+    })
+  );
 
-  socket.on('placeTrap', safeHandler('placeTrap', () => {
-    logger.debug({ event: 'socket_place_trap', socketId: socket.id });
-    // Lookup entity at socket boundary, then use entity-based API
-    const entity = getEntityBySocketId(socket.id);
-    if (entity === undefined) return;
-    abilitySystem.placeTrap(entity, socket.id);
-  }));
+  socket.on(
+    'placeTrap',
+    safeHandler('placeTrap', () => {
+      logger.debug({ event: 'socket_place_trap', socketId: socket.id });
+      // Lookup entity at socket boundary, then use entity-based API
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+      abilitySystem.placeTrap(entity, socket.id);
+    })
+  );
 
   // ============================================
   // Dev Command Handling (development mode only)
   // ============================================
 
-  socket.on('devCommand', safeHandler('devCommand', (message: DevCommandMessage) => {
-    // Only allow dev commands in development mode
-    if (process.env.NODE_ENV === 'production') {
-      logger.warn({ event: 'dev_command_blocked', socketId: socket.id, reason: 'production_mode' });
-      return;
-    }
-    handleDevCommand(socket, io, message.command);
-  }));
+  socket.on(
+    'devCommand',
+    safeHandler('devCommand', (message: DevCommandMessage) => {
+      // Only allow dev commands in development mode
+      if (process.env.NODE_ENV === 'production') {
+        logger.warn({
+          event: 'dev_command_blocked',
+          socketId: socket.id,
+          reason: 'production_mode',
+        });
+        return;
+      }
+      handleDevCommand(socket, io, message.command);
+    })
+  );
 
   // ============================================
   // Client Log Forwarding (for debugging)
   // ============================================
 
-  socket.on('clientLog', safeHandler('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
-    const socketId = socket.id || 'unknown';
-    const clientId = socketId.slice(0, 8);
-    // Validate input: ensure args is an array and limit size
-    const args = Array.isArray(message.args) ? message.args.slice(0, 20) : [];
-    const logLine = args.join(' ').slice(0, 2000); // Limit log line length
+  socket.on(
+    'clientLog',
+    safeHandler('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
+      const socketId = socket.id || 'unknown';
+      const clientId = socketId.slice(0, 8);
+      // Validate input: ensure args is an array and limit size
+      const args = Array.isArray(message.args) ? message.args.slice(0, 20) : [];
+      const logLine = args.join(' ').slice(0, 2000); // Limit log line length
 
-    // Route PERF logs to performance.log, others to client.log
-    const targetLogger = logLine.includes('[PERF]') ? perfLogger : clientLogger;
+      // Route PERF logs to performance.log, others to client.log
+      const targetLogger = logLine.includes('[PERF]') ? perfLogger : clientLogger;
 
-    // Richer metadata: full socketId, clientLevel, descriptive event name
-    const meta = {
-      socketId,
-      clientId,
-      clientLevel: message.level,
-      event: 'player_client_log',
-    };
+      // Richer metadata: full socketId, clientLevel, descriptive event name
+      const meta = {
+        socketId,
+        clientId,
+        clientLevel: message.level,
+        event: 'player_client_log',
+      };
 
-    if (message.level === 'error') {
-      targetLogger.error(meta, logLine);
-    } else if (message.level === 'warn') {
-      targetLogger.warn(meta, logLine);
-    } else {
-      targetLogger.info(meta, logLine);
-    }
-  }));
+      if (message.level === 'error') {
+        targetLogger.error(meta, logLine);
+      } else if (message.level === 'warn') {
+        targetLogger.warn(meta, logLine);
+      } else {
+        targetLogger.info(meta, logLine);
+      }
+    })
+  );
 
   // ============================================
   // Disconnection Handling
   // ============================================
 
-  socket.on('disconnect', safeHandler('disconnect', () => {
-    logPlayerDisconnected(socket.id);
+  socket.on(
+    'disconnect',
+    safeHandler('disconnect', () => {
+      logPlayerDisconnected(socket.id);
 
-    // Remove from ECS (source of truth)
-    const entity = getEntityBySocketId(socket.id);
-    if (entity !== undefined) {
-      ecsDestroyEntity(world, entity);
-    }
+      // Remove from ECS (source of truth)
+      const entity = getEntityBySocketId(socket.id);
+      if (entity !== undefined) {
+        ecsDestroyEntity(world, entity);
+      }
 
-    // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
+      // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
 
-    // Notify other players
-    const leftMessage: PlayerLeftMessage = {
-      type: 'playerLeft',
-      playerId: socket.id,
-    };
-    socket.broadcast.emit('playerLeft', leftMessage);
-  }));
+      // Notify other players
+      const leftMessage: PlayerLeftMessage = {
+        type: 'playerLeft',
+        playerId: socket.id,
+      };
+      socket.broadcast.emit('playerLeft', leftMessage);
+    })
+  );
 });
 
 // ============================================
@@ -933,14 +1018,17 @@ setInterval(() => {
   // If actualDelta >> tickProcessingMs, event loop was blocked (GC, etc.)
   // If tickProcessingMs is high, our systems are slow
   if (actualDelta > TICK_INTERVAL * 1.5) {
-    perfLogger.info({
-      event: 'tick_variance',
-      tickNum: tickCount,
-      actualDeltaMs: actualDelta.toFixed(1),
-      tickProcessingMs: tickProcessingMs.toFixed(1),
-      expectedMs: TICK_INTERVAL.toFixed(1),
-      ratio: (actualDelta / TICK_INTERVAL).toFixed(2),
-    }, `Tick variance: ${actualDelta.toFixed(1)}ms (processing: ${tickProcessingMs.toFixed(1)}ms)`);
+    perfLogger.info(
+      {
+        event: 'tick_variance',
+        tickNum: tickCount,
+        actualDeltaMs: actualDelta.toFixed(1),
+        tickProcessingMs: tickProcessingMs.toFixed(1),
+        expectedMs: TICK_INTERVAL.toFixed(1),
+        ratio: (actualDelta / TICK_INTERVAL).toFixed(2),
+      },
+      `Tick variance: ${actualDelta.toFixed(1)}ms (processing: ${tickProcessingMs.toFixed(1)}ms)`
+    );
   }
 
   // Periodic performance stats logging
@@ -977,29 +1065,32 @@ setInterval(() => {
     const avgSwarmEnergy = swarmCount > 0 ? totalSwarmEnergy / swarmCount : 0;
     if (swarmCount === 0) minSwarmEnergy = 0;
 
-    perfLogger.info({
-      event: 'tick_stats',
-      intervalSec: ((now - lastPerfLogTime) / 1000).toFixed(1),
-      tickCount: tickTimesMs.length,
-      avgMs: avgMs.toFixed(2),
-      minMs: minMs.toFixed(2),
-      maxMs: maxMs.toFixed(2),
-      p50Ms: p50Ms.toFixed(2),
-      p95Ms: p95Ms.toFixed(2),
-      p99Ms: p99Ms.toFixed(2),
-      budgetMs: TICK_INTERVAL.toFixed(1),
-      budgetUsedPct: ((avgMs / TICK_INTERVAL) * 100).toFixed(1),
-      humanPlayers: humanCount,
-      bots: botCount,
-      totalPlayers: playerCount,
-      swarmCount,
-      swarmEnergy: {
-        avg: Math.floor(avgSwarmEnergy),
-        min: Math.floor(minSwarmEnergy),
-        max: Math.floor(maxSwarmEnergy),
-        total: Math.floor(totalSwarmEnergy),
+    perfLogger.info(
+      {
+        event: 'tick_stats',
+        intervalSec: ((now - lastPerfLogTime) / 1000).toFixed(1),
+        tickCount: tickTimesMs.length,
+        avgMs: avgMs.toFixed(2),
+        minMs: minMs.toFixed(2),
+        maxMs: maxMs.toFixed(2),
+        p50Ms: p50Ms.toFixed(2),
+        p95Ms: p95Ms.toFixed(2),
+        p99Ms: p99Ms.toFixed(2),
+        budgetMs: TICK_INTERVAL.toFixed(1),
+        budgetUsedPct: ((avgMs / TICK_INTERVAL) * 100).toFixed(1),
+        humanPlayers: humanCount,
+        bots: botCount,
+        totalPlayers: playerCount,
+        swarmCount,
+        swarmEnergy: {
+          avg: Math.floor(avgSwarmEnergy),
+          min: Math.floor(minSwarmEnergy),
+          max: Math.floor(maxSwarmEnergy),
+          total: Math.floor(totalSwarmEnergy),
+        },
       },
-    }, `Tick stats: avg=${avgMs.toFixed(2)}ms p95=${p95Ms.toFixed(2)}ms (${((avgMs / TICK_INTERVAL) * 100).toFixed(0)}% budget) | Swarms: ${swarmCount} avg=${Math.floor(avgSwarmEnergy)} max=${Math.floor(maxSwarmEnergy)}`);
+      `Tick stats: avg=${avgMs.toFixed(2)}ms p95=${p95Ms.toFixed(2)}ms (${((avgMs / TICK_INTERVAL) * 100).toFixed(0)}% budget) | Swarms: ${swarmCount} avg=${Math.floor(avgSwarmEnergy)} max=${Math.floor(maxSwarmEnergy)}`
+    );
 
     // Reset for next interval
     tickTimesMs = [];
@@ -1017,49 +1108,80 @@ const safeInterval = (name: string, callback: () => void, interval: number) => {
     try {
       callback();
     } catch (error) {
-      logger.error({
-        event: 'interval_error',
-        intervalName: name,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      }, `Interval ${name} threw an error`);
+      logger.error(
+        {
+          event: 'interval_error',
+          intervalName: name,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        `Interval ${name} threw an error`
+      );
     }
   }, interval);
 };
 
 // Log aggregate stats every 15 seconds
-safeInterval('aggregate_stats', () => {
-  const stats = calculateAggregateStats(world);
-  logAggregateStats(stats);
-}, 15000);
+safeInterval(
+  'aggregate_stats',
+  () => {
+    const stats = calculateAggregateStats(world);
+    logAggregateStats(stats);
+  },
+  15000
+);
 
 // Log bot death rate stats every 30 seconds (tracks deaths by cause in rolling 60s window)
-safeInterval('death_rate_stats', () => {
-  maybeLogDeathRateStats();
-}, 5000); // Check frequently, but only logs every 30s when there are deaths
+safeInterval(
+  'death_rate_stats',
+  () => {
+    maybeLogDeathRateStats();
+  },
+  5000
+); // Check frequently, but only logs every 30s when there are deaths
 
 // Log evolution rate stats every 30 seconds (tracks evolutions by transition type in rolling 60s window)
-safeInterval('evolution_rate_stats', () => {
-  maybeLogEvolutionRateStats();
-}, 5000); // Check frequently, but only logs every 30s when there are evolutions
+safeInterval(
+  'evolution_rate_stats',
+  () => {
+    maybeLogEvolutionRateStats();
+  },
+  5000
+); // Check frequently, but only logs every 30s when there are evolutions
 
 // Log nutrient collection rate stats every 30 seconds (tracks collections in rolling 60s window)
-safeInterval('nutrient_collection_stats', () => {
-  maybeLogNutrientCollectionStats();
-}, 5000); // Check frequently, but only logs every 30s when there are collections
+safeInterval(
+  'nutrient_collection_stats',
+  () => {
+    maybeLogNutrientCollectionStats();
+  },
+  5000
+); // Check frequently, but only logs every 30s when there are collections
 
 // Log lifetime stats every 60 seconds (average rates since server start)
-safeInterval('lifetime_stats', () => {
-  maybeLogLifetimeStats();
-}, 10000); // Check every 10s, but only logs every 60s
+safeInterval(
+  'lifetime_stats',
+  () => {
+    maybeLogLifetimeStats();
+  },
+  10000
+); // Check every 10s, but only logs every 60s
 
 // Log server memory usage every 60 seconds (heap, RSS, external)
-safeInterval('memory_usage', () => {
-  maybeLogMemoryUsage();
-}, 10000); // Check every 10s, but only logs every 60s
+safeInterval(
+  'memory_usage',
+  () => {
+    maybeLogMemoryUsage();
+  },
+  10000
+); // Check every 10s, but only logs every 60s
 
 // Log full world snapshot every 60 seconds
-safeInterval('world_snapshot', () => {
-  const snapshot = createWorldSnapshot(world);
-  logGameStateSnapshot(snapshot);
-}, 60000);
+safeInterval(
+  'world_snapshot',
+  () => {
+    const snapshot = createWorldSnapshot(world);
+    logGameStateSnapshot(snapshot);
+  },
+  60000
+);

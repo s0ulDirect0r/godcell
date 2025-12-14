@@ -29,9 +29,9 @@ export function createComposer(
   // Bloom pass (glow effect for neon aesthetic)
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(width, height),
-    1.2,  // strength (strong glow for visibility)
-    0.8,  // radius (spread of glow)
-    0.3   // threshold (lower = more things glow)
+    1.2, // strength (strong glow for visibility)
+    0.8, // radius (spread of glow)
+    0.3 // threshold (lower = more things glow)
   );
   composer.addPass(bloomPass);
 

@@ -46,7 +46,6 @@ export class DeathSystem implements System {
   readonly name = 'DeathSystem';
 
   update(world: World, _deltaTime: number, io: Server): void {
-
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = requireEnergy(world, entity);
 
@@ -176,13 +175,16 @@ export class DeathSystem implements System {
       y: number;
       killerId?: string;
       damageSource?: DeathCause;
-      peakEnergy: number;  // Peak energy swarm reached (for percentage-based rewards)
+      peakEnergy: number; // Peak energy swarm reached (for percentage-based rewards)
     }[] = [];
 
     forEachSwarm(world, (entity, swarmId, posComp, _velComp, _swarmComp, energyComp) => {
       if (energyComp.current <= 0) {
         // Get damage tracking to find killer
-        const damageTracking = world.getComponent<DamageTrackingComponent>(entity, Components.DamageTracking);
+        const damageTracking = world.getComponent<DamageTrackingComponent>(
+          entity,
+          Components.DamageTracking
+        );
         deadSwarms.push({
           entity,
           swarmId,
@@ -190,7 +192,7 @@ export class DeathSystem implements System {
           y: posComp.y,
           killerId: damageTracking?.lastBeamShooter,
           damageSource: damageTracking?.lastDamageSource,
-          peakEnergy: energyComp.max,  // max tracks peak energy absorbed
+          peakEnergy: energyComp.max, // max tracks peak energy absorbed
         });
       }
     });
@@ -200,7 +202,7 @@ export class DeathSystem implements System {
       // Calculate maxEnergy reward as percentage of swarm's peak energy
       // Consumption: 25% bonus (since max is drained during consumption itself)
       // Beam: 10% bonus (beam doesn't drain max, so smaller bonus)
-      const rewardPct = swarm.damageSource === 'consumption' ? 0.25 : 0.10;
+      const rewardPct = swarm.damageSource === 'consumption' ? 0.25 : 0.1;
       const maxEnergyGain = Math.floor(swarm.peakEnergy * rewardPct);
 
       // Award kill rewards to killer

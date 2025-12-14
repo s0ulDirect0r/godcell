@@ -122,7 +122,11 @@ export function updateEvolutionCorona(cellGroup: THREE.Group, evolutionProgress:
  * @param evolutionProgress - Progress value from 0.0-1.0
  * @param radius - Cell radius for calculating ring size
  */
-export function updateEvolutionRing(cellGroup: THREE.Group, evolutionProgress: number, radius: number): void {
+export function updateEvolutionRing(
+  cellGroup: THREE.Group,
+  evolutionProgress: number,
+  radius: number
+): void {
   const colorHex = cellGroup.userData.colorHex || 0x00ff88;
 
   // Calculate ring size (shrinks as evolution approaches) - scales with cell radius
@@ -175,7 +179,7 @@ export function removeEvolutionEffects(cellGroup: THREE.Group): void {
   // Remove corona
   const corona = cellGroup.userData.evolutionCorona as THREE.Group | undefined;
   if (corona) {
-    corona.children.forEach(child => {
+    corona.children.forEach((child) => {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         (child.material as THREE.Material).dispose();
@@ -203,7 +207,11 @@ export function removeEvolutionEffects(cellGroup: THREE.Group): void {
  * @param stage - Evolution stage name ('single_cell' or 'multi_cell')
  * @param progress - Animation progress from 0.0-1.0
  */
-export function applyEvolutionEffects(cellGroup: THREE.Group, stage: string, progress: number): void {
+export function applyEvolutionEffects(
+  cellGroup: THREE.Group,
+  stage: string,
+  progress: number
+): void {
   // Intense glow that peaks at 50% progress (sine wave) - 75% boost
   const glowIntensity = Math.sin(progress * Math.PI) * 5.0; // 0 → 5 → 0
 
@@ -229,7 +237,6 @@ export function applyEvolutionEffects(cellGroup: THREE.Group, stage: string, pro
 
     // Pulse entire group scale
     cellGroup.scale.set(scalePulse, scalePulse, scalePulse);
-
   } else {
     // Single-cell: apply to nucleus (child 3)
     const nucleus = cellGroup.children[3] as THREE.Mesh;

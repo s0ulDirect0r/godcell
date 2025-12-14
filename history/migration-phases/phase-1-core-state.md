@@ -20,6 +20,7 @@ This establishes the foundation for renderer independence: state becomes the sin
 ## Files to Create
 
 ### `client/src/core/events/EventBus.ts`
+
 Simple pub/sub for local events.
 
 ```typescript
@@ -58,7 +59,7 @@ export class EventBus {
   emit<T = any>(event: string, data?: T): void {
     const handlers = this.handlers.get(event);
     if (handlers) {
-      handlers.forEach(handler => handler(data));
+      handlers.forEach((handler) => handler(data));
     }
   }
 
@@ -75,16 +76,11 @@ export const eventBus = new EventBus();
 ```
 
 ### `client/src/core/state/GameState.ts`
+
 Normalized entity storage with lifecycle methods.
 
 ```typescript
-import type {
-  Player,
-  Nutrient,
-  Obstacle,
-  EntropySwarm,
-  Pseudopod,
-} from '@godcell/shared';
+import type { Player, Nutrient, Obstacle, EntropySwarm, Pseudopod } from '@godcell/shared';
 
 export interface InterpolationTarget {
   x: number;
@@ -123,16 +119,16 @@ export class GameState {
     this.swarms.clear();
 
     // Populate from snapshot
-    snapshot.players.forEach(p => this.players.set(p.id, p));
-    snapshot.nutrients.forEach(n => this.nutrients.set(n.id, n));
-    snapshot.obstacles.forEach(o => this.obstacles.set(o.id, o));
-    snapshot.swarms.forEach(s => this.swarms.set(s.id, s));
+    snapshot.players.forEach((p) => this.players.set(p.id, p));
+    snapshot.nutrients.forEach((n) => this.nutrients.set(n.id, n));
+    snapshot.obstacles.forEach((o) => this.obstacles.set(o.id, o));
+    snapshot.swarms.forEach((s) => this.swarms.set(s.id, s));
 
     // Initialize interpolation targets
-    snapshot.players.forEach(p => {
+    snapshot.players.forEach((p) => {
       this.playerTargets.set(p.id, { x: p.x, y: p.y, timestamp: Date.now() });
     });
-    snapshot.swarms.forEach(s => {
+    snapshot.swarms.forEach((s) => {
       this.swarmTargets.set(s.id, { x: s.x, y: s.y, timestamp: Date.now() });
     });
   }
@@ -256,6 +252,7 @@ export class GameState {
 ```
 
 ### `client/vitest.config.ts`
+
 Vitest configuration for unit tests.
 
 ```typescript
@@ -271,6 +268,7 @@ export default defineConfig({
 ```
 
 ### `client/src/core/state/GameState.test.ts`
+
 Unit tests for GameState.
 
 ```typescript
@@ -290,17 +288,36 @@ describe('GameState', () => {
     it('should populate all entity maps from snapshot', () => {
       const snapshot = {
         players: [
-          { id: 'p1', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player,
+          {
+            id: 'p1',
+            x: 100,
+            y: 200,
+            vx: 0,
+            vy: 0,
+            radius: 20,
+            color: '#ff0000',
+            health: 100,
+            maxHealth: 100,
+            energy: 100,
+            maxEnergy: 100,
+            stage: EvolutionStage.SINGLE_CELL,
+            energyCapacity: 100,
+          } as Player,
         ],
         nutrients: [
           { id: 'n1', x: 300, y: 400, radius: 10, value: 25, valueMultiplier: 1 } as Nutrient,
         ],
         obstacles: [
-          { id: 'o1', x: 500, y: 600, eventHorizonRadius: 200, singularityRadius: 60, gravityStrength: 5000 } as Obstacle,
+          {
+            id: 'o1',
+            x: 500,
+            y: 600,
+            eventHorizonRadius: 200,
+            singularityRadius: 60,
+            gravityStrength: 5000,
+          } as Obstacle,
         ],
-        swarms: [
-          { id: 's1', x: 700, y: 800, vx: 0, vy: 0, radius: 15 } as EntropySwarm,
-        ],
+        swarms: [{ id: 's1', x: 700, y: 800, vx: 0, vy: 0, radius: 15 } as EntropySwarm],
       };
 
       state.applySnapshot(snapshot);
@@ -315,7 +332,21 @@ describe('GameState', () => {
 
     it('should clear existing state before applying snapshot', () => {
       // Pre-populate
-      state.upsertPlayer({ id: 'old', x: 0, y: 0, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player);
+      state.upsertPlayer({
+        id: 'old',
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player);
 
       // Apply new snapshot
       state.applySnapshot({ players: [], nutrients: [], obstacles: [], swarms: [] });
@@ -326,7 +357,21 @@ describe('GameState', () => {
 
   describe('Player operations', () => {
     it('should upsert player', () => {
-      const player = { id: 'p1', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player;
+      const player = {
+        id: 'p1',
+        x: 100,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player;
       state.upsertPlayer(player);
 
       expect(state.players.get('p1')).toEqual(player);
@@ -334,7 +379,21 @@ describe('GameState', () => {
     });
 
     it('should remove player', () => {
-      state.upsertPlayer({ id: 'p1', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player);
+      state.upsertPlayer({
+        id: 'p1',
+        x: 100,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player);
       state.removePlayer('p1');
 
       expect(state.players.has('p1')).toBe(false);
@@ -342,7 +401,21 @@ describe('GameState', () => {
     });
 
     it('should update player target position', () => {
-      state.upsertPlayer({ id: 'p1', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player);
+      state.upsertPlayer({
+        id: 'p1',
+        x: 100,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player);
       state.updatePlayerTarget('p1', 150, 250);
 
       const target = state.playerTargets.get('p1');
@@ -353,14 +426,28 @@ describe('GameState', () => {
 
   describe('Nutrient operations', () => {
     it('should upsert nutrient', () => {
-      const nutrient = { id: 'n1', x: 300, y: 400, radius: 10, value: 25, valueMultiplier: 1 } as Nutrient;
+      const nutrient = {
+        id: 'n1',
+        x: 300,
+        y: 400,
+        radius: 10,
+        value: 25,
+        valueMultiplier: 1,
+      } as Nutrient;
       state.upsertNutrient(nutrient);
 
       expect(state.nutrients.get('n1')).toEqual(nutrient);
     });
 
     it('should remove nutrient', () => {
-      state.upsertNutrient({ id: 'n1', x: 300, y: 400, radius: 10, value: 25, valueMultiplier: 1 } as Nutrient);
+      state.upsertNutrient({
+        id: 'n1',
+        x: 300,
+        y: 400,
+        radius: 10,
+        value: 25,
+        valueMultiplier: 1,
+      } as Nutrient);
       state.removeNutrient('n1');
 
       expect(state.nutrients.has('n1')).toBe(false);
@@ -369,7 +456,21 @@ describe('GameState', () => {
 
   describe('getMyPlayer', () => {
     it('should return local player when set', () => {
-      const player = { id: 'me', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player;
+      const player = {
+        id: 'me',
+        x: 100,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player;
       state.upsertPlayer(player);
       state.myPlayerId = 'me';
 
@@ -383,8 +484,29 @@ describe('GameState', () => {
 
   describe('reset', () => {
     it('should clear all state', () => {
-      state.upsertPlayer({ id: 'p1', x: 100, y: 200, vx: 0, vy: 0, radius: 20, color: '#ff0000', health: 100, maxHealth: 100, energy: 100, maxEnergy: 100, stage: EvolutionStage.SINGLE_CELL, energyCapacity: 100 } as Player);
-      state.upsertNutrient({ id: 'n1', x: 300, y: 400, radius: 10, value: 25, valueMultiplier: 1 } as Nutrient);
+      state.upsertPlayer({
+        id: 'p1',
+        x: 100,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        radius: 20,
+        color: '#ff0000',
+        health: 100,
+        maxHealth: 100,
+        energy: 100,
+        maxEnergy: 100,
+        stage: EvolutionStage.SINGLE_CELL,
+        energyCapacity: 100,
+      } as Player);
+      state.upsertNutrient({
+        id: 'n1',
+        x: 300,
+        y: 400,
+        radius: 10,
+        value: 25,
+        valueMultiplier: 1,
+      } as Nutrient);
       state.myPlayerId = 'p1';
 
       state.reset();
@@ -400,6 +522,7 @@ describe('GameState', () => {
 ## Files to Modify
 
 ### `client/package.json`
+
 Add Vitest dependencies.
 
 ```json
@@ -422,9 +545,11 @@ Add Vitest dependencies.
 ```
 
 ### `client/src/scenes/GameScene.ts`
+
 Wire GameState - replace local maps with GameState access.
 
 **Add at top of class:**
+
 ```typescript
 import { eventBus } from '../core/events/EventBus';
 import { GameState } from '../core/state/GameState';
@@ -434,6 +559,7 @@ private gameState: GameState = new GameState();
 ```
 
 **In `create()` method, when receiving `game:state` message:**
+
 ```typescript
 // OLD:
 this.socket.on('game:state', (state: GameStateMessage) => {
@@ -454,6 +580,7 @@ this.socket.on('game:state', (state: GameStateMessage) => {
 ```
 
 **In `player:moved` handler:**
+
 ```typescript
 // OLD:
 this.playerTargetPositions.set(data.playerId, { x: data.x, y: data.y });
@@ -465,6 +592,7 @@ this.gameState.updatePlayerTarget(data.playerId, data.x, data.y);
 Similar pattern for all entity updates (nutrients, swarms, pseudopods).
 
 **In `update()` method:**
+
 ```typescript
 // OLD:
 this.playerSprites.forEach((sprite, playerId) => { ... });
@@ -522,17 +650,20 @@ npm run dev
 ## Implementation Notes
 
 **Gotchas:**
+
 - Don't forget to update ALL socket handlers to use gameState methods
 - Interpolation targets must be updated in gameState, not kept separately
 - myPlayerId needs to be set in both GameScene (for now) and GameState
 - EventBus is set up but not heavily used yet - that comes in Phase 2
 
 **Testing notes:**
+
 - Use fixtures for Player/Nutrient types to avoid verbose test setup
 - happy-dom provides minimal browser APIs for testing
 - Tests should be fast (<100ms total) - they're just data transformations
 
 **Performance:**
+
 - Maps are fast for lookups/inserts (O(1))
 - No performance impact from normalized storage
 - EventBus overhead is negligible (Set iterations)

@@ -73,7 +73,7 @@ function cleanupTrackedListeners(): void {
  * Clean up all eventBus subscriptions
  */
 function cleanupEventSubscriptions(): void {
-  eventSubscriptions.forEach(unsubscribe => unsubscribe());
+  eventSubscriptions.forEach((unsubscribe) => unsubscribe());
   eventSubscriptions.length = 0;
 }
 
@@ -134,8 +134,9 @@ function initializeGame(settings: PreGameSettings): void {
 
   // Determine server URL
   // Priority: VITE_SERVER_URL env var > localhost detection > same origin
-  const serverUrl = import.meta.env.VITE_SERVER_URL
-    || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
+  const serverUrl =
+    import.meta.env.VITE_SERVER_URL ||
+    (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
   // Connect to server - SocketManager writes directly to World
   socketManager = new SocketManager(serverUrl, world, settings.playgroundMode);
@@ -158,7 +159,8 @@ function initializeGame(settings: PreGameSettings): void {
 
   // Expose debug toggles to window for console access
   // Usage: window.debugSerpent() - toggles serpent head/body/attack visualization
-  (window as unknown as { debugSerpent: () => boolean }).debugSerpent = () => renderer!.toggleSerpentDebug();
+  (window as unknown as { debugSerpent: () => boolean }).debugSerpent = () =>
+    renderer!.toggleSerpentDebug();
 
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());
@@ -247,60 +249,82 @@ function initializeGame(settings: PreGameSettings): void {
   });
 
   // Wire input handlers to network (tracked for cleanup)
-  eventSubscriptions.push(eventBus.on('client:inputMove', (event) => {
-    socketManager.sendMove(event.direction);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:inputMove', (event) => {
+      socketManager.sendMove(event.direction);
+    })
+  );
 
-  eventSubscriptions.push(eventBus.on('client:inputRespawn', () => {
-    socketManager.sendRespawn();
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:inputRespawn', () => {
+      socketManager.sendRespawn();
+    })
+  );
 
-  eventSubscriptions.push(eventBus.on('client:empActivate', () => {
-    socketManager.sendEMPActivate();
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:empActivate', () => {
+      socketManager.sendEMPActivate();
+    })
+  );
 
-  eventSubscriptions.push(eventBus.on('client:pseudopodFire', (event) => {
-    // Stage 1-2 pseudopod beam attack
-    socketManager.sendPseudopodFire(event.targetX, event.targetY);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:pseudopodFire', (event) => {
+      // Stage 1-2 pseudopod beam attack
+      socketManager.sendPseudopodFire(event.targetX, event.targetY);
+    })
+  );
 
-  eventSubscriptions.push(eventBus.on('client:sprint', (event) => {
-    socketManager.sendSprint(event.sprinting);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:sprint', (event) => {
+      socketManager.sendSprint(event.sprinting);
+    })
+  );
 
   // Stage 3 specialization selection
-  eventSubscriptions.push(eventBus.on('client:selectSpecialization', (event) => {
-    socketManager.sendSelectSpecialization(event.specialization);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:selectSpecialization', (event) => {
+      socketManager.sendSelectSpecialization(event.specialization);
+    })
+  );
 
   // Stage 3 melee attack
-  eventSubscriptions.push(eventBus.on('client:meleeAttack', (event) => {
-    socketManager.sendMeleeAttack(event.attackType, event.targetX, event.targetY);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:meleeAttack', (event) => {
+      socketManager.sendMeleeAttack(event.attackType, event.targetX, event.targetY);
+    })
+  );
 
   // Stage 3 trap placement
-  eventSubscriptions.push(eventBus.on('client:placeTrap', () => {
-    socketManager.sendPlaceTrap();
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:placeTrap', () => {
+      socketManager.sendPlaceTrap();
+    })
+  );
 
   // Stage 3+ projectile fire (from InputManager when ranged spec or default)
-  eventSubscriptions.push(eventBus.on('client:projectileFire', (event) => {
-    socketManager.sendProjectileFire(event.targetX, event.targetY);
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:projectileFire', (event) => {
+      socketManager.sendProjectileFire(event.targetX, event.targetY);
+    })
+  );
 
   // Show specialization modal when server prompts
-  eventSubscriptions.push(eventBus.on('specializationPrompt', (event) => {
-    new SpecializationModal({
-      playerId: event.playerId,
-      deadline: event.deadline,
-    });
-  }));
+  eventSubscriptions.push(
+    eventBus.on('specializationPrompt', (event) => {
+      new SpecializationModal({
+        playerId: event.playerId,
+        deadline: event.deadline,
+      });
+    })
+  );
 
   // Wire mouse look event to update InputManager's yaw (for movement rotation)
-  eventSubscriptions.push(eventBus.on('client:mouseLook', () => {
-    // After renderer processes mouse look, sync yaw back to input manager
-    inputManager.setFirstPersonYaw(renderer.getFirstPersonYaw());
-  }));
+  eventSubscriptions.push(
+    eventBus.on('client:mouseLook', () => {
+      // After renderer processes mouse look, sync yaw back to input manager
+      inputManager.setFirstPersonYaw(renderer.getFirstPersonYaw());
+    })
+  );
 
   // Start game loop
   update();

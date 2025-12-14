@@ -45,7 +45,6 @@ export class MetabolismSystem implements System {
   readonly name = 'MetabolismSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     forEachPlayer(world, (entity, playerId) => {
       const energyComp = requireEnergy(world, entity);
       const stageComp = requireStage(world, entity);
@@ -98,7 +97,6 @@ export class MetabolismSystem implements System {
    * Check if player can evolve and trigger evolution if conditions met
    */
   private checkEvolution(entity: number, playerId: string, world: World, io: Server): void {
-
     const stageComp = requireStage(world, entity);
     const energyComp = requireEnergy(world, entity);
 
@@ -159,11 +157,15 @@ export class MetabolismSystem implements System {
           const deadline = now + GAME_CONFIG.SPECIALIZATION_SELECTION_DURATION;
 
           // Add the combat specialization component with pending selection
-          world.addComponent<CombatSpecializationComponent>(entityNow, Components.CombatSpecialization, {
-            specialization: null,
-            selectionPending: true,
-            selectionDeadline: deadline,
-          });
+          world.addComponent<CombatSpecializationComponent>(
+            entityNow,
+            Components.CombatSpecialization,
+            {
+              specialization: null,
+              selectionPending: true,
+              selectionDeadline: deadline,
+            }
+          );
 
           // Emit specialization prompt to the evolving player
           const promptMessage: SpecializationPromptMessage = {
@@ -174,7 +176,9 @@ export class MetabolismSystem implements System {
           io.emit('specializationPrompt', promptMessage);
 
           logger.info({
-            event: isBot(playerId) ? 'bot_specialization_prompt_sent' : 'player_specialization_prompt_sent',
+            event: isBot(playerId)
+              ? 'bot_specialization_prompt_sent'
+              : 'player_specialization_prompt_sent',
             playerId,
             deadline,
           });
@@ -193,14 +197,17 @@ export class MetabolismSystem implements System {
         // Track evolution for rate tracking (includes survival time calculation)
         recordEvolution(playerId, fromStage, stageCompNow.stage, isBot(playerId));
       } catch (error) {
-        logger.error({
-          event: 'evolution_completion_error',
-          playerId,
-          fromStage,
-          targetStage,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        }, `Evolution completion failed for ${playerId}`);
+        logger.error(
+          {
+            event: 'evolution_completion_error',
+            playerId,
+            fromStage,
+            targetStage,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          `Evolution completion failed for ${playerId}`
+        );
       }
     }, getConfig('EVOLUTION_MOLTING_DURATION'));
   }

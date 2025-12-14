@@ -30,11 +30,15 @@ test.describe('Model Viewer with lil-gui Controls', () => {
     await expect(entityFolder).toBeVisible();
 
     // Should have Entity Type dropdown
-    const entityTypeController = entityFolder.locator('.controller').filter({ hasText: 'Entity Type' });
+    const entityTypeController = entityFolder
+      .locator('.controller')
+      .filter({ hasText: 'Entity Type' });
     await expect(entityTypeController).toBeVisible();
 
     // Should have Multi-cell Style dropdown
-    const styleController = entityFolder.locator('.controller').filter({ hasText: 'Multi-cell Style' });
+    const styleController = entityFolder
+      .locator('.controller')
+      .filter({ hasText: 'Multi-cell Style' });
     await expect(styleController).toBeVisible();
   });
 
@@ -50,15 +54,21 @@ test.describe('Model Viewer with lil-gui Controls', () => {
     await expect(energyController).toBeVisible();
 
     // Should have Auto Cycle Energy checkbox
-    const autoCycleController = animFolder.locator('.controller').filter({ hasText: 'Auto Cycle Energy' });
+    const autoCycleController = animFolder
+      .locator('.controller')
+      .filter({ hasText: 'Auto Cycle Energy' });
     await expect(autoCycleController).toBeVisible();
 
     // Should have Animation Speed slider
-    const speedController = animFolder.locator('.controller').filter({ hasText: 'Animation Speed' });
+    const speedController = animFolder
+      .locator('.controller')
+      .filter({ hasText: 'Animation Speed' });
     await expect(speedController).toBeVisible();
 
     // Should have Auto Rotate checkbox
-    const autoRotateController = animFolder.locator('.controller').filter({ hasText: 'Auto Rotate' });
+    const autoRotateController = animFolder
+      .locator('.controller')
+      .filter({ hasText: 'Auto Rotate' });
     await expect(autoRotateController).toBeVisible();
   });
 
@@ -137,7 +147,9 @@ test.describe('Model Viewer with lil-gui Controls', () => {
     const animFolder = guiPanel.locator('.folder').filter({ hasText: 'Animation' });
 
     // Find the Auto Cycle Energy checkbox
-    const autoCycleController = animFolder.locator('.controller').filter({ hasText: 'Auto Cycle Energy' });
+    const autoCycleController = animFolder
+      .locator('.controller')
+      .filter({ hasText: 'Auto Cycle Energy' });
     const checkbox = autoCycleController.locator('input[type="checkbox"]');
 
     // Should be checked by default (autoAnimate: true)
@@ -157,7 +169,9 @@ test.describe('Model Viewer with lil-gui Controls', () => {
     const animFolder = guiPanel.locator('.folder').filter({ hasText: 'Animation' });
 
     // First disable auto-animate so we can control energy manually
-    const autoCycleController = animFolder.locator('.controller').filter({ hasText: 'Auto Cycle Energy' });
+    const autoCycleController = animFolder
+      .locator('.controller')
+      .filter({ hasText: 'Auto Cycle Energy' });
     const autoCheckbox = autoCycleController.locator('input[type="checkbox"]');
     await autoCheckbox.click(); // Turn off auto cycle
 
@@ -203,7 +217,7 @@ test.describe('Model Viewer with lil-gui Controls', () => {
   test('should render canvas without WebGL errors', async ({ page }) => {
     // Listen for console errors
     const errors: string[] = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') {
         errors.push(msg.text());
       }
@@ -213,10 +227,11 @@ test.describe('Model Viewer with lil-gui Controls', () => {
     await page.waitForTimeout(2000);
 
     // Check for WebGL-related errors
-    const webglErrors = errors.filter(e =>
-      e.toLowerCase().includes('webgl') ||
-      e.toLowerCase().includes('three') ||
-      e.toLowerCase().includes('shader')
+    const webglErrors = errors.filter(
+      (e) =>
+        e.toLowerCase().includes('webgl') ||
+        e.toLowerCase().includes('three') ||
+        e.toLowerCase().includes('shader')
     );
 
     expect(webglErrors).toHaveLength(0);

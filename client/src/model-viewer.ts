@@ -19,10 +19,7 @@ import {
 import { createSwarm } from './render/meshes/SwarmMesh';
 import { createNutrient } from './render/meshes/NutrientMesh';
 import { createGravityDistortion } from './render/meshes/GravityDistortionMesh';
-import {
-  createSingleCell,
-  updateSingleCellEnergy,
-} from './render/meshes/SingleCellMesh';
+import { createSingleCell, updateSingleCellEnergy } from './render/meshes/SingleCellMesh';
 import {
   createCyberOrganism,
   updateCyberOrganismAnimation,
@@ -36,10 +33,7 @@ import {
   removeEvolutionEffects,
   applyEvolutionEffects,
 } from './render/three/EvolutionVisuals';
-import {
-  createDataTree,
-  updateDataTreeAnimation,
-} from './render/meshes/DataTreeMesh';
+import { createDataTree, updateDataTreeAnimation } from './render/meshes/DataTreeMesh';
 import { createDataFruit } from './render/meshes/DataFruitMesh';
 import { createCyberBug } from './render/meshes/CyberBugMesh';
 import { createJungleCreature } from './render/meshes/JungleCreatureMesh';
@@ -75,7 +69,19 @@ let gui: GUI;
 let currentColor: number = randomCellColor();
 
 let models: Array<THREE.Group | THREE.Mesh> = [];
-let currentEntityType: 'single-cell' | 'multi-cell' | 'cyber-organism' | 'entropy-serpent' | 'tree' | 'data-fruit' | 'cyber-bug' | 'jungle-creature' | 'swarm' | 'distortion' | 'nutrient' | 'all' = 'multi-cell';
+let currentEntityType:
+  | 'single-cell'
+  | 'multi-cell'
+  | 'cyber-organism'
+  | 'entropy-serpent'
+  | 'tree'
+  | 'data-fruit'
+  | 'cyber-bug'
+  | 'jungle-creature'
+  | 'swarm'
+  | 'distortion'
+  | 'nutrient'
+  | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let currentSerpentState: 'patrol' | 'chase' | 'attack' = 'patrol';
 let lastTime = 0;
@@ -83,18 +89,18 @@ let energyDirection = -1; // -1 = draining, 1 = filling
 
 // Animation state for energy visualization
 const animState = {
-  energyLevel: 100,       // 0-100 current energy percentage
-  maxEnergy: 100,         // Max energy (affects evolution progress)
-  animationSpeed: 1.0,    // Animation speed multiplier
-  autoAnimate: true,      // Auto-cycle energy for preview
+  energyLevel: 100, // 0-100 current energy percentage
+  maxEnergy: 100, // Max energy (affects evolution progress)
+  animationSpeed: 1.0, // Animation speed multiplier
+  autoAnimate: true, // Auto-cycle energy for preview
   showWireframe: false,
-  rotationSpeed: 0.5,     // Auto-rotation speed
+  rotationSpeed: 0.5, // Auto-rotation speed
   autoRotate: false,
   // Evolution visuals
-  evolutionProgress: 0,   // 0-1 progress toward next stage
-  showEvolution: false,   // Show evolution progress indicators (corona, ring)
-  playMolting: false,     // Play the molting animation
-  moltingProgress: 0,     // 0-1 progress through molting animation
+  evolutionProgress: 0, // 0-1 progress toward next stage
+  showEvolution: false, // Show evolution progress indicators (corona, ring)
+  playMolting: false, // Play the molting animation
+  moltingProgress: 0, // 0-1 progress through molting animation
 };
 
 // VFX parameters for tuning
@@ -128,12 +134,7 @@ function init() {
   scene.background = new THREE.Color(0x0a0a0a);
 
   // Camera
-  camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0, 200);
 
   // Renderer
@@ -151,9 +152,9 @@ function init() {
 
   bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.2,  // strength - strong glow for neon aesthetic
-    0.8,  // radius - spread of glow
-    0.3   // threshold - lower = more things glow
+    1.2, // strength - strong glow for neon aesthetic
+    0.8, // radius - spread of glow
+    0.3 // threshold - lower = more things glow
   );
   composer.addPass(bloomPass);
 
@@ -189,28 +190,42 @@ function initGUI() {
 
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
-  entityFolder.add({ type: currentEntityType }, 'type', [
-    'single-cell', 'multi-cell', 'cyber-organism', 'entropy-serpent', 'tree', 'data-fruit', 'cyber-bug', 'jungle-creature', 'swarm', 'distortion', 'nutrient', 'all'
-  ])
+  entityFolder
+    .add({ type: currentEntityType }, 'type', [
+      'single-cell',
+      'multi-cell',
+      'cyber-organism',
+      'entropy-serpent',
+      'tree',
+      'data-fruit',
+      'cyber-bug',
+      'jungle-creature',
+      'swarm',
+      'distortion',
+      'nutrient',
+      'all',
+    ])
     .name('Entity Type')
     .onChange((value: typeof currentEntityType) => {
       currentEntityType = value;
       updateModels();
     });
 
-  entityFolder.add({ style: currentStyle }, 'style', ['colonial', 'radial'])
+  entityFolder
+    .add({ style: currentStyle }, 'style', ['colonial', 'radial'])
     .name('Multi-cell Style')
     .onChange((value: MultiCellStyle) => {
       currentStyle = value;
       if (currentEntityType === 'multi-cell') updateModels();
     });
 
-  entityFolder.add({ serpentState: currentSerpentState }, 'serpentState', ['patrol', 'chase', 'attack'])
+  entityFolder
+    .add({ serpentState: currentSerpentState }, 'serpentState', ['patrol', 'chase', 'attack'])
     .name('Serpent State')
     .onChange((value: typeof currentSerpentState) => {
       currentSerpentState = value;
       // Update state on existing serpent models
-      models.forEach(model => {
+      models.forEach((model) => {
         if (model instanceof THREE.Group && model.name === 'entropySerpent') {
           updateEntropySerpentState(model, value);
         }
@@ -220,40 +235,32 @@ function initGUI() {
 
   // Animation controls folder
   const animFolder = gui.addFolder('Animation');
-  animFolder.add(animState, 'energyLevel', 0, 100, 1)
-    .name('Energy %')
-    .listen();
-  animFolder.add(animState, 'maxEnergy', 50, 500, 10)
-    .name('Max Energy')
-    .listen();
-  animFolder.add(animState, 'autoAnimate')
-    .name('Auto Cycle Energy');
-  animFolder.add(animState, 'animationSpeed', 0.1, 3, 0.1)
-    .name('Animation Speed');
-  animFolder.add(animState, 'autoRotate')
-    .name('Auto Rotate');
-  animFolder.add(animState, 'rotationSpeed', 0, 2, 0.1)
-    .name('Rotation Speed');
+  animFolder.add(animState, 'energyLevel', 0, 100, 1).name('Energy %').listen();
+  animFolder.add(animState, 'maxEnergy', 50, 500, 10).name('Max Energy').listen();
+  animFolder.add(animState, 'autoAnimate').name('Auto Cycle Energy');
+  animFolder.add(animState, 'animationSpeed', 0.1, 3, 0.1).name('Animation Speed');
+  animFolder.add(animState, 'autoRotate').name('Auto Rotate');
+  animFolder.add(animState, 'rotationSpeed', 0, 2, 0.1).name('Rotation Speed');
   animFolder.open();
 
   // Evolution visuals folder
   const evoFolder = gui.addFolder('Evolution');
-  evoFolder.add(animState, 'evolutionProgress', 0, 1, 0.01)
-    .name('Evolution Progress')
-    .listen();
-  evoFolder.add(animState, 'showEvolution')
+  evoFolder.add(animState, 'evolutionProgress', 0, 1, 0.01).name('Evolution Progress').listen();
+  evoFolder
+    .add(animState, 'showEvolution')
     .name('Show Progress FX')
     .onChange((show: boolean) => {
       if (!show) {
         // Remove evolution effects from all cell models
-        models.forEach(model => {
+        models.forEach((model) => {
           if (model instanceof THREE.Group) {
             removeEvolutionEffects(model);
           }
         });
       }
     });
-  evoFolder.add(animState, 'playMolting')
+  evoFolder
+    .add(animState, 'playMolting')
     .name('Play Molting')
     .onChange((play: boolean) => {
       if (play) {
@@ -267,39 +274,36 @@ function initGUI() {
 
   // Cell subfolder
   const cellVfx = vfxFolder.addFolder('Cell Visuals');
-  cellVfx.add(vfxParams, 'membraneOpacity', 0.05, 0.5, 0.01)
+  cellVfx
+    .add(vfxParams, 'membraneOpacity', 0.05, 0.5, 0.01)
     .name('Membrane Opacity')
     .onChange(() => updateModels());
-  cellVfx.add(vfxParams, 'nucleusGlow', 0.5, 5, 0.1)
+  cellVfx
+    .add(vfxParams, 'nucleusGlow', 0.5, 5, 0.1)
     .name('Nucleus Glow')
     .onChange(() => updateModels());
-  cellVfx.add(vfxParams, 'pulseFrequency', 0.2, 3, 0.1)
-    .name('Pulse Frequency');
+  cellVfx.add(vfxParams, 'pulseFrequency', 0.2, 3, 0.1).name('Pulse Frequency');
   cellVfx.close();
 
   // Multi-cell subfolder
   const multiVfx = vfxFolder.addFolder('Multi-cell');
-  multiVfx.add(vfxParams, 'tetherOpacity', 0.1, 1, 0.05)
-    .name('Tether Opacity');
-  multiVfx.add(vfxParams, 'tetherWidth', 1, 5, 0.5)
-    .name('Tether Width');
-  multiVfx.add(vfxParams, 'cellSpacing', 0.5, 2, 0.1)
+  multiVfx.add(vfxParams, 'tetherOpacity', 0.1, 1, 0.05).name('Tether Opacity');
+  multiVfx.add(vfxParams, 'tetherWidth', 1, 5, 0.5).name('Tether Width');
+  multiVfx
+    .add(vfxParams, 'cellSpacing', 0.5, 2, 0.1)
     .name('Cell Spacing')
     .onChange(() => updateModels());
   multiVfx.close();
 
   // Swarm subfolder
   const swarmVfx = vfxFolder.addFolder('Swarm');
-  swarmVfx.add(vfxParams, 'swarmTurbulence', 0.2, 3, 0.1)
-    .name('Turbulence');
+  swarmVfx.add(vfxParams, 'swarmTurbulence', 0.2, 3, 0.1).name('Turbulence');
   swarmVfx.close();
 
   // Gravity well subfolder
   const gravityVfx = vfxFolder.addFolder('Gravity Well');
-  gravityVfx.add(vfxParams, 'vortexSpeed', 0.2, 3, 0.1)
-    .name('Vortex Speed');
-  gravityVfx.add(vfxParams, 'accretionDensity', 0.2, 3, 0.1)
-    .name('Accretion Density');
+  gravityVfx.add(vfxParams, 'vortexSpeed', 0.2, 3, 0.1).name('Vortex Speed');
+  gravityVfx.add(vfxParams, 'accretionDensity', 0.2, 3, 0.1).name('Accretion Density');
   gravityVfx.close();
 
   vfxFolder.close();
@@ -311,8 +315,17 @@ function initGUI() {
   const CYBER_DEFAULTS = {
     BODY: { ...CYBER_CONFIG.BODY, orb: { ...CYBER_CONFIG.BODY.orb } },
     HEAD: { ...CYBER_CONFIG.HEAD, eye: { ...CYBER_CONFIG.HEAD.eye } },
-    TAIL: { ...CYBER_CONFIG.TAIL, spike: { ...CYBER_CONFIG.TAIL.spike }, tip: { ...CYBER_CONFIG.TAIL.tip } },
-    LEGS: { ...CYBER_CONFIG.LEGS, joint: { ...CYBER_CONFIG.LEGS.joint }, tube: { ...CYBER_CONFIG.LEGS.tube }, foot: { ...CYBER_CONFIG.LEGS.foot } },
+    TAIL: {
+      ...CYBER_CONFIG.TAIL,
+      spike: { ...CYBER_CONFIG.TAIL.spike },
+      tip: { ...CYBER_CONFIG.TAIL.tip },
+    },
+    LEGS: {
+      ...CYBER_CONFIG.LEGS,
+      joint: { ...CYBER_CONFIG.LEGS.joint },
+      tube: { ...CYBER_CONFIG.LEGS.tube },
+      foot: { ...CYBER_CONFIG.LEGS.foot },
+    },
     GAIT: { ...CYBER_CONFIG.GAIT },
   };
 
@@ -334,104 +347,122 @@ function initGUI() {
   };
 
   // Reset to defaults button
-  cyberFolder.add({
-    reset: () => {
-      // Restore all defaults
-      Object.assign(CYBER_CONFIG.BODY, CYBER_DEFAULTS.BODY);
-      Object.assign(CYBER_CONFIG.BODY.orb, CYBER_DEFAULTS.BODY.orb);
-      Object.assign(CYBER_CONFIG.HEAD, CYBER_DEFAULTS.HEAD);
-      Object.assign(CYBER_CONFIG.HEAD.eye, CYBER_DEFAULTS.HEAD.eye);
-      Object.assign(CYBER_CONFIG.TAIL, CYBER_DEFAULTS.TAIL);
-      Object.assign(CYBER_CONFIG.TAIL.spike, CYBER_DEFAULTS.TAIL.spike);
-      Object.assign(CYBER_CONFIG.TAIL.tip, CYBER_DEFAULTS.TAIL.tip);
-      Object.assign(CYBER_CONFIG.LEGS, CYBER_DEFAULTS.LEGS);
-      Object.assign(CYBER_CONFIG.LEGS.joint, CYBER_DEFAULTS.LEGS.joint);
-      Object.assign(CYBER_CONFIG.LEGS.tube, CYBER_DEFAULTS.LEGS.tube);
-      Object.assign(CYBER_CONFIG.LEGS.foot, CYBER_DEFAULTS.LEGS.foot);
-      Object.assign(CYBER_CONFIG.GAIT, CYBER_DEFAULTS.GAIT);
-      // Update GUI controllers to reflect new values
-      gui.controllersRecursive().forEach(c => c.updateDisplay());
-      rebuildCyberOrganism();
-    }
-  }, 'reset').name('🔄 Reset to Defaults');
+  cyberFolder
+    .add(
+      {
+        reset: () => {
+          // Restore all defaults
+          Object.assign(CYBER_CONFIG.BODY, CYBER_DEFAULTS.BODY);
+          Object.assign(CYBER_CONFIG.BODY.orb, CYBER_DEFAULTS.BODY.orb);
+          Object.assign(CYBER_CONFIG.HEAD, CYBER_DEFAULTS.HEAD);
+          Object.assign(CYBER_CONFIG.HEAD.eye, CYBER_DEFAULTS.HEAD.eye);
+          Object.assign(CYBER_CONFIG.TAIL, CYBER_DEFAULTS.TAIL);
+          Object.assign(CYBER_CONFIG.TAIL.spike, CYBER_DEFAULTS.TAIL.spike);
+          Object.assign(CYBER_CONFIG.TAIL.tip, CYBER_DEFAULTS.TAIL.tip);
+          Object.assign(CYBER_CONFIG.LEGS, CYBER_DEFAULTS.LEGS);
+          Object.assign(CYBER_CONFIG.LEGS.joint, CYBER_DEFAULTS.LEGS.joint);
+          Object.assign(CYBER_CONFIG.LEGS.tube, CYBER_DEFAULTS.LEGS.tube);
+          Object.assign(CYBER_CONFIG.LEGS.foot, CYBER_DEFAULTS.LEGS.foot);
+          Object.assign(CYBER_CONFIG.GAIT, CYBER_DEFAULTS.GAIT);
+          // Update GUI controllers to reflect new values
+          gui.controllersRecursive().forEach((c) => c.updateDisplay());
+          rebuildCyberOrganism();
+        },
+      },
+      'reset'
+    )
+    .name('🔄 Reset to Defaults');
 
   // Body proportions
   const bodyFolder = cyberFolder.addFolder('Body');
-  bodyFolder.add(CYBER_CONFIG.BODY, 'segmentCount', 1, 6, 1)
+  bodyFolder
+    .add(CYBER_CONFIG.BODY, 'segmentCount', 1, 6, 1)
     .name('Segments')
     .onFinishChange(rebuildCyberOrganism);
-  bodyFolder.add(CYBER_CONFIG.BODY, 'baseRadius', 0.5, 3, 0.1)
+  bodyFolder
+    .add(CYBER_CONFIG.BODY, 'baseRadius', 0.5, 3, 0.1)
     .name('Segment Radius')
     .onFinishChange(rebuildCyberOrganism);
-  bodyFolder.add(CYBER_CONFIG.BODY, 'spacing', 1, 4, 0.1)
+  bodyFolder
+    .add(CYBER_CONFIG.BODY, 'spacing', 1, 4, 0.1)
     .name('Spacing')
     .onFinishChange(rebuildCyberOrganism);
-  bodyFolder.add(CYBER_CONFIG.BODY, 'taper', 0, 0.3, 0.01)
+  bodyFolder
+    .add(CYBER_CONFIG.BODY, 'taper', 0, 0.3, 0.01)
     .name('Taper')
     .onFinishChange(rebuildCyberOrganism);
-  bodyFolder.add(CYBER_CONFIG.BODY, 'squash', 0.3, 1, 0.05)
+  bodyFolder
+    .add(CYBER_CONFIG.BODY, 'squash', 0.3, 1, 0.05)
     .name('Squash')
     .onFinishChange(rebuildCyberOrganism);
   bodyFolder.close();
 
   // Head
   const headFolder = cyberFolder.addFolder('Head');
-  headFolder.add(CYBER_CONFIG.HEAD, 'radius', 0.5, 3, 0.1)
+  headFolder
+    .add(CYBER_CONFIG.HEAD, 'radius', 0.5, 3, 0.1)
     .name('Size')
     .onFinishChange(rebuildCyberOrganism);
-  headFolder.add(CYBER_CONFIG.HEAD, 'position', -6, 0, 0.5)
+  headFolder
+    .add(CYBER_CONFIG.HEAD, 'position', -6, 0, 0.5)
     .name('Position')
     .onFinishChange(rebuildCyberOrganism);
-  headFolder.add(CYBER_CONFIG.HEAD.eye, 'radius', 0.2, 1.5, 0.1)
+  headFolder
+    .add(CYBER_CONFIG.HEAD.eye, 'radius', 0.2, 1.5, 0.1)
     .name('Eye Size')
     .onFinishChange(rebuildCyberOrganism);
   headFolder.close();
 
   // Tail
   const tailFolder = cyberFolder.addFolder('Tail');
-  tailFolder.add(CYBER_CONFIG.TAIL, 'segmentCount', 1, 8, 1)
+  tailFolder
+    .add(CYBER_CONFIG.TAIL, 'segmentCount', 1, 8, 1)
     .name('Segments')
     .onFinishChange(rebuildCyberOrganism);
-  tailFolder.add(CYBER_CONFIG.TAIL, 'initialSize', 0.3, 1.5, 0.1)
+  tailFolder
+    .add(CYBER_CONFIG.TAIL, 'initialSize', 0.3, 1.5, 0.1)
     .name('Initial Size')
     .onFinishChange(rebuildCyberOrganism);
-  tailFolder.add(CYBER_CONFIG.TAIL, 'decay', 0.6, 1, 0.02)
+  tailFolder
+    .add(CYBER_CONFIG.TAIL, 'decay', 0.6, 1, 0.02)
     .name('Decay')
     .onFinishChange(rebuildCyberOrganism);
-  tailFolder.add(CYBER_CONFIG.TAIL.tip, 'radius', 0.3, 2, 0.1)
+  tailFolder
+    .add(CYBER_CONFIG.TAIL.tip, 'radius', 0.3, 2, 0.1)
     .name('Tip Size')
     .onFinishChange(rebuildCyberOrganism);
   tailFolder.close();
 
   // Legs
   const legsFolder = cyberFolder.addFolder('Legs');
-  legsFolder.add(CYBER_CONFIG.LEGS, 'attachmentY', 0.3, 1.5, 0.1)
+  legsFolder
+    .add(CYBER_CONFIG.LEGS, 'attachmentY', 0.3, 1.5, 0.1)
     .name('Spread')
     .onFinishChange(rebuildCyberOrganism);
-  legsFolder.add(CYBER_CONFIG.LEGS, 'angleSpread', 0, 0.5, 0.05)
+  legsFolder
+    .add(CYBER_CONFIG.LEGS, 'angleSpread', 0, 0.5, 0.05)
     .name('Angle Spread')
     .onFinishChange(rebuildCyberOrganism);
-  legsFolder.add(CYBER_CONFIG.LEGS.joint, 'radius', 0.2, 1, 0.1)
+  legsFolder
+    .add(CYBER_CONFIG.LEGS.joint, 'radius', 0.2, 1, 0.1)
     .name('Joint Size')
     .onFinishChange(rebuildCyberOrganism);
-  legsFolder.add(CYBER_CONFIG.LEGS.tube, 'radius', 0.1, 0.8, 0.05)
+  legsFolder
+    .add(CYBER_CONFIG.LEGS.tube, 'radius', 0.1, 0.8, 0.05)
     .name('Tube Radius')
     .onFinishChange(rebuildCyberOrganism);
-  legsFolder.add(CYBER_CONFIG.LEGS.tube, 'length', 1, 5, 0.2)
+  legsFolder
+    .add(CYBER_CONFIG.LEGS.tube, 'length', 1, 5, 0.2)
     .name('Length')
     .onFinishChange(rebuildCyberOrganism);
   legsFolder.close();
 
   // Gait animation (live updates, no rebuild needed)
   const gaitFolder = cyberFolder.addFolder('Gait');
-  gaitFolder.add(CYBER_CONFIG.GAIT, 'cycleSpeed', 0.5, 4, 0.1)
-    .name('Cycle Speed');
-  gaitFolder.add(CYBER_CONFIG.GAIT, 'strideAmplitude', 0, 0.5, 0.02)
-    .name('Stride Amp');
-  gaitFolder.add(CYBER_CONFIG.GAIT, 'liftAmplitude', 0, 0.5, 0.02)
-    .name('Lift Amp');
-  gaitFolder.add(CYBER_CONFIG.GAIT, 'stanceRatio', 0.3, 0.7, 0.05)
-    .name('Stance Ratio');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'cycleSpeed', 0.5, 4, 0.1).name('Cycle Speed');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'strideAmplitude', 0, 0.5, 0.02).name('Stride Amp');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'liftAmplitude', 0, 0.5, 0.02).name('Lift Amp');
+  gaitFolder.add(CYBER_CONFIG.GAIT, 'stanceRatio', 0.3, 0.7, 0.05).name('Stance Ratio');
   gaitFolder.open();
 
   cyberFolder.close();
@@ -443,44 +474,64 @@ function initGUI() {
     radius: 0.8,
     threshold: 0.3,
   };
-  bloomFolder.add(bloomParams, 'strength', 0, 3, 0.1)
+  bloomFolder
+    .add(bloomParams, 'strength', 0, 3, 0.1)
     .name('Strength')
-    .onChange((v: number) => { bloomPass.strength = v; });
-  bloomFolder.add(bloomParams, 'radius', 0, 2, 0.1)
+    .onChange((v: number) => {
+      bloomPass.strength = v;
+    });
+  bloomFolder
+    .add(bloomParams, 'radius', 0, 2, 0.1)
     .name('Radius')
-    .onChange((v: number) => { bloomPass.radius = v; });
-  bloomFolder.add(bloomParams, 'threshold', 0, 1, 0.05)
+    .onChange((v: number) => {
+      bloomPass.radius = v;
+    });
+  bloomFolder
+    .add(bloomParams, 'threshold', 0, 1, 0.05)
     .name('Threshold')
-    .onChange((v: number) => { bloomPass.threshold = v; });
+    .onChange((v: number) => {
+      bloomPass.threshold = v;
+    });
   bloomFolder.open();
 
   // Color controls folder
   const colorFolder = gui.addFolder('Cell Color');
   const colorDisplay = { color: '#' + currentColor.toString(16).padStart(6, '0') };
-  colorFolder.addColor(colorDisplay, 'color')
+  colorFolder
+    .addColor(colorDisplay, 'color')
     .name('Current Color')
     .listen()
     .onChange((hex: string) => {
       currentColor = parseInt(hex.replace('#', ''), 16);
       updateModels();
     });
-  colorFolder.add({ randomize: () => {
-    currentColor = randomCellColor();
-    colorDisplay.color = '#' + currentColor.toString(16).padStart(6, '0');
-    updateModels();
-  }}, 'randomize').name('🎲 Randomize Color');
+  colorFolder
+    .add(
+      {
+        randomize: () => {
+          currentColor = randomCellColor();
+          colorDisplay.color = '#' + currentColor.toString(16).padStart(6, '0');
+          updateModels();
+        },
+      },
+      'randomize'
+    )
+    .name('🎲 Randomize Color');
   colorFolder.open();
 
   // View options folder
   const viewFolder = gui.addFolder('View Options');
-  viewFolder.add(animState, 'showWireframe')
+  viewFolder
+    .add(animState, 'showWireframe')
     .name('Wireframe')
     .onChange((show: boolean) => {
-      models.forEach(model => {
+      models.forEach((model) => {
         model.traverse((child) => {
           if (child instanceof THREE.Mesh && child.material) {
             if (Array.isArray(child.material)) {
-              child.material.forEach(m => { m.wireframe = show; });
+              child.material.forEach((m) => {
+                m.wireframe = show;
+              });
             } else {
               child.material.wireframe = show;
             }
@@ -488,15 +539,29 @@ function initGUI() {
         });
       });
     });
-  viewFolder.add({ resetCamera: () => {
-    camera.position.set(0, 0, 200);
-    controls.reset();
-  }}, 'resetCamera').name('Reset Camera');
-  viewFolder.add({ exportParams: () => {
-    console.log('VFX Parameters:', JSON.stringify(vfxParams, null, 2));
-    navigator.clipboard?.writeText(JSON.stringify(vfxParams, null, 2));
-    console.log('Copied to clipboard!');
-  }}, 'exportParams').name('Export Params');
+  viewFolder
+    .add(
+      {
+        resetCamera: () => {
+          camera.position.set(0, 0, 200);
+          controls.reset();
+        },
+      },
+      'resetCamera'
+    )
+    .name('Reset Camera');
+  viewFolder
+    .add(
+      {
+        exportParams: () => {
+          console.log('VFX Parameters:', JSON.stringify(vfxParams, null, 2));
+          navigator.clipboard?.writeText(JSON.stringify(vfxParams, null, 2));
+          console.log('Copied to clipboard!');
+        },
+      },
+      'exportParams'
+    )
+    .name('Export Params');
   viewFolder.close();
 }
 
@@ -729,7 +794,11 @@ function updateModels() {
       scene.add(singleCell);
       models.push(singleCell);
 
-      const colonial = createMultiCell({ radius: 48, colorHex: randomCellColor(), style: 'colonial' });
+      const colonial = createMultiCell({
+        radius: 48,
+        colorHex: randomCellColor(),
+        style: 'colonial',
+      });
       colonial.position.set(-spacing * 0.5, spacing, 0);
       scene.add(colonial);
       models.push(colonial);
@@ -886,7 +955,7 @@ function animate(currentTime: number = 0) {
       model.rotation.x = Math.sin(now * 0.0005 + bobPhase) * 0.3;
 
       // Pulse the inner core brightness
-      const core = model.children.find(c => c.name === 'core') as THREE.Mesh | undefined;
+      const core = model.children.find((c) => c.name === 'core') as THREE.Mesh | undefined;
       if (core && core.material instanceof THREE.MeshBasicMaterial) {
         const pulse = 0.7 + Math.sin(now * 0.004 + bobPhase) * 0.3;
         core.material.opacity = pulse;
@@ -903,4 +972,3 @@ function onResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
 }
-

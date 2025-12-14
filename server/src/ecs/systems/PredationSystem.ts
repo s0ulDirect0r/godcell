@@ -46,7 +46,6 @@ export class PredationSystem implements System {
   readonly name = 'PredationSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
-
     const currentDrains = new Set<string>(); // Track prey being drained this tick
 
     // Iterate predators via ECS
@@ -54,7 +53,10 @@ export class PredationSystem implements System {
       const predatorStage = requireStage(world, predatorEntity);
       const predatorEnergy = requireEnergy(world, predatorEntity);
       const predatorPos = requirePosition(world, predatorEntity);
-      const predatorStunned = world.getComponent<StunnedComponent>(predatorEntity, Components.Stunned);
+      const predatorStunned = world.getComponent<StunnedComponent>(
+        predatorEntity,
+        Components.Stunned
+      );
 
       // Only Stage 2 (MULTI_CELL) can drain via contact
       if (predatorStage.stage !== EvolutionStage.MULTI_CELL) return;
@@ -106,7 +108,15 @@ export class PredationSystem implements System {
 
           // Check if prey is killed (instant engulf)
           if (preyEnergy.current <= 0) {
-            this.engulfPrey(world, io, predatorEntity, preyEntity, preyId, preyPosition, preyEnergy.max);
+            this.engulfPrey(
+              world,
+              io,
+              predatorEntity,
+              preyEntity,
+              preyId,
+              preyPosition,
+              preyEnergy.max
+            );
           }
         }
       });
@@ -137,7 +147,6 @@ export class PredationSystem implements System {
     position: Position,
     preyMaxEnergy: number
   ): void {
-
     // Get prey color from ECS
     const preyPlayer = world.getComponent<PlayerComponent>(preyEntity, Components.Player);
     const preyColor = preyPlayer?.color ?? '#ffffff';

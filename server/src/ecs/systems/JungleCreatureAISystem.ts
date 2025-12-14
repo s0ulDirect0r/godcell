@@ -16,7 +16,13 @@ import type {
   JungleCreatureMovedMessage,
 } from '#shared';
 import type { System } from './types';
-import { forEachJungleCreature, forEachPlayer, addEnergy, getDamageTracking, recordDamage } from '../factories';
+import {
+  forEachJungleCreature,
+  forEachPlayer,
+  addEnergy,
+  getDamageTracking,
+  recordDamage,
+} from '../factories';
 import { processCreatureRespawns } from '../../jungleFauna';
 import { isJungleStage } from '../../helpers/stages';
 
@@ -32,7 +38,6 @@ function distance(p1: { x: number; y: number }, p2: { x: number; y: number }): n
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
 
 /**
  * Generate a random patrol target within territory radius
@@ -57,7 +62,11 @@ function findNearestTarget(
   aggressionRange: number,
   world: World
 ): { entityId: EntityId; socketId: string; position: { x: number; y: number } } | null {
-  let nearestTarget: { entityId: EntityId; socketId: string; position: { x: number; y: number } } | null = null;
+  let nearestTarget: {
+    entityId: EntityId;
+    socketId: string;
+    position: { x: number; y: number };
+  } | null = null;
   let nearestDist = aggressionRange;
 
   forEachPlayer(world, (entity, playerId) => {
@@ -147,7 +156,10 @@ export class JungleCreatureAISystem implements System {
     if (creatureComp.state === 'patrol' || creatureComp.state === 'idle') {
       // Ensure we have a patrol target
       if (!creatureComp.targetEntityId) {
-        const target = generatePatrolTarget(creatureComp.homePosition, creatureComp.territoryRadius);
+        const target = generatePatrolTarget(
+          creatureComp.homePosition,
+          creatureComp.territoryRadius
+        );
         // Store target in a way we can retrieve - use homePosition as base
         // Note: JungleCreatureComponent doesn't have patrolTarget, so we calculate inline
         const dx = target.x - creaturePosition.x;
@@ -192,7 +204,8 @@ export class JungleCreatureAISystem implements System {
     creatureComp: JungleCreatureComponent
   ): void {
     const creaturePosition = { x: posComp.x, y: posComp.y };
-    const aggressionRange = creatureComp.aggressionRange ?? GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS;
+    const aggressionRange =
+      creatureComp.aggressionRange ?? GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS;
 
     // Look for nearby targets
     const target = findNearestTarget(creaturePosition, aggressionRange, world);
@@ -218,7 +231,14 @@ export class JungleCreatureAISystem implements System {
 
       // Check for melee contact damage
       if (dist < creatureComp.size + GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS) {
-        this.dealContactDamage(world, io, target.entityId, target.socketId, creatureComp, deltaTime);
+        this.dealContactDamage(
+          world,
+          io,
+          target.entityId,
+          target.socketId,
+          creatureComp,
+          deltaTime
+        );
       }
     } else {
       // No target - patrol territory
@@ -232,9 +252,10 @@ export class JungleCreatureAISystem implements System {
 
     // Clamp speed
     const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-    const maxSpeed = creatureComp.state === 'hunt'
-      ? GAME_CONFIG.JUNGLE_CREATURE_SPEED * 1.2
-      : GAME_CONFIG.JUNGLE_CREATURE_SPEED * 0.6;
+    const maxSpeed =
+      creatureComp.state === 'hunt'
+        ? GAME_CONFIG.JUNGLE_CREATURE_SPEED * 1.2
+        : GAME_CONFIG.JUNGLE_CREATURE_SPEED * 0.6;
 
     if (velocityMagnitude > maxSpeed) {
       velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
@@ -256,7 +277,8 @@ export class JungleCreatureAISystem implements System {
   ): void {
     const creaturePosition = { x: posComp.x, y: posComp.y };
     // Ambushers have shorter aggression range but attack suddenly
-    const aggressionRange = (creatureComp.aggressionRange ?? GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS) * 0.5;
+    const aggressionRange =
+      (creatureComp.aggressionRange ?? GAME_CONFIG.JUNGLE_CREATURE_AGGRO_RADIUS) * 0.5;
 
     // Look for nearby targets (shorter range than stalkers)
     const target = findNearestTarget(creaturePosition, aggressionRange, world);
@@ -282,7 +304,14 @@ export class JungleCreatureAISystem implements System {
 
       // Check for melee contact damage
       if (dist < creatureComp.size + GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS) {
-        this.dealContactDamage(world, io, target.entityId, target.socketId, creatureComp, deltaTime);
+        this.dealContactDamage(
+          world,
+          io,
+          target.entityId,
+          target.socketId,
+          creatureComp,
+          deltaTime
+        );
       }
     } else {
       // No target - wait in ambush position (mostly idle)
@@ -297,7 +326,10 @@ export class JungleCreatureAISystem implements System {
 
       // Occasionally reposition slightly within territory
       if (Math.random() < 0.005) {
-        const target = generatePatrolTarget(creatureComp.homePosition, creatureComp.territoryRadius * 0.3);
+        const target = generatePatrolTarget(
+          creatureComp.homePosition,
+          creatureComp.territoryRadius * 0.3
+        );
         const dx = target.x - creaturePosition.x;
         const dy = target.y - creaturePosition.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -312,9 +344,10 @@ export class JungleCreatureAISystem implements System {
 
     // Clamp speed (ambushers are fast when attacking)
     const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-    const maxSpeed = creatureComp.state === 'hunt'
-      ? GAME_CONFIG.JUNGLE_CREATURE_SPEED * 1.5
-      : GAME_CONFIG.JUNGLE_CREATURE_SPEED * 0.3;
+    const maxSpeed =
+      creatureComp.state === 'hunt'
+        ? GAME_CONFIG.JUNGLE_CREATURE_SPEED * 1.5
+        : GAME_CONFIG.JUNGLE_CREATURE_SPEED * 0.3;
 
     if (velocityMagnitude > maxSpeed) {
       velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
@@ -351,7 +384,10 @@ export class JungleCreatureAISystem implements System {
     } else {
       // Wander randomly within territory
       if (Math.random() < 0.02) {
-        const target = generatePatrolTarget(creatureComp.homePosition, creatureComp.territoryRadius);
+        const target = generatePatrolTarget(
+          creatureComp.homePosition,
+          creatureComp.territoryRadius
+        );
         const dx = target.x - creaturePosition.x;
         const dy = target.y - creaturePosition.y;
         const dist = Math.sqrt(dx * dx + dy * dy);

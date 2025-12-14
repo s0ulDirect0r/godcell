@@ -148,7 +148,7 @@ export class World {
     const result: EntityId[] = [];
 
     for (const entity of this.entities) {
-      if (types.every(type => this.hasComponent(entity, type))) {
+      if (types.every((type) => this.hasComponent(entity, type))) {
         result.push(entity);
       }
     }
@@ -163,7 +163,7 @@ export class World {
    */
   queryEach(types: ComponentType[], callback: (entity: EntityId) => void): void {
     for (const entity of this.entities) {
-      if (types.every(type => this.hasComponent(entity, type))) {
+      if (types.every((type) => this.hasComponent(entity, type))) {
         callback(entity);
       }
     }
@@ -295,7 +295,12 @@ export class World {
   /**
    * Debug: get stats about the world.
    */
-  getStats(): { entities: number; componentTypes: number; stores: Record<string, number>; resources: string[] } {
+  getStats(): {
+    entities: number;
+    componentTypes: number;
+    stores: Record<string, number>;
+    resources: string[];
+  } {
     const stores: Record<string, number> = {};
     for (const [type, store] of this.stores) {
       stores[type] = store.size;

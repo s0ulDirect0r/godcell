@@ -150,11 +150,7 @@ export function createDataFruit(ripeness: number, radius?: number): DataFruitRes
  * @param dt - Delta time in milliseconds
  * @param phase - Optional phase offset for desynchronized animation
  */
-export function updateDataFruitAnimation(
-  group: THREE.Group,
-  dt: number,
-  phase: number = 0
-): void {
+export function updateDataFruitAnimation(group: THREE.Group, dt: number, phase: number = 0): void {
   const time = performance.now() / 1000;
 
   // Gentle pulsing scale
@@ -222,8 +218,14 @@ export function disposeDataFruit(group: THREE.Group): void {
  * @returns THREE.js color number
  */
 export function getRipenessColor(ripeness: number): number {
-  const r = Math.floor(RIPENESS_COLORS.unripeR + ripeness * (RIPENESS_COLORS.ripeR - RIPENESS_COLORS.unripeR));
-  const g = Math.floor(RIPENESS_COLORS.unripeG + ripeness * (RIPENESS_COLORS.ripeG - RIPENESS_COLORS.unripeG));
-  const b = Math.floor(RIPENESS_COLORS.unripeB + ripeness * (RIPENESS_COLORS.ripeB - RIPENESS_COLORS.unripeB));
+  const r = Math.floor(
+    RIPENESS_COLORS.unripeR + ripeness * (RIPENESS_COLORS.ripeR - RIPENESS_COLORS.unripeR)
+  );
+  const g = Math.floor(
+    RIPENESS_COLORS.unripeG + ripeness * (RIPENESS_COLORS.ripeG - RIPENESS_COLORS.unripeG)
+  );
+  const b = Math.floor(
+    RIPENESS_COLORS.unripeB + ripeness * (RIPENESS_COLORS.ripeB - RIPENESS_COLORS.unripeB)
+  );
   return (r << 16) | (g << 8) | b;
 }

@@ -1,7 +1,24 @@
 import { GAME_CONFIG, EvolutionStage } from '#shared';
-import type { Player, Position, Nutrient, EntropySwarm, PlayerJoinedMessage, PlayerRespawnedMessage, DeathCause, NutrientComponent, MeleeAttackType } from '#shared';
+import type {
+  Player,
+  Position,
+  Nutrient,
+  EntropySwarm,
+  PlayerJoinedMessage,
+  PlayerRespawnedMessage,
+  DeathCause,
+  NutrientComponent,
+  MeleeAttackType,
+} from '#shared';
 import type { Server } from 'socket.io';
-import { logBotsSpawned, logBotDeath, logBotRespawn, logger, recordSpawn, clearSpawnTime } from './logger';
+import {
+  logBotsSpawned,
+  logBotDeath,
+  logBotRespawn,
+  logger,
+  recordSpawn,
+  clearSpawnTime,
+} from './logger';
 import { getConfig } from './dev';
 import type { AbilitySystem } from './abilities';
 import {
@@ -22,7 +39,13 @@ import {
   type World,
   type ObstacleSnapshot,
 } from './ecs';
-import type { EnergyComponent, PositionComponent, StageComponent, VelocityComponent, InputComponent } from '#shared';
+import type {
+  EnergyComponent,
+  PositionComponent,
+  StageComponent,
+  VelocityComponent,
+  InputComponent,
+} from '#shared';
 import { randomSpawnPosition as helperRandomSpawnPosition } from './helpers';
 
 // ============================================
@@ -276,7 +299,7 @@ function spawnCyberOrganismBot(io: Server): BotController {
   const specializations: Array<'melee' | 'ranged' | 'traps'> = ['melee', 'ranged', 'traps'];
   const chosenSpec = specializations[Math.floor(Math.random() * specializations.length)];
 
-  const entity = ecsWorld.query(Components.Player).find(e => {
+  const entity = ecsWorld.query(Components.Player).find((e) => {
     const p = ecsWorld!.getComponent<{ socketId: string }>(e, Components.Player);
     return p?.socketId === botId;
   });
@@ -397,7 +420,10 @@ function findNearestNutrient(botPosition: Position, world: World): Nutrient | nu
  * Fast nutrient lookup from pre-collected array (avoids ECS queries per bot)
  * Uses squared distance to avoid sqrt in hot loop
  */
-function findNearestNutrientFast(botPosition: Position, nutrients: NutrientSnapshot[]): NutrientSnapshot | null {
+function findNearestNutrientFast(
+  botPosition: Position,
+  nutrients: NutrientSnapshot[]
+): NutrientSnapshot | null {
   let nearest: NutrientSnapshot | null = null;
   let nearestDistSq = BOT_CONFIG.SEARCH_RADIUS * BOT_CONFIG.SEARCH_RADIUS;
 
@@ -464,7 +490,7 @@ function avoidObstacles(
   obstacles: ObstacleSnapshot[],
   stage: EvolutionStage = EvolutionStage.SINGLE_CELL
 ): { x: number; y: number } {
-  let avoidanceForce = { x: 0, y: 0 };
+  const avoidanceForce = { x: 0, y: 0 };
 
   for (const obstacle of obstacles) {
     const dist = distance(botPosition, obstacle.position);
@@ -521,7 +547,7 @@ function avoidSwarmsEmergencyOnly(
   botPosition: Position,
   swarms: EntropySwarm[]
 ): { x: number; y: number } {
-  let avoidanceForce = { x: 0, y: 0 };
+  const avoidanceForce = { x: 0, y: 0 };
 
   for (const swarm of swarms) {
     const dist = distance(botPosition, swarm.position);
@@ -562,11 +588,8 @@ function avoidSwarmsEmergencyOnly(
  */
 const SWARM_PREDICTION_TIME = 0.5; // seconds
 
-function avoidSwarms(
-  botPosition: Position,
-  swarms: EntropySwarm[]
-): { x: number; y: number } {
-  let avoidanceForce = { x: 0, y: 0 };
+function avoidSwarms(botPosition: Position, swarms: EntropySwarm[]): { x: number; y: number } {
+  const avoidanceForce = { x: 0, y: 0 };
 
   for (const swarm of swarms) {
     // PREDICTIVE: Calculate where swarm will be in 0.5 seconds
@@ -600,10 +623,11 @@ function avoidSwarms(
       avoidanceStrength = 1.0; // Maximum panic - we're being damaged or about to be!
     } else if (effectiveDist < threatRadius) {
       // High avoidance when within half detection range
-      avoidanceStrength = 0.6 + (0.4 * (threatRadius - effectiveDist) / (threatRadius - contactRadius));
+      avoidanceStrength =
+        0.6 + (0.4 * (threatRadius - effectiveDist)) / (threatRadius - contactRadius);
     } else {
       // Gentle avoidance at edge of detection range
-      avoidanceStrength = 0.3 * (cautionRadius - effectiveDist) / (cautionRadius - threatRadius);
+      avoidanceStrength = (0.3 * (cautionRadius - effectiveDist)) / (cautionRadius - threatRadius);
     }
 
     // PREDICTIVE: Steer away from PREDICTED position, not current
@@ -658,7 +682,7 @@ function updateBotAI(
   // Otherwise blend avoidance with seeking - bots gotta eat!
   const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
   const AVOIDANCE_PRIORITY_THRESHOLD = 0.8; // Only escape when in REAL danger
-  const AVOIDANCE_BLEND_THRESHOLD = 0.1;    // Below this = pure seeking
+  const AVOIDANCE_BLEND_THRESHOLD = 0.1; // Below this = pure seeking
 
   if (avoidanceMag > AVOIDANCE_PRIORITY_THRESHOLD) {
     // HIGH DANGER - pure escape mode, ignore seeking
@@ -672,7 +696,11 @@ function updateBotAI(
     if (nearestNutrient) {
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
-      const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
+      const seekDirection = steerTowards(
+        player.position,
+        { x: nearestNutrient.x, y: nearestNutrient.y },
+        bot.inputDirection
+      );
       // Blend: 60% seek, 40% avoid - hungry bots prioritize food!
       const seekWeight = 0.6;
       const avoidWeight = 0.4;
@@ -695,7 +723,11 @@ function updateBotAI(
       bot.ai.targetNutrient = nearestNutrient.id;
 
       // Steer towards target (returns direction vector, not velocity)
-      const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
+      const seekDirection = steerTowards(
+        player.position,
+        { x: nearestNutrient.x, y: nearestNutrient.y },
+        bot.inputDirection
+      );
 
       // No avoidance needed, just seek
       bot.inputDirection.x = seekDirection.x;
@@ -710,8 +742,7 @@ function updateBotAI(
 
   // Normalize final direction (don't let combined forces create super-speed)
   const dirLength = Math.sqrt(
-    bot.inputDirection.x * bot.inputDirection.x +
-    bot.inputDirection.y * bot.inputDirection.y
+    bot.inputDirection.x * bot.inputDirection.x + bot.inputDirection.y * bot.inputDirection.y
   );
   if (dirLength > 1) {
     bot.inputDirection.x /= dirLength;
@@ -727,11 +758,7 @@ function updateBotAI(
  * Spawn a bot at a specific position (for dev tools)
  * Returns the spawned bot's player ID
  */
-export function spawnBotAt(
-  io: Server,
-  position: Position,
-  stage: EvolutionStage
-): string {
+export function spawnBotAt(io: Server, position: Position, stage: EvolutionStage): string {
   if (!ecsWorld) {
     throw new Error('ECS world not set - call setBotEcsWorld before spawning bots');
   }
@@ -886,7 +913,12 @@ function updateMultiCellBotAI(
   // Find nearest single-cell (prey)
   // Using object wrapper to help TypeScript track mutations inside callback
   const preyResult: {
-    target: { id: string; position: { x: number; y: number }; energy: number; maxEnergy: number } | null;
+    target: {
+      id: string;
+      position: { x: number; y: number };
+      energy: number;
+      maxEnergy: number;
+    } | null;
     dist: number;
   } = { target: null, dist: 800 }; // Hunting range
   forEachPlayer(world, (entity, otherId) => {
@@ -903,7 +935,12 @@ function updateMultiCellBotAI(
 
     const dist = distance(player.position, { x: posComp.x, y: posComp.y });
     if (dist < preyResult.dist) {
-      preyResult.target = { id: otherId, position: { x: posComp.x, y: posComp.y }, energy: energyComp.current, maxEnergy: energyComp.max };
+      preyResult.target = {
+        id: otherId,
+        position: { x: posComp.x, y: posComp.y },
+        energy: energyComp.current,
+        maxEnergy: energyComp.max,
+      };
       preyResult.dist = dist;
     }
   });
@@ -945,9 +982,8 @@ function updateMultiCellBotAI(
   // - Fire at 2+ swarms (cluster = good value)
   // - Fire at single 400+ energy swarm (fat swarm = high value target)
   // - Fire if total nearby energy > 600 (worth it even for just 2 medium swarms)
-  const shouldEMP = nearbyActiveSwarmCount >= 2 ||
-                    fatSwarmNearby !== null ||
-                    nearbyActiveSwarmTotalEnergy >= 600;
+  const shouldEMP =
+    nearbyActiveSwarmCount >= 2 || fatSwarmNearby !== null || nearbyActiveSwarmTotalEnergy >= 600;
   if (shouldEMP && abilitySystem.canFireEMP(botEntity)) {
     const success = abilitySystem.fireEMP(botEntity, player.id);
     logger.info({
@@ -960,7 +996,11 @@ function updateMultiCellBotAI(
         hasFatSwarm: fatSwarmNearby !== null,
         fatSwarmEnergy: fatSwarmNearby?.energy,
         botEnergy: player.energy,
-        reason: fatSwarmNearby ? 'fat_swarm_target' : nearbyActiveSwarmTotalEnergy >= 600 ? 'high_value_cluster' : 'swarm_cluster',
+        reason: fatSwarmNearby
+          ? 'fat_swarm_target'
+          : nearbyActiveSwarmTotalEnergy >= 600
+            ? 'high_value_cluster'
+            : 'swarm_cluster',
       },
     });
   }
@@ -1026,7 +1066,7 @@ function updateMultiCellBotAI(
   const obstacleAvoidance = avoidObstacles(player.position, obstacles, player.stage);
   // Filter out disabled swarms from avoidance - we WANT to approach those to consume them!
   const now = Date.now();
-  const activeSwarms = swarms.filter(s => !s.disabledUntil || s.disabledUntil <= now);
+  const activeSwarms = swarms.filter((s) => !s.disabledUntil || s.disabledUntil <= now);
   const swarmAvoidance = avoidSwarms(player.position, activeSwarms);
   const avoidance = {
     x: obstacleAvoidance.x + swarmAvoidance.x,
@@ -1045,7 +1085,11 @@ function updateMultiCellBotAI(
     // Safe zone - decision tree: disabled swarm > prey > nutrient
     if (bestDisabledSwarm) {
       // Hunt disabled swarm (easy energy) - prioritizes high-energy targets
-      const seekDirection = steerTowards(player.position, bestDisabledSwarm.position, bot.inputDirection);
+      const seekDirection = steerTowards(
+        player.position,
+        bestDisabledSwarm.position,
+        bot.inputDirection
+      );
       bot.inputDirection.x = seekDirection.x;
       bot.inputDirection.y = seekDirection.y;
     } else if (nearestPrey) {
@@ -1057,7 +1101,11 @@ function updateMultiCellBotAI(
       // Seek nutrients (fallback behavior) - use pre-collected array
       const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
       if (nearestNutrient) {
-        const seekDirection = steerTowards(player.position, { x: nearestNutrient.x, y: nearestNutrient.y }, bot.inputDirection);
+        const seekDirection = steerTowards(
+          player.position,
+          { x: nearestNutrient.x, y: nearestNutrient.y },
+          bot.inputDirection
+        );
         bot.inputDirection.x = seekDirection.x;
         bot.inputDirection.y = seekDirection.y;
       } else {
@@ -1069,8 +1117,7 @@ function updateMultiCellBotAI(
 
   // Normalize direction
   const dirLength = Math.sqrt(
-    bot.inputDirection.x * bot.inputDirection.x +
-    bot.inputDirection.y * bot.inputDirection.y
+    bot.inputDirection.x * bot.inputDirection.x + bot.inputDirection.y * bot.inputDirection.y
   );
   if (dirLength > 1) {
     bot.inputDirection.x /= dirLength;
@@ -1151,7 +1198,11 @@ function updateCyberOrganismBotAI(
       // Movement: approach if too far, retreat if too close
       if (nearestDist > idealDistance + 100) {
         // Too far - approach
-        const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection);
+        const seekDir = steerTowards(
+          player.position,
+          { x: nearestTarget.x, y: nearestTarget.y },
+          bot.inputDirection
+        );
         bot.inputDirection.x = seekDir.x;
         bot.inputDirection.y = seekDir.y;
       } else if (nearestDist < idealDistance - 100) {
@@ -1182,11 +1233,22 @@ function updateCyberOrganismBotAI(
       // Attack if in melee range (entity-based ability calls)
       if (nearestDist < meleeRange) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        abilitySystem.fireMeleeAttack(botEntity, player.id, attackType, nearestTarget.x, nearestTarget.y);
+        abilitySystem.fireMeleeAttack(
+          botEntity,
+          player.id,
+          attackType,
+          nearestTarget.x,
+          nearestTarget.y
+        );
       }
 
       // Always chase - melee wants to close distance
-      const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection, 0.2);
+      const seekDir = steerTowards(
+        player.position,
+        { x: nearestTarget.x, y: nearestTarget.y },
+        bot.inputDirection,
+        0.2
+      );
       bot.inputDirection.x = seekDir.x;
       bot.inputDirection.y = seekDir.y;
     } else {
@@ -1198,7 +1260,11 @@ function updateCyberOrganismBotAI(
 
     if (nearestTarget) {
       // Place trap if enemy is approaching and ability ready (entity-based)
-      if (nearestDist < 300 && nearestDist > trapTriggerRadius && abilitySystem.canPlaceTrap(botEntity, player.id)) {
+      if (
+        nearestDist < 300 &&
+        nearestDist > trapTriggerRadius &&
+        abilitySystem.canPlaceTrap(botEntity, player.id)
+      ) {
         abilitySystem.placeTrap(botEntity, player.id);
       }
 
@@ -1221,7 +1287,12 @@ function updateCyberOrganismBotAI(
         bot.inputDirection.y = dx * 0.5 + dy * -0.3;
       } else {
         // Far away - approach cautiously to lure into trap range
-        const seekDir = steerTowards(player.position, { x: nearestTarget.x, y: nearestTarget.y }, bot.inputDirection, 0.1);
+        const seekDir = steerTowards(
+          player.position,
+          { x: nearestTarget.x, y: nearestTarget.y },
+          bot.inputDirection,
+          0.1
+        );
         bot.inputDirection.x = seekDir.x * 0.5;
         bot.inputDirection.y = seekDir.y * 0.5;
       }
@@ -1232,8 +1303,7 @@ function updateCyberOrganismBotAI(
 
   // Normalize direction
   const cyberDirLength = Math.sqrt(
-    bot.inputDirection.x * bot.inputDirection.x +
-    bot.inputDirection.y * bot.inputDirection.y
+    bot.inputDirection.x * bot.inputDirection.x + bot.inputDirection.y * bot.inputDirection.y
   );
   if (cyberDirLength > 1) {
     bot.inputDirection.x /= cyberDirLength;
@@ -1344,7 +1414,7 @@ export function updateBots(
       bot.player = freshPlayer;
     }
     // Filter out self from fauna targets
-    const targetsForThisBot = fauna.filter(f => f.id !== botId);
+    const targetsForThisBot = fauna.filter((f) => f.id !== botId);
     updateCyberOrganismBotAI(bot, currentTime, world, abilitySystem, targetsForThisBot);
   }
 }
@@ -1392,11 +1462,7 @@ export function getBotCount(): number {
  * Handle bot death - schedule auto-respawn after delay
  * @param cause - What killed the bot (for death rate tracking)
  */
-export function handleBotDeath(
-  botId: string,
-  cause: DeathCause,
-  io: Server
-) {
+export function handleBotDeath(botId: string, cause: DeathCause, io: Server) {
   if (!ecsWorld) {
     logger.warn({ event: 'bot_death_no_ecs', botId });
     return;
@@ -1450,12 +1516,7 @@ export function handleBotDeath(
  * @param io - Socket.io server for broadcasting
  * @param world - ECS world for component access
  */
-export function respawnBotNow(
-  botId: string,
-  stage: number,
-  io: Server,
-  world: World
-): void {
+export function respawnBotNow(botId: string, stage: number, io: Server, world: World): void {
   // Get ECS components
   const posComp = getPositionBySocketId(world, botId);
   const energyComp = getEnergyBySocketId(world, botId);
@@ -1499,12 +1560,14 @@ export function respawnBotNow(
     const player = getPlayerBySocketId(world, botId);
     if (player) {
       singleCellBot.player = player;
-      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+      io.emit('playerRespawned', {
+        type: 'playerRespawned',
+        player: { ...player },
+      } as PlayerRespawnedMessage);
     }
 
     recordSpawn(botId, EvolutionStage.SINGLE_CELL);
     logBotRespawn(botId);
-
   } else if (stage === 2 && multiCellBot) {
     // Respawn as multi-cell
     const newPos = randomSpawnPosition();
@@ -1531,12 +1594,14 @@ export function respawnBotNow(
     const player = getPlayerBySocketId(world, botId);
     if (player) {
       multiCellBot.player = player;
-      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+      io.emit('playerRespawned', {
+        type: 'playerRespawned',
+        player: { ...player },
+      } as PlayerRespawnedMessage);
     }
 
     recordSpawn(botId, EvolutionStage.MULTI_CELL);
     logBotRespawn(botId);
-
   } else if (stage === 3 && cyberBot) {
     // Respawn as cyber-organism in jungle
     const newPos = randomJungleSpawnPosition();
@@ -1560,7 +1625,7 @@ export function respawnBotNow(
     cyberBot.ai.nextWanderChange = Date.now();
 
     // Re-roll specialization on respawn
-    const entity = world.query(Components.Player).find(e => {
+    const entity = world.query(Components.Player).find((e) => {
       const p = world.getComponent<{ socketId: string }>(e, Components.Player);
       return p?.socketId === botId;
     });
@@ -1580,12 +1645,14 @@ export function respawnBotNow(
     const player = getPlayerBySocketId(world, botId);
     if (player) {
       cyberBot.player = player;
-      io.emit('playerRespawned', { type: 'playerRespawned', player: { ...player } } as PlayerRespawnedMessage);
+      io.emit('playerRespawned', {
+        type: 'playerRespawned',
+        player: { ...player },
+      } as PlayerRespawnedMessage);
     }
 
     recordSpawn(botId, EvolutionStage.CYBER_ORGANISM);
     logBotRespawn(botId);
-
   } else {
     logger.warn({ event: 'bot_respawn_no_controller', botId, stage });
   }
@@ -1596,10 +1663,14 @@ export function respawnBotNow(
  */
 export function getBotRespawnDelay(stage: number): number {
   switch (stage) {
-    case 1: return BOT_CONFIG.RESPAWN_DELAY;
-    case 2: return BOT_CONFIG.STAGE2_RESPAWN_DELAY;
-    case 3: return BOT_CONFIG.STAGE3_RESPAWN_DELAY;
-    default: return BOT_CONFIG.RESPAWN_DELAY;
+    case 1:
+      return BOT_CONFIG.RESPAWN_DELAY;
+    case 2:
+      return BOT_CONFIG.STAGE2_RESPAWN_DELAY;
+    case 3:
+      return BOT_CONFIG.STAGE3_RESPAWN_DELAY;
+    default:
+      return BOT_CONFIG.RESPAWN_DELAY;
   }
 }
 
@@ -1611,11 +1682,7 @@ export function getBotRespawnDelay(stage: number): number {
  * @param stage - Stage to respawn as (1, 2, or 3)
  * @param world - ECS world to create entity in
  */
-export function scheduleBotRespawn(
-  botId: string,
-  stage: number,
-  world: World
-): void {
+export function scheduleBotRespawn(botId: string, stage: number, world: World): void {
   const delay = getBotRespawnDelay(stage);
   const respawnAt = Date.now() + delay;
 

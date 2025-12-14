@@ -105,12 +105,12 @@ client/src/
 
 #### 2. Rename Mesh Helpers
 
-| Old Name | New Name |
-|----------|----------|
-| `SingleCellRenderer.ts` | `meshes/SingleCellMesh.ts` |
-| `MultiCellRenderer.ts` | `meshes/MultiCellMesh.ts` |
+| Old Name                   | New Name                      |
+| -------------------------- | ----------------------------- |
+| `SingleCellRenderer.ts`    | `meshes/SingleCellMesh.ts`    |
+| `MultiCellRenderer.ts`     | `meshes/MultiCellMesh.ts`     |
 | `CyberOrganismRenderer.ts` | `meshes/CyberOrganismMesh.ts` |
-| `HumanoidRenderer.ts` | `meshes/HumanoidMesh.ts` |
+| `HumanoidRenderer.ts`      | `meshes/HumanoidMesh.ts`      |
 
 Each exports a function like `createSingleCellMesh(): THREE.Group`
 
@@ -181,6 +181,7 @@ class ThreeRenderer {
 ### Extraction Order
 
 #### Phase 0: Eliminate GameState & Rename Mesh Helpers
+
 **This is foundational work before extracting systems.**
 
 1. **Add client-side ECS components** for render-specific state:
@@ -203,37 +204,44 @@ class ThreeRenderer {
    - Delete `GameState.ts`
 
 #### Phase 1: CameraSystem
+
 - **Current code**: ~200 lines across camera logic in ThreeRenderer
 - **Owns**: orthographicCamera, perspectiveCamera, activeCamera, cameraShake state
 - **Queries**: Local player entity (by `LocalPlayer` tag)
 - **Why first**: Most independent, no mesh management
 
 #### Phase 2: EnvironmentSystem
+
 - **Current code**: ~200 lines (soup/jungle backgrounds, firstPersonGround)
 - **Owns**: soupBackgroundGroup, jungleBackgroundGroup, JungleBackground instance
 - **Queries**: Current stage (to switch soup ↔ jungle)
 - **Why second**: Self-contained, no entity dependencies
 
 #### Phase 3: EffectsSystem
+
 - **Current code**: ~150 lines + ParticleEffects.ts integration
 - **Owns**: Animation arrays (deathBursts, evolutionAnimations, empPulses, etc.)
 - **Listens to**: EventBus for death, evolution, EMP events
 - **Why third**: Event-driven, doesn't query entities directly
 
 #### Phase 4: AuraSystem
+
 - **Current code**: ~150 lines (drain/gain auras)
 - **Owns**: drainAuraMeshes, gainAuraMeshes maps
 - **Queries**: Entities with `DamageInfo` component
 - **Why fourth**: Simple query pattern, isolated visual concern
 
 #### Phase 5: TrailSystem
+
 - **Current code**: ~70 lines
 - **Owns**: TrailRenderer instances per player
 - **Queries**: Player positions and velocities
 - **Why fifth**: Small, can be done quickly
 
 #### Phase 6: Entity Render Systems (one at a time)
+
 Extract in order:
+
 1. **NutrientRenderSystem** - Simplest entities
 2. **ObstacleRenderSystem** - Static entities with effects
 3. **SwarmRenderSystem** - Moving entities with state
@@ -241,21 +249,22 @@ Extract in order:
 5. **PlayerRenderSystem** - Most complex (stages, animations, interpolation)
 
 Each system:
+
 - Owns a `Map<string, THREE.Object3D>` for its entity type
 - Queries world for entities with relevant components
 - Creates meshes for new entities, updates existing, removes stale
 
 ### Critical Files to Modify
 
-| File | Changes |
-|------|---------|
-| `client/src/core/state/GameState.ts` | **DELETE** after Phase 0 |
-| `client/src/core/net/SocketManager.ts` | Write to World directly |
-| `client/src/main.ts` | Create World, pass to renderer/socket |
-| `client/src/ecs/components.ts` | Add `InterpolationTarget`, `DamageInfo`, `LocalPlayer` tag |
-| `client/src/render/three/ThreeRenderer.ts` | Extract code, become orchestrator |
-| `client/src/render/systems/*.ts` | New files for each system |
-| `client/src/render/meshes/*.ts` | Renamed from `*Renderer.ts` |
+| File                                       | Changes                                                    |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `client/src/core/state/GameState.ts`       | **DELETE** after Phase 0                                   |
+| `client/src/core/net/SocketManager.ts`     | Write to World directly                                    |
+| `client/src/main.ts`                       | Create World, pass to renderer/socket                      |
+| `client/src/ecs/components.ts`             | Add `InterpolationTarget`, `DamageInfo`, `LocalPlayer` tag |
+| `client/src/render/three/ThreeRenderer.ts` | Extract code, become orchestrator                          |
+| `client/src/render/systems/*.ts`           | New files for each system                                  |
+| `client/src/render/meshes/*.ts`            | Renamed from `*Renderer.ts`                                |
 
 ### Migration Strategy
 
@@ -277,18 +286,18 @@ Each system:
 
 ### Existing Code to Rename/Move
 
-| Current | New Location |
-|---------|--------------|
-| `SingleCellRenderer.ts` | `render/meshes/SingleCellMesh.ts` |
-| `MultiCellRenderer.ts` | `render/meshes/MultiCellMesh.ts` |
-| `CyberOrganismRenderer.ts` | `render/meshes/CyberOrganismMesh.ts` |
-| `HumanoidRenderer.ts` | `render/meshes/HumanoidMesh.ts` |
-| `ParticleEffects.ts` | `render/effects/ParticleEffects.ts` |
-| `DrainAuraRenderer.ts` | `render/effects/AuraEffect.ts` |
-| `TrailRenderer.ts` | `render/effects/TrailEffect.ts` |
-| `CameraEffects.ts` | **Merge into CameraSystem** |
-| `JungleBackground.ts` | Keep as helper, used by EnvironmentSystem |
-| `postprocessing/` | Keep as-is |
+| Current                    | New Location                              |
+| -------------------------- | ----------------------------------------- |
+| `SingleCellRenderer.ts`    | `render/meshes/SingleCellMesh.ts`         |
+| `MultiCellRenderer.ts`     | `render/meshes/MultiCellMesh.ts`          |
+| `CyberOrganismRenderer.ts` | `render/meshes/CyberOrganismMesh.ts`      |
+| `HumanoidRenderer.ts`      | `render/meshes/HumanoidMesh.ts`           |
+| `ParticleEffects.ts`       | `render/effects/ParticleEffects.ts`       |
+| `DrainAuraRenderer.ts`     | `render/effects/AuraEffect.ts`            |
+| `TrailRenderer.ts`         | `render/effects/TrailEffect.ts`           |
+| `CameraEffects.ts`         | **Merge into CameraSystem**               |
+| `JungleBackground.ts`      | Keep as helper, used by EnvironmentSystem |
+| `postprocessing/`          | Keep as-is                                |
 
 ### Architecture Pattern
 

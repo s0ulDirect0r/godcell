@@ -77,12 +77,10 @@ export class EventBus {
   /**
    * Emit an event (type-safe)
    */
-  emit<T extends GameEvent['type']>(
-    event: Extract<GameEvent, { type: T }>
-  ): void {
+  emit<T extends GameEvent['type']>(event: Extract<GameEvent, { type: T }>): void {
     const handlers = this.handlers.get(event.type);
     if (handlers) {
-      handlers.forEach(handler => handler(event));
+      handlers.forEach((handler) => handler(event));
     }
   }
 
