@@ -44,6 +44,7 @@ import {
   canFireEMP,
   canFirePseudopod,
   canFireProjectile,
+  canFireMeleeAttack,
   canPlaceTrap,
 } from './abilities';
 
@@ -1221,8 +1222,8 @@ function updateCyberOrganismBotAI(
     const meleeRange = 120; // Close range for melee attacks
 
     if (nearestTarget) {
-      // Attack if in melee range
-      if (nearestDist < meleeRange) {
+      // Attack if in melee range and can fire
+      if (nearestDist < meleeRange && canFireMeleeAttack(world, botEntity)) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
         tryAddAbilityIntent(world, botEntity, {
           abilityType: 'melee',

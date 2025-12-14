@@ -329,3 +329,41 @@ export function fireMeleeAttack(
 
   return true;
 }
+
+/**
+ * Check if a player can fire melee attack (melee specialization and off cooldown)
+ * Returns true if either swipe or thrust is available
+ */
+export function canFireMeleeAttack(world: World, entity: EntityId): boolean {
+  const energyComp = getEnergy(world, entity);
+  const stageComp = getStage(world, entity);
+  const stunnedComp = getStunned(world, entity);
+  if (!energyComp || !stageComp) return false;
+
+  if (!isJungleStage(stageComp.stage)) return false;
+  if (energyComp.current <= 0) return false;
+  if (stageComp.isEvolving) return false;
+
+  // Check specialization - must be melee
+  const specComp = world.getComponent<CombatSpecializationComponent>(
+    entity,
+    Components.CombatSpecialization
+  );
+  if (!specComp || specComp.specialization !== 'melee') return false;
+
+  const now = Date.now();
+  if (stunnedComp?.until && now < stunnedComp.until) return false;
+
+  const cooldowns = getCooldowns(world, entity);
+  if (!cooldowns) return false;
+
+  // Check if either swipe or thrust is available
+  const swipeReady =
+    energyComp.current >= GAME_CONFIG.MELEE_SWIPE_ENERGY_COST &&
+    now - (cooldowns.lastMeleeSwipeTime || 0) >= GAME_CONFIG.MELEE_SWIPE_COOLDOWN;
+  const thrustReady =
+    energyComp.current >= GAME_CONFIG.MELEE_THRUST_ENERGY_COST &&
+    now - (cooldowns.lastMeleeThrustTime || 0) >= GAME_CONFIG.MELEE_THRUST_COOLDOWN;
+
+  return swipeReady || thrustReady;
+}

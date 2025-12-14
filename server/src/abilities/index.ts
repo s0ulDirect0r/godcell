@@ -17,5 +17,5 @@
 export { fireEMP, canFireEMP } from './emp';
 export { firePseudopod, canFirePseudopod } from './pseudopod';
 export { fireProjectile, canFireProjectile } from './projectile';
-export { fireMeleeAttack } from './melee';
+export { fireMeleeAttack, canFireMeleeAttack } from './melee';
 export { placeTrap, canPlaceTrap } from './trap';

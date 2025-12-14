@@ -91,6 +91,16 @@ export class AbilityIntentSystem implements System {
         case 'trap':
           success = placeTrap(world, io, entity, playerId);
           break;
+
+        default: {
+          // Exhaustiveness check - TypeScript will error if a new ability type is added
+          const _exhaustive: never = intent;
+          logger.warn({
+            event: 'ability_intent_unknown_type',
+            playerId,
+            intent: _exhaustive,
+          });
+        }
       }
 
       // Always remove intent after processing (success or failure)

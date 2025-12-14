@@ -51,6 +51,7 @@ function createMultiCellPlayer(
 
 /**
  * Add ability intent to an entity
+ * Spread default first, then intent overrides to ensure proper discriminated union behavior
  */
 function addAbilityIntent(
   world: World,
@@ -58,9 +59,9 @@ function addAbilityIntent(
   intent: Partial<AbilityIntentComponent>
 ): void {
   world.addComponent<AbilityIntentComponent>(entity, Components.AbilityIntent, {
-    abilityType: intent.abilityType ?? 'emp',
+    abilityType: 'emp',
     ...intent,
-  });
+  } as AbilityIntentComponent);
 }
 
 /**
