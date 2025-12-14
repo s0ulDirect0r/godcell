@@ -85,6 +85,7 @@ import {
   setInputBySocketId,
   setVelocityBySocketId,
   setSprintBySocketId,
+  getPlayerBySocketId,
   type World,
   SystemRunner,
   SystemPriority,
@@ -118,6 +119,7 @@ import {
   getStageEnergy,
   randomColor,
   randomSpawnPosition,
+  poissonDiscSampling,
 } from './helpers';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
