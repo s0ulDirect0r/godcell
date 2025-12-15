@@ -4,7 +4,15 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, Tags, Components, type World } from '#shared';
+import {
+  EvolutionStage,
+  Tags,
+  Components,
+  type World,
+  projectToSphere,
+  tangentVelocity,
+  magnitude,
+} from '#shared';
 import type {
   PlayerMovedMessage,
   StunnedComponent,
@@ -22,7 +30,6 @@ import {
   requireVelocity,
   requireInput,
 } from '../factories';
-import { getWorldBoundsForStage } from '../../helpers';
 
 /**
  * MovementSystem - Handles all player movement
@@ -272,24 +279,56 @@ export class MovementSystem implements System {
         energyComponent.current = Math.max(0, energyComponent.current);
       }
 
-      // Clamp to world bounds - write to ECS component directly
-      const playerRadius = stageComponent.radius;
-      const bounds = getWorldBoundsForStage(stageComponent.stage);
-      positionComponent.x = Math.max(
-        bounds.minX + playerRadius,
-        Math.min(bounds.maxX - playerRadius, positionComponent.x)
-      );
-      positionComponent.y = Math.max(
-        bounds.minY + playerRadius,
-        Math.min(bounds.maxY - playerRadius, positionComponent.y)
-      );
+      // ============================================
+      // Spherical World Constraints
+      // ============================================
+      const planetRadius = getConfig('PLANET_RADIUS');
 
-      // Clamp z for Stage 5 (godcell) 3D flight
-      if (stage === EvolutionStage.GODCELL && positionComponent.z !== undefined) {
-        const zMin = getConfig('GODCELL_Z_MIN');
-        const zMax = getConfig('GODCELL_Z_MAX');
-        positionComponent.z = Math.max(zMin, Math.min(zMax, positionComponent.z));
+      if (stage !== EvolutionStage.GODCELL) {
+        // Non-godcell stages: constrain to sphere surface
+
+        // Make velocity tangent to surface (remove radial component)
+        const tangentVel = tangentVelocity(positionComponent, velocityComponent);
+        velocityComponent.x = tangentVel.x;
+        velocityComponent.y = tangentVel.y;
+        velocityComponent.z = tangentVel.z;
+
+        // Project position to sphere surface
+        const projectedPos = projectToSphere(positionComponent, planetRadius);
+        positionComponent.x = projectedPos.x;
+        positionComponent.y = projectedPos.y;
+        positionComponent.z = projectedPos.z;
+
+        // Soup bounds: Stage 1-2 are confined to equatorial band (|y| < SOUP_Y_BOUND)
+        if (stage === EvolutionStage.SINGLE_CELL || stage === EvolutionStage.MULTI_CELL) {
+          const soupYBound = getConfig('SOUP_Y_BOUND');
+          if (Math.abs(positionComponent.y) > soupYBound) {
+            // Clamp Y to soup bounds
+            positionComponent.y = Math.sign(positionComponent.y) * soupYBound;
+            // Re-project to sphere surface after Y clamp
+            const reProjected = projectToSphere(positionComponent, planetRadius);
+            positionComponent.x = reProjected.x;
+            positionComponent.y = reProjected.y;
+            positionComponent.z = reProjected.z;
+          }
+        }
+      } else {
+        // Godcell (Stage 5): Free 3D movement with minimum altitude
+        const altitude = magnitude(positionComponent) - planetRadius;
+        const minAltitude = getConfig('GODCELL_MIN_ALTITUDE');
+        if (altitude < minAltitude) {
+          // Push back to minimum altitude
+          const projectedPos = projectToSphere(positionComponent, planetRadius + minAltitude);
+          positionComponent.x = projectedPos.x;
+          positionComponent.y = projectedPos.y;
+          positionComponent.z = projectedPos.z;
+        }
       }
+
+      // Note: Legacy rectangular bounds removed - sphere constraints now handle all positioning
+      // Stage 1-2: Y-bound check keeps players in equatorial soup band
+      // Stage 3-4: Full sphere surface
+      // Stage 5: Minimum altitude above sphere
 
       // Broadcast position update
       const moveMessage: PlayerMovedMessage = {
