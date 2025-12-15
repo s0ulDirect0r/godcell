@@ -93,6 +93,7 @@ import {
   SwarmCollisionSystem,
   TreeCollisionSystem,
   MovementSystem,
+  SphereMovementSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
   NutrientAttractionSystem,
@@ -103,6 +104,8 @@ import {
   SpecializationSystem,
   RespawnSystem,
   tryAddAbilityIntent,
+  isSphereMode,
+  getRandomSpherePosition,
   type CombatSpecializationComponent,
 } from './ecs';
 import {
@@ -382,7 +385,12 @@ initNutrientModule(world, io);
 // Playground mode - empty world for testing (set by PLAYGROUND env var)
 const isPlayground = process.env.PLAYGROUND === 'true';
 
-if (isPlayground) {
+// Sphere test mode - empty sphere world, no entities, no metabolism
+const isSphereTest = process.env.SPHERE_TEST === 'true';
+
+if (isSphereTest) {
+  logger.info({ event: 'sphere_test_mode', port: PORT }, 'Running in SPHERE TEST mode - empty sphere world');
+} else if (isPlayground) {
   logger.info({ event: 'playground_mode', port: PORT });
 } else {
   // Initialize game world (normal mode)
@@ -448,8 +456,21 @@ systemRunner.register(new TrapSystem(), SystemPriority.TRAP);
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
 systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
 systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
-systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
-systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
+
+// Use SphereMovementSystem for sphere mode, MovementSystem for flat world
+if (isSphereMode()) {
+  logger.info({ event: 'sphere_mode_enabled' }, 'Using SphereMovementSystem for spherical world');
+  systemRunner.register(new SphereMovementSystem(), SystemPriority.MOVEMENT);
+} else {
+  systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
+}
+
+// Skip metabolism in sphere test mode (no energy decay)
+if (!isSphereTest) {
+  systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
+} else {
+  logger.info({ event: 'metabolism_disabled' }, 'MetabolismSystem disabled for sphere test');
+}
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
 systemRunner.register(new MacroResourceCollisionSystem(), SystemPriority.MACRO_RESOURCE_COLLISION);
 systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
@@ -475,7 +496,10 @@ io.on('connection', (socket) => {
 
   // Create a new player in ECS (source of truth)
   // Energy-only system: energy is the sole resource (life + fuel)
-  const spawnPosition = randomSpawnPosition(world);
+  // Use sphere spawn position for sphere mode, flat world spawn otherwise
+  const spawnPosition = isSphereMode()
+    ? getRandomSpherePosition() // Returns { x, y, z } on sphere surface
+    : randomSpawnPosition(world);
   const playerColor = randomColor();
 
   ecsCreatePlayer(

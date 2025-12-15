@@ -74,6 +74,10 @@ export const DEV_TUNABLE_CONFIGS = [
 
   // Detection
   'MULTI_CELL_DETECTION_RADIUS',
+
+  // Sphere Mode
+  'SPHERE_MODE',
+  'SPHERE_RADIUS',
 ] as const;
 
 export type TunableConfigKey = (typeof DEV_TUNABLE_CONFIGS)[number];
@@ -125,6 +129,13 @@ export const GAME_CONFIG = {
   SOUP_ORIGIN_Y: 4800, // (12800 - 3200) / 2 = 4800
   SOUP_WIDTH: 4800, // Same as WORLD_WIDTH
   SOUP_HEIGHT: 3200, // Same as WORLD_HEIGHT
+
+  // ============================================
+  // Sphere Mode (experimental)
+  // When enabled, world is a sphere surface instead of flat plane
+  // ============================================
+  SPHERE_MODE: true, // Toggle sphere vs flat world (enabled for testing)
+  SPHERE_RADIUS: 1530, // Circumference ≈ 9600 (2x original soup width)
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void

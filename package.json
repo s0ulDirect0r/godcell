@@ -16,6 +16,7 @@
     "dev:server": "tsx watch server/src/index.ts",
     "dev:client": "vite client",
     "playground": "concurrently -n server,client -c blue,green \"PORT=3001 PLAYGROUND=true tsx watch server/src/index.ts\" \"npm run dev:client\"",
+    "sphere-test": "concurrently -n server,client -c blue,green \"SPHERE_TEST=true tsx watch server/src/index.ts\" \"npm run dev:client\"",
     "build": "npm run build:server && npm run build:client",
     "build:server": "node server/build.mjs",
     "build:client": "vite build client",

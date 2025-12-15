@@ -20,6 +20,7 @@ export { SpecializationSystem } from './SpecializationSystem';
 // Physics Systems
 export { GravitySystem } from './GravitySystem';
 export { MovementSystem } from './MovementSystem';
+export { SphereMovementSystem } from './SphereMovementSystem';
 
 // Ability Systems
 export { AbilityIntentSystem } from './AbilityIntentSystem';

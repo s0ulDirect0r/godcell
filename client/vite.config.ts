@@ -22,6 +22,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         viewer: resolve(__dirname, 'model-viewer.html'),
+        sphere: resolve(__dirname, 'sphere-test.html'),
       },
     },
   },

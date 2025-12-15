@@ -3,7 +3,7 @@
 // ============================================
 
 // Core types, classes, and components from shared package
-export { World, ComponentStore, Components, Tags } from '#shared';
+export { World, ComponentStore, Components, Tags, isSphereMode, getRandomSpherePosition } from '#shared';
 export type {
   EntityId,
   ComponentType,
