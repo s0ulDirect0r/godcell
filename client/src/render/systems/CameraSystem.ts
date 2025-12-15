@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, EvolutionStage } from '#shared';
+import { GAME_CONFIG, EvolutionStage, isSphereMode } from '#shared';
 
 export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson';
 
@@ -47,12 +47,17 @@ export class CameraSystem {
   private viewportWidth: number;
   private viewportHeight: number;
 
+  // Sphere mode state
+  private sphereMode: boolean;
+  private readonly SPHERE_CAMERA_HEIGHT = 800; // Height above sphere surface
+
   constructor(viewportWidth: number, viewportHeight: number) {
     this.viewportWidth = viewportWidth;
     this.viewportHeight = viewportHeight;
     this.aspect = viewportWidth / viewportHeight;
+    this.sphereMode = isSphereMode();
 
-    // Create orthographic camera (top-down for Stages 1-3)
+    // Create orthographic camera (top-down for Stages 1-3 flat mode)
     // Camera looks down Y-axis at XZ plane
     const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
     this.orthoCamera = new THREE.OrthographicCamera(
@@ -71,9 +76,19 @@ export class CameraSystem {
     this.orthoCamera.lookAt(soupCenterX, 0, -soupCenterY);
     this.orthoCamera.up.set(0, 0, -1);
 
-    // Create perspective camera (first-person for Stage 4+)
-    this.perspCamera = new THREE.PerspectiveCamera(75, this.aspect, 1, 10000);
-    this.perspCamera.position.set(0, 0, 0);
+    // Create perspective camera (first-person for Stage 4+, or sphere mode)
+    this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 10000);
+
+    if (this.sphereMode) {
+      // Sphere mode: start camera above the sphere at default position
+      const startPos = new THREE.Vector3(GAME_CONFIG.SPHERE_RADIUS, 0, 0);
+      const normal = startPos.clone().normalize();
+      this.perspCamera.position.copy(startPos).addScaledVector(normal, this.SPHERE_CAMERA_HEIGHT);
+      this.perspCamera.lookAt(startPos);
+      this.perspCamera.up.set(0, 1, 0);
+    } else {
+      this.perspCamera.position.set(0, 0, 0);
+    }
   }
 
   // ============================================
@@ -89,9 +104,17 @@ export class CameraSystem {
   }
 
   getActiveCamera(): THREE.Camera {
+    // Sphere mode always uses perspective camera (for 3D surface rendering)
+    if (this.sphereMode) {
+      return this.perspCamera;
+    }
     return this.mode === 'firstperson' || this.mode === 'thirdperson'
       ? this.perspCamera
       : this.orthoCamera;
+  }
+
+  isSphereMode(): boolean {
+    return this.sphereMode;
   }
 
   getMode(): CameraMode {
@@ -258,6 +281,51 @@ export class CameraSystem {
 
     // Look at the player
     this.perspCamera.lookAt(targetPos);
+  }
+
+  // ============================================
+  // Sphere Mode Camera
+  // ============================================
+
+  /**
+   * Update camera position for sphere world mode.
+   * Camera hovers above player on sphere surface, looking down at them.
+   * Uses pole-locked up vector (north pole = up).
+   *
+   * @param x - Player X position on sphere
+   * @param y - Player Y position on sphere
+   * @param z - Player Z position on sphere
+   */
+  updateSpherePosition(x: number, y: number, z: number): void {
+    if (!this.sphereMode) return;
+
+    const playerPos = new THREE.Vector3(x, y, z);
+    const surfaceNormal = playerPos.clone().normalize();
+
+    // Position camera above player along surface normal
+    const cameraPos = playerPos.clone().addScaledVector(surfaceNormal, this.SPHERE_CAMERA_HEIGHT);
+
+    // Smooth follow
+    const lerpFactor = 0.15;
+    this.perspCamera.position.lerp(cameraPos, lerpFactor);
+
+    // Look at player
+    this.perspCamera.lookAt(playerPos);
+
+    // Pole-locked up vector: orient "up" toward north pole (world Y+)
+    // This gives consistent orientation across the sphere
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(worldUp, surfaceNormal);
+
+    if (right.lengthSq() > 0.0001) {
+      // Not at pole - compute proper up
+      right.normalize();
+      const localUp = new THREE.Vector3().crossVectors(surfaceNormal, right).normalize();
+      this.perspCamera.up.copy(localUp);
+    } else {
+      // At pole - use fallback
+      this.perspCamera.up.set(0, 0, -1);
+    }
   }
 
   // ============================================

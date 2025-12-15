@@ -806,8 +806,9 @@ export class ThreeRenderer implements Renderer {
     }
 
     // Update camera position based on mode (re-read mode after potential switch)
+    // Note: Sphere mode camera is updated later using interpolated mesh position
     const activeMode = this.cameraSystem.getMode();
-    if (myPlayer) {
+    if (myPlayer && !this.cameraSystem.isSphereMode()) {
       if (activeMode === 'firstperson') {
         this.cameraSystem.updateFirstPersonPosition(
           myPlayer.position.x,
@@ -908,11 +909,17 @@ export class ThreeRenderer implements Renderer {
     );
 
     // Update camera system (follows player, applies shake, transitions zoom)
-    // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
+    // Pass player's interpolated mesh position for smooth camera follow
     if (myPlayer) {
       const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
       if (mesh) {
-        this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+        if (this.cameraSystem.isSphereMode()) {
+          // Sphere mode: use interpolated 3D mesh position directly
+          this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
+        } else {
+          // Flat mode: game coords (mesh.x = game X, -mesh.z = game Y)
+          this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+        }
       } else {
         this.cameraSystem.update();
       }
