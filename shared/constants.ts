@@ -83,6 +83,14 @@ export type TunableConfigKey = (typeof DEV_TUNABLE_CONFIGS)[number];
 // ============================================
 
 export const GAME_CONFIG = {
+  // ============================================
+  // Spherical Planet Configuration
+  // World is a sphere - players move on surface, godcells fly in space
+  // ============================================
+  PLANET_RADIUS: 9600, // Planet sphere radius (units)
+  SOUP_Y_BOUND: 2500, // Players with |y| < this are in soup region (~15° latitude band)
+  GODCELL_MIN_ALTITUDE: 500, // Minimum altitude above surface for Stage 5 flight
+
   // Movement (Soup - Stage 1-2)
   PLAYER_SPEED: 403, // Pixels per second
   MOVEMENT_FRICTION: 0.5, // Velocity decay per second (tighter turns)
