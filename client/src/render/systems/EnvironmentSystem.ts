@@ -266,8 +266,16 @@ export class EnvironmentSystem {
    * @param dt - Delta time in milliseconds
    */
   update(dt: number): void {
-    // Sphere mode: no particle updates needed
-    if (this.isSphereWorld) return;
+    // Sphere mode: still update gravity well cache for entity warping
+    if (this.isSphereWorld) {
+      if (!this.gravityWellCacheUpdated && this.world) {
+        updateGravityWellCache(this.world);
+        if (getGravityWellCache().length > 0) {
+          this.gravityWellCacheUpdated = true;
+        }
+      }
+      return;
+    }
 
     if (this.mode === 'soup') {
       this.updateSoupParticles(dt);
@@ -310,9 +318,8 @@ export class EnvironmentSystem {
    * Call this after obstacles are synced from server
    */
   refreshGravityWellCache(): void {
-    // No gravity wells in sphere mode (for now)
-    if (this.isSphereWorld) return;
-
+    // Enable gravity well cache for entity warping (even in sphere mode)
+    // Note: Grid distortion is skipped in sphere mode since we don't have a 2D grid
     if (this.world) {
       updateGravityWellCache(this.world);
       this.gravityWellCacheUpdated = true;

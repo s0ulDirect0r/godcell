@@ -79,7 +79,7 @@ export class ObstacleRenderSystem {
 
       // Add obstacles (they don't move, so only create once)
       if (!this.obstacleMeshes.has(obstacleId)) {
-        const { group, particles } = createObstacle({ x: pos.x, y: pos.y }, obstacle.radius);
+        const { group, particles } = createObstacle({ x: pos.x, y: pos.y, z: pos.z }, obstacle.radius);
 
         // Store particle data for animation
         this.obstacleParticles.set(obstacleId, particles);
