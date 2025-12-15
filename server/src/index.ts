@@ -162,34 +162,72 @@ function initializeObstacles() {
   const WALL_PADDING = 330; // Event horizon (180px) + 150px buffer
   let obstacleIdCounter = 0;
 
-  // Generate obstacle positions using Bridson's algorithm on a padded area
-  // Obstacles spawn within the soup region (which is centered in the jungle)
-  const paddedWidth = GAME_CONFIG.SOUP_WIDTH - WALL_PADDING * 2;
-  const paddedHeight = GAME_CONFIG.SOUP_HEIGHT - WALL_PADDING * 2;
+  if (isSphereMode()) {
+    // Sphere mode: generate well-spaced positions on sphere surface
+    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+    const positions: Array<{ x: number; y: number; z: number }> = [];
+    const minAngularSeparation = MIN_OBSTACLE_SEPARATION / sphereRadius; // Convert to angular distance
 
-  const obstaclePositions = poissonDiscSampling(
-    paddedWidth,
-    paddedHeight,
-    MIN_OBSTACLE_SEPARATION,
-    GAME_CONFIG.OBSTACLE_COUNT
-  );
+    for (let attempts = 0; attempts < 1000 && positions.length < GAME_CONFIG.OBSTACLE_COUNT; attempts++) {
+      const candidate = getRandomSpherePosition(sphereRadius);
+      // Check distance from existing obstacles
+      let valid = true;
+      for (const existing of positions) {
+        const dx = candidate.x - existing.x;
+        const dy = candidate.y - existing.y;
+        const dz = (candidate.z ?? 0) - existing.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < MIN_OBSTACLE_SEPARATION) {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        positions.push({ x: candidate.x, y: candidate.y, z: candidate.z ?? 0 });
+      }
+    }
 
-  // Offset positions to account for padding AND soup origin in jungle
-  const offsetPositions = obstaclePositions.map((pos) => ({
-    x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
-    y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
-  }));
+    // Create obstacles from generated positions
+    for (const position of positions) {
+      const obstacleId = `obstacle-${obstacleIdCounter++}`;
+      createObstacle(
+        world,
+        obstacleId,
+        position,
+        getConfig('OBSTACLE_GRAVITY_RADIUS'),
+        getConfig('OBSTACLE_GRAVITY_STRENGTH')
+      );
+    }
+  } else {
+    // Flat mode: Generate obstacle positions using Bridson's algorithm on a padded area
+    // Obstacles spawn within the soup region (which is centered in the jungle)
+    const paddedWidth = GAME_CONFIG.SOUP_WIDTH - WALL_PADDING * 2;
+    const paddedHeight = GAME_CONFIG.SOUP_HEIGHT - WALL_PADDING * 2;
 
-  // Create obstacles from generated positions (ECS is sole source of truth)
-  for (const position of offsetPositions) {
-    const obstacleId = `obstacle-${obstacleIdCounter++}`;
-    createObstacle(
-      world,
-      obstacleId,
-      position,
-      getConfig('OBSTACLE_GRAVITY_RADIUS'),
-      getConfig('OBSTACLE_GRAVITY_STRENGTH')
+    const obstaclePositions = poissonDiscSampling(
+      paddedWidth,
+      paddedHeight,
+      MIN_OBSTACLE_SEPARATION,
+      GAME_CONFIG.OBSTACLE_COUNT
     );
+
+    // Offset positions to account for padding AND soup origin in jungle
+    const offsetPositions = obstaclePositions.map((pos) => ({
+      x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
+      y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
+    }));
+
+    // Create obstacles from generated positions (ECS is sole source of truth)
+    for (const position of offsetPositions) {
+      const obstacleId = `obstacle-${obstacleIdCounter++}`;
+      createObstacle(
+        world,
+        obstacleId,
+        position,
+        getConfig('OBSTACLE_GRAVITY_RADIUS'),
+        getConfig('OBSTACLE_GRAVITY_STRENGTH')
+      );
+    }
   }
 
   const obstacleCount = getObstacleCount(world);
