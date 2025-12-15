@@ -6,138 +6,13 @@
 
 import type { Position } from './index';
 
-// Type for 3D vectors (always has z)
-export interface Vec3 {
-  x: number;
-  y: number;
-  z: number;
-}
-
 /**
- * Calculate distance between two positions (2D, ignores z)
+ * Calculate distance between two positions
  */
 export function distance(p1: Position, p2: Position): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
-}
-
-/**
- * Calculate 3D distance between two positions
- */
-export function distance3D(p1: Position, p2: Position): number {
-  const dx = p1.x - p2.x;
-  const dy = p1.y - p2.y;
-  const dz = (p1.z ?? 0) - (p2.z ?? 0);
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-// ============================================
-// Spherical World Math
-// Functions for constraining movement to sphere surface
-// ============================================
-
-/**
- * Calculate magnitude (length) of a 3D vector
- */
-export function magnitude(p: Position): number {
-  const z = p.z ?? 0;
-  return Math.sqrt(p.x * p.x + p.y * p.y + z * z);
-}
-
-/**
- * Normalize a 3D vector to unit length
- * Returns {x: 1, y: 0, z: 0} for zero vector (default direction)
- */
-export function normalize(p: Position): Vec3 {
-  const z = p.z ?? 0;
-  const mag = Math.sqrt(p.x * p.x + p.y * p.y + z * z);
-  if (mag === 0) {
-    return { x: 1, y: 0, z: 0 }; // Default direction for zero vector
-  }
-  return { x: p.x / mag, y: p.y / mag, z: z / mag };
-}
-
-/**
- * Project a point onto a sphere surface
- * Moves any point to lie exactly on the sphere at given radius
- *
- * @param pos - Point to project (can be inside or outside sphere)
- * @param radius - Sphere radius
- * @returns Position on sphere surface in same direction from origin
- */
-export function projectToSphere(pos: Position, radius: number): Vec3 {
-  const z = pos.z ?? 0;
-  const mag = Math.sqrt(pos.x * pos.x + pos.y * pos.y + z * z);
-
-  // Handle origin edge case - project to default direction (+X)
-  if (mag === 0) {
-    return { x: radius, y: 0, z: 0 };
-  }
-
-  const scale = radius / mag;
-  return {
-    x: pos.x * scale,
-    y: pos.y * scale,
-    z: z * scale,
-  };
-}
-
-/**
- * Remove radial component from velocity, keeping only tangent component
- * This makes velocity tangent to sphere surface at given position
- *
- * @param pos - Position on (or near) sphere surface
- * @param vel - Velocity vector to make tangent
- * @returns Velocity with radial component removed
- */
-export function tangentVelocity(pos: Position, vel: Position): Vec3 {
-  const pz = pos.z ?? 0;
-  const vz = vel.z ?? 0;
-  const mag = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pz * pz);
-
-  // Handle origin - can't determine normal, return velocity unchanged
-  if (mag === 0) {
-    return { x: vel.x, y: vel.y, z: vz };
-  }
-
-  // Unit normal (radial direction, pointing outward from center)
-  const nx = pos.x / mag;
-  const ny = pos.y / mag;
-  const nz = pz / mag;
-
-  // Dot product of velocity with normal (radial component magnitude)
-  const dot = vel.x * nx + vel.y * ny + vz * nz;
-
-  // Subtract radial component from velocity
-  return {
-    x: vel.x - dot * nx,
-    y: vel.y - dot * ny,
-    z: vz - dot * nz,
-  };
-}
-
-/**
- * Get the surface normal (unit vector pointing outward) at a position
- * Used for mesh orientation - "up" direction on sphere surface
- *
- * @param pos - Position on (or near) sphere surface
- * @returns Unit vector pointing away from sphere center
- */
-export function getSurfaceNormal(pos: Position): Vec3 {
-  const z = pos.z ?? 0;
-  const mag = Math.sqrt(pos.x * pos.x + pos.y * pos.y + z * z);
-
-  // Handle origin - return default direction
-  if (mag === 0) {
-    return { x: 1, y: 0, z: 0 };
-  }
-
-  return {
-    x: pos.x / mag,
-    y: pos.y / mag,
-    z: z / mag,
-  };
 }
 
 /**

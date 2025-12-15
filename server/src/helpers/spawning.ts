@@ -4,8 +4,9 @@
 // Query ECS for obstacle data
 // ============================================
 
-import { GAME_CONFIG, type Position, distance3D } from '#shared';
+import { GAME_CONFIG, type Position } from '#shared';
 import { getConfig } from '../dev';
+import { distance } from './math';
 import { forEachObstacle, type World } from '../ecs';
 
 /**
@@ -16,36 +17,32 @@ export function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position on the sphere surface within the soup region
- * Soup region is the equatorial band where |y| < SOUP_Y_BOUND
- * Avoids spawning directly in obstacle death zones (400px safety radius)
+ * Generate a random spawn position in the soup region
+ * Avoids spawning directly in obstacle death zones (200px safety radius)
  * Queries ECS for obstacle positions.
- * Note: Players always spawn in soup (Stage 1) on the sphere surface.
+ * Note: Players always spawn in soup (Stage 1). Soup is now a region within the jungle.
  */
 export function randomSpawnPosition(world: World): Position {
+  const padding = 100;
   const MIN_DIST_FROM_OBSTACLE_CORE = 400; // Stay outside inner gravity well
   const maxAttempts = 20;
 
-  const planetRadius = GAME_CONFIG.PLANET_RADIUS;
-  const soupYBound = GAME_CONFIG.SOUP_Y_BOUND;
+  // Spawn within soup region (which is centered in the jungle world)
+  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
+  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
+  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
+  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Random point on sphere surface within soup Y-bounds
-    // Y is random within soup band, then calculate X/Z on the sphere
-    const y = (Math.random() * 2 - 1) * soupYBound;
-    const horizontalRadius = Math.sqrt(planetRadius * planetRadius - y * y);
-    const angle = Math.random() * Math.PI * 2;
-
-    const position: Position = {
-      x: horizontalRadius * Math.cos(angle),
-      y: y,
-      z: horizontalRadius * Math.sin(angle),
+    const position = {
+      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
+      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
     };
 
-    // Check distance from all obstacle cores via ECS (use 3D distance on sphere)
+    // Check distance from all obstacle cores via ECS
     let tooClose = false;
     forEachObstacle(world, (_entity, obstaclePos) => {
-      if (distance3D(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
+      if (distance(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
         tooClose = true;
       }
     });
@@ -57,14 +54,9 @@ export function randomSpawnPosition(world: World): Position {
 
   // If we can't find a safe spot after maxAttempts, spawn anyway
   // (extremely unlikely with 12 obstacles on the soup map)
-  const y = (Math.random() * 2 - 1) * soupYBound;
-  const horizontalRadius = Math.sqrt(planetRadius * planetRadius - y * y);
-  const angle = Math.random() * Math.PI * 2;
-
   return {
-    x: horizontalRadius * Math.cos(angle),
-    y: y,
-    z: horizontalRadius * Math.sin(angle),
+    x: soupMinX + Math.random() * (soupMaxX - soupMinX),
+    y: soupMinY + Math.random() * (soupMaxY - soupMinY),
   };
 }
 
@@ -79,7 +71,7 @@ export function isNutrientSpawnSafe(position: Position, world: World): boolean {
 
   let safe = true;
   forEachObstacle(world, (_entity, obstaclePos) => {
-    if (distance3D(position, obstaclePos) < INNER_EVENT_HORIZON) {
+    if (distance(position, obstaclePos) < INNER_EVENT_HORIZON) {
       safe = false;
     }
   });
@@ -100,7 +92,7 @@ export function calculateNutrientValueMultiplier(position: Position, world: Worl
   let closestDist = Infinity;
 
   forEachObstacle(world, (_entity, obstaclePos) => {
-    const dist = distance3D(position, obstaclePos);
+    const dist = distance(position, obstaclePos);
     if (dist < closestDist) {
       closestDist = dist;
     }

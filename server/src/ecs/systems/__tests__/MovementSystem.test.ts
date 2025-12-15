@@ -3,13 +3,14 @@
 // ============================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Components, Tags, GAME_CONFIG, magnitude } from '#shared';
+import { Components, Tags } from '#shared';
 import { MovementSystem } from '../MovementSystem';
 import {
   createTestWorld,
   createTestPlayer,
   createMockIO,
   clearLookups,
+  SOUP_CENTER,
 } from './testUtils';
 import { setInput, requirePosition, requireVelocity, requireEnergy } from '../../factories';
 
@@ -27,31 +28,30 @@ describe('MovementSystem', () => {
   });
 
   describe('basic movement', () => {
-    it('applies input to velocity (tangent direction on sphere)', () => {
+    it('applies input to velocity', () => {
       const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
-      // At position (R, 0, 0), Y direction is tangent to sphere surface
-      // X direction is radial and gets zeroed by tangent constraint
-      setInput(world, entity, 0, 1); // Move in Y direction (tangent)
+      // Set input direction (wants to move right)
+      setInput(world, entity, 1, 0);
 
       // Run the system for a small time step
       system.update(world, 0.016, mockIO);
 
-      // Velocity should have increased in Y direction (tangent to sphere at this position)
+      // Velocity should have increased in x direction
       const vel = requireVelocity(world, entity);
-      expect(vel.y).toBeGreaterThan(0);
+      expect(vel.x).toBeGreaterThan(0);
+      expect(vel.y).toBe(0);
     });
 
-    it('updates position based on velocity (constrained to sphere surface)', () => {
+    it('updates position based on velocity', () => {
       const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
-      // Set velocity in Y direction (tangent at position (R, 0, 0))
+      // Set velocity directly (to bypass acceleration calculations)
       const vel = requireVelocity(world, entity);
-      vel.x = 0;
-      vel.y = 50;
-      vel.z = 0;
+      vel.x = 50;
+      vel.y = 0;
 
       const initialPos = { ...requirePosition(world, entity) };
 
@@ -59,10 +59,9 @@ describe('MovementSystem', () => {
       system.update(world, 0.1, mockIO);
 
       const newPos = requirePosition(world, entity);
-      // Position should have moved along sphere surface
-      // Y should increase, and position should remain on sphere
-      expect(newPos.y).toBeGreaterThan(initialPos.y);
-      expect(magnitude(newPos)).toBeCloseTo(GAME_CONFIG.PLANET_RADIUS, 1);
+      // Position should have increased (though friction reduces velocity)
+      expect(newPos.x).toBeGreaterThan(initialPos.x);
+      expect(newPos.y).toBe(initialPos.y);
     });
 
     it('broadcasts playerMoved message', () => {
@@ -95,9 +94,9 @@ describe('MovementSystem', () => {
       // Apply slow tag to one player
       world.addTag(slowedEntity, Tags.SlowedThisTick);
 
-      // Give both same input (Y direction is tangent at position R, 0, 0)
-      setInput(world, normalEntity, 0, 1);
-      setInput(world, slowedEntity, 0, 1);
+      // Give both same input
+      setInput(world, normalEntity, 1, 0);
+      setInput(world, slowedEntity, 1, 0);
 
       // Run system
       system.update(world, 0.1, mockIO);
@@ -106,7 +105,7 @@ describe('MovementSystem', () => {
       const slowedVel = requireVelocity(world, slowedEntity);
 
       // Slowed player should have less velocity
-      expect(slowedVel.y).toBeLessThan(normalVel.y);
+      expect(slowedVel.x).toBeLessThan(normalVel.x);
     });
   });
 
@@ -204,73 +203,32 @@ describe('MovementSystem', () => {
         source: 'test',
       });
 
-      // Set input direction (Y is tangent at position R, 0, 0)
-      setInput(world, entity, 0, 1);
+      // Set input direction
+      setInput(world, entity, 1, 0);
 
       system.update(world, 0.1, mockIO);
 
       // Velocity should have increased (stun expired, can move)
       const vel = requireVelocity(world, entity);
-      expect(vel.y).toBeGreaterThan(0);
+      expect(vel.x).toBeGreaterThan(0);
     });
   });
 
   describe('world bounds', () => {
-    it('clamps position to soup Y-bounds for single-cell', () => {
-      // Create player at soup center (on sphere surface)
+    it('clamps position to soup bounds for single-cell', () => {
+      // Create player at soup center
       const entity = createTestPlayer(world);
       const mockIO = createMockIO();
 
-      // Set huge velocity in Y direction trying to escape soup toward pole
-      // (Y velocity is tangent at position (R, 0, 0))
+      // Set huge velocity trying to escape soup
       const vel = requireVelocity(world, entity);
-      vel.y = 100000;
+      vel.x = 100000;
 
       system.update(world, 1, mockIO);
 
-      // Position Y should be clamped to soup Y-bound
+      // Position should be clamped (not at soup center + 100000)
       const pos = requirePosition(world, entity);
-      expect(Math.abs(pos.y)).toBeLessThanOrEqual(GAME_CONFIG.SOUP_Y_BOUND + 1);
-      // Should still be on sphere surface
-      expect(magnitude(pos)).toBeCloseTo(GAME_CONFIG.PLANET_RADIUS, 1);
-    });
-  });
-
-  describe('spherical movement', () => {
-    it('constrains player to sphere surface', () => {
-      const entity = createTestPlayer(world);
-      const mockIO = createMockIO();
-
-      // Set velocity in tangent direction
-      const vel = requireVelocity(world, entity);
-      vel.y = 100;
-      vel.z = 50;
-
-      // Run several updates
-      for (let i = 0; i < 10; i++) {
-        system.update(world, 0.016, mockIO);
-      }
-
-      // Position should remain on sphere surface
-      const pos = requirePosition(world, entity);
-      expect(magnitude(pos)).toBeCloseTo(GAME_CONFIG.PLANET_RADIUS, 1);
-    });
-
-    it('makes velocity tangent to surface after update', () => {
-      const entity = createTestPlayer(world);
-      const mockIO = createMockIO();
-
-      // Set velocity with radial component (X at position R, 0, 0)
-      const vel = requireVelocity(world, entity);
-      vel.x = 100; // Radial (will be zeroed)
-      vel.y = 50; // Tangent (will remain)
-
-      system.update(world, 0.016, mockIO);
-
-      // X velocity (radial at this position) should be near zero
-      // Y velocity (tangent) should remain
-      expect(Math.abs(vel.x)).toBeLessThan(10); // Near zero (some drift from sphere projection)
-      expect(vel.y).toBeGreaterThan(0);
+      expect(pos.x).toBeLessThan(SOUP_CENTER.x + 100000);
     });
   });
 });

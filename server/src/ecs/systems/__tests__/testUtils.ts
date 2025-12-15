@@ -19,12 +19,10 @@ export { clearLookups };
 // Test Constants (from GAME_CONFIG, for clarity)
 // ============================================
 
-// Soup center on sphere surface - equatorial point facing +X axis
-// This is a valid position within the soup Y-bounds (|y| < SOUP_Y_BOUND)
+// Soup bounds - where single-cell and multi-cell players live
 export const SOUP_CENTER = {
-  x: GAME_CONFIG.PLANET_RADIUS, // On equator, facing +X
-  y: 0,
-  z: 0,
+  x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
+  y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
 };
 
 // Collision detection
