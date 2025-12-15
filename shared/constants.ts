@@ -135,7 +135,7 @@ export const GAME_CONFIG = {
   // When enabled, world is a sphere surface instead of flat plane
   // ============================================
   SPHERE_MODE: true, // Toggle sphere vs flat world (enabled for testing)
-  SPHERE_RADIUS: 1530, // Circumference ≈ 9600 (2x original soup width)
+  SPHERE_RADIUS: 3060, // Circumference ≈ 19200 (4x original soup width) - doubled for flatter feel
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void

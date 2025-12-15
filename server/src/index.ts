@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -48,6 +48,7 @@ import {
   createPlayer as ecsCreatePlayer,
   createObstacle,
   createTree,
+  createNutrient,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   Components,
@@ -385,25 +386,105 @@ initNutrientModule(world, io);
 // Playground mode - empty world for testing (set by PLAYGROUND env var)
 const isPlayground = process.env.PLAYGROUND === 'true';
 
-// Sphere test mode - empty sphere world, no entities, no metabolism
-const isSphereTest = process.env.SPHERE_TEST === 'true';
+/**
+ * Initialize nutrients on sphere surface near gravity wells
+ * Creates 3 nutrients around each gravity well at varying distances
+ */
+function initializeSphereNutrients(): void {
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
 
-if (isSphereTest) {
-  logger.info({ event: 'sphere_test_mode', port: PORT }, 'Running in SPHERE TEST mode - empty sphere world');
-} else if (isPlayground) {
+  // Gravity well positions (matches SphereMovementSystem)
+  const wellCoords = [
+    { theta: 0, phi: Math.PI / 2 }, // Equator front
+    { theta: Math.PI, phi: Math.PI / 2 }, // Equator back
+    { theta: Math.PI / 2, phi: Math.PI / 3 }, // Upper right quadrant
+    { theta: -Math.PI / 2, phi: (2 * Math.PI) / 3 }, // Lower left quadrant
+  ];
+
+  let nutrientIndex = 0;
+
+  // PART 1: Spawn 5 HIGH VALUE nutrients around each gravity well
+  // Risk/reward: near wells = more valuable but dangerous
+  for (const { theta, phi } of wellCoords) {
+    for (let i = 0; i < 5; i++) {
+      const offsetAngle = (Math.PI * 2 * i) / 5 + Math.random() * 0.5;
+      const offsetDist = 100 + Math.random() * 200; // 100-300 units from well
+      const offsetPhi = offsetDist / sphereRadius;
+
+      const wellX = sphereRadius * Math.sin(phi) * Math.cos(theta);
+      const wellY = sphereRadius * Math.cos(phi);
+      const wellZ = sphereRadius * Math.sin(phi) * Math.sin(theta);
+
+      const newPhi = phi + offsetPhi * Math.cos(offsetAngle);
+      const newTheta = theta + (offsetPhi * Math.sin(offsetAngle)) / Math.sin(phi);
+
+      const x = sphereRadius * Math.sin(newPhi) * Math.cos(newTheta);
+      const y = sphereRadius * Math.cos(newPhi);
+      const z = sphereRadius * Math.sin(newPhi) * Math.sin(newTheta);
+
+      const distFromWell = Math.sqrt(
+        (x - wellX) ** 2 + (y - wellY) ** 2 + (z - wellZ) ** 2
+      );
+      const isHighValue = distFromWell < 150;
+      const valueMultiplier = isHighValue ? 3.0 : 1.5;
+
+      createNutrient(
+        world,
+        `sphere_nutrient_${nutrientIndex++}`,
+        { x, y, z },
+        GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
+        GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
+        valueMultiplier,
+        isHighValue
+      );
+    }
+  }
+
+  // PART 2: Spawn 30 LOW VALUE nutrients randomly across sphere surface
+  // Safe nutrients scattered everywhere for exploration
+  for (let i = 0; i < 30; i++) {
+    const pos = getRandomSpherePosition(sphereRadius);
+    const valueMultiplier = 1.0;
+
+    createNutrient(
+      world,
+      `sphere_nutrient_${nutrientIndex++}`,
+      pos,
+      GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
+      GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
+      valueMultiplier,
+      false // Not high value
+    );
+  }
+
+  logger.info(
+    { event: 'sphere_nutrients_spawned', count: nutrientIndex },
+    `Spawned ${nutrientIndex} nutrients (20 near wells, 30 scattered)`
+  );
+}
+
+if (isPlayground) {
   logger.info({ event: 'playground_mode', port: PORT });
-} else {
-  // Initialize game world (normal mode)
-  // Pure Bridson's distribution - obstacles and swarms fill map naturally
-  initializeObstacles();
-  initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
-  initializeJungleFauna(world, io); // Stage 3+ fauna: DataFruits, CyberBugs, JungleCreatures
-  initializeEntropySerpents(); // APEX PREDATORS - hunt Stage 3+ players relentlessly
-  initializeNutrients();
-  // Set ECS world for bots before initializing
+} else if (isSphereMode()) {
+  // Sphere world initialization - stages 1-2 on sphere surface
+  logger.info({ event: 'sphere_mode', port: PORT }, 'Running in SPHERE MODE - spherical world');
+
+  // Initialize nutrients on sphere surface
+  initializeSphereNutrients();
+
+  // Initialize bots and swarms (will be made sphere-aware)
   setBotEcsWorld(world);
   initializeBots(io);
-  // Swarms use ECS directly (world passed as parameter)
+  initializeSwarms(world, io);
+} else {
+  // Flat world initialization (legacy)
+  initializeObstacles();
+  initializeTrees();
+  initializeJungleFauna(world, io);
+  initializeEntropySerpents();
+  initializeNutrients();
+  setBotEcsWorld(world);
+  initializeBots(io);
   initializeSwarms(world, io);
 }
 
@@ -465,12 +546,7 @@ if (isSphereMode()) {
   systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
 }
 
-// Skip metabolism in sphere test mode (no energy decay)
-if (!isSphereTest) {
-  systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
-} else {
-  logger.info({ event: 'metabolism_disabled' }, 'MetabolismSystem disabled for sphere test');
-}
+systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
 systemRunner.register(new MacroResourceCollisionSystem(), SystemPriority.MACRO_RESOURCE_COLLISION);
 systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
