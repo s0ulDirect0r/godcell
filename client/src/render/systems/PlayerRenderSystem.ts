@@ -14,6 +14,7 @@ import {
   getStringIdByEntity,
   getPlayer,
   getLocalPlayerId,
+  isSphereMode,
   type InterpolationTargetComponent,
   type ClientDamageInfoComponent,
 } from '../../ecs';
@@ -50,10 +51,13 @@ import type { RenderMode } from './EnvironmentSystem';
 
 /**
  * Interpolation target for smooth position updates
+ * In sphere mode: x, y, z are 3D world coordinates
+ * In flat mode: x, y are game coordinates (y maps to -Z in Three.js)
  */
 export interface InterpolationTarget {
   x: number;
   y: number;
+  z?: number;
   timestamp: number;
 }
 
@@ -278,15 +282,27 @@ export class PlayerRenderSystem {
           cellGroup = createSingleCell(radius, colorHex);
         }
 
-        // Position group at player location on XZ plane (Y=height)
-        // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const heightOffset =
-          player.stage === 'cyber_organism' ||
-          player.stage === 'humanoid' ||
-          player.stage === 'godcell'
-            ? 5
-            : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+        // Position group at player location
+        // Lift Stage 3+ creatures above the grid (legs extend downward) in flat mode only
+        if (isSphereMode()) {
+          // Sphere mode: use 3D coordinates directly
+          cellGroup.position.set(
+            player.position.x,
+            player.position.y,
+            player.position.z ?? 0
+          );
+          cellGroup.userData.isSphere = true;
+        } else {
+          // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
+          const heightOffset =
+            player.stage === 'cyber_organism' ||
+            player.stage === 'humanoid' ||
+            player.stage === 'godcell'
+              ? 5
+              : 0;
+          cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+          cellGroup.userData.isSphere = false;
+        }
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -346,22 +362,38 @@ export class PlayerRenderSystem {
         const target: InterpolationTarget = {
           x: interp.targetX,
           y: interp.targetY,
+          z: isSphereMode() ? (player.position.z ?? 0) : undefined,
           timestamp: interp.timestamp,
         };
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
         // Fallback to direct position if no target
-        const heightOffset =
-          player.stage === 'cyber_organism' ||
-          player.stage === 'humanoid' ||
-          player.stage === 'godcell'
-            ? 5
-            : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+        if (cellGroup.userData.isSphere) {
+          // Sphere mode: use 3D coordinates directly
+          cellGroup.position.set(
+            player.position.x,
+            player.position.y,
+            player.position.z ?? 0
+          );
 
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
+          const outline = this.playerOutlines.get(id);
+          if (outline) {
+            outline.position.copy(cellGroup.position);
+          }
+        } else {
+          // Flat mode: XZ plane
+          const heightOffset =
+            player.stage === 'cyber_organism' ||
+            player.stage === 'humanoid' ||
+            player.stage === 'godcell'
+              ? 5
+              : 0;
+          cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+
+          const outline = this.playerOutlines.get(id);
+          if (outline) {
+            outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
+          }
         }
 
         // Update compass indicators (multi-cell only - chemical sensing ability)
@@ -1008,26 +1040,42 @@ export class PlayerRenderSystem {
   ): void {
     const lerpFactor = frameLerp(0.3, this.dt);
 
-    cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-    const targetZ = -target.y;
-    cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
+    if (cellGroup.userData.isSphere) {
+      // Sphere mode: interpolate in 3D space directly
+      cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+      cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+      cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
 
-    const outline = this.playerOutlines.get(playerId);
-    if (outline) {
-      outline.position.x = cellGroup.position.x;
-      outline.position.z = cellGroup.position.z;
+      const outline = this.playerOutlines.get(playerId);
+      if (outline) {
+        outline.position.copy(cellGroup.position);
+      }
+    } else {
+      // Flat mode: XZ plane (game Y maps to -Z)
+      cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+      const targetZ = -target.y;
+      cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
+
+      const outline = this.playerOutlines.get(playerId);
+      if (outline) {
+        outline.position.x = cellGroup.position.x;
+        outline.position.z = cellGroup.position.z;
+      }
     }
 
     // Update compass indicators for client player (multi-cell only)
-    // XZ plane: game Y maps to -Z
     if (isMyPlayer) {
       const isMultiCell = stage === 'multi_cell';
       if (isMultiCell) {
+        // Compass uses game coordinates
+        const gamePos = cellGroup.userData.isSphere
+          ? { x: cellGroup.position.x, y: cellGroup.position.y }
+          : { x: cellGroup.position.x, y: -cellGroup.position.z };
         this.compassIndicators = updateCompassIndicators(
           this.scene,
           this.compassIndicators,
           this.detectedEntities,
-          { x: cellGroup.position.x, y: -cellGroup.position.z },
+          gamePos,
           radius,
           stage as EvolutionStage
         );
