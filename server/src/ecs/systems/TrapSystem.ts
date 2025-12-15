@@ -179,6 +179,7 @@ export class TrapSystem implements System {
             serpentId: trap.victimSocketId,
             damage: trap.damage,
             serpentEnergyRemaining: serpentEnergy.current,
+            position: { x: trap.pos.x.toFixed(0), y: trap.pos.y.toFixed(0) },
           });
         }
       } else {
@@ -221,6 +222,7 @@ export class TrapSystem implements System {
           damage: trap.damage,
           stunDuration: trap.stunDuration,
           killed,
+          position: { x: trap.pos.x.toFixed(0), y: trap.pos.y.toFixed(0) },
         });
       }
 

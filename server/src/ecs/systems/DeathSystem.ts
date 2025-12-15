@@ -21,6 +21,7 @@ import {
   clearDrainTarget,
   entityToLegacyPlayer,
   requireEnergy,
+  getStage,
   type DamageTrackingComponent,
 } from '../index';
 import { isBot, handleBotDeath } from '../../bots';
@@ -80,12 +81,15 @@ export class DeathSystem implements System {
               // Clamp current energy to new max (addEnergy with 0 does this)
               addEnergy(world, predatorEntity, 0);
 
+              const predatorStage = getStage(world, predatorEntity);
               logger.info({
                 event: 'predation_kill',
                 predatorId: predatorSocketId,
+                predatorStage: predatorStage?.stage,
                 victimId: player.id,
                 victimStage: player.stage,
                 maxEnergyGained: maxEnergyGain.toFixed(1),
+                position: { x: player.position.x.toFixed(0), y: player.position.y.toFixed(0) },
               });
             }
             // Clear drain tracking
@@ -109,13 +113,16 @@ export class DeathSystem implements System {
               const energyGain = player.maxEnergy * GAME_CONFIG.CONTACT_MAXENERGY_GAIN; // 30% of victim's maxEnergy
               addEnergy(world, shooterEntity, energyGain);
 
+              const shooterStage = getStage(world, shooterEntity);
               logger.info({
                 event: 'beam_kill',
                 shooterId: shooterSocketId,
+                shooterStage: shooterStage?.stage,
                 victimId: player.id,
                 victimStage: player.stage,
                 maxEnergyGained: maxEnergyGain.toFixed(1),
                 energyGained: energyGain.toFixed(1),
+                position: { x: player.position.x.toFixed(0), y: player.position.y.toFixed(0) },
               });
             }
             // Clear beam shooter tracking in ECS
@@ -211,15 +218,18 @@ export class DeathSystem implements System {
             setMaxEnergy(world, killerEntity, killerEnergy.max + maxEnergyGain);
           }
 
+          const killerStage = getStage(world, killerEntity);
           logger.info({
             event: 'swarm_killed',
             killerId: swarm.killerId,
+            killerStage: killerStage?.stage,
             swarmId: swarm.swarmId,
             damageSource: swarm.damageSource,
             swarmPeakEnergy: swarm.peakEnergy,
             rewardPct: rewardPct,
             energyGained: GAME_CONFIG.SWARM_ENERGY_GAIN,
             maxEnergyGained: maxEnergyGain,
+            position: { x: swarm.x.toFixed(0), y: swarm.y.toFixed(0) },
           });
         }
       }
