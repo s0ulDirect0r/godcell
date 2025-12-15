@@ -565,8 +565,6 @@ export class SwarmRenderSystem {
         depthWrite: false,
       });
       auraRing = new THREE.Mesh(ringGeometry, ringMaterial);
-      // Ring lies in XY plane, rotate to XZ plane (same as swarm group)
-      auraRing.rotation.x = -Math.PI / 2;
       this.scene.add(auraRing);
       this.swarmAuras.set(swarmId, auraRing);
     } else {
@@ -579,8 +577,18 @@ export class SwarmRenderSystem {
       material.emissiveIntensity = emissiveIntensity;
     }
     // Sync position with swarm (slightly elevated)
-    auraRing.position.copy(group.position);
-    auraRing.position.y = 0.25; // Just above swarm
+    if (isSphereMode()) {
+      // Sphere mode: orient ring tangent to sphere surface
+      const normal = group.position.clone().normalize();
+      auraRing.position.copy(group.position).addScaledVector(normal, 0.5);
+      // Orient ring to face along surface normal (ring lies in tangent plane)
+      auraRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    } else {
+      // Flat mode: ring lies in XZ plane
+      auraRing.position.copy(group.position);
+      auraRing.position.y = 0.25;
+      auraRing.rotation.set(-Math.PI / 2, 0, 0);
+    }
 
     // === AURA PARTICLES ===
     // Particle count grows with absorbed energy (1 particle per 50 energy absorbed, min 3)
@@ -590,15 +598,47 @@ export class SwarmRenderSystem {
     let auraParticles = this.swarmAuraParticles.get(swarmId);
     // Note: 'time' already declared above for ring pulsing
 
+    // Helper to compute particle positions (in local coords for flat, world coords for sphere)
+    const computeParticlePositions = (count: number, t: number): Float32Array => {
+      const positions = new Float32Array(count * 3);
+      if (isSphereMode()) {
+        // Sphere mode: orbit in tangent plane around swarm position
+        const swarmPos = group.position;
+        const normal = swarmPos.clone().normalize();
+        // Build tangent basis vectors
+        const worldUp = new THREE.Vector3(0, 1, 0);
+        let tangent = new THREE.Vector3().crossVectors(worldUp, normal);
+        if (tangent.lengthSq() < 0.0001) {
+          tangent.set(1, 0, 0).crossVectors(tangent, normal);
+        }
+        tangent.normalize();
+        const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+        // Lift position slightly above surface
+        const liftedCenter = swarmPos.clone().addScaledVector(normal, 0.5);
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2 + t * 0.5;
+          const px = liftedCenter.x + Math.cos(angle) * orbitRadius * tangent.x + Math.sin(angle) * orbitRadius * bitangent.x;
+          const py = liftedCenter.y + Math.cos(angle) * orbitRadius * tangent.y + Math.sin(angle) * orbitRadius * bitangent.y;
+          const pz = liftedCenter.z + Math.cos(angle) * orbitRadius * tangent.z + Math.sin(angle) * orbitRadius * bitangent.z;
+          positions[i * 3] = px;
+          positions[i * 3 + 1] = py;
+          positions[i * 3 + 2] = pz;
+        }
+      } else {
+        // Flat mode: orbit in XZ plane (local coords, positioned by parent)
+        for (let i = 0; i < count; i++) {
+          const angle = (i / count) * Math.PI * 2 + t * 0.5;
+          positions[i * 3] = Math.cos(angle) * orbitRadius;
+          positions[i * 3 + 1] = 0;
+          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
+        }
+      }
+      return positions;
+    };
+
     if (!auraParticles) {
       // Create new particle system
-      const positions = new Float32Array(particleCount * 3);
-      for (let i = 0; i < particleCount; i++) {
-        const angle = (i / particleCount) * Math.PI * 2 + time;
-        positions[i * 3] = Math.cos(angle) * orbitRadius;
-        positions[i * 3 + 1] = 0;
-        positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
-      }
+      const positions = computeParticlePositions(particleCount, time);
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       const material = new THREE.PointsMaterial({
@@ -619,26 +659,15 @@ export class SwarmRenderSystem {
       if (Math.abs(currentCount - particleCount) > 2) {
         // Recreate geometry with new count
         auraParticles.geometry.dispose();
-        const positions = new Float32Array(particleCount * 3);
-        for (let i = 0; i < particleCount; i++) {
-          const angle = (i / particleCount) * Math.PI * 2 + time;
-          positions[i * 3] = Math.cos(angle) * orbitRadius;
-          positions[i * 3 + 1] = 0;
-          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
-        }
+        const positions = computeParticlePositions(particleCount, time);
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         auraParticles.geometry = geometry;
       } else {
         // Update positions for orbital animation
-        const positions = auraParticles.geometry.attributes.position.array as Float32Array;
         const count = auraParticles.geometry.attributes.position.count;
-        for (let i = 0; i < count; i++) {
-          const angle = (i / count) * Math.PI * 2 + time * 0.5; // Slow orbit
-          positions[i * 3] = Math.cos(angle) * orbitRadius;
-          positions[i * 3 + 1] = 0;
-          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
-        }
+        const positions = computeParticlePositions(count, time);
+        auraParticles.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         auraParticles.geometry.attributes.position.needsUpdate = true;
       }
       // Update material
@@ -646,9 +675,14 @@ export class SwarmRenderSystem {
       material.opacity = auraOpacity;
       material.size = 4 + intensityFactor * 4;
     }
-    // Sync position with swarm
-    auraParticles.position.copy(group.position);
-    auraParticles.position.y = 0.25;
+    // Sync position with swarm (only needed for flat mode where positions are local)
+    if (isSphereMode()) {
+      // Sphere mode: positions are already world coords
+      auraParticles.position.set(0, 0, 0);
+    } else {
+      auraParticles.position.copy(group.position);
+      auraParticles.position.y = 0.25;
+    }
   }
 
   /**
