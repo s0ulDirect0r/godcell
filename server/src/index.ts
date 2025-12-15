@@ -1218,3 +1218,35 @@ safeInterval(
   },
   60000
 );
+
+// ============================================
+// Graceful Shutdown
+// ============================================
+
+/**
+ * Handle graceful shutdown on SIGINT (Ctrl-C) or SIGTERM.
+ * Closes Socket.io server and allows process to exit cleanly.
+ */
+function shutdown(signal: string) {
+  logger.info({ event: 'shutdown_initiated', signal }, `Received ${signal}, shutting down...`);
+
+  // Close Socket.io server (stops accepting new connections, closes existing ones)
+  io.close((err) => {
+    if (err) {
+      logger.error({ event: 'shutdown_error', error: err.message }, 'Error closing Socket.io server');
+    } else {
+      logger.info({ event: 'shutdown_complete' }, 'Server shut down cleanly');
+    }
+    // Force exit after cleanup (intervals will be cleaned up by process exit)
+    process.exit(0);
+  });
+
+  // Force exit after 3 seconds if graceful shutdown hangs
+  setTimeout(() => {
+    logger.warn({ event: 'shutdown_forced' }, 'Forced shutdown after timeout');
+    process.exit(1);
+  }, 3000).unref(); // .unref() ensures this timer doesn't keep process alive
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
