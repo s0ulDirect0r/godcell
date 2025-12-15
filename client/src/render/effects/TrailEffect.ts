@@ -6,17 +6,19 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EvolutionStage } from '#shared';
+import { EvolutionStage, isSphereMode } from '#shared';
 
 // Note: Player radius is now stored on the entity and passed via TrailPlayerData.radius
 // The getPlayerRadius() function has been removed - radius flows from server via ECS
 
 /**
  * Trail point for position history
+ * In sphere mode, stores full 3D position on sphere surface
  */
 interface TrailPoint {
   x: number;
   y: number;
+  z?: number; // For sphere mode
 }
 
 /**
@@ -116,16 +118,24 @@ export function updateTrails(
       }
 
       // Calculate world position for this nucleus
-      // cellGroup position is in 3D space: .x = game X, .z = -game Y
       const offset = nucleusOffsets[t];
       // Apply group rotation to offset (rotation around Z in local space)
       const rotatedOffsetX = offset.x * Math.cos(groupRotZ) - offset.y * Math.sin(groupRotZ);
       const rotatedOffsetY = offset.x * Math.sin(groupRotZ) + offset.y * Math.cos(groupRotZ);
 
-      const worldX = cellGroup.position.x + rotatedOffsetX;
-      const worldY = -cellGroup.position.z + rotatedOffsetY;
-
-      points.push({ x: worldX, y: worldY });
+      if (isSphereMode()) {
+        // Sphere mode: store 3D position directly
+        // Note: offsets are small relative to sphere, just add to position
+        const worldX = cellGroup.position.x + rotatedOffsetX;
+        const worldY = cellGroup.position.y + rotatedOffsetY;
+        const worldZ = cellGroup.position.z;
+        points.push({ x: worldX, y: worldY, z: worldZ });
+      } else {
+        // Flat mode: cellGroup position is in 3D space: .x = game X, .z = -game Y
+        const worldX = cellGroup.position.x + rotatedOffsetX;
+        const worldY = -cellGroup.position.z + rotatedOffsetY;
+        points.push({ x: worldX, y: worldY });
+      }
 
       // Keep only last N points
       if (points.length > maxTrailLength) {
@@ -145,7 +155,11 @@ export function updateTrails(
           vertexColors: true,
         });
         trailMesh = new THREE.Mesh(geometry, material);
-        trailMesh.position.y = -0.5; // Below the cell (Y=height)
+        // In sphere mode, trail is positioned in world space (no offset needed)
+        // In flat mode, position slightly below cell
+        if (!isSphereMode()) {
+          trailMesh.position.y = -0.5;
+        }
         scene.add(trailMesh);
         trailMeshes.set(trailKey, trailMesh);
       }
@@ -170,6 +184,8 @@ export function updateTrails(
         const g = ((colorHex >> 8) & 255) / 255;
         const b = (colorHex & 255) / 255;
 
+        const sphereMode = isSphereMode();
+
         for (let i = 0; i < points.length; i++) {
           const point = points[i];
 
@@ -182,44 +198,86 @@ export function updateTrails(
           // Calculate opacity fade
           const opacity = Math.pow(age, 1.5);
 
-          // Get perpendicular direction for ribbon width
-          let perpX = 0,
-            perpY = 1;
-          if (i < points.length - 1) {
-            const next = points[i + 1];
-            const dx = next.x - point.x;
-            const dy = next.y - point.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-              perpX = -dy / len;
-              perpY = dx / len;
-            }
-          } else if (i > 0) {
-            const prev = points[i - 1];
-            const dx = point.x - prev.x;
-            const dy = point.y - prev.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (len > 0) {
-              perpX = -dy / len;
-              perpY = dx / len;
-            }
-          }
-
           const idx = i * 2;
 
-          // Top vertex
-          positions[idx * 3] = point.x + perpX * width;
-          positions[idx * 3 + 1] = 0;
-          positions[idx * 3 + 2] = -point.y - perpY * width;
+          if (sphereMode) {
+            // Sphere mode: build ribbon in 3D on sphere surface
+            const pos = new THREE.Vector3(point.x, point.y, point.z ?? 0);
+            const normal = pos.clone().normalize();
 
+            // Get tangent direction along trail
+            let tangent = new THREE.Vector3();
+            if (i < points.length - 1) {
+              const next = points[i + 1];
+              tangent.set(next.x - point.x, next.y - point.y, (next.z ?? 0) - (point.z ?? 0));
+            } else if (i > 0) {
+              const prev = points[i - 1];
+              tangent.set(point.x - prev.x, point.y - prev.y, (point.z ?? 0) - (prev.z ?? 0));
+            }
+            // Project tangent onto sphere surface (remove normal component)
+            tangent.addScaledVector(normal, -tangent.dot(normal));
+            if (tangent.lengthSq() > 0.0001) {
+              tangent.normalize();
+            } else {
+              tangent.set(1, 0, 0);
+              tangent.addScaledVector(normal, -tangent.dot(normal)).normalize();
+            }
+
+            // Perpendicular direction on sphere surface
+            const perp = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+
+            // Lift trail slightly above sphere surface
+            const liftedPos = pos.clone().addScaledVector(normal, 0.5);
+
+            // Top vertex
+            positions[idx * 3] = liftedPos.x + perp.x * width;
+            positions[idx * 3 + 1] = liftedPos.y + perp.y * width;
+            positions[idx * 3 + 2] = liftedPos.z + perp.z * width;
+
+            // Bottom vertex
+            positions[(idx + 1) * 3] = liftedPos.x - perp.x * width;
+            positions[(idx + 1) * 3 + 1] = liftedPos.y - perp.y * width;
+            positions[(idx + 1) * 3 + 2] = liftedPos.z - perp.z * width;
+          } else {
+            // Flat mode: build ribbon on XZ plane
+            // Get perpendicular direction for ribbon width
+            let perpX = 0,
+              perpY = 1;
+            if (i < points.length - 1) {
+              const next = points[i + 1];
+              const dx = next.x - point.x;
+              const dy = next.y - point.y;
+              const len = Math.sqrt(dx * dx + dy * dy);
+              if (len > 0) {
+                perpX = -dy / len;
+                perpY = dx / len;
+              }
+            } else if (i > 0) {
+              const prev = points[i - 1];
+              const dx = point.x - prev.x;
+              const dy = point.y - prev.y;
+              const len = Math.sqrt(dx * dx + dy * dy);
+              if (len > 0) {
+                perpX = -dy / len;
+                perpY = dx / len;
+              }
+            }
+
+            // Top vertex
+            positions[idx * 3] = point.x + perpX * width;
+            positions[idx * 3 + 1] = 0;
+            positions[idx * 3 + 2] = -point.y - perpY * width;
+
+            // Bottom vertex
+            positions[(idx + 1) * 3] = point.x - perpX * width;
+            positions[(idx + 1) * 3 + 1] = 0;
+            positions[(idx + 1) * 3 + 2] = -point.y + perpY * width;
+          }
+
+          // Colors (same for both modes)
           colors[idx * 3] = r;
           colors[idx * 3 + 1] = g;
           colors[idx * 3 + 2] = b;
-
-          // Bottom vertex
-          positions[(idx + 1) * 3] = point.x - perpX * width;
-          positions[(idx + 1) * 3 + 1] = 0;
-          positions[(idx + 1) * 3 + 2] = -point.y + perpY * width;
 
           // Fade colors based on age
           colors[(idx + 1) * 3] = r * opacity;

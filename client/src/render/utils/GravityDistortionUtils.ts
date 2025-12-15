@@ -11,8 +11,9 @@ import { World, Tags, Components, type PositionComponent, type ObstacleComponent
  * Wells don't move, so we cache positions and radii at init/sync time
  */
 export interface GravityWellCache {
-  x: number; // Game X position
-  y: number; // Game Y position
+  x: number; // Game X position (or sphere X in sphere mode)
+  y: number; // Game Y position (or sphere Y in sphere mode)
+  z: number; // Game Z position (for sphere mode, 0 in flat mode)
   radius: number; // Gravity influence radius
   strength: number; // Gravity strength multiplier
 }
@@ -107,6 +108,7 @@ export function updateGravityWellCache(world: World): void {
       gravityWellCache.push({
         x: pos.x,
         y: pos.y,
+        z: pos.z ?? 0,
         radius: obstacle.radius * EFFECT_RADIUS_MULTIPLIER,
         strength: obstacle.strength,
       });

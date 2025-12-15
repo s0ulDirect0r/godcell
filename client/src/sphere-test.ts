@@ -19,15 +19,24 @@ import type {
   PlayerLeftMessage,
   EnergyUpdateMessage,
   PlayerDiedMessage,
+  NutrientCollectedMessage,
 } from '#shared';
+
+// ECS imports for proper nutrient handling
+import { createClientWorld, upsertNutrient, removeNutrient, upsertSwarm, updateSwarmTarget, removeSwarm, upsertPlayer, updatePlayerTarget, removePlayer } from './ecs';
+import { NutrientRenderSystem } from './render/systems/NutrientRenderSystem';
+import { SwarmRenderSystem } from './render/systems/SwarmRenderSystem';
+import { PlayerRenderSystem } from './render/systems/PlayerRenderSystem';
+import type { SwarmSpawnedMessage, SwarmMovedMessage, SwarmConsumedMessage } from '#shared';
 
 // ============================================
 // Constants
 // ============================================
 
-const SPHERE_RADIUS = GAME_CONFIG.SPHERE_RADIUS; // Use config value
+const SPHERE_RADIUS = GAME_CONFIG.SPHERE_RADIUS; // 3060 - matches server physics
 const PLAYER_RADIUS = 15; // Single-cell size
 const CAMERA_HEIGHT = 800; // Above surface (zoomed out)
+const DEFAULT_FOV = 60; // Field of view in degrees
 
 // ============================================
 // State
@@ -86,6 +95,11 @@ type CameraMode = 'momentum' | 'free' | 'pole-locked';
 let cameraMode: CameraMode = 'pole-locked';
 let lastVelocityDir = new THREE.Vector3(0, 0, 1);
 
+// Camera type: perspective vs orthographic
+type CameraType = 'perspective' | 'orthographic';
+let cameraType: CameraType = 'perspective';
+let currentFOV = DEFAULT_FOV;
+
 // ============================================
 // Gravity Distortion State
 // ============================================
@@ -98,6 +112,118 @@ interface SphereGravityWell {
 
 const gravityWells: SphereGravityWell[] = [];
 const GRAVITY_WELL_RADIUS = 150;
+
+// ============================================
+// ECS World & Render Systems (proper patterns)
+// ============================================
+
+// Client-side ECS World for nutrient entities
+const world = createClientWorld();
+
+// Nutrient render system (uses ECS World as source of truth)
+const nutrientRenderSystem = new NutrientRenderSystem();
+
+// Swarm render system (uses ECS World as source of truth)
+const swarmRenderSystem = new SwarmRenderSystem();
+
+// Player render system for other players/bots
+const playerRenderSystem = new PlayerRenderSystem();
+
+// Geometry cache for player render system
+const geometryCache = new Map<string, THREE.BufferGeometry>();
+
+/**
+ * Sync swarms from world snapshot into ECS World
+ */
+function syncSwarmsToECS(swarmsData: Record<string, {
+  id: string;
+  position: { x: number; y: number; z?: number };
+  velocity?: { x: number; y: number };
+  size: number;
+  state: 'patrol' | 'chase';
+  disabledUntil?: number;
+  energy?: number;
+}>): void {
+  for (const [id, data] of Object.entries(swarmsData)) {
+    upsertSwarm(world, {
+      id,
+      position: {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z,
+      },
+      velocity: data.velocity ?? { x: 0, y: 0 },
+      size: data.size,
+      state: data.state,
+      disabledUntil: data.disabledUntil,
+      energy: data.energy,
+    });
+  }
+}
+
+/**
+ * Sync players from world snapshot into ECS World
+ */
+function syncPlayersToECS(playersData: Record<string, {
+  id: string;
+  position: { x: number; y: number; z?: number };
+  color: string;
+  energy: number;
+  maxEnergy: number;
+  stage: string;
+  radius: number;
+}>): void {
+  for (const [id, data] of Object.entries(playersData)) {
+    // Skip self - we render that manually
+    if (id === myPlayerId) continue;
+
+    upsertPlayer(world, {
+      id,
+      position: {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z,
+      },
+      color: data.color,
+      energy: data.energy,
+      maxEnergy: data.maxEnergy,
+      stage: data.stage as any,
+      radius: data.radius,
+    });
+  }
+}
+
+/**
+ * Sync nutrients from world snapshot into ECS World
+ */
+function syncNutrientsToECS(nutrientsData: Record<string, {
+  position: { x: number; y: number; z?: number };
+  value?: number;
+  capacityIncrease?: number;
+  valueMultiplier?: number;
+  isHighValue?: boolean;
+}>): void {
+  // Track current IDs from server
+  const serverIds = new Set(Object.keys(nutrientsData));
+
+  // Upsert nutrients into ECS World
+  for (const [id, data] of Object.entries(nutrientsData)) {
+    upsertNutrient(world, {
+      id,
+      position: {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z,
+      },
+      value: data.value ?? GAME_CONFIG.NUTRIENT_ENERGY_VALUE,
+      capacityIncrease: data.capacityIncrease ?? GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE,
+      valueMultiplier: data.valueMultiplier ?? 1.0,
+      isHighValue: data.isHighValue ?? false,
+    });
+  }
+
+  // Note: Removal is handled by nutrientCollected event
+}
 
 // ============================================
 // Socket Connection (Full Player Integration)
@@ -128,6 +254,7 @@ function connectToServer() {
   socket.on('worldSnapshot', (message: WorldSnapshotMessage) => {
     serverLog('info', 'Received world snapshot', {
       playerCount: Object.keys(message.players).length,
+      nutrientCount: Object.keys(message.nutrients).length,
     });
 
     // Find my player in the snapshot
@@ -146,6 +273,54 @@ function connectToServer() {
         maxEnergy: maxEnergy,
       });
     }
+
+    // Sync nutrients from snapshot into ECS World
+    if (message.nutrients) {
+      syncNutrientsToECS(message.nutrients);
+    }
+
+    // Sync swarms from snapshot into ECS World
+    if (message.swarms) {
+      syncSwarmsToECS(message.swarms);
+      serverLog('info', `Synced ${Object.keys(message.swarms).length} swarms from snapshot`);
+    }
+
+    // Sync other players from snapshot into ECS World
+    syncPlayersToECS(message.players);
+  });
+
+  // Swarm events
+  socket.on('swarmSpawned', (message: SwarmSpawnedMessage) => {
+    upsertSwarm(world, message.swarm);
+  });
+
+  socket.on('swarmMoved', (message: SwarmMovedMessage) => {
+    updateSwarmTarget(
+      world,
+      message.swarmId,
+      message.position.x,
+      message.position.y,
+      message.position.z,
+      message.disabledUntil,
+      message.energy
+    );
+  });
+
+  socket.on('swarmConsumed', (message: SwarmConsumedMessage) => {
+    removeSwarm(world, message.swarmId);
+  });
+
+  // Handle nutrient collection
+  socket.on('nutrientCollected', (message: NutrientCollectedMessage) => {
+    // Update energy display if this was our collection
+    if (message.playerId === myPlayerId) {
+      currentEnergy = message.collectorEnergy;
+      maxEnergy = message.collectorMaxEnergy;
+      serverLog('info', `Collected nutrient! Energy: ${currentEnergy.toFixed(0)}/${maxEnergy.toFixed(0)}`);
+    }
+
+    // Remove from ECS World (render system will clean up mesh on next sync)
+    removeNutrient(world, message.nutrientId);
   });
 
   // Receive position updates from server
@@ -158,15 +333,30 @@ function connectToServer() {
       // Calculate velocity from position change for trail rendering
       velocity.subVectors(playerPos, lastPosition);
       lastPosition.copy(playerPos);
+    } else {
+      // Update other players (bots) in ECS
+      updatePlayerTarget(
+        world,
+        message.playerId,
+        message.position.x,
+        message.position.y,
+        message.position.z
+      );
     }
   });
 
   socket.on('playerJoined', (message: PlayerJoinedMessage) => {
     serverLog('info', `Player joined: ${message.player.id}`);
+    // Add to ECS for rendering (skip self)
+    if (message.player.id !== myPlayerId) {
+      upsertPlayer(world, message.player);
+    }
   });
 
   socket.on('playerLeft', (message: PlayerLeftMessage) => {
     serverLog('info', `Player left: ${message.playerId}`);
+    // Remove from ECS
+    removePlayer(world, message.playerId);
   });
 
   // Track energy updates
@@ -263,7 +453,7 @@ function setupInput() {
   window.addEventListener('keydown', (e) => {
     keys.add(e.key.toLowerCase());
 
-    // Camera mode switching
+    // Camera mode switching (orientation)
     if (e.key === '1') {
       cameraMode = 'momentum';
       serverLog('info', 'Camera mode: MOMENTUM (up follows velocity)');
@@ -273,7 +463,31 @@ function setupInput() {
     } else if (e.key === '3') {
       cameraMode = 'pole-locked';
       serverLog('info', 'Camera mode: POLE-LOCKED (up toward north)');
-    } else if (e.key === 'r' && isDead) {
+    }
+    // Camera type switching (projection)
+    else if (e.key === 'o') {
+      cameraType = 'orthographic';
+      activeCamera = orthographicCamera;
+      serverLog('info', 'Camera type: ORTHOGRAPHIC');
+    } else if (e.key === 'p') {
+      cameraType = 'perspective';
+      activeCamera = perspectiveCamera;
+      serverLog('info', `Camera type: PERSPECTIVE (FOV ${currentFOV}°)`);
+    }
+    // FOV adjustment (perspective only)
+    else if (e.key === '[') {
+      currentFOV = Math.max(20, currentFOV - 10);
+      perspectiveCamera.fov = currentFOV;
+      perspectiveCamera.updateProjectionMatrix();
+      serverLog('info', `FOV: ${currentFOV}° (narrower = flatter, less distortion)`);
+    } else if (e.key === ']') {
+      currentFOV = Math.min(120, currentFOV + 10);
+      perspectiveCamera.fov = currentFOV;
+      perspectiveCamera.updateProjectionMatrix();
+      serverLog('info', `FOV: ${currentFOV}° (wider = more fisheye)`);
+    }
+    // Respawn
+    else if (e.key === 'r' && isDead) {
       // Request respawn
       if (socket?.connected) {
         socket.emit('playerRespawnRequest', { type: 'playerRespawnRequest' });
@@ -313,11 +527,14 @@ function getInputDirection(): { x: number; y: number } {
 // Camera
 // ============================================
 
-function updateCamera(camera: THREE.PerspectiveCamera) {
+function updateCamera(camera: THREE.Camera) {
   const normal = getSurfaceNormal(playerPos);
 
   camera.position.copy(playerPos).addScaledVector(normal, CAMERA_HEIGHT);
   camera.lookAt(playerPos);
+
+  // Determine up vector based on camera mode
+  let upVector: THREE.Vector3;
 
   if (cameraMode === 'momentum') {
     const tangentVel = tangentVelocity(playerPos, velocity);
@@ -327,27 +544,30 @@ function updateCamera(camera: THREE.PerspectiveCamera) {
       lastVelocityDir.copy(tangentVel).normalize();
     }
 
-    camera.up.copy(lastVelocityDir);
+    upVector = lastVelocityDir.clone();
   } else if (cameraMode === 'free') {
     const tangentZ = new THREE.Vector3(0, 0, 1);
     tangentZ.addScaledVector(normal, -tangentZ.dot(normal));
     if (tangentZ.lengthSq() > 0.0001) {
       tangentZ.normalize();
-      camera.up.copy(tangentZ);
+      upVector = tangentZ;
     } else {
-      camera.up.set(1, 0, 0);
+      upVector = new THREE.Vector3(1, 0, 0);
     }
   } else {
+    // pole-locked
     const worldUp = new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(worldUp, normal);
 
     if (right.lengthSq() > 0.0001) {
       right.normalize();
-      camera.up.crossVectors(normal, right).normalize();
+      upVector = new THREE.Vector3().crossVectors(normal, right).normalize();
     } else {
-      camera.up.set(0, 0, -1);
+      upVector = new THREE.Vector3(0, 0, -1);
     }
   }
+
+  camera.up.copy(upVector);
 
   // Calculate debug directions for HUD (based on camera orientation)
   const forward = camera.up.clone();
@@ -364,9 +584,13 @@ function updateCamera(camera: THREE.PerspectiveCamera) {
 // Scene Setup
 // ============================================
 
+// Store both cameras globally so we can switch
+let perspectiveCamera: THREE.PerspectiveCamera;
+let orthographicCamera: THREE.OrthographicCamera;
+let activeCamera: THREE.Camera;
+
 function createScene(): {
   scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   playerMesh: THREE.Group;
 } {
@@ -374,13 +598,28 @@ function createScene(): {
   scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
 
   const aspect = window.innerWidth / window.innerHeight;
-  const fov = 60; // Field of view in degrees
-  const camera = new THREE.PerspectiveCamera(
-    fov,
+
+  // Perspective camera (default)
+  perspectiveCamera = new THREE.PerspectiveCamera(
+    currentFOV,
     aspect,
-    1,      // near
-    5000    // far (increased to see more of sphere)
+    1,
+    10000 // Far increased for larger sphere
   );
+
+  // Orthographic camera (toggle with 'O' key)
+  const viewSize = 600; // Visible world units
+  orthographicCamera = new THREE.OrthographicCamera(
+    -viewSize * aspect,
+    viewSize * aspect,
+    viewSize,
+    -viewSize,
+    1,
+    10000
+  );
+
+  // Start with perspective (switch with P/O keys)
+  activeCamera = perspectiveCamera;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -447,15 +686,26 @@ function createScene(): {
   // Gravity wells
   createGravityWellsOnSphere(scene);
 
-  // Handle resize
+  // Handle resize (update both cameras)
   window.addEventListener('resize', () => {
     const newAspect = window.innerWidth / window.innerHeight;
-    camera.aspect = newAspect;
-    camera.updateProjectionMatrix();
+
+    // Update perspective camera
+    perspectiveCamera.aspect = newAspect;
+    perspectiveCamera.updateProjectionMatrix();
+
+    // Update orthographic camera
+    const viewSize = 600;
+    orthographicCamera.left = -viewSize * newAspect;
+    orthographicCamera.right = viewSize * newAspect;
+    orthographicCamera.top = viewSize;
+    orthographicCamera.bottom = -viewSize;
+    orthographicCamera.updateProjectionMatrix();
+
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { scene, camera, renderer, playerMesh };
+  return { scene, renderer, playerMesh };
 }
 
 // ============================================
@@ -685,6 +935,8 @@ function updateHUD() {
     ${isDead ? '<div style="color: #ff0000; font-size: 18px; font-weight: bold;">☠️ DEAD - Press R to respawn</div>' : ''}
     <div style="color: ${energyColor}; font-weight: bold;">Energy: ${safeEnergy.toFixed(0)} / ${safeMaxEnergy.toFixed(0)} (${energyPercent}%)</div>
     <div style="color: #ffff00; font-weight: bold;">Camera: ${modeNames[cameraMode]}</div>
+    <div style="color: #88ffff; font-weight: bold;">Type: ${cameraType.toUpperCase()} ${cameraType === 'perspective' ? `(FOV ${currentFOV}°)` : ''}</div>
+    <div style="color: #666; font-size: 11px;">[O]rtho [P]erspective [/] FOV±10</div>
     <div style="margin-top: 5px;">Position: (${playerPos.x.toFixed(0)}, ${playerPos.y.toFixed(0)}, ${playerPos.z.toFixed(0)})</div>
     <div>Speed: ${speed} u/s</div>
     <div>Distance: ${distanceTraveled.toFixed(0)} units</div>
@@ -707,7 +959,16 @@ function main() {
 
   setupInput();
 
-  const { scene, camera, renderer, playerMesh } = createScene();
+  const { scene, renderer, playerMesh } = createScene();
+
+  // Initialize nutrient render system with scene and ECS world
+  nutrientRenderSystem.init(scene, world);
+
+  // Initialize swarm render system with scene and ECS world
+  swarmRenderSystem.init(scene, world);
+
+  // Initialize player render system with scene, ECS world, and geometry cache
+  playerRenderSystem.init(scene, world, geometryCache);
 
   let lastTime = performance.now();
   let logTimer = 0;
@@ -715,6 +976,7 @@ function main() {
   serverLog('info', 'Sphere test started (SERVER PHYSICS)', {
     sphereRadius: SPHERE_RADIUS,
     playerRadius: PLAYER_RADIUS,
+    cameraType,
   });
 
   function animate() {
@@ -748,11 +1010,23 @@ function main() {
     // Update gravity well animations
     updateGravityWells(dt);
 
-    // Update camera to follow player
-    updateCamera(camera);
+    // Sync and animate nutrients via ECS render system
+    nutrientRenderSystem.sync('soup'); // 'soup' mode for nutrients
+    nutrientRenderSystem.updateAnimations(dt * 1000); // dt in ms
 
-    // Render
-    renderer.render(scene, camera);
+    // Sync, interpolate and animate swarms via ECS render system
+    swarmRenderSystem.sync('soup');
+    swarmRenderSystem.interpolate(dt * 1000);
+    swarmRenderSystem.updateAnimations(dt * 1000);
+
+    // Sync other players (bots) via ECS render system
+    playerRenderSystem.sync('soup', 0, dt * 1000); // renderMode, cameraYaw, dt
+
+    // Update camera to follow player (use activeCamera for type switching)
+    updateCamera(activeCamera);
+
+    // Render with active camera
+    renderer.render(scene, activeCamera);
 
     // Update HUD
     updateHUD();

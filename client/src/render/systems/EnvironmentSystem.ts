@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '#shared';
+import { GAME_CONFIG, isSphereMode } from '#shared';
 import {
   createJungleBackground,
   updateJungleParticles,
@@ -91,12 +91,24 @@ export class EnvironmentSystem {
   // First-person ground plane (Stage 4+)
   private firstPersonGround!: THREE.Group;
 
+  // Sphere mode background
+  private sphereBackgroundGroup!: THREE.Group;
+  private isSphereWorld: boolean = false;
+
   /**
    * Initialize environment system with scene and world references
    */
   init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
     this.world = world;
+    this.isSphereWorld = isSphereMode();
+
+    // Sphere mode: create sphere-specific environment
+    if (this.isSphereWorld) {
+      this.createSphereEnvironment();
+      scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
+      return; // Skip flat world setup
+    }
 
     // Create soup background group (grid + particles)
     this.soupBackgroundGroup = new THREE.Group();
@@ -128,6 +140,40 @@ export class EnvironmentSystem {
     scene.background = new THREE.Color(getSoupBackgroundColor());
   }
 
+  /**
+   * Create sphere world environment (wireframe sphere + equator)
+   */
+  private createSphereEnvironment(): void {
+    this.sphereBackgroundGroup = new THREE.Group();
+    this.sphereBackgroundGroup.name = 'sphereBackground';
+
+    const radius = GAME_CONFIG.SPHERE_RADIUS;
+
+    // Sphere wireframe (icosahedron for even distribution)
+    const sphereGeometry = new THREE.IcosahedronGeometry(radius, 3);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: GAME_CONFIG.GRID_COLOR,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.3,
+    });
+    const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    this.sphereBackgroundGroup.add(sphereMesh);
+
+    // Equator ring for reference
+    const equatorGeometry = new THREE.TorusGeometry(radius, 2, 4, 64);
+    const equatorMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      transparent: true,
+      opacity: 0.5,
+    });
+    const equatorMesh = new THREE.Mesh(equatorGeometry, equatorMaterial);
+    equatorMesh.rotation.x = Math.PI / 2;
+    this.sphereBackgroundGroup.add(equatorMesh);
+
+    this.scene.add(this.sphereBackgroundGroup);
+  }
+
   // ============================================
   // Mode Switching
   // ============================================
@@ -144,6 +190,9 @@ export class EnvironmentSystem {
    * Returns true if mode changed (caller should clear entities when switching to jungle)
    */
   setMode(mode: RenderMode): boolean {
+    // Sphere mode: always stay in 'soup' mode, no switching
+    if (this.isSphereWorld) return false;
+
     if (this.mode === mode) return false;
 
     console.log(`[RenderMode] Switching from ${this.mode} to ${mode}`);
@@ -217,6 +266,17 @@ export class EnvironmentSystem {
    * @param dt - Delta time in milliseconds
    */
   update(dt: number): void {
+    // Sphere mode: still update gravity well cache for entity warping
+    if (this.isSphereWorld) {
+      if (!this.gravityWellCacheUpdated && this.world) {
+        updateGravityWellCache(this.world);
+        if (getGravityWellCache().length > 0) {
+          this.gravityWellCacheUpdated = true;
+        }
+      }
+      return;
+    }
+
     if (this.mode === 'soup') {
       this.updateSoupParticles(dt);
       this.updateGridDistortion();
@@ -258,6 +318,8 @@ export class EnvironmentSystem {
    * Call this after obstacles are synced from server
    */
   refreshGravityWellCache(): void {
+    // Enable gravity well cache for entity warping (even in sphere mode)
+    // Note: Grid distortion is skipped in sphere mode since we don't have a 2D grid
     if (this.world) {
       updateGravityWellCache(this.world);
       this.gravityWellCacheUpdated = true;

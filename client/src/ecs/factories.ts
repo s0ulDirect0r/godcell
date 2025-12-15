@@ -159,6 +159,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     if (pos) {
       pos.x = player.position.x;
       pos.y = player.position.y;
+      pos.z = player.position.z;
     }
 
     const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -194,6 +195,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: player.position.x,
     y: player.position.y,
+    z: player.position.z,
   });
 
   world.addComponent<EnergyComponent>(entity, Components.Energy, {
@@ -345,6 +347,7 @@ export function upsertNutrient(world: World, nutrient: Nutrient): EntityId {
     if (pos) {
       pos.x = nutrient.position.x;
       pos.y = nutrient.position.y;
+      pos.z = nutrient.position.z;
     }
     return entity;
   }
@@ -355,6 +358,7 @@ export function upsertNutrient(world: World, nutrient: Nutrient): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: nutrient.position.x,
     y: nutrient.position.y,
+    z: nutrient.position.z,
   });
 
   world.addComponent<NutrientComponent>(entity, Components.Nutrient, {
@@ -416,6 +420,7 @@ export function upsertObstacle(world: World, obstacle: Obstacle): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: obstacle.position.x,
     y: obstacle.position.y,
+    z: obstacle.position.z,
   });
 
   world.addComponent<ObstacleComponent>(entity, Components.Obstacle, {
@@ -473,6 +478,7 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
     if (pos) {
       pos.x = swarm.position.x;
       pos.y = swarm.position.y;
+      pos.z = swarm.position.z;
     }
 
     const swarmComp = world.getComponent<SwarmComponent>(entity, Components.Swarm);
@@ -507,6 +513,7 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: swarm.position.x,
     y: swarm.position.y,
+    z: swarm.position.z,
   });
 
   world.addComponent<SwarmComponent>(entity, Components.Swarm, {
@@ -541,6 +548,7 @@ export function updateSwarmTarget(
   swarmId: string,
   x: number,
   y: number,
+  z?: number,
   disabledUntil?: number,
   energy?: number
 ): void {
@@ -551,6 +559,7 @@ export function updateSwarmTarget(
   if (pos) {
     pos.x = x;
     pos.y = y;
+    pos.z = z;
   }
 
   const swarmComp = world.getComponent<SwarmComponent>(entity, Components.Swarm);

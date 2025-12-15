@@ -5,7 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '#shared';
+import { GAME_CONFIG, isSphereMode } from '#shared';
 
 // ============================================
 // Visual Parameters - TUNE THESE
@@ -244,21 +244,30 @@ export interface GravityDistortionResult {
  * 6. Inner spark - burning red light at center
  * 7. Accretion disk - particles spiraling inward
  *
- * @param position - World position {x, y}
+ * @param position - World position {x, y, z?}
  * @param radius - Outer influence radius
  * @returns Group, particle data, and vortex speed for animation
  */
 export function createGravityDistortion(
-  position: { x: number; y: number },
+  position: { x: number; y: number; z?: number },
   radius: number
 ): GravityDistortionResult {
   const group = new THREE.Group();
 
-  // Position in 3D space (XZ plane: X=game X, Y=height, Z=-game Y)
-  group.position.set(position.x, -0.4, -position.y);
-
-  // Rotate so flat elements lie on XZ plane when viewed from above
-  group.rotation.x = -Math.PI / 2;
+  if (isSphereMode() && position.z !== undefined) {
+    // Sphere mode: position at 3D coords, orient rings tangent to sphere surface
+    const pos3D = new THREE.Vector3(position.x, position.y, position.z);
+    const normal = pos3D.clone().normalize();
+    // Lift slightly above sphere surface
+    group.position.copy(pos3D).addScaledVector(normal, 1);
+    // Orient group so local Z points along surface normal (rings lie in tangent plane)
+    group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  } else {
+    // Flat mode: Position in 3D space (XZ plane: X=game X, Y=height, Z=-game Y)
+    group.position.set(position.x, -0.4, -position.y);
+    // Rotate so flat elements lie on XZ plane when viewed from above
+    group.rotation.x = -Math.PI / 2;
+  }
 
   // === LAYER 1: OUTER INFLUENCE RING ===
   const outerGeometry = new THREE.RingGeometry(radius - OUTER_RING.width, radius, 64);

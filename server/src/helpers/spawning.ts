@@ -4,9 +4,9 @@
 // Query ECS for obstacle data
 // ============================================
 
-import { GAME_CONFIG, type Position } from '#shared';
+import { GAME_CONFIG, type Position, isSphereMode, getRandomSpherePosition } from '#shared';
 import { getConfig } from '../dev';
-import { distance } from './math';
+import { distance, distanceForMode } from './math';
 import { forEachObstacle, type World } from '../ecs';
 
 /**
@@ -17,17 +17,22 @@ export function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position in the soup region
- * Avoids spawning directly in obstacle death zones (200px safety radius)
- * Queries ECS for obstacle positions.
- * Note: Players always spawn in soup (Stage 1). Soup is now a region within the jungle.
+ * Generate a random spawn position
+ * - Sphere mode: Random position on sphere surface
+ * - Flat mode: Within soup region, avoiding obstacle death zones
  */
 export function randomSpawnPosition(world: World): Position {
+  if (isSphereMode()) {
+    // Sphere mode: random position on sphere surface
+    // Gravity wells are part of gameplay, no need to avoid them for spawns
+    return getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
+  }
+
+  // Flat world: spawn within soup region, avoiding obstacles
   const padding = 100;
-  const MIN_DIST_FROM_OBSTACLE_CORE = 400; // Stay outside inner gravity well
+  const MIN_DIST_FROM_OBSTACLE_CORE = 400;
   const maxAttempts = 20;
 
-  // Spawn within soup region (which is centered in the jungle world)
   const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
   const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
@@ -39,7 +44,6 @@ export function randomSpawnPosition(world: World): Position {
       y: soupMinY + Math.random() * (soupMaxY - soupMinY),
     };
 
-    // Check distance from all obstacle cores via ECS
     let tooClose = false;
     forEachObstacle(world, (_entity, obstaclePos) => {
       if (distance(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
@@ -52,8 +56,6 @@ export function randomSpawnPosition(world: World): Position {
     }
   }
 
-  // If we can't find a safe spot after maxAttempts, spawn anyway
-  // (extremely unlikely with 12 obstacles on the soup map)
   return {
     x: soupMinX + Math.random() * (soupMaxX - soupMinX),
     y: soupMinY + Math.random() * (soupMaxY - soupMinY),

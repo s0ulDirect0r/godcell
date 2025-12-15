@@ -10,6 +10,7 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
+  isSphereMode,
   type PositionComponent,
   type NutrientComponent,
 } from '../../ecs';
@@ -38,7 +39,8 @@ export class NutrientRenderSystem {
   private nutrientMeshes: Map<string, THREE.Group> = new Map();
 
   // Position cache for energy transfer effect (used when nutrient is collected)
-  private nutrientPositionCache: Map<string, { x: number; y: number }> = new Map();
+  // Includes z for sphere mode
+  private nutrientPositionCache: Map<string, { x: number; y: number; z?: number }> = new Map();
 
   /**
    * Initialize nutrient system with scene and world references
@@ -81,18 +83,30 @@ export class NutrientRenderSystem {
       }
 
       // Update base position (bobbing animation added in updateAnimations)
-      // XZ plane: X=game X, Y=height, Z=-game Y
-      group.userData.baseX = pos.x;
-      group.userData.baseZ = -pos.y;
-      group.position.set(pos.x, 0, -pos.y);
+      if (isSphereMode()) {
+        // Sphere mode: use 3D coordinates directly
+        group.userData.baseX = pos.x;
+        group.userData.baseY = pos.y;
+        group.userData.baseZ = pos.z ?? 0;
+        group.userData.isSphere = true;
+        group.position.set(pos.x, pos.y, pos.z ?? 0);
 
-      // Apply gravity well distortion effect
-      // Creates visual "spaghettification" when nutrients are near gravity wells
-      const warp = calculateEntityWarp(pos.x, pos.y);
-      applyEntityWarp(group, warp);
+        // Cache 3D position for energy transfer effect
+        this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y, z: pos.z });
+      } else {
+        // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
+        group.userData.baseX = pos.x;
+        group.userData.baseZ = -pos.y;
+        group.userData.isSphere = false;
+        group.position.set(pos.x, 0, -pos.y);
 
-      // Cache position for energy transfer effect (used when nutrient is collected)
-      this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y });
+        // Apply gravity well distortion effect (flat world only)
+        const warp = calculateEntityWarp(pos.x, pos.y);
+        applyEntityWarp(group, warp);
+
+        // Cache 2D position for energy transfer effect
+        this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y });
+      }
     });
 
     // Remove nutrients that no longer exist in ECS
@@ -114,8 +128,41 @@ export class NutrientRenderSystem {
    */
   updateAnimations(dt: number): void {
     this.nutrientMeshes.forEach((group) => {
-      const { baseX, baseZ } = group.userData;
-      updateNutrientAnimation(group, dt, baseX, baseZ);
+      if (group.userData.isSphere) {
+        // Sphere mode: bob along surface normal (radial direction)
+        const { baseX, baseY, baseZ, bobPhase, rotationSpeed } = group.userData;
+        const now = Date.now();
+
+        // Tumble rotation
+        group.rotation.y += (rotationSpeed ?? 0.0008) * dt;
+
+        // Calculate surface normal (points outward from sphere center)
+        const len = Math.sqrt(baseX * baseX + baseY * baseY + baseZ * baseZ);
+        if (len > 0) {
+          const nx = baseX / len;
+          const ny = baseY / len;
+          const nz = baseZ / len;
+
+          // Bob along the surface normal
+          const bobAmount = Math.sin(now * 0.003 + (bobPhase ?? 0)) * 5;
+          group.position.set(
+            baseX + nx * bobAmount,
+            baseY + ny * bobAmount,
+            baseZ + nz * bobAmount
+          );
+        }
+
+        // Pulse core (reuse existing logic)
+        const core = group.children.find((c) => c.name === 'core') as THREE.Mesh | undefined;
+        if (core && core.material instanceof THREE.MeshBasicMaterial) {
+          const pulse = 0.7 + Math.sin(now * 0.004 + (bobPhase ?? 0)) * 0.3;
+          core.material.opacity = pulse;
+        }
+      } else {
+        // Flat mode: use standard animation
+        const { baseX, baseZ } = group.userData;
+        updateNutrientAnimation(group, dt, baseX, baseZ);
+      }
     });
   }
 
@@ -140,9 +187,9 @@ export class NutrientRenderSystem {
 
   /**
    * Get nutrient position from cache (for energy transfer effects)
-   * @returns Position or undefined if not cached
+   * @returns Position or undefined if not cached (includes z for sphere mode)
    */
-  getNutrientPosition(nutrientId: string): { x: number; y: number } | undefined {
+  getNutrientPosition(nutrientId: string): { x: number; y: number; z?: number } | undefined {
     return this.nutrientPositionCache.get(nutrientId);
   }
 

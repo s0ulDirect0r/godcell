@@ -1,4 +1,4 @@
-import { GAME_CONFIG, distance } from '#shared';
+import { GAME_CONFIG, distanceForMode, isSphereMode, getRandomSpherePosition, projectToSphere, makeTangent } from '#shared';
 import type { EntropySwarm, Position, SwarmSpawnedMessage } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -41,16 +41,47 @@ const SWARM_RESPAWN_DELAY = 30000; // 30 seconds
 
 /**
  * Generate swarm positions with minimum separation for structured distribution
- * Uses rejection sampling to ensure swarms are evenly spread across the soup region
- * Swarms are soup entities - they spawn and live in the soup area
+ * - Sphere mode: Random positions on sphere surface
+ * - Flat mode: Rejection sampling in soup region
  */
 function generateSwarmPositions(count: number): Position[] {
-  const padding = 300; // Keep swarms away from edges
-  const MIN_SWARM_SEPARATION = 600; // Minimum distance between swarms
+  const MIN_SWARM_SEPARATION = 600;
   const maxAttempts = 100;
   const positions: Position[] = [];
 
-  // Swarms spawn in soup region (using SOUP_ORIGIN offset)
+  if (isSphereMode()) {
+    // Sphere mode: random positions on sphere surface with minimum separation
+    for (let i = 0; i < count; i++) {
+      let placed = false;
+      let attempts = 0;
+
+      while (!placed && attempts < maxAttempts) {
+        const candidate = getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
+
+        let tooClose = false;
+        for (const existing of positions) {
+          if (distanceForMode(candidate, existing) < MIN_SWARM_SEPARATION) {
+            tooClose = true;
+            break;
+          }
+        }
+
+        if (!tooClose) {
+          positions.push(candidate);
+          placed = true;
+        }
+        attempts++;
+      }
+
+      if (!placed) {
+        positions.push(getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS));
+      }
+    }
+    return positions;
+  }
+
+  // Flat world: spawn in soup region
+  const padding = 300;
   const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
   const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
@@ -66,10 +97,9 @@ function generateSwarmPositions(count: number): Position[] {
         y: Math.random() * (soupMaxY - soupMinY) + soupMinY,
       };
 
-      // Check distance from all existing swarm positions
       let tooClose = false;
       for (const existing of positions) {
-        if (distance(candidate, existing) < MIN_SWARM_SEPARATION) {
+        if (distanceForMode(candidate, existing) < MIN_SWARM_SEPARATION) {
           tooClose = true;
           break;
         }
@@ -79,11 +109,9 @@ function generateSwarmPositions(count: number): Position[] {
         positions.push(candidate);
         placed = true;
       }
-
       attempts++;
     }
 
-    // If we can't find a valid spot, place anyway (better than no swarm)
     if (!placed) {
       positions.push({
         x: Math.random() * (soupMaxX - soupMinX) + soupMinX,
@@ -185,7 +213,7 @@ function findNearestPlayer(
     if (!isSoupStage(stageComp.stage)) return;
 
     const playerPosition = { x: posComp.x, y: posComp.y };
-    const dist = distance(swarmPosition, playerPosition);
+    const dist = distanceForMode(swarmPosition, playerPosition);
     if (dist < nearestDist) {
       nearestDist = dist;
       nearestPlayer = { id: playerId, entityId: entity, position: playerPosition };
@@ -214,7 +242,7 @@ function calculateObstacleAvoidance(
   const obstacles = getAllObstacleSnapshots(world);
 
   for (const obstacle of obstacles) {
-    const dist = distance(swarmPosition, obstacle.position);
+    const dist = distanceForMode(swarmPosition, obstacle.position);
 
     // If within avoidance radius, apply repulsion force
     if (dist < avoidanceRadius) {
@@ -259,7 +287,7 @@ function calculateSwarmRepulsion(
     if (otherId === swarmId) return;
 
     const otherPosition = { x: otherPos.x, y: otherPos.y };
-    const dist = distance(swarmPosition, otherPosition);
+    const dist = distanceForMode(swarmPosition, otherPosition);
 
     // If swarms are too close, apply repulsion force
     if (dist < repulsionRadius) {
@@ -339,7 +367,7 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
 
       // Check if reached patrol target or need new one
       if (swarmComp.patrolTarget) {
-        const distToTarget = distance(swarmPosition, swarmComp.patrolTarget);
+        const distToTarget = distanceForMode(swarmPosition, swarmComp.patrolTarget);
 
         if (distToTarget < 50) {
           // Reached target, pick new one
@@ -382,27 +410,49 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
 
 /**
  * Update swarm positions based on velocity (called every tick)
- * Swarms are clamped to soup region bounds
- * Iterates ECS swarm entities directly.
+ * - Sphere mode: Project to sphere surface, keep velocity tangent
+ * - Flat mode: Clamp to soup region bounds
  */
 export function updateSwarmPositions(world: World, deltaTime: number, _io: Server) {
-  // Swarms live in the soup region
+  if (isSphereMode()) {
+    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+
+    forEachSwarm(world, (_entity, _swarmId, posComp, velComp, _swarmComp, _energyComp) => {
+      // Keep velocity tangent to sphere
+      const pos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+      const vel = { x: velComp.x, y: velComp.y, z: velComp.z ?? 0 };
+      const tangentVel = makeTangent(pos, vel);
+      velComp.x = tangentVel.x;
+      velComp.y = tangentVel.y;
+      velComp.z = tangentVel.z;
+
+      // Update position
+      posComp.x += velComp.x * deltaTime;
+      posComp.y += velComp.y * deltaTime;
+      posComp.z = (posComp.z ?? 0) + (velComp.z ?? 0) * deltaTime;
+
+      // Project back to sphere surface
+      const projected = projectToSphere({ x: posComp.x, y: posComp.y, z: posComp.z ?? 0 }, sphereRadius);
+      posComp.x = projected.x;
+      posComp.y = projected.y;
+      posComp.z = projected.z;
+    });
+    return;
+  }
+
+  // Flat world: clamp to soup region bounds
   const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
   const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
   const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
   const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
 
-  forEachSwarm(world, (entity, swarmId, posComp, velComp, _swarmComp, _energyComp) => {
-    // Update position based on velocity (like players)
+  forEachSwarm(world, (_entity, _swarmId, posComp, velComp, _swarmComp, _energyComp) => {
     posComp.x += velComp.x * deltaTime;
     posComp.y += velComp.y * deltaTime;
 
-    // Keep swarms within soup bounds
     const padding = GAME_CONFIG.SWARM_SIZE;
     posComp.x = Math.max(soupMinX + padding, Math.min(soupMaxX - padding, posComp.x));
     posComp.y = Math.max(soupMinY + padding, Math.min(soupMaxY - padding, posComp.y));
-
-    // Position updates are broadcast via NetworkBroadcastSystem (every tick)
   });
 }
 

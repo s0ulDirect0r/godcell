@@ -665,8 +665,8 @@ export function getPlayerSnapshot(world: World, entity: EntityId): PlayerSnapsho
     socketId: socketId || player.socketId,
     name: player.name,
     color: player.color,
-    position: { x: pos.x, y: pos.y },
-    velocity: vel ? { x: vel.x, y: vel.y } : { x: 0, y: 0 },
+    position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: vel ? { x: vel.x, y: vel.y, z: vel.z } : { x: 0, y: 0, z: 0 },
     energy: energy.current,
     maxEnergy: energy.max,
     stage: stage.stage,
@@ -1478,7 +1478,7 @@ export function buildObstaclesRecord(world: World): Record<
     if (pos && obs && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y },
+        position: { x: pos.x, y: pos.y, z: pos.z },
         radius: obs.radius,
         strength: obs.strength,
         // damageRate is derived from config, not stored in component
@@ -1521,7 +1521,7 @@ export function forEachNutrient(
     const nutrient = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
     const id = getStringIdByEntity(entity);
     if (pos && nutrient && id) {
-      callback(entity, id, { x: pos.x, y: pos.y }, nutrient);
+      callback(entity, id, { x: pos.x, y: pos.y, z: pos.z }, nutrient);
     }
   });
 }
@@ -1536,7 +1536,7 @@ export function getAllNutrientSnapshots(world: World): NutrientSnapshot[] {
     snapshots.push({
       entity,
       id,
-      position: { x: position.x, y: position.y },
+      position: { x: position.x, y: position.y, z: position.z },
       value: nutrient.value,
       capacityIncrease: nutrient.capacityIncrease,
       valueMultiplier: nutrient.valueMultiplier,
@@ -1858,8 +1858,8 @@ export function buildSwarmsRecord(world: World): Record<
     if (pos && vel && swarm && energy && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y },
-        velocity: { x: vel.x, y: vel.y },
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
         size: swarm.size,
         state: swarm.state,
         targetPlayerId: swarm.targetPlayerId,

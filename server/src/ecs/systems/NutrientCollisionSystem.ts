@@ -15,7 +15,7 @@ import {
   requirePosition,
   requireStage,
 } from '../index';
-import { distance, isJungleStage } from '../../helpers';
+import { distanceForMode, isJungleStage } from '../../helpers';
 import { recordNutrientCollection } from '../../logger';
 import { respawnNutrient } from '../../nutrients';
 
@@ -52,14 +52,16 @@ export class NutrientCollisionSystem implements System {
       // Stage 3+ players don't interact with soup nutrients (they've transcended)
       if (isJungleStage(stageComp.stage)) return;
 
-      const playerPos = { x: posComp.x, y: posComp.y };
+      // Include z coordinate for sphere mode
+      const playerPos = { x: posComp.x, y: posComp.y, z: posComp.z };
       const playerRadius = stageComp.radius;
 
       for (const nutrient of nutrientSnapshots) {
         // Skip if already collected this tick
         if (collectedThisTick.has(nutrient.id)) continue;
 
-        const dist = distance(playerPos, nutrient.position);
+        // Use distanceForMode for sphere-aware distance calculation
+        const dist = distanceForMode(playerPos, nutrient.position);
         const collisionRadius = playerRadius + GAME_CONFIG.NUTRIENT_SIZE;
 
         if (dist < collisionRadius) {

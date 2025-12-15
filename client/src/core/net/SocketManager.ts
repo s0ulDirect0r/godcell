@@ -467,6 +467,7 @@ export class SocketManager {
         data.swarmId,
         data.position.x,
         data.position.y,
+        data.position.z,
         data.disabledUntil,
         data.energy
       );
