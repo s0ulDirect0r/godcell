@@ -5,14 +5,49 @@
 // ============================================
 
 import type { Position } from './index';
+import { GAME_CONFIG } from './constants';
+import { sphereDistance, isSphereMode } from './sphereMath';
 
 /**
- * Calculate distance between two positions
+ * Calculate distance between two positions (2D flat world)
  */
 export function distance(p1: Position, p2: Position): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Calculate distance between two positions, using the appropriate metric
+ * for the current world mode (flat 2D or sphere surface)
+ *
+ * - Flat mode: Euclidean 2D distance
+ * - Sphere mode: Great circle (geodesic) distance along sphere surface
+ */
+export function distanceForMode(p1: Position, p2: Position): number {
+  if (isSphereMode()) {
+    // For sphere mode, convert Position to Vec3
+    // If z is not provided, assume position is on sphere surface
+    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+
+    // Default z to 0 for flat positions being converted
+    // For positions already on sphere, z will be set
+    const v1 = {
+      x: p1.x,
+      y: p1.y,
+      z: p1.z ?? 0,
+    };
+    const v2 = {
+      x: p2.x,
+      y: p2.y,
+      z: p2.z ?? 0,
+    };
+
+    return sphereDistance(v1, v2, sphereRadius);
+  }
+
+  // Flat world: use 2D Euclidean distance
+  return distance(p1, p2);
 }
 
 /**

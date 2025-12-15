@@ -1,4 +1,4 @@
-import { GAME_CONFIG, EvolutionStage, distance } from '#shared';
+import { GAME_CONFIG, EvolutionStage, distanceForMode } from '#shared';
 import type {
   Player,
   Position,
@@ -474,7 +474,7 @@ function avoidObstacles(
   const avoidanceForce = { x: 0, y: 0 };
 
   for (const obstacle of obstacles) {
-    const dist = distance(botPosition, obstacle.position);
+    const dist = distanceForMode(botPosition, obstacle.position);
 
     // Danger zones - tight buffer outside event horizon
     // coreRadius (60px) = instant death
@@ -531,7 +531,7 @@ function avoidSwarmsEmergencyOnly(
   const avoidanceForce = { x: 0, y: 0 };
 
   for (const swarm of swarms) {
-    const dist = distance(botPosition, swarm.position);
+    const dist = distanceForMode(botPosition, swarm.position);
 
     // Only avoid when properly caught - ignore swarms beyond emergency radius
     if (dist > EMERGENCY_SWARM_RADIUS) continue;
@@ -583,8 +583,8 @@ function avoidSwarms(botPosition: Position, swarms: EntropySwarm[]): { x: number
     // Use BOTH current and predicted positions for threat assessment
     // - Current position: immediate danger (are we being hit right now?)
     // - Predicted position: trajectory danger (are we running into its path?)
-    const currentDist = distance(botPosition, swarm.position);
-    const predictedDist = distance(botPosition, predictedPosition);
+    const currentDist = distanceForMode(botPosition, swarm.position);
+    const predictedDist = distanceForMode(botPosition, predictedPosition);
 
     // Use the MORE THREATENING of the two distances
     // If predicted is closer, swarm is heading toward us - react to that
@@ -726,7 +726,7 @@ function updateBotAI(
     // Compute nearest nutrient distance for logging
     const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
     const nearestNutrientDist = nearestNutrient
-      ? distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y })
+      ? distanceForMode(player.position, { x: nearestNutrient.x, y: nearestNutrient.y })
       : null;
 
     logger.info({
@@ -898,7 +898,7 @@ function updateMultiCellBotAI(
   const SWARM_HUNT_RANGE = 900; // Increased range - worth traveling for fat swarms
   for (const swarm of swarms) {
     if (swarm.disabledUntil && swarm.disabledUntil > Date.now()) {
-      const dist = distance(player.position, swarm.position);
+      const dist = distanceForMode(player.position, swarm.position);
       if (dist < SWARM_HUNT_RANGE) {
         // Score: energy matters more than distance (fat swarms are VERY valuable)
         const score = (swarm.energy || 100) / Math.max(dist, 100);
@@ -918,7 +918,7 @@ function updateMultiCellBotAI(
   for (const swarm of swarms) {
     const isDisabled = swarm.disabledUntil && swarm.disabledUntil > Date.now();
     if (!isDisabled) {
-      const dist = distance(player.position, swarm.position);
+      const dist = distanceForMode(player.position, swarm.position);
       if (dist < empRange) {
         nearbyActiveSwarmCount++;
         nearbyActiveSwarmTotalEnergy += swarm.energy || 100;
@@ -953,7 +953,7 @@ function updateMultiCellBotAI(
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     if (!posComp) return;
 
-    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    const dist = distanceForMode(player.position, { x: posComp.x, y: posComp.y });
     if (dist < preyResult.dist) {
       preyResult.target = {
         id: otherId,
@@ -985,7 +985,7 @@ function updateMultiCellBotAI(
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     if (!posComp) return;
 
-    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    const dist = distanceForMode(player.position, { x: posComp.x, y: posComp.y });
     if (dist < enemyResult.dist) {
       enemyResult.target = { id: otherId, position: { x: posComp.x, y: posComp.y } };
       enemyResult.dist = dist;
@@ -1120,7 +1120,7 @@ function updateMultiCellBotAI(
       // Hunt disabled swarm (easy energy) - prioritizes high-energy targets
       action = 'hunt_disabled_swarm';
       targetType = 'swarm';
-      targetDist = distance(player.position, bestDisabledSwarm.position);
+      targetDist = distanceForMode(player.position, bestDisabledSwarm.position);
       const seekDirection = steerTowards(
         player.position,
         bestDisabledSwarm.position,
@@ -1142,7 +1142,7 @@ function updateMultiCellBotAI(
       if (nearestNutrient) {
         action = 'seek_nutrient';
         targetType = 'nutrient';
-        targetDist = distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y });
+        targetDist = distanceForMode(player.position, { x: nearestNutrient.x, y: nearestNutrient.y });
         const seekDirection = steerTowards(
           player.position,
           { x: nearestNutrient.x, y: nearestNutrient.y },
@@ -1655,6 +1655,7 @@ export function respawnBotNow(botId: string, stage: number, io: Server, world: W
     const newPos = randomSpawnPosition();
     posComp.x = newPos.x;
     posComp.y = newPos.y;
+    posComp.z = newPos.z ?? 0;
     energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
     energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
     stageComp.stage = EvolutionStage.SINGLE_CELL;
@@ -1689,6 +1690,7 @@ export function respawnBotNow(botId: string, stage: number, io: Server, world: W
     const newPos = randomSpawnPosition();
     posComp.x = newPos.x;
     posComp.y = newPos.y;
+    posComp.z = newPos.z ?? 0;
     energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
     energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
     stageComp.stage = EvolutionStage.MULTI_CELL;
