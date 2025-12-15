@@ -1400,7 +1400,7 @@ export function forEachObstacle(
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
     if (pos && obs) {
-      callback(entity, { x: pos.x, y: pos.y }, obs);
+      callback(entity, { x: pos.x, y: pos.y, z: pos.z ?? 0 }, obs);
     }
   });
 }
