@@ -253,7 +253,7 @@ export class NetworkBroadcastSystem implements System {
       const moveMessage: SwarmMovedMessage = {
         type: 'swarmMoved',
         swarmId,
-        position: { x: posComp.x, y: posComp.y },
+        position: { x: posComp.x, y: posComp.y, z: posComp.z },
         state: swarmComp.state,
         disabledUntil: swarmComp.disabledUntil,
         energy: energyComp?.current,
