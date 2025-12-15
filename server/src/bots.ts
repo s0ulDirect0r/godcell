@@ -62,6 +62,7 @@ export interface BotController {
     targetNutrient?: string; // ID of nutrient being pursued
     wanderDirection: { x: number; y: number }; // Current random walk direction
     nextWanderChange: number; // Timestamp when wander direction should change
+    lastSampleTime: number; // Last telemetry sample time for this bot
   };
 }
 
@@ -102,10 +103,15 @@ const BOT_CONFIG = {
 // ============================================
 // Bot Decision Sampling (for telemetry)
 // ============================================
-// Log ~1 decision per bot per second (60fps / 60 = 1/sec)
-let botDecisionCounter = 0;
-const BOT_SAMPLE_RATE = 60;
-const shouldSampleDecision = (): boolean => ++botDecisionCounter % BOT_SAMPLE_RATE === 0;
+// Log ~1 decision per bot per second
+const BOT_SAMPLE_INTERVAL_MS = 1000;
+const shouldSampleDecision = (bot: BotController, currentTime: number): boolean => {
+  if (currentTime - bot.ai.lastSampleTime >= BOT_SAMPLE_INTERVAL_MS) {
+    bot.ai.lastSampleTime = currentTime;
+    return true;
+  }
+  return false;
+};
 
 // ============================================
 // Helper Functions (from main module)
@@ -176,6 +182,7 @@ function spawnBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -232,6 +239,7 @@ function spawnMultiCellBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -335,6 +343,7 @@ function spawnCyberOrganismBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -713,7 +722,7 @@ function updateBotAI(
   }
 
   // Sample bot decisions for telemetry (~1/sec per bot)
-  if (shouldSampleDecision()) {
+  if (shouldSampleDecision(bot, currentTime)) {
     // Compute nearest nutrient distance for logging
     const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
     const nearestNutrientDist = nearestNutrient
@@ -789,6 +798,7 @@ export function spawnBotAt(io: Server, position: Position, stage: EvolutionStage
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -1149,7 +1159,7 @@ function updateMultiCellBotAI(
   }
 
   // Sample bot decisions for telemetry (~1/sec per bot)
-  if (shouldSampleDecision()) {
+  if (shouldSampleDecision(bot, currentTime)) {
     logger.info({
       event: 'bot_decision',
       botId: player.id,
@@ -1399,7 +1409,7 @@ function updateCyberOrganismBotAI(
   }
 
   // Sample bot decisions for telemetry (~1/sec per bot)
-  if (shouldSampleDecision()) {
+  if (shouldSampleDecision(bot, currentTime)) {
     logger.info({
       event: 'bot_decision',
       botId: player.id,
