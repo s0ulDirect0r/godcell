@@ -62,6 +62,7 @@ export interface BotController {
     targetNutrient?: string; // ID of nutrient being pursued
     wanderDirection: { x: number; y: number }; // Current random walk direction
     nextWanderChange: number; // Timestamp when wander direction should change
+    lastSampleTime: number; // Last telemetry sample time for this bot
   };
 }
 
@@ -97,6 +98,19 @@ const BOT_CONFIG = {
   RESPAWN_DELAY: 3000, // How long to wait before respawning dead Stage 1 bots (ms)
   STAGE2_RESPAWN_DELAY: 5000, // How long to wait before respawning dead Stage 2 bots (ms)
   STAGE3_RESPAWN_DELAY: 8000, // How long to wait before respawning dead Stage 3 bots (ms)
+};
+
+// ============================================
+// Bot Decision Sampling (for telemetry)
+// ============================================
+// Log ~1 decision per bot per second
+const BOT_SAMPLE_INTERVAL_MS = 1000;
+const shouldSampleDecision = (bot: BotController, currentTime: number): boolean => {
+  if (currentTime - bot.ai.lastSampleTime >= BOT_SAMPLE_INTERVAL_MS) {
+    bot.ai.lastSampleTime = currentTime;
+    return true;
+  }
+  return false;
 };
 
 // ============================================
@@ -168,6 +182,7 @@ function spawnBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -224,6 +239,7 @@ function spawnMultiCellBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -327,6 +343,7 @@ function spawnCyberOrganismBot(io: Server): BotController {
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -704,6 +721,26 @@ function updateBotAI(
     }
   }
 
+  // Sample bot decisions for telemetry (~1/sec per bot)
+  if (shouldSampleDecision(bot, currentTime)) {
+    // Compute nearest nutrient distance for logging
+    const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
+    const nearestNutrientDist = nearestNutrient
+      ? distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y })
+      : null;
+
+    logger.info({
+      event: 'bot_decision',
+      botId: player.id,
+      stage: 'single-cell',
+      state: bot.ai.state,
+      target: bot.ai.targetNutrient ?? null,
+      avoidanceMag: avoidanceMag.toFixed(2),
+      energy: player.energy,
+      nearestNutrientDist: nearestNutrientDist ? nearestNutrientDist.toFixed(0) : null,
+    });
+  }
+
   // Normalize final direction (don't let combined forces create super-speed)
   const dirLength = Math.sqrt(
     bot.inputDirection.x * bot.inputDirection.x + bot.inputDirection.y * bot.inputDirection.y
@@ -761,6 +798,7 @@ export function spawnBotAt(io: Server, position: Position, stage: EvolutionStage
       state: 'wander',
       wanderDirection: { x: 0, y: 0 },
       nextWanderChange: Date.now(),
+      lastSampleTime: 0,
     },
   };
 
@@ -1066,14 +1104,23 @@ function updateMultiCellBotAI(
   const avoidanceMag = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
   const AVOIDANCE_THRESHOLD = 0.1;
 
+  // Track action for telemetry
+  let action: 'escape' | 'hunt_disabled_swarm' | 'hunt_prey' | 'seek_nutrient' | 'wander' = 'wander';
+  let targetType: 'swarm' | 'single_cell' | 'nutrient' | null = null;
+  let targetDist: number | null = null;
+
   if (avoidanceMag > AVOIDANCE_THRESHOLD) {
     // ESCAPE state - pure avoidance, even multi-cells prioritize survival
+    action = 'escape';
     bot.inputDirection.x = avoidance.x / avoidanceMag;
     bot.inputDirection.y = avoidance.y / avoidanceMag;
   } else {
     // Safe zone - decision tree: disabled swarm > prey > nutrient
     if (bestDisabledSwarm) {
       // Hunt disabled swarm (easy energy) - prioritizes high-energy targets
+      action = 'hunt_disabled_swarm';
+      targetType = 'swarm';
+      targetDist = distance(player.position, bestDisabledSwarm.position);
       const seekDirection = steerTowards(
         player.position,
         bestDisabledSwarm.position,
@@ -1083,6 +1130,9 @@ function updateMultiCellBotAI(
       bot.inputDirection.y = seekDirection.y;
     } else if (nearestPrey) {
       // Hunt single-cell prey
+      action = 'hunt_prey';
+      targetType = 'single_cell';
+      targetDist = nearestPreyDist;
       const seekDirection = steerTowards(player.position, nearestPrey.position, bot.inputDirection);
       bot.inputDirection.x = seekDirection.x;
       bot.inputDirection.y = seekDirection.y;
@@ -1090,6 +1140,9 @@ function updateMultiCellBotAI(
       // Seek nutrients (fallback behavior) - use pre-collected array
       const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
       if (nearestNutrient) {
+        action = 'seek_nutrient';
+        targetType = 'nutrient';
+        targetDist = distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y });
         const seekDirection = steerTowards(
           player.position,
           { x: nearestNutrient.x, y: nearestNutrient.y },
@@ -1099,9 +1152,25 @@ function updateMultiCellBotAI(
         bot.inputDirection.y = seekDirection.y;
       } else {
         // Wander if nothing to hunt
+        action = 'wander';
         updateBotWander(bot, currentTime);
       }
     }
+  }
+
+  // Sample bot decisions for telemetry (~1/sec per bot)
+  if (shouldSampleDecision(bot, currentTime)) {
+    logger.info({
+      event: 'bot_decision',
+      botId: player.id,
+      stage: 'multi-cell',
+      action,
+      targetType,
+      targetDist: targetDist ? targetDist.toFixed(0) : null,
+      avoidanceMag: avoidanceMag.toFixed(2),
+      energy: player.energy,
+      nearbyActiveSwarms: nearbyActiveSwarmCount,
+    });
   }
 
   // Normalize direction
@@ -1171,6 +1240,9 @@ function updateCyberOrganismBotAI(
     }
   }
 
+  // Track action for telemetry
+  let action: 'approach' | 'retreat' | 'strafe' | 'chase' | 'kite' | 'wander' = 'wander';
+
   // Behavior based on specialization
   if (specialization === 'ranged') {
     // RANGED: Keep medium distance, fire projectiles
@@ -1201,6 +1273,7 @@ function updateCyberOrganismBotAI(
       // Movement: approach if too far, retreat if too close
       if (nearestDist > idealDistance + 100) {
         // Too far - approach
+        action = 'approach';
         const seekDir = steerTowards(
           player.position,
           { x: nearestTarget.x, y: nearestTarget.y },
@@ -1210,6 +1283,7 @@ function updateCyberOrganismBotAI(
         bot.inputDirection.y = seekDir.y;
       } else if (nearestDist < idealDistance - 100) {
         // Too close - retreat while still facing target
+        action = 'retreat';
         const dx = player.position.x - nearestTarget.x;
         const dy = player.position.y - nearestTarget.y;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -1219,6 +1293,7 @@ function updateCyberOrganismBotAI(
         }
       } else {
         // Good distance - strafe slowly
+        action = 'strafe';
         const dx = nearestTarget.x - player.position.x;
         const dy = nearestTarget.y - player.position.y;
         // Perpendicular strafe
@@ -1226,6 +1301,7 @@ function updateCyberOrganismBotAI(
         bot.inputDirection.y = dx * 0.3;
       }
     } else {
+      action = 'wander';
       updateBotWander(bot, currentTime);
     }
   } else if (specialization === 'melee') {
@@ -1257,6 +1333,7 @@ function updateCyberOrganismBotAI(
       }
 
       // Always chase - melee wants to close distance
+      action = 'chase';
       const seekDir = steerTowards(
         player.position,
         { x: nearestTarget.x, y: nearestTarget.y },
@@ -1266,6 +1343,7 @@ function updateCyberOrganismBotAI(
       bot.inputDirection.x = seekDir.x;
       bot.inputDirection.y = seekDir.y;
     } else {
+      action = 'wander';
       updateBotWander(bot, currentTime);
     }
   } else if (specialization === 'traps') {
@@ -1296,6 +1374,7 @@ function updateCyberOrganismBotAI(
       // Kite behavior: retreat while leading enemy through traps
       if (nearestDist < 200) {
         // Too close - retreat
+        action = 'retreat';
         const dx = player.position.x - nearestTarget.x;
         const dy = player.position.y - nearestTarget.y;
         const len = Math.sqrt(dx * dx + dy * dy);
@@ -1305,6 +1384,7 @@ function updateCyberOrganismBotAI(
         }
       } else if (nearestDist < 400) {
         // Medium range - circle/strafe to reposition
+        action = 'kite';
         const dx = nearestTarget.x - player.position.x;
         const dy = nearestTarget.y - player.position.y;
         // Perpendicular movement with slight retreat
@@ -1312,6 +1392,7 @@ function updateCyberOrganismBotAI(
         bot.inputDirection.y = dx * 0.5 + dy * -0.3;
       } else {
         // Far away - approach cautiously to lure into trap range
+        action = 'approach';
         const seekDir = steerTowards(
           player.position,
           { x: nearestTarget.x, y: nearestTarget.y },
@@ -1322,8 +1403,23 @@ function updateCyberOrganismBotAI(
         bot.inputDirection.y = seekDir.y * 0.5;
       }
     } else {
+      action = 'wander';
       updateBotWander(bot, currentTime);
     }
+  }
+
+  // Sample bot decisions for telemetry (~1/sec per bot)
+  if (shouldSampleDecision(bot, currentTime)) {
+    logger.info({
+      event: 'bot_decision',
+      botId: player.id,
+      stage: 'cyber-organism',
+      specialization,
+      action,
+      targetType: nearestTarget?.type ?? null,
+      targetDist: nearestTarget ? nearestDist.toFixed(0) : null,
+      energy: player.energy,
+    });
   }
 
   // Normalize direction
