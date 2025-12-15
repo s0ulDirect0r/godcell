@@ -1478,7 +1478,7 @@ export function buildObstaclesRecord(world: World): Record<
     if (pos && obs && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y },
+        position: { x: pos.x, y: pos.y, z: pos.z },
         radius: obs.radius,
         strength: obs.strength,
         // damageRate is derived from config, not stored in component

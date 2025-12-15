@@ -420,6 +420,7 @@ export function upsertObstacle(world: World, obstacle: Obstacle): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: obstacle.position.x,
     y: obstacle.position.y,
+    z: obstacle.position.z,
   });
 
   world.addComponent<ObstacleComponent>(entity, Components.Obstacle, {

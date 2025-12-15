@@ -166,9 +166,11 @@ function initializeObstacles() {
     // Sphere mode: generate well-spaced positions on sphere surface
     const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
     const positions: Array<{ x: number; y: number; z: number }> = [];
-    const minAngularSeparation = MIN_OBSTACLE_SEPARATION / sphereRadius; // Convert to angular distance
+    // Sphere has much more surface area - use smaller separation (chord distance)
+    const sphereMinSeparation = 400; // Smaller separation for sphere surface
+    const targetCount = 15; // More obstacles for sphere mode
 
-    for (let attempts = 0; attempts < 1000 && positions.length < GAME_CONFIG.OBSTACLE_COUNT; attempts++) {
+    for (let attempts = 0; attempts < 2000 && positions.length < targetCount; attempts++) {
       const candidate = getRandomSpherePosition(sphereRadius);
       // Check distance from existing obstacles
       let valid = true;
@@ -177,7 +179,7 @@ function initializeObstacles() {
         const dy = candidate.y - existing.y;
         const dz = (candidate.z ?? 0) - existing.z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist < MIN_OBSTACLE_SEPARATION) {
+        if (dist < sphereMinSeparation) {
           valid = false;
           break;
         }
@@ -506,6 +508,9 @@ if (isPlayground) {
 } else if (isSphereMode()) {
   // Sphere world initialization - stages 1-2 on sphere surface
   logger.info({ event: 'sphere_mode', port: PORT }, 'Running in SPHERE MODE - spherical world');
+
+  // Initialize gravity wells (obstacles) on sphere surface
+  initializeObstacles();
 
   // Initialize nutrients on sphere surface
   initializeSphereNutrients();
