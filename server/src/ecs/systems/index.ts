@@ -33,7 +33,6 @@ export { PredationSystem } from './PredationSystem';
 export { SwarmCollisionSystem } from './SwarmCollisionSystem';
 export { TreeCollisionSystem } from './TreeCollisionSystem';
 export { NutrientCollisionSystem } from './NutrientCollisionSystem';
-export { NutrientAttractionSystem } from './NutrientAttractionSystem';
 export { MacroResourceCollisionSystem } from './MacroResourceCollisionSystem';
 
 // Lifecycle Systems

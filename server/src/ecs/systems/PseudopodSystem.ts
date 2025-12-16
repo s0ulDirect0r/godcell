@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { Position, PseudopodMovedMessage, PseudopodRetractedMessage } from '#shared';
-import { GAME_CONFIG, Tags, type World } from '#shared';
+import { GAME_CONFIG, Tags, type World, distanceForMode } from '#shared';
 import type { System } from './types';
 import {
   getEntityBySocketId,
@@ -27,7 +27,7 @@ import {
   type PseudopodComponent,
   type DamageTrackingComponent,
 } from '../index';
-import { distance, rayCircleIntersection } from '../../helpers';
+import { rayCircleIntersection } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logger } from '../../logger';
 import { isSoupStage } from '../../helpers';
@@ -38,6 +38,7 @@ interface PlayerTargetSnapshot {
   playerId: string;
   x: number;
   y: number;
+  z: number;
   radius: number;
   energyComp: EnergyComponent;
   isStunned: boolean;
@@ -48,6 +49,7 @@ interface SwarmTargetSnapshot {
   swarmId: string;
   x: number;
   y: number;
+  z: number;
   size: number;
   energyComp: EnergyComponent;
 }
@@ -82,6 +84,7 @@ export class PseudopodSystem implements System {
         playerId,
         x: posComp.x,
         y: posComp.y,
+        z: posComp.z ?? 0,
         radius: stageComp.radius,
         energyComp,
         isStunned: !!(stunnedComp?.until && Date.now() < stunnedComp.until),
@@ -96,6 +99,7 @@ export class PseudopodSystem implements System {
         swarmId,
         x: posComp.x,
         y: posComp.y,
+        z: posComp.z ?? 0,
         size: swarmComp.size,
         energyComp,
       });
@@ -182,7 +186,7 @@ export class PseudopodSystem implements System {
 
     // Use hitEntities Set from PseudopodComponent for hit tracking
     const hitEntities = pseudopodComp.hitEntities;
-    const beamPosition = { x: posComp.x, y: posComp.y };
+    const beamPosition = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
 
     let hitSomething = false;
 
@@ -203,8 +207,8 @@ export class PseudopodSystem implements System {
 
       // Circle-circle collision: beam position vs target position
       const targetRadius = targetStage.radius;
-      const targetPosition = { x: targetPos.x, y: targetPos.y };
-      const dist = distance(beamPosition, targetPosition);
+      const targetPosition = { x: targetPos.x, y: targetPos.y, z: targetPos.z ?? 0 };
+      const dist = distanceForMode(beamPosition, targetPosition);
       const collisionDist = pseudopodComp.width / 2 + targetRadius;
 
       if (dist < collisionDist) {
@@ -245,8 +249,8 @@ export class PseudopodSystem implements System {
         // Swarms are now ECS entities, so we can use their entity ID directly
         if (hitEntities.has(swarmEntity)) return; // Already hit this swarm
 
-        const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
-        const dist = distance(beamPosition, swarmPosition);
+        const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y, z: swarmPosComp.z ?? 0 };
+        const dist = distanceForMode(beamPosition, swarmPosition);
         const collisionDist = pseudopodComp.width / 2 + swarmComp.size;
 
         if (dist < collisionDist) {
@@ -301,25 +305,22 @@ export class PseudopodSystem implements System {
     if (!isSoupStage(shooterStage.stage)) return false;
 
     const hitEntities = pseudopodComp.hitEntities;
-    const beamX = posComp.x;
-    const beamY = posComp.y;
+    const beamPos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
     const beamHalfWidth = pseudopodComp.width / 2;
 
     let hitSomething = false;
 
-    // Check collision with pre-collected players (squared distance)
+    // Check collision with pre-collected players (sphere-aware distance)
     for (const target of playerTargets) {
       if (target.playerId === pseudopodComp.ownerSocketId) continue;
       if (hitEntities.has(target.entity)) continue;
       if (target.isStunned) continue;
 
-      const dx = beamX - target.x;
-      const dy = beamY - target.y;
-      const distSq = dx * dx + dy * dy;
+      const targetPos = { x: target.x, y: target.y, z: target.z };
+      const dist = distanceForMode(beamPos, targetPos);
       const collisionDist = beamHalfWidth + target.radius;
-      const collisionDistSq = collisionDist * collisionDist;
 
-      if (distSq < collisionDistSq) {
+      if (dist < collisionDist) {
         const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
         target.energyComp.current -= damage;
         hitSomething = true;
@@ -345,24 +346,22 @@ export class PseudopodSystem implements System {
           type: 'pseudopodHit',
           beamId,
           targetId: target.playerId,
-          hitPosition: { x: beamX, y: beamY },
+          hitPosition: { x: beamPos.x, y: beamPos.y },
         });
       }
     }
 
-    // Check collision with pre-collected swarms (squared distance)
+    // Check collision with pre-collected swarms (sphere-aware distance)
     // DeathSystem handles swarm deaths centrally
 
     for (const swarm of swarmTargets) {
       if (hitEntities.has(swarm.entity)) continue;
 
-      const dx = beamX - swarm.x;
-      const dy = beamY - swarm.y;
-      const distSq = dx * dx + dy * dy;
+      const swarmPos = { x: swarm.x, y: swarm.y, z: swarm.z };
+      const dist = distanceForMode(beamPos, swarmPos);
       const collisionDist = beamHalfWidth + swarm.size;
-      const collisionDistSq = collisionDist * collisionDist;
 
-      if (distSq < collisionDistSq) {
+      if (dist < collisionDist) {
         const damage = getConfig('PSEUDOPOD_DRAIN_RATE');
         swarm.energyComp.current -= damage;
         hitSomething = true;
@@ -421,7 +420,8 @@ export class PseudopodSystem implements System {
       if (stunnedComp?.until && Date.now() < stunnedComp.until) return;
 
       const targetRadius = stageComp.radius;
-      const targetPosition = { x: posComp.x, y: posComp.y };
+      // Note: rayCircleIntersection is 2D; sphere mode would need 3D ray-sphere intersection
+      const targetPosition = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
       const hitDist = rayCircleIntersection(start, end, targetPosition, targetRadius);
 
       if (hitDist !== null) {

@@ -26,6 +26,7 @@ import {
   requireVelocity,
   requireInput,
 } from '../factories';
+import { getConfig } from '../../dev';
 
 /**
  * SphereMovementSystem - Handles player movement on sphere surface
@@ -46,9 +47,9 @@ export class SphereMovementSystem implements System {
 
   update(world: World, deltaTime: number, io: Server): void {
     const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
-    const acceleration = GAME_CONFIG.PLAYER_SPEED * 8;
+    const baseAcceleration = GAME_CONFIG.PLAYER_SPEED * 8;
     const friction = GAME_CONFIG.MOVEMENT_FRICTION;
-    const maxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2;
+    const baseMaxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2;
 
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
@@ -62,6 +63,15 @@ export class SphereMovementSystem implements System {
 
       // Skip dead players
       if (energyComponent.current <= 0) return;
+
+      // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
+      let acceleration = baseAcceleration;
+      let maxSpeed = baseMaxSpeed;
+      const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
+      if (isSlowed) {
+        acceleration *= getConfig('SWARM_SLOW_EFFECT');
+        maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
+      }
 
       const inputDirection = inputComponent.direction;
 
