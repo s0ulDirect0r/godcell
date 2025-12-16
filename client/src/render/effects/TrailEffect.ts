@@ -195,6 +195,18 @@ export function updateTrails(
           const taperFactor = minTaperRatio + (1 - minTaperRatio) * age;
           const width = maxWidth * taperFactor;
 
+          // Turbulent wake effect - sinusoidal width variation for liquid feel
+          // turbulenceFreq: waves per trail length (1.5-4.0, higher = more ripples)
+          // turbulenceAmp: % of width variation (0.15-0.5, higher = more dramatic)
+          // flowSpeed: how fast ripples travel along trail (rad/sec)
+          const turbulenceFreq = 2.5;
+          const turbulenceAmp = 0.375;
+          const flowSpeed = 4.0;
+          const time = performance.now() * 0.001;
+          const phase = (i / points.length) * Math.PI * 2 * turbulenceFreq + time * flowSpeed;
+          const turbulence = 1 + Math.sin(phase) * turbulenceAmp;
+          const finalWidth = width * turbulence;
+
           // Calculate opacity fade
           const opacity = Math.pow(age, 1.5);
 
@@ -230,14 +242,14 @@ export function updateTrails(
             const liftedPos = pos.clone().addScaledVector(normal, 0.5);
 
             // Top vertex
-            positions[idx * 3] = liftedPos.x + perp.x * width;
-            positions[idx * 3 + 1] = liftedPos.y + perp.y * width;
-            positions[idx * 3 + 2] = liftedPos.z + perp.z * width;
+            positions[idx * 3] = liftedPos.x + perp.x * finalWidth;
+            positions[idx * 3 + 1] = liftedPos.y + perp.y * finalWidth;
+            positions[idx * 3 + 2] = liftedPos.z + perp.z * finalWidth;
 
             // Bottom vertex
-            positions[(idx + 1) * 3] = liftedPos.x - perp.x * width;
-            positions[(idx + 1) * 3 + 1] = liftedPos.y - perp.y * width;
-            positions[(idx + 1) * 3 + 2] = liftedPos.z - perp.z * width;
+            positions[(idx + 1) * 3] = liftedPos.x - perp.x * finalWidth;
+            positions[(idx + 1) * 3 + 1] = liftedPos.y - perp.y * finalWidth;
+            positions[(idx + 1) * 3 + 2] = liftedPos.z - perp.z * finalWidth;
           } else {
             // Flat mode: build ribbon on XZ plane
             // Get perpendicular direction for ribbon width
@@ -264,14 +276,14 @@ export function updateTrails(
             }
 
             // Top vertex
-            positions[idx * 3] = point.x + perpX * width;
+            positions[idx * 3] = point.x + perpX * finalWidth;
             positions[idx * 3 + 1] = 0;
-            positions[idx * 3 + 2] = -point.y - perpY * width;
+            positions[idx * 3 + 2] = -point.y - perpY * finalWidth;
 
             // Bottom vertex
-            positions[(idx + 1) * 3] = point.x - perpX * width;
+            positions[(idx + 1) * 3] = point.x - perpX * finalWidth;
             positions[(idx + 1) * 3 + 1] = 0;
-            positions[(idx + 1) * 3 + 2] = -point.y + perpY * width;
+            positions[(idx + 1) * 3 + 2] = -point.y + perpY * finalWidth;
           }
 
           // Colors (same for both modes)
