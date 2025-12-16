@@ -79,6 +79,22 @@ const SURFACE_FLOW_CONFIG = {
 
   // rippleColor: Subdued cyan for ripples
   rippleColor: { r: 0.0, g: 0.5, b: 0.5 },
+
+  // === CAUSTIC PARAMETERS ===
+  // causticIntensity: How bright the caustic highlights are
+  // Range: 0.0 - 0.3, Default: 0.05 (very subtle)
+  causticIntensity: 0.05,
+
+  // causticScale: Size of the caustic pattern (higher = smaller patterns)
+  // Range: 0.0005 - 0.03, Default: 0.02
+  causticScale: 0.02,
+
+  // causticSpeed: How fast the patterns drift
+  // Range: 0.5 - 3.0, Default: 1.5
+  causticSpeed: 1.5,
+
+  // causticColor: Dark blue for subtle caustic highlights
+  causticColor: { r: 0.0, g: 0.15, b: 0.35 },
 };
 
 // ============================================
@@ -214,6 +230,10 @@ uniform vec3 uFlowColor;
 uniform vec3 uRippleColor;
 uniform float uBaseAmplitude;
 uniform float uRippleAmplitude;
+uniform float uCausticIntensity;
+uniform float uCausticScale;
+uniform float uCausticSpeed;
+uniform vec3 uCausticColor;
 
 varying vec2 vUv;
 varying vec3 vNormal;
@@ -250,6 +270,29 @@ float fbm(vec3 p) {
     amplitude *= 0.5;
   }
   return value;
+}
+
+// Caustic pattern - overlapping sine waves at different angles
+// Creates that classic "light through water" dancing pattern
+float caustic(vec3 p, float time) {
+  float scale = uCausticScale * 100.0; // Scale up for visible patterns
+  float speed = uCausticSpeed;
+
+  // Multiple overlapping waves at different angles
+  float c = 0.0;
+  c += sin(p.x * scale + time * speed + sin(p.y * scale * 0.5 + time * speed * 0.7));
+  c += sin(p.y * scale * 0.8 - time * speed * 0.6 + sin(p.z * scale * 0.6 + time * speed * 0.4));
+  c += sin(p.z * scale * 0.9 + time * speed * 0.8 + sin(p.x * scale * 0.7 - time * speed * 0.5));
+  c += sin((p.x + p.y) * scale * 0.7 + time * speed * 0.9);
+  c += sin((p.y + p.z) * scale * 0.6 - time * speed * 0.5);
+
+  c = c / 5.0; // Average
+  c = c * 0.5 + 0.5; // Normalize to 0-1
+
+  // Threshold to get bright caustic lines (soft wavy luminance)
+  c = smoothstep(0.55, 0.85, c);
+
+  return c;
 }
 
 void main() {
@@ -305,12 +348,18 @@ void main() {
   // Minimal brightness variation
   color *= 0.9 + dispNormalized * 0.08;
 
+  // === CAUSTICS ===
+  // Soft wavy luminance pattern on the dark surface
+  float causticPattern = caustic(surfaceNormal * uRadius, uTime);
+  color += uCausticColor * causticPattern * uCausticIntensity;
+
   // Very subtle fresnel
   vec3 viewDir = normalize(cameraPosition - vWorldPosition);
   float fresnel = pow(1.0 - abs(dot(normalize(vNormal), viewDir)), 4.0);
   color += uFlowColor * fresnel * 0.03;
 
-  gl_FragColor = vec4(color, 1.0);
+  // Barely transparent surface
+  gl_FragColor = vec4(color, 0.92);
 }
 `;
 
@@ -493,8 +542,19 @@ export class EnvironmentSystem {
             SURFACE_FLOW_CONFIG.rippleColor.b
           ),
         },
+        uCausticIntensity: { value: SURFACE_FLOW_CONFIG.causticIntensity },
+        uCausticScale: { value: SURFACE_FLOW_CONFIG.causticScale },
+        uCausticSpeed: { value: SURFACE_FLOW_CONFIG.causticSpeed },
+        uCausticColor: {
+          value: new THREE.Vector3(
+            SURFACE_FLOW_CONFIG.causticColor.r,
+            SURFACE_FLOW_CONFIG.causticColor.g,
+            SURFACE_FLOW_CONFIG.causticColor.b
+          ),
+        },
       },
       side: THREE.FrontSide,
+      transparent: true,
       depthWrite: true, // Write depth so far-side entities fail depth test
       depthTest: true,
     });
@@ -511,10 +571,10 @@ export class EnvironmentSystem {
     // Back to original position
     const wireframeGeometry = new THREE.IcosahedronGeometry(radius + 2, 3);
     const wireframeMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00ffaa, // Bright cyan-green
+      color: 0x00aa88, // Dimmer cyan-green
       wireframe: true,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.25,
       blending: THREE.AdditiveBlending,
       depthWrite: false, // Don't occlude things behind it
     });
@@ -542,8 +602,8 @@ export class EnvironmentSystem {
    * Create flowing data particles on sphere surface
    */
   private createSphereParticles(radius: number): void {
-    // 150% more particles than flat mode (2.5x total)
-    const particleCount = Math.floor(GAME_CONFIG.MAX_PARTICLES * 2.5);
+    // 5x particles for dense data field
+    const particleCount = Math.floor(GAME_CONFIG.MAX_PARTICLES * 5);
     const positions = new Float32Array(particleCount * 3);
     const sizes = new Float32Array(particleCount);
 
@@ -556,8 +616,8 @@ export class EnvironmentSystem {
         GAME_CONFIG.PARTICLE_MIN_SIZE +
         Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
 
-      // Convert spherical to Cartesian (slightly above surface)
-      const r = radius + 5;  // Lift particles above surface
+      // Convert spherical to Cartesian (above wireframe)
+      const r = radius + 15;  // Lift particles above surface and wireframe
       positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
       positions[i * 3 + 1] = r * Math.cos(phi);
       positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
@@ -925,7 +985,7 @@ export class EnvironmentSystem {
     if (!this.sphereParticles) return;
 
     const deltaSeconds = dt / 1000;
-    const radius = GAME_CONFIG.SPHERE_RADIUS + 5;  // Same offset as creation
+    const radius = GAME_CONFIG.SPHERE_RADIUS + 15;  // Same offset as creation
     const positions = this.sphereParticles.geometry.attributes.position.array as Float32Array;
 
     for (let i = 0; i < this.sphereParticleData.length; i++) {
