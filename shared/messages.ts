@@ -5,6 +5,7 @@
 
 import type {
   Position,
+  Velocity,
   Player,
   Nutrient,
   Obstacle,
@@ -127,6 +128,7 @@ export interface PlayerMovedMessage {
   type: 'playerMoved';
   playerId: string;
   position: Position;
+  velocity: Velocity;
 }
 
 export interface NutrientSpawnedMessage {

@@ -28,6 +28,7 @@ import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSyste
 import { EntropySerpentRenderSystem } from '../systems/EntropySerpentRenderSystem';
 import { ProjectileRenderSystem } from '../systems/ProjectileRenderSystem';
 import { TrapRenderSystem } from '../systems/TrapRenderSystem';
+import { WakeParticleSystem } from '../systems/WakeParticleSystem';
 import {
   World,
   Tags,
@@ -108,6 +109,9 @@ export class ThreeRenderer implements Renderer {
   private entropySerpentRenderSystem!: EntropySerpentRenderSystem;
   private projectileRenderSystem!: ProjectileRenderSystem;
   private trapRenderSystem!: TrapRenderSystem;
+
+  // Wake particle system (liquid wake effect behind moving entities)
+  private wakeParticleSystem!: WakeParticleSystem;
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
@@ -193,6 +197,10 @@ export class ThreeRenderer implements Renderer {
 
     this.trapRenderSystem = new TrapRenderSystem();
     this.trapRenderSystem.init(this.scene, this.world);
+
+    // Create wake particle system (liquid wake behind moving entities)
+    this.wakeParticleSystem = new WakeParticleSystem();
+    this.wakeParticleSystem.init(this.scene);
 
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -908,6 +916,9 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.getMode()
     );
 
+    // Update wake particles (liquid wake behind moving entities)
+    this.wakeParticleSystem.update(this.world, dt);
+
     // Update camera system (follows player, applies shake, transitions zoom)
     // Pass player's interpolated mesh position for smooth camera follow
     if (myPlayer) {
@@ -1219,6 +1230,9 @@ export class ThreeRenderer implements Renderer {
 
     // Clean up player trails
     this.trailSystem.dispose();
+
+    // Clean up wake particles
+    this.wakeParticleSystem.dispose();
 
     // Clean up auras (drain and gain)
     this.auraRenderSystem.dispose();

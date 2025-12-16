@@ -337,7 +337,12 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
   const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.WORLD_HEIGHT));
   setPosition(devContext.world, entity, clampedX, clampedY);
 
-  io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });
+  io.emit('playerMoved', {
+    type: 'playerMoved',
+    playerId,
+    position: { x: clampedX, y: clampedY },
+    velocity: { x: 0, y: 0, z: 0 },
+  });
   logger.info({ event: 'dev_teleport', playerId, position: { x: clampedX, y: clampedY } });
 }
 

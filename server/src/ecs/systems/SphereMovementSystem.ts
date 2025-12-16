@@ -196,6 +196,11 @@ export class SphereMovementSystem implements System {
           y: positionComponent.y,
           z: positionComponent.z,
         },
+        velocity: {
+          x: velocityComponent.x,
+          y: velocityComponent.y,
+          z: velocityComponent.z,
+        },
       };
       io.emit('playerMoved', moveMessage);
     });
