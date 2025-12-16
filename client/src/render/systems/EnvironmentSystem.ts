@@ -24,9 +24,295 @@ import {
   clearGravityWellCache,
   getGravityWellCache,
 } from '../utils/GravityDistortionUtils';
-import { World } from '../../ecs';
+import { World, Tags, Components } from '../../ecs';
 
 export type RenderMode = 'soup' | 'jungle';
+
+// ============================================
+// Surface Flow Shader Configuration
+// ============================================
+
+/**
+ * Surface Flow Shader Configuration
+ *
+ * Controls the animated "cosmic liquid" effect on the sphere surface.
+ * Two main components:
+ * 1. Base Flow: Diagonal waves using noise for organic liquid movement
+ * 2. Entity Ripples: Concentric waves emanating from player positions
+ */
+const SURFACE_FLOW_CONFIG = {
+  // === BASE FLOW PARAMETERS ===
+  // flowFrequency: Spatial frequency of the noise pattern
+  // Lower = larger, smoother waves; Higher = smaller, more detailed waves
+  // Range: 0.005 - 0.02, Default: 0.01
+  flowFrequency: 0.01,
+
+  // flowSpeed: How fast the flow pattern animates (radians/second)
+  // Lower = slow, meditative; Higher = energetic, rushing
+  // Range: 0.2 - 1.0, Default: 0.5
+  flowSpeed: 0.5,
+
+  // baseAmplitude: Vertex displacement for base waves (world units)
+  // Higher = more physical displacement, more "liquid" feel
+  // Range: 1 - 5, Default: 2
+  baseAmplitude: 2.0,
+
+  // === ENTITY RIPPLE PARAMETERS ===
+  // rippleDecay: How quickly ripples fade with distance (exponential decay factor)
+  // Lower = ripples travel further; Higher = localized ripples
+  // Range: 0.005 - 0.02, Default: 0.01
+  rippleDecay: 0.01,
+
+  // rippleAmplitude: Maximum displacement from entity ripples (world units)
+  // Set to 0 to disable ripples entirely
+  rippleAmplitude: 0.0,
+
+  // maxEntities: Maximum entities to track for ripples (WebGL uniform array limit)
+  maxEntities: 30,
+
+  // === VISUAL COLORS ===
+  // baseColor: Near-black with subtle digital blue
+  baseColor: { r: 0.005, g: 0.008, b: 0.02 },
+
+  // flowColor: Dimmer cyan for subtle digital veins
+  flowColor: { r: 0.0, g: 0.4, b: 0.3 },
+
+  // rippleColor: Subdued cyan for ripples
+  rippleColor: { r: 0.0, g: 0.5, b: 0.5 },
+};
+
+// ============================================
+// Surface Flow Vertex Shader
+// ============================================
+// Animates sphere surface with flowing waves and entity ripples
+// Displaces vertices along surface normal for physical "liquid" movement
+
+const SURFACE_FLOW_VERTEX = /* glsl */ `
+uniform float uTime;
+uniform float uRadius;
+uniform vec3 uEntityPositions[30];
+uniform int uEntityCount;
+uniform float uFlowFrequency;
+uniform float uFlowSpeed;
+uniform float uRippleDecay;
+uniform float uRippleAmplitude;
+uniform float uBaseAmplitude;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vWorldPosition;
+varying float vDisplacement;
+
+// Simple 3D value noise
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float noise3D(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f); // Smoothstep interpolation
+
+  return mix(
+    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+    f.z
+  );
+}
+
+// Fractal Brownian Motion for layered noise
+float fbm(vec3 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  for (int i = 0; i < 3; i++) {
+    value += amplitude * noise3D(p);
+    p *= 2.0;
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
+void main() {
+  vUv = uv;
+
+  // Surface normal (normalized position for sphere centered at origin)
+  vec3 surfaceNormal = normalize(position);
+  vNormal = normalMatrix * surfaceNormal;
+
+  // === BASE DIAGONAL WAVES ===
+  // Use spherical coordinates for smooth wrapping
+  float theta = atan(surfaceNormal.z, surfaceNormal.x); // Longitude
+  float phi = acos(surfaceNormal.y);                     // Latitude
+
+  // Diagonal flow: combine theta and phi with time offset
+  float diagonalPhase = theta * 2.0 + phi * 1.5 - uTime * uFlowSpeed;
+
+  // Multi-octave noise for organic flow
+  vec3 noiseCoord = surfaceNormal * uRadius * uFlowFrequency + vec3(uTime * uFlowSpeed * 0.1);
+  float baseWave = fbm(noiseCoord) * 2.0 - 1.0; // -1 to 1
+
+  // Add secondary sine wave for more structure
+  baseWave += sin(diagonalPhase) * 0.3;
+
+  float displacement = baseWave * uBaseAmplitude;
+
+  // === ENTITY RIPPLES ===
+  // Concentric waves emanating from each entity position
+  for (int i = 0; i < 30; i++) {
+    if (i >= uEntityCount) break;
+
+    vec3 entityPos = uEntityPositions[i];
+
+    // Geodesic (surface) distance using dot product of normalized positions
+    vec3 entityNormal = normalize(entityPos);
+    float dotProduct = dot(surfaceNormal, entityNormal);
+    float angularDist = acos(clamp(dotProduct, -1.0, 1.0));
+    float surfaceDist = angularDist * uRadius;
+
+    // Ripple: outward-moving rings with exponential decay
+    // Lower frequency = fewer rings (0.015 is ~70% fewer than 0.05)
+    float ripplePhase = surfaceDist * 0.015 - uTime * 2.0;
+    float ripple = sin(ripplePhase * 6.283185) * 0.5 + 0.5; // 0 to 1
+
+    // Exponential decay with distance
+    float decay = exp(-surfaceDist * uRippleDecay);
+
+    displacement += ripple * decay * uRippleAmplitude;
+  }
+
+  vDisplacement = displacement;
+
+  // Apply displacement along surface normal
+  vec3 displacedPosition = position + surfaceNormal * displacement;
+
+  // World position for fragment shader
+  vec4 worldPos = modelMatrix * vec4(displacedPosition, 1.0);
+  vWorldPosition = worldPos.xyz;
+
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 1.0);
+}
+`;
+
+// ============================================
+// Surface Flow Fragment Shader
+// ============================================
+// Creates cosmic liquid visual with flowing colors and ripple highlights
+
+const SURFACE_FLOW_FRAGMENT = /* glsl */ `
+uniform float uTime;
+uniform float uRadius;
+uniform vec3 uEntityPositions[30];
+uniform int uEntityCount;
+uniform float uFlowFrequency;
+uniform float uFlowSpeed;
+uniform vec3 uBaseColor;
+uniform vec3 uFlowColor;
+uniform vec3 uRippleColor;
+uniform float uBaseAmplitude;
+uniform float uRippleAmplitude;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vWorldPosition;
+varying float vDisplacement;
+
+// Reuse noise functions
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float noise3D(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+
+  return mix(
+    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+    f.z
+  );
+}
+
+float fbm(vec3 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  for (int i = 0; i < 3; i++) {
+    value += amplitude * noise3D(p);
+    p *= 2.0;
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
+void main() {
+  vec3 surfaceNormal = normalize(vWorldPosition);
+
+  // === BASE FLOW PATTERN ===
+  vec3 noiseCoord = surfaceNormal * uRadius * uFlowFrequency * 2.0;
+  noiseCoord += vec3(uTime * uFlowSpeed * 0.15, uTime * uFlowSpeed * 0.1, 0.0);
+
+  float flowNoise = fbm(noiseCoord);
+  float flowIntensity = smoothstep(0.35, 0.65, flowNoise);
+
+  // === RIPPLE HIGHLIGHTS ===
+  float rippleIntensity = 0.0;
+  for (int i = 0; i < 30; i++) {
+    if (i >= uEntityCount) break;
+
+    vec3 entityPos = uEntityPositions[i];
+    vec3 entityNormal = normalize(entityPos);
+
+    // Angular distance on sphere
+    float dotProduct = dot(surfaceNormal, entityNormal);
+    float angularDist = acos(clamp(dotProduct, -1.0, 1.0));
+    float surfaceDist = angularDist * uRadius;
+
+    // Concentric ring pattern (fewer rings - 70% reduction)
+    float ringPhase = surfaceDist * 0.009 - uTime * 1.5;
+    float ring = sin(ringPhase * 6.283185);
+    ring = smoothstep(0.5, 1.0, ring); // Sharp rings
+
+    // Decay with distance
+    float decay = exp(-surfaceDist * 0.008);
+
+    rippleIntensity += ring * decay;
+  }
+  rippleIntensity = clamp(rippleIntensity, 0.0, 1.0);
+
+  // === DISPLACEMENT-BASED COLORING ===
+  float dispNormalized = (vDisplacement / (uBaseAmplitude * 2.0 + uRippleAmplitude)) * 0.5 + 0.5;
+  dispNormalized = clamp(dispNormalized, 0.0, 1.0);
+
+  // === COMBINE COLORS ===
+  vec3 color = uBaseColor;
+
+  // Cyan veins disabled - just solid dark surface
+  // float veinIntensity = smoothstep(0.58, 0.68, flowNoise);
+  // veinIntensity = pow(veinIntensity, 0.7);
+  // color = mix(color, uFlowColor, veinIntensity * 0.6);
+
+  // Ripple highlights (disabled)
+  // color = mix(color, uRippleColor, rippleIntensity * 0.02);
+
+  // Minimal brightness variation
+  color *= 0.9 + dispNormalized * 0.08;
+
+  // Very subtle fresnel
+  vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+  float fresnel = pow(1.0 - abs(dot(normalize(vNormal), viewDir)), 4.0);
+  color += uFlowColor * fresnel * 0.03;
+
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
 
 /**
  * EnvironmentSystem - Manages all background environments
@@ -95,6 +381,7 @@ export class EnvironmentSystem {
   private sphereBackgroundGroup!: THREE.Group;
   private isSphereWorld: boolean = false;
   private sphereParticles!: THREE.Points;
+  private surfaceFlowMaterial?: THREE.ShaderMaterial;
   private sphereParticleData: Array<{
     theta: number;  // Longitude angle
     phi: number;    // Latitude angle
@@ -150,7 +437,7 @@ export class EnvironmentSystem {
 
   /**
    * Create sphere world environment
-   * - Opaque sphere for far-side occlusion
+   * - Animated surface flow sphere with custom shader
    * - Wireframe grid overlay for visual reference
    * - Flowing data particles on surface
    */
@@ -160,25 +447,76 @@ export class EnvironmentSystem {
 
     const radius = GAME_CONFIG.SPHERE_RADIUS;
 
-    // === LAYER 1: Solid sphere for far-side occlusion ===
-    // FrontSide renders outside faces - camera is outside sphere, so this occludes far side
-    const sphereGeometry = new THREE.IcosahedronGeometry(radius, 3);
-    const sphereMaterial = new THREE.MeshBasicMaterial({
-      color: GAME_CONFIG.BACKGROUND_COLOR,
+    // === LAYER 1: Animated surface sphere with flow shader ===
+    // Higher subdivision (5) for smooth vertex displacement
+    // Slightly smaller than radius so wireframe sits above it
+    const sphereGeometry = new THREE.IcosahedronGeometry(radius - 25, 5);
+
+    // Initialize entity positions array for uniforms
+    const entityPositions: THREE.Vector3[] = [];
+    for (let i = 0; i < SURFACE_FLOW_CONFIG.maxEntities; i++) {
+      entityPositions.push(new THREE.Vector3(0, 0, 0));
+    }
+
+    // Create shader material with surface flow effect
+    const sphereMaterial = new THREE.ShaderMaterial({
+      vertexShader: SURFACE_FLOW_VERTEX,
+      fragmentShader: SURFACE_FLOW_FRAGMENT,
+      uniforms: {
+        uTime: { value: 0.0 },
+        uRadius: { value: radius },
+        uEntityPositions: { value: entityPositions },
+        uEntityCount: { value: 0 },
+        uFlowFrequency: { value: SURFACE_FLOW_CONFIG.flowFrequency },
+        uFlowSpeed: { value: SURFACE_FLOW_CONFIG.flowSpeed },
+        uRippleDecay: { value: SURFACE_FLOW_CONFIG.rippleDecay },
+        uRippleAmplitude: { value: SURFACE_FLOW_CONFIG.rippleAmplitude },
+        uBaseAmplitude: { value: SURFACE_FLOW_CONFIG.baseAmplitude },
+        uBaseColor: {
+          value: new THREE.Vector3(
+            SURFACE_FLOW_CONFIG.baseColor.r,
+            SURFACE_FLOW_CONFIG.baseColor.g,
+            SURFACE_FLOW_CONFIG.baseColor.b
+          ),
+        },
+        uFlowColor: {
+          value: new THREE.Vector3(
+            SURFACE_FLOW_CONFIG.flowColor.r,
+            SURFACE_FLOW_CONFIG.flowColor.g,
+            SURFACE_FLOW_CONFIG.flowColor.b
+          ),
+        },
+        uRippleColor: {
+          value: new THREE.Vector3(
+            SURFACE_FLOW_CONFIG.rippleColor.r,
+            SURFACE_FLOW_CONFIG.rippleColor.g,
+            SURFACE_FLOW_CONFIG.rippleColor.b
+          ),
+        },
+      },
       side: THREE.FrontSide,
-      depthWrite: true,  // Write depth so far-side entities fail depth test
+      depthWrite: true, // Write depth so far-side entities fail depth test
+      depthTest: true,
     });
+
     const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    sphereMesh.userData.isSurfaceFlowSphere = true;
     this.sphereBackgroundGroup.add(sphereMesh);
 
-    // === LAYER 2: Wireframe grid overlay ===
-    // Slightly larger radius so it renders on top of solid sphere
-    const wireframeGeometry = new THREE.IcosahedronGeometry(radius + 1, 3);
+    // Store reference for update
+    this.surfaceFlowMaterial = sphereMaterial;
+
+    // === LAYER 2: Glowing wireframe icosahedron ===
+    // Additive blending makes it glow like it's emitting light
+    // Back to original position
+    const wireframeGeometry = new THREE.IcosahedronGeometry(radius + 2, 3);
     const wireframeMaterial = new THREE.MeshBasicMaterial({
-      color: GAME_CONFIG.GRID_COLOR,
+      color: 0x00ffaa, // Bright cyan-green
       wireframe: true,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false, // Don't occlude things behind it
     });
     const wireframeMesh = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
     this.sphereBackgroundGroup.add(wireframeMesh);
@@ -204,7 +542,8 @@ export class EnvironmentSystem {
    * Create flowing data particles on sphere surface
    */
   private createSphereParticles(radius: number): void {
-    const particleCount = GAME_CONFIG.MAX_PARTICLES;
+    // 150% more particles than flat mode (2.5x total)
+    const particleCount = Math.floor(GAME_CONFIG.MAX_PARTICLES * 2.5);
     const positions = new Float32Array(particleCount * 3);
     const sizes = new Float32Array(particleCount);
 
@@ -349,9 +688,10 @@ export class EnvironmentSystem {
    * @param dt - Delta time in milliseconds
    */
   update(dt: number): void {
-    // Sphere mode: update particles and gravity well cache
+    // Sphere mode: update particles, surface flow shader, and gravity well cache
     if (this.isSphereWorld) {
       this.updateSphereParticles(dt);
+      this.updateSurfaceFlowShader(dt);
       if (!this.gravityWellCacheUpdated && this.world) {
         updateGravityWellCache(this.world);
         if (getGravityWellCache().length > 0) {
@@ -616,5 +956,44 @@ export class EnvironmentSystem {
     }
 
     this.sphereParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  /**
+   * Update surface flow shader uniforms with current time and entity positions
+   * Called each frame in sphere mode to animate the "cosmic liquid" surface
+   */
+  private updateSurfaceFlowShader(dt: number): void {
+    if (!this.surfaceFlowMaterial) return;
+
+    const uniforms = this.surfaceFlowMaterial.uniforms;
+
+    // Update time (convert ms to seconds for shader)
+    uniforms.uTime.value += dt / 1000;
+
+    // Collect entity positions from ECS (players and bots)
+    const positions: THREE.Vector3[] = [];
+
+    this.world.forEachWithTag(Tags.Player, (entity) => {
+      if (positions.length >= SURFACE_FLOW_CONFIG.maxEntities) return;
+
+      const pos = this.world.getComponent(entity, Components.Position);
+      if (pos) {
+        positions.push(new THREE.Vector3(pos.x, pos.y, pos.z ?? 0));
+      }
+    });
+
+    // Update entity count uniform
+    uniforms.uEntityCount.value = positions.length;
+
+    // Update positions array (existing Vector3 objects are mutated in place)
+    const uniformPositions = uniforms.uEntityPositions.value as THREE.Vector3[];
+    for (let i = 0; i < SURFACE_FLOW_CONFIG.maxEntities; i++) {
+      if (i < positions.length) {
+        uniformPositions[i].copy(positions[i]);
+      } else {
+        // Zero out unused slots (won't affect shader due to uEntityCount check)
+        uniformPositions[i].set(0, 0, 0);
+      }
+    }
   }
 }
