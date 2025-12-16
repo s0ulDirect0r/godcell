@@ -97,7 +97,6 @@ import {
   SphereMovementSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
-  NutrientAttractionSystem,
   MacroResourceCollisionSystem,
   DataFruitSystem,
   DeathSystem,
@@ -592,7 +591,6 @@ if (isSphereMode()) {
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
 systemRunner.register(new MacroResourceCollisionSystem(), SystemPriority.MACRO_RESOURCE_COLLISION);
-systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
 systemRunner.register(new DeathSystem(), SystemPriority.DEATH);
 
 // Network
