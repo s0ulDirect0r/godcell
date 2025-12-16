@@ -67,6 +67,36 @@ export function makeTangent(pos: Vec3, vel: Vec3): Vec3 {
 }
 
 /**
+ * Get normalized tangent direction from one point toward another on sphere surface.
+ * Projects the 3D direction onto the tangent plane at 'from' position.
+ * Used for gravity direction calculations in sphere mode.
+ */
+export function tangentToward(from: Vec3, to: Vec3): Vec3 {
+  // Direction in 3D space
+  const dir = {
+    x: to.x - from.x,
+    y: to.y - from.y,
+    z: to.z - from.z,
+  };
+
+  // Project onto tangent plane at 'from'
+  const normal = getSurfaceNormal(from);
+  const dot = dir.x * normal.x + dir.y * normal.y + dir.z * normal.z;
+
+  const tangent = {
+    x: dir.x - dot * normal.x,
+    y: dir.y - dot * normal.y,
+    z: dir.z - dot * normal.z,
+  };
+
+  // Normalize
+  const len = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z);
+  if (len < 0.0001) return { x: 0, y: 0, z: 0 };
+
+  return { x: tangent.x / len, y: tangent.y / len, z: tangent.z / len };
+}
+
+/**
  * Transform 2D input direction to 3D world direction tangent to sphere
  *
  * @param inputX - Left/right input (-1 to 1)
