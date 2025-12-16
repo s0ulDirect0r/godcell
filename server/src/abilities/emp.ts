@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Components } from '#shared';
+import { GAME_CONFIG, EvolutionStage, Components, distanceForMode } from '#shared';
 import type { EMPActivatedMessage, StunnedComponent, EntityId, World } from '#shared';
 import { getConfig } from '../dev';
 import { logger } from '../logger';
@@ -13,7 +13,6 @@ import {
   forEachPlayer,
   forEachSwarm,
 } from '../ecs/factories';
-import { distance } from '../helpers/math';
 
 /**
  * Fire EMP ability (Stage 2 Multi-Cell only)
@@ -50,7 +49,7 @@ export function fireEMP(
   // Apply energy cost
   subtractEnergy(world, entity, getConfig('EMP_ENERGY_COST'));
 
-  const playerPosition = { x: posComp.x, y: posComp.y };
+  const playerPosition = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
 
   // Find affected entities within range
   const affectedSwarmIds: string[] = [];
@@ -60,8 +59,8 @@ export function fireEMP(
   forEachSwarm(
     world,
     (_swarmEntity, swarmId, swarmPosComp, _velocityComp, swarmComp, _swarmEnergyComp) => {
-      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
-      const dist = distance(playerPosition, swarmPosition);
+      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y, z: swarmPosComp.z ?? 0 };
+      const dist = distanceForMode(playerPosition, swarmPosition);
       if (dist <= getConfig('EMP_RANGE')) {
         swarmComp.disabledUntil = now + getConfig('EMP_DISABLE_DURATION');
         affectedSwarmIds.push(swarmId);
@@ -80,7 +79,7 @@ export function fireEMP(
     if (!otherEnergy || !otherStage || !otherPos) return;
     if (otherEnergy.current <= 0) return;
 
-    const dist = distance(playerPosition, { x: otherPos.x, y: otherPos.y });
+    const dist = distanceForMode(playerPosition, { x: otherPos.x, y: otherPos.y, z: otherPos.z ?? 0 });
     if (dist <= getConfig('EMP_RANGE')) {
       // Single-cells get 50% stun duration
       const stunDuration =
