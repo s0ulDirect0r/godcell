@@ -5,7 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { World, Tags, Components, isSphereMode } from '../../ecs';
+import { World, Tags, Components, isSphereMode, GAME_CONFIG } from '../../ecs';
 
 // ============================================
 // Configuration
@@ -234,7 +234,7 @@ export class WakeParticleSystem {
     if (sphereMode) {
       const len = Math.sqrt(spawnX * spawnX + spawnY * spawnY + spawnZ * spawnZ);
       if (len > 0) {
-        const targetRadius = 2448 + 2; // Sphere radius + slight lift
+        const targetRadius = GAME_CONFIG.SPHERE_RADIUS + 2; // Sphere radius + slight lift
         const scale = targetRadius / len;
         spawnX *= scale;
         spawnY *= scale;
@@ -284,7 +284,7 @@ export class WakeParticleSystem {
         const len = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         if (len > 0) {
           // Keep particles slightly above sphere surface
-          const targetRadius = 2448 + 2; // Sphere radius + lift
+          const targetRadius = GAME_CONFIG.SPHERE_RADIUS + 2; // Sphere radius + lift
           const scale = targetRadius / len;
           p.x *= scale;
           p.y *= scale;
