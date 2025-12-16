@@ -687,11 +687,12 @@ export function getPlayerSnapshot(world: World, entity: EntityId): PlayerSnapsho
 export function entityToLegacyPlayer(world: World, entity: EntityId): Player | null {
   const player = world.getComponent<PlayerComponent>(entity, Components.Player);
   const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
   const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
   const stage = world.getComponent<StageComponent>(entity, Components.Stage);
   const socketId = getSocketIdByEntity(entity);
 
-  if (!player || !pos || !energy || !stage || !socketId) {
+  if (!player || !pos || !vel || !energy || !stage || !socketId) {
     return null;
   }
 
@@ -701,6 +702,7 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
   return {
     id: socketId,
     position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: { x: vel.x, y: vel.y, z: vel.z },
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,

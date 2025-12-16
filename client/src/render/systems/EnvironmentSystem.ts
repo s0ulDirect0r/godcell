@@ -94,6 +94,14 @@ export class EnvironmentSystem {
   // Sphere mode background
   private sphereBackgroundGroup!: THREE.Group;
   private isSphereWorld: boolean = false;
+  private sphereParticles!: THREE.Points;
+  private sphereParticleData: Array<{
+    theta: number;  // Longitude angle
+    phi: number;    // Latitude angle
+    vTheta: number; // Angular velocity in theta
+    vPhi: number;   // Angular velocity in phi
+    size: number;
+  }> = [];
 
   /**
    * Initialize environment system with scene and world references
@@ -141,7 +149,10 @@ export class EnvironmentSystem {
   }
 
   /**
-   * Create sphere world environment (wireframe sphere + equator)
+   * Create sphere world environment
+   * - Opaque sphere for far-side occlusion
+   * - Wireframe grid overlay for visual reference
+   * - Flowing data particles on surface
    */
   private createSphereEnvironment(): void {
     this.sphereBackgroundGroup = new THREE.Group();
@@ -149,19 +160,31 @@ export class EnvironmentSystem {
 
     const radius = GAME_CONFIG.SPHERE_RADIUS;
 
-    // Sphere wireframe (icosahedron for even distribution)
+    // === LAYER 1: Solid sphere for far-side occlusion ===
+    // FrontSide renders outside faces - camera is outside sphere, so this occludes far side
     const sphereGeometry = new THREE.IcosahedronGeometry(radius, 3);
     const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: GAME_CONFIG.BACKGROUND_COLOR,
+      side: THREE.FrontSide,
+      depthWrite: true,  // Write depth so far-side entities fail depth test
+    });
+    const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    this.sphereBackgroundGroup.add(sphereMesh);
+
+    // === LAYER 2: Wireframe grid overlay ===
+    // Slightly larger radius so it renders on top of solid sphere
+    const wireframeGeometry = new THREE.IcosahedronGeometry(radius + 1, 3);
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
       color: GAME_CONFIG.GRID_COLOR,
       wireframe: true,
       transparent: true,
       opacity: 0.3,
     });
-    const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
-    this.sphereBackgroundGroup.add(sphereMesh);
+    const wireframeMesh = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
+    this.sphereBackgroundGroup.add(wireframeMesh);
 
-    // Equator ring for reference
-    const equatorGeometry = new THREE.TorusGeometry(radius, 2, 4, 64);
+    // === LAYER 3: Equator ring for orientation ===
+    const equatorGeometry = new THREE.TorusGeometry(radius + 2, 2, 4, 64);
     const equatorMaterial = new THREE.MeshBasicMaterial({
       color: 0x00ff88,
       transparent: true,
@@ -171,7 +194,67 @@ export class EnvironmentSystem {
     equatorMesh.rotation.x = Math.PI / 2;
     this.sphereBackgroundGroup.add(equatorMesh);
 
+    // === LAYER 4: Flowing data particles on sphere surface ===
+    this.createSphereParticles(radius);
+
     this.scene.add(this.sphereBackgroundGroup);
+  }
+
+  /**
+   * Create flowing data particles on sphere surface
+   */
+  private createSphereParticles(radius: number): void {
+    const particleCount = GAME_CONFIG.MAX_PARTICLES;
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+
+    // Particles are positioned using spherical coordinates (theta, phi)
+    // and flow along the surface
+    for (let i = 0; i < particleCount; i++) {
+      const theta = Math.random() * Math.PI * 2;  // Longitude: 0 to 2π
+      const phi = Math.acos(2 * Math.random() - 1);  // Latitude: 0 to π (uniform distribution)
+      const size =
+        GAME_CONFIG.PARTICLE_MIN_SIZE +
+        Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
+
+      // Convert spherical to Cartesian (slightly above surface)
+      const r = radius + 5;  // Lift particles above surface
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.cos(phi);
+      positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+
+      sizes[i] = size;
+
+      // Angular velocity - particles flow diagonally across sphere
+      const baseSpeed = 0.02;  // Radians per second
+      const variance = (Math.random() - 0.5) * 0.02;
+      this.sphereParticleData.push({
+        theta,
+        phi,
+        vTheta: baseSpeed + variance,  // Longitude drift
+        vPhi: (Math.random() - 0.5) * 0.01,  // Slight latitude wobble
+        size,
+      });
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      color: GAME_CONFIG.PARTICLE_COLOR,  // Cyan data particles
+      size: 5,
+      transparent: true,
+      opacity: 0.6,
+      sizeAttenuation: false,
+      map: this.createCircleTexture(),
+      alphaTest: 0.5,
+      depthTest: true,  // Respect sphere occlusion
+      depthWrite: false,
+    });
+
+    this.sphereParticles = new THREE.Points(geometry, material);
+    this.sphereBackgroundGroup.add(this.sphereParticles);
   }
 
   // ============================================
@@ -266,8 +349,9 @@ export class EnvironmentSystem {
    * @param dt - Delta time in milliseconds
    */
   update(dt: number): void {
-    // Sphere mode: still update gravity well cache for entity warping
+    // Sphere mode: update particles and gravity well cache
     if (this.isSphereWorld) {
+      this.updateSphereParticles(dt);
       if (!this.gravityWellCacheUpdated && this.world) {
         updateGravityWellCache(this.world);
         if (getGravityWellCache().length > 0) {
@@ -492,5 +576,45 @@ export class EnvironmentSystem {
 
     // Mark positions as needing update
     this.dataParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  /**
+   * Update sphere particles - flow across sphere surface
+   */
+  private updateSphereParticles(dt: number): void {
+    if (!this.sphereParticles) return;
+
+    const deltaSeconds = dt / 1000;
+    const radius = GAME_CONFIG.SPHERE_RADIUS + 5;  // Same offset as creation
+    const positions = this.sphereParticles.geometry.attributes.position.array as Float32Array;
+
+    for (let i = 0; i < this.sphereParticleData.length; i++) {
+      const particle = this.sphereParticleData[i];
+
+      // Update angular positions
+      particle.theta += particle.vTheta * deltaSeconds;
+      particle.phi += particle.vPhi * deltaSeconds;
+
+      // Wrap theta (longitude) around 0 to 2π
+      if (particle.theta > Math.PI * 2) particle.theta -= Math.PI * 2;
+      if (particle.theta < 0) particle.theta += Math.PI * 2;
+
+      // Bounce phi (latitude) at poles to keep particles on visible hemisphere
+      if (particle.phi < 0.1) {
+        particle.phi = 0.1;
+        particle.vPhi = Math.abs(particle.vPhi);
+      }
+      if (particle.phi > Math.PI - 0.1) {
+        particle.phi = Math.PI - 0.1;
+        particle.vPhi = -Math.abs(particle.vPhi);
+      }
+
+      // Convert spherical to Cartesian
+      positions[i * 3] = radius * Math.sin(particle.phi) * Math.cos(particle.theta);
+      positions[i * 3 + 1] = radius * Math.cos(particle.phi);
+      positions[i * 3 + 2] = radius * Math.sin(particle.phi) * Math.sin(particle.theta);
+    }
+
+    this.sphereParticles.geometry.attributes.position.needsUpdate = true;
   }
 }

@@ -38,4 +38,5 @@ lofi-mmo/Cargo.lock
 
 # Test results (generated on each test run)
 test-results/
+.playwright-mcp/
 .vercel

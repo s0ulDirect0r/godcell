@@ -401,6 +401,20 @@ Mocks for server dependencies live in `__tests__/setup.ts` (vitest setupFiles).
 - Network round-trips (use integration tests sparingly)
 - Trivial getters/setters
 
+### Visual/Rendering Changes
+
+Build success ≠ visual verification. For shader, Three.js, or rendering changes:
+
+1. **Build success only means TypeScript compiled** — WebGL shaders compile at runtime in the browser
+2. **You cannot verify visual changes without seeing them**
+3. **Options for verification:**
+   - Use Playwright MCP tools to navigate to `localhost:5173` and take a screenshot
+   - Ask user to run `npm run dev` and verify visually
+   - **Never** mark visual testing "complete" without actual visual confirmation
+
+If you cannot visually verify, say so explicitly:
+> "Builds successfully, but I haven't verified the visual result. Want me to use Playwright to screenshot, or would you prefer to check it yourself?"
+
 ---
 
 ## 8. Work Tracking: bd (beads) & MCP

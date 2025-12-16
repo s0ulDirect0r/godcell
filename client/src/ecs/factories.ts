@@ -162,6 +162,13 @@ export function upsertPlayer(world: World, player: Player): EntityId {
       pos.z = player.position.z;
     }
 
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    if (vel) {
+      vel.x = player.velocity.x;
+      vel.y = player.velocity.y;
+      vel.z = player.velocity.z;
+    }
+
     const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
     if (energy) {
       energy.current = player.energy;
@@ -196,6 +203,12 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     x: player.position.x,
     y: player.position.y,
     z: player.position.z,
+  });
+
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: player.velocity.x,
+    y: player.velocity.y,
+    z: player.velocity.z,
   });
 
   world.addComponent<EnergyComponent>(entity, Components.Energy, {
