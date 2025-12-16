@@ -12,6 +12,14 @@ export interface Position {
   z?: number; // Optional, defaults to 0 (ground level)
 }
 
+// Velocity vector (units per second)
+// Same shape as Position but represents rate of change, not location
+export interface Velocity {
+  x: number;
+  y: number;
+  z?: number; // Optional, defaults to 0
+}
+
 // Death causes for players
 export type DeathCause =
   | 'starvation'
@@ -82,6 +90,7 @@ export function getEntityScale(stage: EvolutionStage): EntityScale {
 export interface Player {
   id: string;
   position: Position;
+  velocity: Velocity; // Current movement (units/sec) - used for client-side visual effects
   color: string; // Hex color like "#FF5733"
 
   // Energy-Only System
