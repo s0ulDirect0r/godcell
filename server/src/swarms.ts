@@ -1,4 +1,4 @@
-import { GAME_CONFIG, distanceForMode, isSphereMode, getRandomSpherePosition, projectToSphere, makeTangent } from '#shared';
+import { GAME_CONFIG, distanceForMode, isSphereMode, getRandomSpherePosition, projectToSphere, makeTangent, tangentToward, type Vec3 } from '#shared';
 import type { EntropySwarm, Position, SwarmSpawnedMessage } from '#shared';
 import type { Server } from 'socket.io';
 import { getConfig } from './dev';
@@ -125,8 +125,66 @@ function generateSwarmPositions(count: number): Position[] {
 
 /**
  * Generate a random patrol target within radius of spawn point
+ * - Sphere mode: Random point on sphere within angular distance
+ * - Flat mode: Random point in 2D circle
  */
 function generatePatrolTarget(spawnPos: Position): Position {
+  if (isSphereMode()) {
+    // Generate random direction on tangent plane, then project to sphere
+    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+    const patrolDist = Math.random() * GAME_CONFIG.SWARM_PATROL_RADIUS;
+    const angle = Math.random() * Math.PI * 2;
+
+    // Get tangent basis vectors at spawn position
+    const pos: Vec3 = { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z ?? 0 };
+    const normal = {
+      x: pos.x / sphereRadius,
+      y: pos.y / sphereRadius,
+      z: pos.z / sphereRadius
+    };
+
+    // Create arbitrary tangent vectors
+    let tangent1: Vec3;
+    if (Math.abs(normal.y) < 0.9) {
+      // Cross with world up
+      tangent1 = {
+        x: normal.z,
+        y: 0,
+        z: -normal.x
+      };
+    } else {
+      // Cross with world right
+      tangent1 = {
+        x: 0,
+        y: -normal.z,
+        z: normal.y
+      };
+    }
+    const t1Len = Math.sqrt(tangent1.x * tangent1.x + tangent1.y * tangent1.y + tangent1.z * tangent1.z);
+    tangent1 = { x: tangent1.x / t1Len, y: tangent1.y / t1Len, z: tangent1.z / t1Len };
+
+    // Second tangent is cross of normal and tangent1
+    const tangent2: Vec3 = {
+      x: normal.y * tangent1.z - normal.z * tangent1.y,
+      y: normal.z * tangent1.x - normal.x * tangent1.z,
+      z: normal.x * tangent1.y - normal.y * tangent1.x,
+    };
+
+    // Move in random direction on tangent plane
+    const dx = Math.cos(angle) * patrolDist;
+    const dy = Math.sin(angle) * patrolDist;
+    const newPos: Vec3 = {
+      x: pos.x + tangent1.x * dx + tangent2.x * dy,
+      y: pos.y + tangent1.y * dx + tangent2.y * dy,
+      z: pos.z + tangent1.z * dx + tangent2.z * dy,
+    };
+
+    // Project back to sphere
+    const projected = projectToSphere(newPos, sphereRadius);
+    return { x: projected.x, y: projected.y, z: projected.z };
+  }
+
+  // Flat mode: simple 2D circle
   const angle = Math.random() * Math.PI * 2;
   const radius = Math.random() * GAME_CONFIG.SWARM_PATROL_RADIUS;
   return {
@@ -195,8 +253,8 @@ export function initializeSwarms(world: World, io: Server) {
 function findNearestPlayer(
   swarmPosition: Position,
   world: World
-): { id: string; entityId: EntityId; position: { x: number; y: number } } | null {
-  let nearestPlayer: { id: string; entityId: EntityId; position: { x: number; y: number } } | null =
+): { id: string; entityId: EntityId; position: { x: number; y: number; z: number } } | null {
+  let nearestPlayer: { id: string; entityId: EntityId; position: { x: number; y: number; z: number } } | null =
     null;
   let nearestDist = getConfig('SWARM_DETECTION_RADIUS');
 
@@ -212,7 +270,7 @@ function findNearestPlayer(
     // Swarms only chase soup-stage players (Stage 1-2)
     if (!isSoupStage(stageComp.stage)) return;
 
-    const playerPosition = { x: posComp.x, y: posComp.y };
+    const playerPosition = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
     const dist = distanceForMode(swarmPosition, playerPosition);
     if (dist < nearestDist) {
       nearestDist = dist;
@@ -226,14 +284,16 @@ function findNearestPlayer(
 /**
  * Calculate avoidance force to steer away from dangerous obstacle cores
  * Uses ECS to query obstacle positions
- * Returns a velocity adjustment to apply
+ * Returns a velocity adjustment to apply (3D for sphere mode)
  */
 function calculateObstacleAvoidance(
   swarmPosition: Position,
   world: World
-): { x: number; y: number } {
+): { x: number; y: number; z: number } {
   let avoidanceX = 0;
   let avoidanceY = 0;
+  let avoidanceZ = 0;
+  const sphereMode = isSphereMode();
 
   // Swarms start avoiding at 2x the core radius (give them more warning)
   const avoidanceRadius = getConfig('OBSTACLE_CORE_RADIUS') * 2;
@@ -242,41 +302,53 @@ function calculateObstacleAvoidance(
   const obstacles = getAllObstacleSnapshots(world);
 
   for (const obstacle of obstacles) {
-    const dist = distanceForMode(swarmPosition, obstacle.position);
+    const obstaclePos = { x: obstacle.position.x, y: obstacle.position.y, z: obstacle.position.z ?? 0 };
+    const dist = distanceForMode(swarmPosition, obstaclePos);
 
     // If within avoidance radius, apply repulsion force
     if (dist < avoidanceRadius) {
-      // Direction away from obstacle
-      const dx = swarmPosition.x - obstacle.position.x;
-      const dy = swarmPosition.y - obstacle.position.y;
       const distSq = Math.max(dist * dist, 1); // Prevent division by zero
 
       // Stronger avoidance the closer we get (inverse square)
-      // Treat as acceleration for consistency with movement system
       const accelerationMagnitude =
         ((avoidanceRadius * avoidanceRadius) / distSq) * getConfig('SWARM_SPEED') * 16;
 
-      avoidanceX += (dx / dist) * accelerationMagnitude;
-      avoidanceY += (dy / dist) * accelerationMagnitude;
+      if (sphereMode) {
+        // Sphere mode: use tangent direction AWAY from obstacle
+        const swarmPos3D: Vec3 = { x: swarmPosition.x, y: swarmPosition.y, z: swarmPosition.z ?? 0 };
+        const awayDir = tangentToward(swarmPos3D, obstaclePos);
+        // Negate to move AWAY from obstacle
+        avoidanceX -= awayDir.x * accelerationMagnitude;
+        avoidanceY -= awayDir.y * accelerationMagnitude;
+        avoidanceZ -= awayDir.z * accelerationMagnitude;
+      } else {
+        // Flat mode: 2D direction away from obstacle
+        const dx = swarmPosition.x - obstacle.position.x;
+        const dy = swarmPosition.y - obstacle.position.y;
+        avoidanceX += (dx / dist) * accelerationMagnitude;
+        avoidanceY += (dy / dist) * accelerationMagnitude;
+      }
     }
   }
 
-  return { x: avoidanceX, y: avoidanceY };
+  return { x: avoidanceX, y: avoidanceY, z: avoidanceZ };
 }
 
 /**
  * Calculate repulsion force to prevent swarms from overlapping each other
  * Swarms take up physical space and push each other away
  * Uses ECS to query other swarm positions
- * Returns a velocity adjustment to apply
+ * Returns a velocity adjustment to apply (3D for sphere mode)
  */
 function calculateSwarmRepulsion(
   swarmId: string,
   swarmPosition: Position,
   world: World
-): { x: number; y: number } {
+): { x: number; y: number; z: number } {
   let repulsionX = 0;
   let repulsionY = 0;
+  let repulsionZ = 0;
+  const sphereMode = isSphereMode();
 
   // Swarms repel when their spheres would overlap (2x swarm size = touching)
   const repulsionRadius = GAME_CONFIG.SWARM_SIZE * 2.2; // Slight buffer for smoother spacing
@@ -286,27 +358,36 @@ function calculateSwarmRepulsion(
     // Skip self
     if (otherId === swarmId) return;
 
-    const otherPosition = { x: otherPos.x, y: otherPos.y };
+    const otherPosition = { x: otherPos.x, y: otherPos.y, z: otherPos.z ?? 0 };
     const dist = distanceForMode(swarmPosition, otherPosition);
 
     // If swarms are too close, apply repulsion force
     if (dist < repulsionRadius) {
-      // Direction away from other swarm
-      const dx = swarmPosition.x - otherPosition.x;
-      const dy = swarmPosition.y - otherPosition.y;
       const distSq = Math.max(dist * dist, 1); // Prevent division by zero
 
       // Stronger repulsion the closer they get (inverse square)
-      // Use moderate force - swarms should spread out but not violently
       const accelerationMagnitude =
         ((repulsionRadius * repulsionRadius) / distSq) * getConfig('SWARM_SPEED') * 8;
 
-      repulsionX += (dx / dist) * accelerationMagnitude;
-      repulsionY += (dy / dist) * accelerationMagnitude;
+      if (sphereMode) {
+        // Sphere mode: use tangent direction AWAY from other swarm
+        const swarmPos3D: Vec3 = { x: swarmPosition.x, y: swarmPosition.y, z: swarmPosition.z ?? 0 };
+        const awayDir = tangentToward(swarmPos3D, otherPosition);
+        // Negate to move AWAY from other swarm
+        repulsionX -= awayDir.x * accelerationMagnitude;
+        repulsionY -= awayDir.y * accelerationMagnitude;
+        repulsionZ -= awayDir.z * accelerationMagnitude;
+      } else {
+        // Flat mode: 2D direction away from other swarm
+        const dx = swarmPosition.x - otherPosition.x;
+        const dy = swarmPosition.y - otherPosition.y;
+        repulsionX += (dx / dist) * accelerationMagnitude;
+        repulsionY += (dy / dist) * accelerationMagnitude;
+      }
     }
   });
 
-  return { x: repulsionX, y: repulsionY };
+  return { x: repulsionX, y: repulsionY, z: repulsionZ };
 }
 
 /**
@@ -315,6 +396,7 @@ function calculateSwarmRepulsion(
  */
 export function updateSwarms(currentTime: number, world: World, deltaTime: number) {
   const now = Date.now();
+  const sphereMode = isSphereMode();
 
   // Iterate all swarms via ECS
   forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, energyComp) => {
@@ -322,10 +404,11 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
     if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) {
       velComp.x = 0; // Zero velocity while disabled
       velComp.y = 0;
+      if (sphereMode) velComp.z = 0;
       return;
     }
 
-    const swarmPosition = { x: posComp.x, y: posComp.y };
+    const swarmPosition = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
 
     // Fat swarms are slightly faster - very gentle scaling
     // At 500 energy = 1.1x speed (10% faster), at 100 = 1x
@@ -345,17 +428,24 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
         swarmComp.patrolTarget = undefined;
       }
 
-      // Calculate direction toward player and add to existing velocity (gravity)
-      const dx = nearestPlayer.position.x - swarmPosition.x;
-      const dy = nearestPlayer.position.y - swarmPosition.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Calculate direction toward player
+      const acceleration = getConfig('SWARM_SPEED') * 8 * energySpeedScale;
 
-      if (dist > 0) {
-        // Add AI movement as acceleration (like player input)
-        // Acceleration scales with energy - fat swarms accelerate faster
-        const acceleration = getConfig('SWARM_SPEED') * 8 * energySpeedScale;
-        velComp.x += (dx / dist) * acceleration * deltaTime;
-        velComp.y += (dy / dist) * acceleration * deltaTime;
+      if (sphereMode) {
+        // Sphere mode: use tangent direction toward player
+        const chaseDir = tangentToward(swarmPosition as Vec3, nearestPlayer.position as Vec3);
+        velComp.x += chaseDir.x * acceleration * deltaTime;
+        velComp.y += chaseDir.y * acceleration * deltaTime;
+        velComp.z = (velComp.z ?? 0) + chaseDir.z * acceleration * deltaTime;
+      } else {
+        // Flat mode: 2D direction
+        const dx = nearestPlayer.position.x - swarmPosition.x;
+        const dy = nearestPlayer.position.y - swarmPosition.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0) {
+          velComp.x += (dx / dist) * acceleration * deltaTime;
+          velComp.y += (dy / dist) * acceleration * deltaTime;
+        }
       }
     } else {
       // PATROL: No players nearby, wander around
@@ -374,16 +464,25 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
           swarmComp.patrolTarget = generatePatrolTarget(swarmComp.homePosition);
         }
 
-        // Move toward patrol target and add to existing velocity (gravity)
-        const dx = swarmComp.patrolTarget.x - swarmPosition.x;
-        const dy = swarmComp.patrolTarget.y - swarmPosition.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        // Move toward patrol target
+        const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6 * energySpeedScale;
 
-        if (dist > 0) {
-          // Slower acceleration while patrolling (60% of chase speed), still scales with energy
-          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6 * energySpeedScale;
-          velComp.x += (dx / dist) * patrolAcceleration * deltaTime;
-          velComp.y += (dy / dist) * patrolAcceleration * deltaTime;
+        if (sphereMode) {
+          // Sphere mode: use tangent direction toward target
+          const patrolTarget3D = { x: swarmComp.patrolTarget.x, y: swarmComp.patrolTarget.y, z: swarmComp.patrolTarget.z ?? 0 };
+          const patrolDir = tangentToward(swarmPosition as Vec3, patrolTarget3D);
+          velComp.x += patrolDir.x * patrolAcceleration * deltaTime;
+          velComp.y += patrolDir.y * patrolAcceleration * deltaTime;
+          velComp.z = (velComp.z ?? 0) + patrolDir.z * patrolAcceleration * deltaTime;
+        } else {
+          // Flat mode: 2D direction
+          const dx = swarmComp.patrolTarget.x - swarmPosition.x;
+          const dy = swarmComp.patrolTarget.y - swarmPosition.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 0) {
+            velComp.x += (dx / dist) * patrolAcceleration * deltaTime;
+            velComp.y += (dy / dist) * patrolAcceleration * deltaTime;
+          }
         }
       }
     }
@@ -392,18 +491,25 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
     const avoidance = calculateObstacleAvoidance(swarmPosition, world);
     velComp.x += avoidance.x * deltaTime;
     velComp.y += avoidance.y * deltaTime;
+    if (sphereMode) velComp.z = (velComp.z ?? 0) + avoidance.z * deltaTime;
 
     // Apply swarm-swarm repulsion (prevent overlap)
     const repulsion = calculateSwarmRepulsion(swarmId, swarmPosition, world);
     velComp.x += repulsion.x * deltaTime;
     velComp.y += repulsion.y * deltaTime;
+    if (sphereMode) velComp.z = (velComp.z ?? 0) + repulsion.z * deltaTime;
 
     // Clamp to max speed - scales with energy so fat swarms are faster
-    const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
+    const vz = velComp.z ?? 0;
+    const velocityMagnitude = sphereMode
+      ? Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y + vz * vz)
+      : Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
     const maxSpeed = getConfig('SWARM_SPEED') * 1.2 * energySpeedScale;
     if (velocityMagnitude > maxSpeed) {
-      velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
-      velComp.y = (velComp.y / velocityMagnitude) * maxSpeed;
+      const scale = maxSpeed / velocityMagnitude;
+      velComp.x *= scale;
+      velComp.y *= scale;
+      if (sphereMode) velComp.z = vz * scale;
     }
   });
 }
