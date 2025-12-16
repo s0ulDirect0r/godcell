@@ -396,7 +396,8 @@ export class SocketManager {
         data.playerId,
         data.position.x,
         data.position.y,
-        data.position.z
+        data.position.z,
+        data.velocity
       );
       eventBus.emit(data);
     });

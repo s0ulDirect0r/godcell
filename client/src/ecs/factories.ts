@@ -29,6 +29,7 @@ import type {
 } from '#shared';
 import type {
   Player,
+  Velocity,
   Nutrient,
   Obstacle,
   EntropySwarm,
@@ -241,7 +242,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
 }
 
 /**
- * Update player position target (for interpolation).
+ * Update player position target (for interpolation) and velocity.
  * z is optional - only used for Stage 5 (godcell) 3D movement.
  */
 export function updatePlayerTarget(
@@ -249,7 +250,8 @@ export function updatePlayerTarget(
   playerId: string,
   x: number,
   y: number,
-  z?: number
+  z?: number,
+  velocity?: Velocity
 ): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
@@ -260,6 +262,16 @@ export function updatePlayerTarget(
     pos.y = y;
     if (z !== undefined) {
       pos.z = z;
+    }
+  }
+
+  // Update velocity component (for client-side visual effects)
+  if (velocity) {
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    if (vel) {
+      vel.x = velocity.x;
+      vel.y = velocity.y;
+      vel.z = velocity.z ?? 0;
     }
   }
 
