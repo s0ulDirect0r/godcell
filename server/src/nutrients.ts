@@ -130,7 +130,7 @@ export function spawnNutrientAt(
   // Build nutrient data for return/broadcast
   const nutrient: Nutrient = {
     id,
-    position: { x: position.x, y: position.y },
+    position: { x: position.x, y: position.y, z: position.z ?? 0 },
     value,
     capacityIncrease,
     valueMultiplier,
