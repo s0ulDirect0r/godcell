@@ -335,7 +335,7 @@ export function createGravityDistortion(
     transparent: true,
     side: THREE.DoubleSide,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,  // Allow sphere surface to occlude this
     blending: THREE.AdditiveBlending, // Glow effect
   });
   const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);

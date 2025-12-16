@@ -69,7 +69,7 @@ export function createSwarm(
     roughness: 1.0,
     side: THREE.DoubleSide,
     depthWrite: false, // Don't write depth (standard for transparent objects)
-    depthTest: false, // Bypass depth testing (original fix for obstacle overlap)
+    depthTest: true, // Allow sphere surface to occlude swarms
   });
   const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
   group.add(outerSphere);
