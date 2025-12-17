@@ -10,8 +10,9 @@ import type {
   PlayerEvolvedMessage,
   SpecializationPromptMessage,
 } from '#shared';
-import { EvolutionStage, GAME_CONFIG } from '#shared';
+import { EvolutionStage, GAME_CONFIG, projectToSphere } from '#shared';
 import type { System } from './types';
+import type { SphereContextComponent, PositionComponent } from '#shared';
 import {
   Components,
   forEachPlayer,
@@ -22,6 +23,7 @@ import {
   recordDamage,
   requireEnergy,
   requireStage,
+  requirePosition,
   type CombatSpecializationComponent,
 } from '../index';
 import { getConfig } from '../../dev';
@@ -177,6 +179,43 @@ export class MetabolismSystem implements System {
               : 'player_specialization_prompt_sent',
             playerId,
             deadline,
+          });
+
+          // Teleport to jungle sphere (inner surface)
+          // Get current position and project to jungle sphere radius
+          const posComp = requirePosition(world, entityNow);
+          const currentPos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+          const junglePos = projectToSphere(currentPos, GAME_CONFIG.JUNGLE_SPHERE_RADIUS);
+
+          // Update position to jungle sphere
+          posComp.x = junglePos.x;
+          posComp.y = junglePos.y;
+          posComp.z = junglePos.z;
+
+          // Update sphere context to jungle inner surface
+          const sphereCtx = world.getComponent<SphereContextComponent>(
+            entityNow,
+            Components.SphereContext
+          );
+          if (sphereCtx) {
+            sphereCtx.surfaceRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+            sphereCtx.isInnerSurface = true;
+          }
+
+          // Broadcast position update for sphere transition
+          io.emit('playerMoved', {
+            type: 'playerMoved',
+            playerId: playerId,
+            position: { x: posComp.x, y: posComp.y, z: posComp.z },
+            velocity: { x: 0, y: 0, z: 0 },
+          });
+
+          logger.info({
+            event: 'player_ascended_to_jungle',
+            playerId,
+            fromRadius: GAME_CONFIG.SOUP_SPHERE_RADIUS,
+            toRadius: GAME_CONFIG.JUNGLE_SPHERE_RADIUS,
+            newPosition: { x: posComp.x, y: posComp.y, z: posComp.z },
           });
         }
 
