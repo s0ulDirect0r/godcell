@@ -115,13 +115,16 @@ export class SocketManager {
   // Local player's combat specialization (Stage 3+)
   private _mySpecialization: CombatSpecialization = null;
 
-  constructor(serverUrl: string, world: World, isPlaygroundParam = false) {
+  constructor(serverUrl: string, world: World, isPlaygroundParam = false, isSpectatorParam = false) {
     this.world = world;
 
     // Check for playground mode - connects to separate server on port 3001
     // Can be enabled via URL param (?playground) OR passed directly from start screen
     const isPlayground =
       isPlaygroundParam || new URLSearchParams(window.location.search).has('playground');
+    const isSpectator =
+      isSpectatorParam || new URLSearchParams(window.location.search).has('spectator');
+
     let targetUrl = serverUrl;
     if (isPlayground) {
       console.log('[Socket] Playground mode - connecting to port 3001');
@@ -134,12 +137,19 @@ export class SocketManager {
       }
     }
 
+    if (isSpectator) {
+      console.log('[Socket] Spectator mode - no player will be created');
+    }
+
     this.socket = io(targetUrl, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: this.maxReconnectAttempts,
+      auth: {
+        spectator: isSpectator,
+      },
     });
 
     this.setupHandlers();

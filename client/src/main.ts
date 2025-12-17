@@ -103,6 +103,9 @@ new StartScreen({
   },
 });
 
+// Track if we should auto-enable observer mode after init
+let startInObserverMode = false;
+
 // ============================================
 // Game Initialization (called when player clicks Enter)
 // ============================================
@@ -112,6 +115,10 @@ function initializeGame(settings: PreGameSettings): void {
   gameStarted = true;
 
   console.log('[Init] Starting GODCELL...');
+  if (settings.observerMode) {
+    console.log('[Init] Observer mode - will enable free-fly camera after connect');
+    startInObserverMode = true;
+  }
   if (settings.playgroundMode) {
     console.log('[Init] Playground mode enabled');
   }
@@ -139,7 +146,8 @@ function initializeGame(settings: PreGameSettings): void {
     (window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
   // Connect to server - SocketManager writes directly to World
-  socketManager = new SocketManager(serverUrl, world, settings.playgroundMode);
+  // Pass observerMode as spectator flag (no player creation)
+  socketManager = new SocketManager(serverUrl, world, settings.playgroundMode, settings.observerMode);
 
   // Setup console log forwarding to server (for debugging)
   setupLogForwarding(socketManager);
@@ -242,9 +250,30 @@ function initializeGame(settings: PreGameSettings): void {
 
   // Perf debug toggles (always available) - tracked for cleanup
   addTrackedListener(window, 'keydown', (e) => {
+    const key = (e as KeyboardEvent).key;
+
     // B = toggle bloom
-    if ((e as KeyboardEvent).key === 'b' || (e as KeyboardEvent).key === 'B') {
+    if (key === 'b' || key === 'B') {
       renderer?.toggleBloom();
+    }
+    // O = toggle observer mode (free-fly camera for debugging multi-sphere world)
+    if (key === 'o' || key === 'O') {
+      const isObserver = renderer?.toggleObserverMode();
+      if (isObserver) {
+        // Request pointer lock for mouse look (must be on canvas element)
+        renderer?.requestPointerLock();
+      } else {
+        // Exit pointer lock
+        document.exitPointerLock();
+      }
+    }
+    // [ = zoom in (narrower FOV) in observer mode
+    if (key === '[') {
+      renderer?.adjustObserverFOV(-5);
+    }
+    // ] = zoom out (wider FOV) in observer mode
+    if (key === ']') {
+      renderer?.adjustObserverFOV(5);
     }
   });
 
@@ -326,6 +355,19 @@ function initializeGame(settings: PreGameSettings): void {
     })
   );
 
+  // Auto-enable observer mode if requested from start screen
+  if (startInObserverMode) {
+    renderer.toggleObserverMode();
+    // Add click handler to lock pointer for mouse look
+    const canvas = renderer.getCanvas();
+    canvas.addEventListener('click', () => {
+      if (renderer?.isObserverMode()) {
+        renderer.requestPointerLock();
+      }
+    });
+    console.log('[Observer] Ready - click to lock mouse, WASD to fly, Space/Shift up/down, [/] FOV zoom, O to exit');
+  }
+
   // Start game loop
   update();
 }
@@ -340,16 +382,36 @@ function update(): void {
   const now = performance.now();
   const dt = now - lastFrameTime;
   lastFrameTime = now;
+  const dtSeconds = dt / 1000; // Convert to seconds for observer physics
 
   perfMonitor.tick();
 
-  // Check if player is in first-person stage (Stage 4+) and update input mode
-  const myPlayer = getLocalPlayer(world);
-  const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
-  inputManager.setFirstPersonMode(isFirstPerson);
+  // Handle observer mode input (free-fly camera for debugging)
+  if (renderer?.isObserverMode()) {
+    // Get movement input
+    const observerInput = inputManager.getObserverInput();
+    renderer.setObserverInput(observerInput.forward, observerInput.right, observerInput.up);
 
-  // Update systems
-  inputManager.update(dt);
+    // Get mouse look input
+    const mouseDelta = inputManager.getObserverMouseDelta();
+    renderer.updateObserverLook(mouseDelta.deltaX, mouseDelta.deltaY);
+
+    // Update observer camera position
+    renderer.updateObserver(dtSeconds);
+  }
+
+  // Check if player is in first-person stage (Stage 4+) and update input mode
+  // Skip this when in observer mode - observer mode manages its own pointer lock
+  if (!renderer?.isObserverMode()) {
+    const myPlayer = getLocalPlayer(world);
+    const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
+    inputManager.setFirstPersonMode(isFirstPerson);
+  }
+
+  // Update systems (skip movement input if in observer mode)
+  if (!renderer?.isObserverMode()) {
+    inputManager.update(dt);
+  }
 
   // Render (renderer queries World directly)
   renderer.render(dt);

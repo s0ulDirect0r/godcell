@@ -623,32 +623,44 @@ io.on('connection', (socket) => {
   // Store connect time for session duration tracking
   socket.data.connectTime = Date.now();
 
-  logPlayerConnected(socket.id);
+  // Check if this is a spectator connection (observer mode - no player)
+  const isSpectator = socket.handshake.auth?.spectator === true;
+  socket.data.isSpectator = isSpectator;
 
-  // Create a new player in ECS (source of truth)
-  // Energy-only system: energy is the sole resource (life + fuel)
-  // Use sphere spawn position for sphere mode, flat world spawn otherwise
-  const spawnPosition = isSphereMode()
-    ? getRandomSpherePosition() // Returns { x, y, z } on sphere surface
-    : randomSpawnPosition(world);
-  const playerColor = randomColor();
+  if (isSpectator) {
+    logger.info({ event: 'spectator_connected', socketId: socket.id }, 'Spectator connected');
+  } else {
+    logPlayerConnected(socket.id);
+  }
 
-  ecsCreatePlayer(
-    world,
-    socket.id,
-    socket.id, // name defaults to socketId
-    playerColor,
-    spawnPosition,
-    EvolutionStage.SINGLE_CELL
-  );
+  // Only create player for non-spectator connections
+  let newPlayer: ReturnType<typeof getPlayerBySocketId> = null;
+  if (!isSpectator) {
+    // Create a new player in ECS (source of truth)
+    // Energy-only system: energy is the sole resource (life + fuel)
+    // Use sphere spawn position for sphere mode, flat world spawn otherwise
+    const spawnPosition = isSphereMode()
+      ? getRandomSpherePosition() // Returns { x, y, z } on sphere surface
+      : randomSpawnPosition(world);
+    const playerColor = randomColor();
 
-  // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
+    ecsCreatePlayer(
+      world,
+      socket.id,
+      socket.id, // name defaults to socketId
+      playerColor,
+      spawnPosition,
+      EvolutionStage.SINGLE_CELL
+    );
 
-  // Get the legacy Player object for the joinMessage broadcast
-  const newPlayer = getPlayerBySocketId(world, socket.id)!;
+    // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
 
-  // Track spawn time for evolution rate tracking
-  recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
+    // Get the legacy Player object for the joinMessage broadcast
+    newPlayer = getPlayerBySocketId(world, socket.id)!;
+
+    // Track spawn time for evolution rate tracking
+    recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
+  }
 
   // Send world snapshot to the new player (initial state, sent once on connect)
   // Uses ECS to build player records, filtering out dead players (energy <= 0)
@@ -669,12 +681,14 @@ io.on('connection', (socket) => {
   };
   socket.emit('worldSnapshot', worldSnapshot);
 
-  // Notify all OTHER players that someone joined
-  const joinMessage: PlayerJoinedMessage = {
-    type: 'playerJoined',
-    player: newPlayer,
-  };
-  socket.broadcast.emit('playerJoined', joinMessage);
+  // Notify all OTHER players that someone joined (skip for spectators)
+  if (newPlayer) {
+    const joinMessage: PlayerJoinedMessage = {
+      type: 'playerJoined',
+      player: newPlayer,
+    };
+    socket.broadcast.emit('playerJoined', joinMessage);
+  }
 
   // ============================================
   // Socket Handler Error Wrapper
@@ -956,6 +970,18 @@ io.on('connection', (socket) => {
     safeHandler('disconnect', (reason: string) => {
       // Compute session duration before any cleanup
       const sessionDuration = Date.now() - (socket.data.connectTime ?? Date.now());
+
+      // Handle spectator disconnect separately
+      if (socket.data.isSpectator) {
+        logger.info({
+          event: 'spectator_disconnected',
+          socketId: socket.id,
+          duration: sessionDuration,
+          durationSec: Math.round(sessionDuration / 1000),
+          reason,
+        });
+        return; // Spectators have no player entity to clean up
+      }
 
       // Check if player was alive before destroying entity
       const entity = getEntityBySocketId(socket.id);

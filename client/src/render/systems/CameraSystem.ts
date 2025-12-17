@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GAME_CONFIG, EvolutionStage, isSphereMode } from '#shared';
 
-export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson';
+export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson' | 'observer';
 
 export interface CameraCapabilities {
   mode: 'topdown' | 'orbit' | 'tps' | 'fps';
@@ -51,6 +51,17 @@ export class CameraSystem {
   private sphereMode: boolean;
   private readonly SPHERE_CAMERA_HEIGHT = 800; // Height above sphere surface
 
+  // Observer mode state (free-fly camera for debugging multi-sphere world)
+  private observerVelocity = new THREE.Vector3();
+  private observerYaw = 0;
+  private observerPitch = 0;
+  private observerInput = { forward: 0, right: 0, up: 0 }; // -1, 0, or 1
+  private observerFOV = 60; // Default FOV in degrees
+  private readonly OBSERVER_MIN_FOV = 20; // Telephoto zoom
+  private readonly OBSERVER_MAX_FOV = 120; // Wide-angle
+  private readonly OBSERVER_SPEED = 8000; // Units per second (fast for large sphere world)
+  private readonly OBSERVER_FRICTION = 0.85; // Slightly more friction for snappier control
+
   constructor(viewportWidth: number, viewportHeight: number) {
     this.viewportWidth = viewportWidth;
     this.viewportHeight = viewportHeight;
@@ -77,7 +88,8 @@ export class CameraSystem {
     this.orthoCamera.up.set(0, 0, -1);
 
     // Create perspective camera (first-person for Stage 4+, or sphere mode)
-    this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 10000);
+    // Far plane set to 50000 to accommodate god sphere (radius 14688) viewing from distance
+    this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 50000);
 
     if (this.sphereMode) {
       // Sphere mode: start camera above the sphere at default position
@@ -326,6 +338,128 @@ export class CameraSystem {
       // At pole - use fallback
       this.perspCamera.up.set(0, 0, -1);
     }
+  }
+
+  // ============================================
+  // Observer Mode (free-fly camera for debugging)
+  // ============================================
+
+  /**
+   * Toggle observer mode on/off.
+   * When entering, positions camera at current view.
+   */
+  toggleObserverMode(): boolean {
+    if (this.mode === 'observer') {
+      // Exit observer mode - return to normal sphere camera
+      this.mode = 'topdown'; // Will be overridden by normal camera logic
+      console.log('[CameraSystem] Observer mode OFF');
+      return false;
+    } else {
+      // Enter observer mode - keep current camera position
+      this.mode = 'observer';
+      this.observerVelocity.set(0, 0, 0);
+      // Extract current look direction
+      const dir = new THREE.Vector3();
+      this.perspCamera.getWorldDirection(dir);
+      this.observerYaw = Math.atan2(-dir.x, -dir.z);
+      this.observerPitch = Math.asin(dir.y);
+      // Apply observer FOV
+      this.perspCamera.fov = this.observerFOV;
+      this.perspCamera.updateProjectionMatrix();
+      console.log('[CameraSystem] Observer mode ON - WASD: fly, Space/Shift: up/down, Mouse: look, [/]: FOV zoom');
+      return true;
+    }
+  }
+
+  isObserverMode(): boolean {
+    return this.mode === 'observer';
+  }
+
+  /**
+   * Set observer movement input (called from input handler)
+   * @param forward -1 (back) to 1 (forward)
+   * @param right -1 (left) to 1 (right)
+   * @param up -1 (down) to 1 (up)
+   */
+  setObserverInput(forward: number, right: number, up: number): void {
+    this.observerInput.forward = forward;
+    this.observerInput.right = right;
+    this.observerInput.up = up;
+  }
+
+  /**
+   * Update observer look direction from mouse input
+   */
+  updateObserverLook(deltaX: number, deltaY: number): void {
+    if (this.mode !== 'observer') return;
+
+    const sensitivity = 0.002;
+    this.observerYaw -= deltaX * sensitivity;
+    this.observerPitch -= deltaY * sensitivity;
+
+    // Clamp pitch to prevent flipping
+    const maxPitch = Math.PI / 2 - 0.01;
+    this.observerPitch = Math.max(-maxPitch, Math.min(maxPitch, this.observerPitch));
+  }
+
+  /**
+   * Update observer camera position (call each frame with delta time)
+   */
+  updateObserver(dt: number): void {
+    if (this.mode !== 'observer') return;
+
+    // Calculate forward and right vectors from yaw (fly-through style)
+    const forward = new THREE.Vector3(
+      -Math.sin(this.observerYaw) * Math.cos(this.observerPitch),
+      Math.sin(this.observerPitch),
+      -Math.cos(this.observerYaw) * Math.cos(this.observerPitch)
+    );
+    const right = new THREE.Vector3(
+      Math.cos(this.observerYaw),
+      0,
+      -Math.sin(this.observerYaw)
+    );
+    const up = new THREE.Vector3(0, 1, 0); // World up for vertical movement
+
+    // Calculate desired velocity from input
+    const desiredVelocity = new THREE.Vector3();
+    desiredVelocity.addScaledVector(forward, this.observerInput.forward * this.OBSERVER_SPEED);
+    desiredVelocity.addScaledVector(right, this.observerInput.right * this.OBSERVER_SPEED);
+    desiredVelocity.addScaledVector(up, this.observerInput.up * this.OBSERVER_SPEED);
+
+    // Lerp current velocity toward desired (smooth acceleration/deceleration)
+    // Frame-rate independent lerp factor
+    const lerpFactor = 1 - Math.pow(this.OBSERVER_FRICTION, dt * 60);
+    this.observerVelocity.lerp(desiredVelocity, lerpFactor);
+
+    // Update position
+    this.perspCamera.position.addScaledVector(this.observerVelocity, dt);
+
+    // Update look direction
+    const euler = new THREE.Euler(this.observerPitch, this.observerYaw, 0, 'YXZ');
+    this.perspCamera.quaternion.setFromEuler(euler);
+    this.perspCamera.up.set(0, 1, 0);
+  }
+
+  /**
+   * Adjust observer FOV (zoom in/out)
+   * @param delta - Positive to zoom out (wider FOV), negative to zoom in (narrower FOV)
+   */
+  adjustObserverFOV(delta: number): void {
+    this.observerFOV = Math.max(
+      this.OBSERVER_MIN_FOV,
+      Math.min(this.OBSERVER_MAX_FOV, this.observerFOV + delta)
+    );
+    this.perspCamera.fov = this.observerFOV;
+    this.perspCamera.updateProjectionMatrix();
+    console.log(`[Observer] FOV: ${this.observerFOV.toFixed(0)}°`);
+  }
+
+  /**
+   * Get current observer FOV
+   */
+  getObserverFOV(): number {
+    return this.observerFOV;
   }
 
   // ============================================

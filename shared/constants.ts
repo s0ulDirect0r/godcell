@@ -135,7 +135,14 @@ export const GAME_CONFIG = {
   // When enabled, world is a sphere surface instead of flat plane
   // ============================================
   SPHERE_MODE: true, // Toggle sphere vs flat world (enabled for testing)
-  SPHERE_RADIUS: 2448, // Circumference ≈ 15380 (reduced 20% for tighter gameplay)
+  // Sphere radii for multi-sphere world
+  // Soup is innermost (players on outer surface)
+  // Jungle wraps soup (players on inner surface, 4x radius)
+  // God is outermost boundary (players emerge to outer surface, one-way)
+  SPHERE_RADIUS: 2448, // Soup sphere - backward compat alias
+  SOUP_SPHERE_RADIUS: 2448, // Soup sphere (Stage 1-2)
+  JUNGLE_SPHERE_RADIUS: 9792, // 4x soup, inner surface for Stage 3+
+  GOD_SPHERE_RADIUS: 14688, // 6x soup, final destination
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void

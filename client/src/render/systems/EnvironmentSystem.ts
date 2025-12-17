@@ -595,6 +595,64 @@ export class EnvironmentSystem {
     // === LAYER 4: Flowing data particles on sphere surface ===
     this.createSphereParticles(radius);
 
+    // === LAYER 5: Jungle Sphere (inner surface, 4x radius) ===
+    // Players on Stage 3+ stand on the INSIDE of this sphere, looking down at soup
+    // BackSide renders the inner surface visible from inside
+    const jungleRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+    const jungleGeometry = new THREE.IcosahedronGeometry(jungleRadius, 4);
+    const jungleMaterial = new THREE.MeshBasicMaterial({
+      color: 0x002211, // Dark forest green
+      side: THREE.BackSide, // Render inner surface (visible from inside)
+      transparent: true,
+      opacity: 0.3, // Semi-transparent so we can see soup through it
+      depthWrite: false,
+    });
+    const jungleMesh = new THREE.Mesh(jungleGeometry, jungleMaterial);
+    jungleMesh.name = 'jungleSphere';
+    this.sphereBackgroundGroup.add(jungleMesh);
+
+    // Jungle wireframe (inner surface reference)
+    const jungleWireframeGeometry = new THREE.IcosahedronGeometry(jungleRadius - 10, 3);
+    const jungleWireframeMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ff44, // Bright green wireframe
+      wireframe: true,
+      transparent: true,
+      opacity: 0.15,
+      side: THREE.BackSide,
+      depthWrite: false,
+    });
+    const jungleWireframeMesh = new THREE.Mesh(jungleWireframeGeometry, jungleWireframeMaterial);
+    this.sphereBackgroundGroup.add(jungleWireframeMesh);
+
+    // === LAYER 6: God Sphere (outermost boundary) ===
+    // Players approach from inside, pass through, emerge on outer surface
+    // BackSide so it's visible as you approach from within
+    const godRadius = GAME_CONFIG.GOD_SPHERE_RADIUS;
+    const godGeometry = new THREE.IcosahedronGeometry(godRadius, 3);
+    const godMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff, // White/transcendent
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.05, // Very faint - ethereal boundary
+      depthWrite: false,
+    });
+    const godMesh = new THREE.Mesh(godGeometry, godMaterial);
+    godMesh.name = 'godSphere';
+    this.sphereBackgroundGroup.add(godMesh);
+
+    // God wireframe (faint outer boundary)
+    const godWireframeGeometry = new THREE.IcosahedronGeometry(godRadius - 20, 2);
+    const godWireframeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffcc, // Faint gold
+      wireframe: true,
+      transparent: true,
+      opacity: 0.08,
+      side: THREE.BackSide,
+      depthWrite: false,
+    });
+    const godWireframeMesh = new THREE.Mesh(godWireframeGeometry, godWireframeMaterial);
+    this.sphereBackgroundGroup.add(godWireframeMesh);
+
     this.scene.add(this.sphereBackgroundGroup);
   }
 
@@ -724,6 +782,9 @@ export class EnvironmentSystem {
    * Called when entering/exiting first-person mode
    */
   setFirstPersonGroundVisible(visible: boolean): void {
+    // Guard: firstPersonGround only exists in flat mode, not sphere mode
+    if (!this.firstPersonGround) return;
+
     this.firstPersonGround.visible = visible;
 
     // Update background color based on visibility

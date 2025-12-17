@@ -794,29 +794,33 @@ export class ThreeRenderer implements Renderer {
     // Update render mode based on local player stage (soup vs jungle world)
     this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
 
-    // Update camera mode based on player stage
+    // Update camera mode based on player stage (skip if in observer mode)
     // - Stages 1-3: top-down (orthographic)
     // - Stage 4 (humanoid): first-person (perspective)
     // - Stage 5 (godcell): third-person (perspective, following sphere)
+    // - Observer mode: manual free-fly (don't override)
     const currentMode = this.cameraSystem.getMode();
-    if (myPlayer?.stage === EvolutionStage.GODCELL) {
-      if (currentMode !== 'thirdperson') {
-        this.setCameraMode('thirdperson');
-      }
-    } else if (myPlayer?.stage === EvolutionStage.HUMANOID) {
-      if (currentMode !== 'firstperson') {
-        this.setCameraMode('firstperson');
-      }
-    } else {
-      if (currentMode !== 'topdown') {
-        this.setCameraMode('topdown');
+    if (currentMode !== 'observer') {
+      if (myPlayer?.stage === EvolutionStage.GODCELL) {
+        if (currentMode !== 'thirdperson') {
+          this.setCameraMode('thirdperson');
+        }
+      } else if (myPlayer?.stage === EvolutionStage.HUMANOID) {
+        if (currentMode !== 'firstperson') {
+          this.setCameraMode('firstperson');
+        }
+      } else {
+        if (currentMode !== 'topdown') {
+          this.setCameraMode('topdown');
+        }
       }
     }
 
     // Update camera position based on mode (re-read mode after potential switch)
     // Note: Sphere mode camera is updated later using interpolated mesh position
+    // Skip if in observer mode (camera is controlled by free-fly input)
     const activeMode = this.cameraSystem.getMode();
-    if (myPlayer && !this.cameraSystem.isSphereMode()) {
+    if (activeMode !== 'observer' && myPlayer && !this.cameraSystem.isSphereMode()) {
       if (activeMode === 'firstperson') {
         this.cameraSystem.updateFirstPersonPosition(
           myPlayer.position.x,
@@ -920,22 +924,25 @@ export class ThreeRenderer implements Renderer {
     this.wakeParticleSystem.update(this.world, dt);
 
     // Update camera system (follows player, applies shake, transitions zoom)
+    // Skip if in observer mode (camera controlled by free-fly input)
     // Pass player's interpolated mesh position for smooth camera follow
-    if (myPlayer) {
-      const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
-      if (mesh) {
-        if (this.cameraSystem.isSphereMode()) {
-          // Sphere mode: use interpolated 3D mesh position directly
-          this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
+    if (!this.cameraSystem.isObserverMode()) {
+      if (myPlayer) {
+        const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
+        if (mesh) {
+          if (this.cameraSystem.isSphereMode()) {
+            // Sphere mode: use interpolated 3D mesh position directly
+            this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
+          } else {
+            // Flat mode: game coords (mesh.x = game X, -mesh.z = game Y)
+            this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+          }
         } else {
-          // Flat mode: game coords (mesh.x = game X, -mesh.z = game Y)
-          this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+          this.cameraSystem.update();
         }
       } else {
         this.cameraSystem.update();
       }
-    } else {
-      this.cameraSystem.update();
     }
 
     // Update renderPass camera based on current mode before rendering
@@ -1171,6 +1178,71 @@ export class ThreeRenderer implements Renderer {
    */
   getActiveCamera(): THREE.Camera {
     return this.cameraSystem.getActiveCamera();
+  }
+
+  // ============================================
+  // Observer Mode (free-fly camera for debugging)
+  // ============================================
+
+  /**
+   * Toggle observer mode on/off
+   * Returns true if observer mode is now active
+   */
+  toggleObserverMode(): boolean {
+    return this.cameraSystem.toggleObserverMode();
+  }
+
+  /**
+   * Check if observer mode is active
+   */
+  isObserverMode(): boolean {
+    return this.cameraSystem.isObserverMode();
+  }
+
+  /**
+   * Set observer camera movement input
+   * @param forward -1 (back) to 1 (forward)
+   * @param right -1 (left) to 1 (right)
+   * @param up -1 (down) to 1 (up)
+   */
+  setObserverInput(forward: number, right: number, up: number): void {
+    this.cameraSystem.setObserverInput(forward, right, up);
+  }
+
+  /**
+   * Update observer camera look direction from mouse input
+   */
+  updateObserverLook(deltaX: number, deltaY: number): void {
+    this.cameraSystem.updateObserverLook(deltaX, deltaY);
+  }
+
+  /**
+   * Update observer camera position (called each frame when in observer mode)
+   */
+  updateObserver(dt: number): void {
+    this.cameraSystem.updateObserver(dt);
+  }
+
+  /**
+   * Adjust observer FOV (zoom in/out)
+   * @param delta - Positive to zoom out (wider), negative to zoom in (narrower)
+   */
+  adjustObserverFOV(delta: number): void {
+    this.cameraSystem.adjustObserverFOV(delta);
+  }
+
+  /**
+   * Get the canvas element (for pointer lock, etc.)
+   */
+  getCanvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
+  }
+
+  /**
+   * Request pointer lock on the canvas
+   */
+  requestPointerLock(): void {
+    this.renderer.domElement.requestPointerLock();
   }
 
   // ============================================
