@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { World, Tags, Components, type PositionComponent, type ObstacleComponent } from '../../ecs';
+import { isSphereMode, getSurfaceNormal } from '#shared';
 
 /**
  * Cached gravity well data for spatial queries
@@ -53,7 +54,7 @@ export interface EntityWarpTransform {
 // *** MASTER INTENSITY CONTROL ***
 // Scale all distortion effects with one value
 // 0.0 = no effect, 1.0 = full effect, >1.0 = exaggerated
-const DISTORTION_INTENSITY = 0.7;
+const DISTORTION_INTENSITY = 1.5;
 
 // Base values (what you get at DISTORTION_INTENSITY = 1.0)
 // These define the "full" effect - intensity scales them proportionally
@@ -273,6 +274,119 @@ export function calculateEntityWarp(gameX: number, gameY: number): EntityWarpTra
 }
 
 /**
+ * Calculate entity warp transform for sphere mode (3D positions)
+ * Projects warp direction onto sphere tangent plane
+ *
+ * @param pos - Entity 3D position {x, y, z}
+ * @returns EntityWarpTransform for applying to mesh
+ */
+export function calculateEntityWarp3D(pos: { x: number; y: number; z: number }): EntityWarpTransform {
+  let maxIntensity = 0;
+  let warpDir = { x: 0, y: 0, z: 0 };
+
+  for (const well of gravityWellCache) {
+    const dx = well.x - pos.x;
+    const dy = well.y - pos.y;
+    const dz = well.z - pos.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // Skip if outside influence radius
+    if (distance >= well.radius || distance < 0.001) continue;
+
+    // Calculate intensity with falloff
+    const t = 1 - distance / well.radius;
+    let intensity = Math.pow(t, ENTITY_WARP_FALLOFF_EXPONENT) * well.strength;
+
+    // INNER ZONE BOOST
+    if (t > 1 - INNER_ZONE_THRESHOLD) {
+      const innerT = (t - (1 - INNER_ZONE_THRESHOLD)) / INNER_ZONE_THRESHOLD;
+      intensity *= 1 + (INNER_ZONE_BOOST - 1) * innerT * innerT;
+    }
+
+    // Use strongest well for warp direction
+    if (intensity > maxIntensity) {
+      maxIntensity = intensity;
+      warpDir = { x: dx / distance, y: dy / distance, z: dz / distance };
+    }
+  }
+
+  // Clamp intensity
+  maxIntensity = Math.min(maxIntensity, 1.5);
+
+  if (maxIntensity < 0.01) {
+    return { scaleX: 1, scaleY: 1, skewAngle: 0, intensity: 0 };
+  }
+
+  // Project warp direction onto tangent plane at entity position
+  const normal = getSurfaceNormal(pos);
+  const dot = warpDir.x * normal.x + warpDir.y * normal.y + warpDir.z * normal.z;
+  const tangentDir = {
+    x: warpDir.x - dot * normal.x,
+    y: warpDir.y - dot * normal.y,
+    z: warpDir.z - dot * normal.z,
+  };
+
+  // Normalize tangent direction
+  const tangentLen = Math.sqrt(
+    tangentDir.x * tangentDir.x + tangentDir.y * tangentDir.y + tangentDir.z * tangentDir.z
+  );
+
+  // Calculate stretch/squash
+  const stretchAmount = 1 + (ENTITY_MAX_STRETCH - 1) * maxIntensity;
+  const squashAmount = 1 - (1 - ENTITY_MIN_SQUASH) * maxIntensity;
+
+  // Calculate angle in tangent plane
+  // We need a reference direction in the tangent plane to measure angle from
+  // Use "north" projected onto tangent plane as reference
+  let skewAngle = 0;
+  if (tangentLen > 0.001) {
+    // Normalized tangent direction
+    const normTangent = {
+      x: tangentDir.x / tangentLen,
+      y: tangentDir.y / tangentLen,
+      z: tangentDir.z / tangentLen,
+    };
+
+    // Reference: project world +Y onto tangent plane (or +X if at poles)
+    const worldUp = { x: 0, y: 1, z: 0 };
+    const upDot = worldUp.x * normal.x + worldUp.y * normal.y + worldUp.z * normal.z;
+    let refDir = {
+      x: worldUp.x - upDot * normal.x,
+      y: worldUp.y - upDot * normal.y,
+      z: worldUp.z - upDot * normal.z,
+    };
+    const refLen = Math.sqrt(refDir.x * refDir.x + refDir.y * refDir.y + refDir.z * refDir.z);
+    if (refLen > 0.001) {
+      refDir = { x: refDir.x / refLen, y: refDir.y / refLen, z: refDir.z / refLen };
+    } else {
+      // At poles, use +X as reference
+      refDir = { x: 1, y: 0, z: 0 };
+    }
+
+    // Calculate angle between tangent direction and reference
+    // Using atan2 with cross and dot products
+    const crossY =
+      refDir.z * normTangent.x -
+      refDir.x * normTangent.z +
+      normal.y * (refDir.x * normTangent.z - refDir.z * normTangent.x);
+    const dotProduct = refDir.x * normTangent.x + refDir.y * normTangent.y + refDir.z * normTangent.z;
+    skewAngle = Math.atan2(
+      refDir.x * normTangent.y - refDir.y * normTangent.x +
+      refDir.y * normTangent.z - refDir.z * normTangent.y +
+      refDir.z * normTangent.x - refDir.x * normTangent.z,
+      dotProduct
+    );
+  }
+
+  return {
+    scaleX: stretchAmount,
+    scaleY: squashAmount,
+    skewAngle,
+    intensity: maxIntensity,
+  };
+}
+
+/**
  * Apply entity warp transform to a Three.js Object3D
  * Stretches the object toward the nearest gravity well
  *
@@ -330,6 +444,44 @@ export function applyEntityWarp(
   // Add skew rotation on top of base rotation
   const baseRotZ = object.userData.baseRotationZ ?? 0;
   object.rotation.z = baseRotZ + warp.skewAngle * warp.intensity * ROTATION_INTENSITY; // Lean toward gravity
+}
+
+/**
+ * Apply entity warp for sphere mode
+ * Preserves surface orientation quaternion while applying stretch/rotation
+ *
+ * @param object - Three.js object to warp (must have surface orientation already set)
+ * @param warp - Warp transform from calculateEntityWarp3D
+ * @param surfaceQuat - The surface orientation quaternion (from orientFlatToSurface)
+ * @param baseScale - Optional base scale to preserve
+ */
+export function applyEntityWarpSphere(
+  object: THREE.Object3D,
+  warp: EntityWarpTransform,
+  surfaceQuat: THREE.Quaternion,
+  baseScale: number = 1
+): void {
+  if (warp.intensity < 0.01) {
+    // No warp - just use surface orientation
+    object.quaternion.copy(surfaceQuat);
+    object.scale.set(baseScale, baseScale, baseScale);
+    return;
+  }
+
+  // Apply non-uniform scale (stretch toward gravity, squash perpendicular)
+  // In local coordinates after surface orientation: X is stretch direction, Z is squash
+  object.scale.set(warp.scaleX * baseScale, baseScale, warp.scaleY * baseScale);
+
+  // Apply rotation around local Y (surface normal) for the lean effect
+  // This rotates the stretch direction to point toward gravity
+  const leanRotation = new THREE.Quaternion();
+  leanRotation.setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0), // Local Y axis
+    warp.skewAngle * warp.intensity * ROTATION_INTENSITY
+  );
+
+  // Combine: surface orientation first, then lean
+  object.quaternion.copy(surfaceQuat).multiply(leanRotation);
 }
 
 /**

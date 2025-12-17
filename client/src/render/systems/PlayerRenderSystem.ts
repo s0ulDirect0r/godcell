@@ -36,7 +36,9 @@ import { createGodcell, updateGodcellEnergy, animateGodcell } from '../meshes/Go
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
 import {
   calculateEntityWarp,
+  calculateEntityWarp3D,
   applyEntityWarp,
+  applyEntityWarpSphere,
   resetEntityWarp,
 } from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
@@ -48,6 +50,7 @@ import {
   applyEvolutionEffects,
 } from '../three/EvolutionVisuals';
 import type { RenderMode } from './EnvironmentSystem';
+import { orientFlatToSurface } from '../utils/SphereRenderUtils';
 
 /**
  * Interpolation target for smooth position updates
@@ -291,6 +294,10 @@ export class PlayerRenderSystem {
             player.position.y,
             player.position.z ?? 0
           );
+          // Orient flat organisms to lie on sphere surface
+          if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
+            orientFlatToSurface(cellGroup, player.position);
+          }
           cellGroup.userData.isSphere = true;
         } else {
           // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
@@ -375,6 +382,10 @@ export class PlayerRenderSystem {
             player.position.y,
             player.position.z ?? 0
           );
+          // Orient flat organisms to lie on sphere surface
+          if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
+            orientFlatToSurface(cellGroup, player.position);
+          }
 
           const outline = this.playerOutlines.get(id);
           if (outline) {
@@ -424,15 +435,44 @@ export class PlayerRenderSystem {
         player.stage === EvolutionStageEnum.MULTI_CELL;
       const outline = this.playerOutlines.get(id);
       if (isSoupStage && !isJungleMode) {
-        // Calculate warp based on game-space position
-        const gameX = cellGroup.position.x;
-        const gameY = -cellGroup.position.z; // Three.js Z = -game Y
-        const warp = calculateEntityWarp(gameX, gameY);
-        applyEntityWarp(cellGroup, warp);
+        if (cellGroup.userData.isSphere) {
+          // Sphere mode: use 3D warp calculation
+          const pos3D = {
+            x: cellGroup.position.x,
+            y: cellGroup.position.y,
+            z: cellGroup.position.z,
+          };
+          const warp = calculateEntityWarp3D(pos3D);
 
-        // Also warp the player outline ring - spaghettify everything!
-        if (outline) {
-          applyEntityWarp(outline, warp);
+          // Compute fresh surface quaternion for combining with warp
+          const surfaceQuat = new THREE.Quaternion();
+          const normal = { x: pos3D.x, y: pos3D.y, z: pos3D.z };
+          const mag = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+          if (mag > 0.001) {
+            normal.x /= mag;
+            normal.y /= mag;
+            normal.z /= mag;
+          }
+          const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z);
+          const negZ = new THREE.Vector3(0, 0, -1);
+          surfaceQuat.setFromUnitVectors(negZ, surfaceNormal);
+
+          applyEntityWarpSphere(cellGroup, warp, surfaceQuat);
+
+          // Also warp outline
+          if (outline) {
+            applyEntityWarpSphere(outline, warp, surfaceQuat);
+          }
+        } else {
+          // Flat mode: use 2D warp calculation
+          const gameX = cellGroup.position.x;
+          const gameY = -cellGroup.position.z; // Three.js Z = -game Y
+          const warp = calculateEntityWarp(gameX, gameY);
+          applyEntityWarp(cellGroup, warp);
+
+          if (outline) {
+            applyEntityWarp(outline, warp);
+          }
         }
       } else {
         // Reset any warp when not in soup or in jungle stages
@@ -1045,6 +1085,12 @@ export class PlayerRenderSystem {
       cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
       cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
       cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+
+      // Orient flat organisms to lie on sphere surface
+      if (stage === 'single_cell' || stage === 'multi_cell') {
+        const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
+        orientFlatToSurface(cellGroup, pos);
+      }
 
       const outline = this.playerOutlines.get(playerId);
       if (outline) {
