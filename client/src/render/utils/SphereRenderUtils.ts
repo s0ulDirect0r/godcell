@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, getSurfaceNormal, isSphericalPosition, type Position } from '#shared';
+import { GAME_CONFIG, getSurfaceNormal, isSphereMode, type Position } from '#shared';
 
 const PLANET_RADIUS = GAME_CONFIG.PLANET_RADIUS;
 
@@ -21,7 +21,7 @@ export function setMeshPosition(
   pos: Position,
   heightOffset: number = 0
 ): void {
-  if (isSphericalPosition(pos, PLANET_RADIUS)) {
+  if (isSphereMode()) {
     // Spherical world: position directly, add height along surface normal
     if (heightOffset !== 0) {
       const normal = getSurfaceNormal(pos);
@@ -47,7 +47,7 @@ export function setMeshPosition(
  * @param pos - Game position on sphere surface
  */
 export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
-  if (!isSphericalPosition(pos, PLANET_RADIUS)) {
+  if (!isSphereMode()) {
     // Flat world: no special orientation needed
     return;
   }
@@ -70,6 +70,44 @@ export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
   }
 
   mesh.quaternion.setFromUnitVectors(up, surfaceUp);
+}
+
+/**
+ * Orient a flat mesh to lie on the sphere surface
+ * The mesh's flat face becomes tangent to the sphere
+ * Used for single-cell and multi-cell organisms
+ *
+ * @param mesh - Three.js object to orient
+ * @param pos - Game position on sphere surface
+ */
+export function orientFlatToSurface(mesh: THREE.Object3D, pos: Position): void {
+  if (!isSphereMode()) {
+    // Flat mode: standard -90° X rotation to lie in XZ plane
+    mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    return;
+  }
+
+  const normal = getSurfaceNormal(pos);
+  const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
+
+  // We want the mesh's local -Z to point along surface normal
+  // (after -90° X rotation, original +Y becomes -Z)
+  // So: rotate from (0, 0, -1) to surfaceNormal
+  const negZ = new THREE.Vector3(0, 0, -1);
+
+  if (Math.abs(surfaceNormal.dot(negZ)) > 0.999) {
+    // Surface normal is parallel to -Z
+    if (surfaceNormal.z < 0) {
+      // Pointing same direction, use flat-mode rotation
+      mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    } else {
+      // Pointing opposite, flip
+      mesh.quaternion.setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+    }
+    return;
+  }
+
+  mesh.quaternion.setFromUnitVectors(negZ, surfaceNormal);
 }
 
 /**
@@ -111,7 +149,7 @@ export function getSphereCameraPosition(
   playerPos: Position,
   cameraDistance: number
 ): { position: THREE.Vector3; up: THREE.Vector3 } {
-  if (!isSphericalPosition(playerPos, PLANET_RADIUS)) {
+  if (!isSphereMode()) {
     // Flat world: traditional top-down camera
     return {
       position: new THREE.Vector3(playerPos.x, cameraDistance, -playerPos.y),
@@ -159,7 +197,7 @@ export function localToWorldDirection(
   playerPos: Position,
   cameraUp: THREE.Vector3
 ): { x: number; y: number; z: number } {
-  if (!isSphericalPosition(playerPos, PLANET_RADIUS)) {
+  if (!isSphereMode()) {
     // Flat world: local Y is forward (negative Z in Three.js)
     return { x: localX, y: localY, z: 0 };
   }
