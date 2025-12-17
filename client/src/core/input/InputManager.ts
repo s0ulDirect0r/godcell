@@ -123,6 +123,39 @@ export class InputManager {
   }
 
   /**
+   * Get observer mode movement input from WASD/Space/Shift
+   * Returns { forward, right, up } each in range [-1, 1]
+   */
+  getObserverInput(): { forward: number; right: number; up: number } {
+    const keys = this.inputState.keys;
+    let forward = 0;
+    let right = 0;
+    let up = 0;
+
+    if (keys.has('w')) forward += 1;
+    if (keys.has('s')) forward -= 1;
+    if (keys.has('a')) right -= 1;
+    if (keys.has('d')) right += 1;
+    if (keys.has(' ')) up += 1; // Space
+    if (keys.has('shift')) up -= 1;
+
+    return { forward, right, up };
+  }
+
+  /**
+   * Get and consume mouse delta for observer mode look
+   * Returns { deltaX, deltaY } and resets deltas
+   */
+  getObserverMouseDelta(): { deltaX: number; deltaY: number } {
+    const deltaX = this.inputState.pointerLock.deltaX;
+    const deltaY = this.inputState.pointerLock.deltaY;
+    // Reset deltas after reading (will be re-accumulated by mouse events)
+    this.inputState.pointerLock.deltaX = 0;
+    this.inputState.pointerLock.deltaY = 0;
+    return { deltaX, deltaY };
+  }
+
+  /**
    * Setup click handler to request pointer lock in first-person mode
    */
   private setupPointerLockClickHandler(): void {
