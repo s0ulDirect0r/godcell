@@ -15,6 +15,7 @@ import {
   getCameraUp,
   inputToWorldDirection,
   type Vec3,
+  type SphereContextComponent,
 } from '#shared';
 import type { PlayerMovedMessage } from '#shared';
 import type { System } from './types';
@@ -46,7 +47,6 @@ export class SphereMovementSystem implements System {
   private playerCameraUp = new Map<string, Vec3>();
 
   update(world: World, deltaTime: number, io: Server): void {
-    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
     const baseAcceleration = GAME_CONFIG.PLAYER_SPEED * 8;
     const friction = GAME_CONFIG.MOVEMENT_FRICTION;
     const baseMaxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2;
@@ -60,6 +60,13 @@ export class SphereMovementSystem implements System {
       const positionComponent = requirePosition(world, entity);
       const velocityComponent = requireVelocity(world, entity);
       const inputComponent = requireInput(world, entity);
+
+      // Get sphere context - determines which sphere surface this entity is on
+      const sphereContext = world.getComponent<SphereContextComponent>(
+        entity,
+        Components.SphereContext
+      );
+      const sphereRadius = sphereContext?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS;
 
       // Skip dead players
       if (energyComponent.current <= 0) return;

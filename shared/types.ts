@@ -104,6 +104,10 @@ export interface Player {
   isEvolving: boolean; // True during molting animation
   radius: number; // Collision/visual radius in pixels (derived from stage)
 
+  // Sphere context (multi-sphere world)
+  surfaceRadius: number | null; // Which sphere surface (null = floating in space, Stage 5 only)
+  isInnerSurface: boolean; // True for jungle (inner surface), false for soup/god (outer surface)
+
   // EMP Ability (Multi-cell+)
   lastEMPTime?: number; // Timestamp of last EMP use (for cooldown tracking)
   stunnedUntil?: number; // Timestamp when stun expires (if hit by another player's EMP)

@@ -68,6 +68,9 @@ export const Components = {
   PendingRespawn: 'PendingRespawn',
   AbilityIntent: 'AbilityIntent',
   PendingExpiration: 'PendingExpiration',
+
+  // World/Sphere components
+  SphereContext: 'SphereContext',
 } as const;
 
 /**

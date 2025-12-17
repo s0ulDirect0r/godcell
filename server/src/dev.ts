@@ -9,6 +9,7 @@ import {
   GAME_CONFIG,
   EvolutionStage,
   DEV_TUNABLE_CONFIGS,
+  projectToSphere,
   type DevCommand,
   type DevConfigUpdatedMessage,
   type DevStateMessage,
@@ -19,6 +20,7 @@ import {
   type World,
   type SpecializationPromptMessage,
   type CombatSpecializationComponent,
+  type SphereContextComponent,
 } from '#shared';
 import { logger } from './logger';
 import {
@@ -435,6 +437,44 @@ function handleSetPlayerStage(io: Server, playerId: string, stage: EvolutionStag
       playerId,
       deadline,
     });
+
+    // Teleport to jungle sphere (inner surface) - mirrors MetabolismSystem behavior
+    const posComp = getPosition(devContext.world, entity);
+    if (posComp) {
+      const currentPos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+      const junglePos = projectToSphere(currentPos, GAME_CONFIG.JUNGLE_SPHERE_RADIUS);
+
+      // Update position to jungle sphere (directly set including z)
+      posComp.x = junglePos.x;
+      posComp.y = junglePos.y;
+      posComp.z = junglePos.z;
+
+      // Update sphere context to jungle inner surface
+      const sphereCtx = devContext.world.getComponent<SphereContextComponent>(
+        entity,
+        Components.SphereContext
+      );
+      if (sphereCtx) {
+        sphereCtx.surfaceRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+        sphereCtx.isInnerSurface = true;
+      }
+
+      // Broadcast position update for sphere transition
+      io.emit('playerMoved', {
+        type: 'playerMoved',
+        playerId: playerId,
+        position: { x: junglePos.x, y: junglePos.y, z: junglePos.z },
+        velocity: { x: 0, y: 0, z: 0 },
+      });
+
+      logger.info({
+        event: 'dev_player_ascended_to_jungle',
+        playerId,
+        fromRadius: GAME_CONFIG.SOUP_SPHERE_RADIUS,
+        toRadius: GAME_CONFIG.JUNGLE_SPHERE_RADIUS,
+        newPosition: junglePos,
+      });
+    }
   }
 
   io.emit('playerEvolved', {

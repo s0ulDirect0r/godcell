@@ -43,6 +43,8 @@ import type {
   PendingRespawnComponent,
   AbilityIntentComponent,
   PendingExpirationComponent,
+  // World/Sphere components
+  SphereContextComponent,
 } from '#shared';
 
 // ============================================
@@ -88,6 +90,9 @@ export function createWorld(): World {
     new ComponentStore()
   );
   world.registerStore<KnockbackComponent>(Components.Knockback, new ComponentStore());
+
+  // Sphere context (multi-sphere world)
+  world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -301,6 +306,12 @@ export function createPlayer(
   });
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
     activeDamage: [],
+  });
+
+  // Sphere context - all players start on soup sphere outer surface
+  world.addComponent<SphereContextComponent>(entity, Components.SphereContext, {
+    surfaceRadius: GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: false,
   });
 
   // Ability components based on stage
@@ -698,6 +709,7 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
 
   const stunned = world.getComponent<StunnedComponent>(entity, Components.Stunned);
   const cooldowns = world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+  const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
 
   return {
     id: socketId,
@@ -709,6 +721,8 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
+    surfaceRadius: sphereContext?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: sphereContext?.isInnerSurface ?? false,
     stunnedUntil: stunned?.until,
     lastEMPTime: cooldowns?.lastEMPTime,
   };
