@@ -26,6 +26,7 @@ import type {
   EntropySerpentComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
+  SphereContextComponent,
 } from '#shared';
 import type {
   Player,
@@ -79,6 +80,9 @@ export function createClientWorld(): World {
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
   world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
   world.registerStore<EntropySerpentComponent>(Components.EntropySerpent, new ComponentStore());
+
+  // Sphere context (multi-sphere world)
+  world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(
@@ -183,6 +187,13 @@ export function upsertPlayer(world: World, player: Player): EntityId {
       stage.radius = player.radius;
     }
 
+    // Update sphere context
+    const sphereCtx = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
+    if (sphereCtx) {
+      sphereCtx.surfaceRadius = player.surfaceRadius;
+      sphereCtx.isInnerSurface = player.isInnerSurface;
+    }
+
     // Update interpolation target
     const interp = world.getComponent<InterpolationTargetComponent>(
       entity,
@@ -227,6 +238,11 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     stage: player.stage,
     isEvolving: player.isEvolving || false,
     radius: player.radius,
+  });
+
+  world.addComponent<SphereContextComponent>(entity, Components.SphereContext, {
+    surfaceRadius: player.surfaceRadius,
+    isInnerSurface: player.isInnerSurface,
   });
 
   world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
@@ -1359,18 +1375,22 @@ export function getPlayer(world: World, playerId: string): Player | null {
   const player = world.getComponent<PlayerComponent>(entity, Components.Player);
   const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
   const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+  const sphereCtx = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
 
   if (!pos || !player || !energy || !stage) return null;
 
   return {
     id: playerId,
     position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: { x: 0, y: 0, z: 0 }, // Client doesn't track velocity in getPlayer
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
+    surfaceRadius: sphereCtx?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: sphereCtx?.isInnerSurface ?? false,
   };
 }
 

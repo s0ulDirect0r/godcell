@@ -474,3 +474,24 @@ export interface ClientDamageInfoComponent {
   primarySource: DamageSource; // Main damage source type (for color)
   proximityFactor?: number; // For gradient effects (0-1)
 }
+
+// ============================================
+// World/Sphere Components
+// ============================================
+
+/**
+ * SphereContext - which sphere surface the entity is attached to.
+ * Multi-sphere world: soup (2448), jungle (9792), god (14688)
+ *
+ * surfaceRadius: The radius of the sphere this entity is on
+ *   - number: attached to that sphere surface
+ *   - null: floating in space (Stage 5 only, during inter-sphere flight)
+ *
+ * isInnerSurface: Whether entity is on inside of sphere
+ *   - false: outer surface (soup, god) - gravity toward center
+ *   - true: inner surface (jungle) - gravity away from center
+ */
+export interface SphereContextComponent {
+  surfaceRadius: number | null;
+  isInnerSurface: boolean;
+}
