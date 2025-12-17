@@ -15,6 +15,7 @@ import type {
   SpecializationSelectedMessage,
   CombatSpecialization,
   MeleeAttackMessage,
+  Position,
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
@@ -114,6 +115,8 @@ import {
   randomColor,
   randomSpawnPosition,
   poissonDiscSampling,
+  isNutrientSpawnSafe,
+  calculateNutrientValueMultiplier,
 } from './helpers';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
@@ -162,14 +165,17 @@ function initializeObstacles() {
   let obstacleIdCounter = 0;
 
   if (isSphereMode()) {
-    // Sphere mode: generate well-spaced positions on sphere surface
+    // Sphere mode: Poisson disc-style sampling on sphere surface
+    // No artificial limit - fill sphere naturally based on separation distance
     const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
     const positions: Array<{ x: number; y: number; z: number }> = [];
-    // Sphere has much more surface area - use smaller separation (chord distance)
-    const sphereMinSeparation = 400; // Smaller separation for sphere surface
-    const targetCount = 15; // More obstacles for sphere mode
+    const sphereMinSeparation = 1000; // Chord distance between obstacles
 
-    for (let attempts = 0; attempts < 2000 && positions.length < targetCount; attempts++) {
+    // Keep trying until we fail many times in a row (sphere is "full")
+    let consecutiveFailures = 0;
+    const maxConsecutiveFailures = 500;
+
+    while (consecutiveFailures < maxConsecutiveFailures) {
       const candidate = getRandomSpherePosition(sphereRadius);
       // Check distance from existing obstacles
       let valid = true;
@@ -185,6 +191,9 @@ function initializeObstacles() {
       }
       if (valid) {
         positions.push({ x: candidate.x, y: candidate.y, z: candidate.z ?? 0 });
+        consecutiveFailures = 0; // Reset on success
+      } else {
+        consecutiveFailures++;
       }
     }
 
@@ -199,6 +208,7 @@ function initializeObstacles() {
         getConfig('OBSTACLE_GRAVITY_STRENGTH')
       );
     }
+    logger.info({ event: 'sphere_obstacles_spawned', count: positions.length }, `Spawned ${positions.length} obstacles on sphere`);
   } else {
     // Flat mode: Generate obstacle positions using Bridson's algorithm on a padded area
     // Obstacles spawn within the soup region (which is centered in the jungle)
@@ -426,64 +436,56 @@ initNutrientModule(world, io);
 const isPlayground = process.env.PLAYGROUND === 'true';
 
 /**
- * Initialize nutrients on sphere surface near gravity wells
- * Creates 3 nutrients around each gravity well at varying distances
+ * Initialize nutrients on sphere surface with proper zone-based coloring
+ * Uses the same gradient system as flat mode:
+ * - Green (1x): >600px from obstacles - safe areas
+ * - Cyan (2x): 400-600px - outer gravity well
+ * - Gold (3x): 240-400px - inner gravity well
+ * - Magenta (5x): 180-240px - event horizon edge (high risk/reward)
  */
 function initializeSphereNutrients(): void {
   const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+  const targetCount = GAME_CONFIG.NUTRIENT_COUNT;
+  const maxAttempts = targetCount * 10; // Allow plenty of attempts
+  const minSeparation = 150; // Minimum distance between nutrients
 
-  // Gravity well positions (matches SphereMovementSystem)
-  const wellCoords = [
-    { theta: 0, phi: Math.PI / 2 }, // Equator front
-    { theta: Math.PI, phi: Math.PI / 2 }, // Equator back
-    { theta: Math.PI / 2, phi: Math.PI / 3 }, // Upper right quadrant
-    { theta: -Math.PI / 2, phi: (2 * Math.PI) / 3 }, // Lower left quadrant
-  ];
-
+  const positions: Position[] = [];
+  let attempts = 0;
   let nutrientIndex = 0;
 
-  // PART 1: Spawn 5 HIGH VALUE nutrients around each gravity well
-  // Risk/reward: near wells = more valuable but dangerous
-  for (const { theta, phi } of wellCoords) {
-    for (let i = 0; i < 5; i++) {
-      const offsetAngle = (Math.PI * 2 * i) / 5 + Math.random() * 0.5;
-      const offsetDist = 100 + Math.random() * 200; // 100-300 units from well
-      const offsetPhi = offsetDist / sphereRadius;
+  // Spawn nutrients across sphere using rejection sampling
+  // Ensures even distribution while avoiding event horizons
+  while (positions.length < targetCount && attempts < maxAttempts) {
+    const candidate = getRandomSpherePosition(sphereRadius);
+    attempts++;
 
-      const wellX = sphereRadius * Math.sin(phi) * Math.cos(theta);
-      const wellY = sphereRadius * Math.cos(phi);
-      const wellZ = sphereRadius * Math.sin(phi) * Math.sin(theta);
+    // Check if position is safe (not in inner event horizon)
+    if (!isNutrientSpawnSafe(candidate, world)) {
+      continue;
+    }
 
-      const newPhi = phi + offsetPhi * Math.cos(offsetAngle);
-      const newTheta = theta + (offsetPhi * Math.sin(offsetAngle)) / Math.sin(phi);
+    // Check minimum separation from existing nutrients (use 3D distance)
+    let tooClose = false;
+    for (const existing of positions) {
+      const dx = candidate.x - existing.x;
+      const dy = candidate.y - existing.y;
+      const dz = (candidate.z ?? 0) - (existing.z ?? 0);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < minSeparation) {
+        tooClose = true;
+        break;
+      }
+    }
 
-      const x = sphereRadius * Math.sin(newPhi) * Math.cos(newTheta);
-      const y = sphereRadius * Math.cos(newPhi);
-      const z = sphereRadius * Math.sin(newPhi) * Math.sin(newTheta);
-
-      const distFromWell = Math.sqrt(
-        (x - wellX) ** 2 + (y - wellY) ** 2 + (z - wellZ) ** 2
-      );
-      const isHighValue = distFromWell < 150;
-      const valueMultiplier = isHighValue ? 3.0 : 1.5;
-
-      createNutrient(
-        world,
-        `sphere_nutrient_${nutrientIndex++}`,
-        { x, y, z },
-        GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
-        GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
-        valueMultiplier,
-        isHighValue
-      );
+    if (!tooClose) {
+      positions.push(candidate);
     }
   }
 
-  // PART 2: Spawn 30 LOW VALUE nutrients randomly across sphere surface
-  // Safe nutrients scattered everywhere for exploration
-  for (let i = 0; i < 30; i++) {
-    const pos = getRandomSpherePosition(sphereRadius);
-    const valueMultiplier = 1.0;
+  // Create nutrients with proper value multipliers based on obstacle proximity
+  for (const pos of positions) {
+    const valueMultiplier = calculateNutrientValueMultiplier(pos, world);
+    const isHighValue = valueMultiplier > 1;
 
     createNutrient(
       world,
@@ -492,13 +494,25 @@ function initializeSphereNutrients(): void {
       GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
       GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
       valueMultiplier,
-      false // Not high value
+      isHighValue
     );
   }
 
+  // Log distribution stats
+  const byMultiplier = positions.reduce((acc, pos) => {
+    const mult = calculateNutrientValueMultiplier(pos, world);
+    acc[mult] = (acc[mult] || 0) + 1;
+    return acc;
+  }, {} as Record<number, number>);
+
   logger.info(
-    { event: 'sphere_nutrients_spawned', count: nutrientIndex },
-    `Spawned ${nutrientIndex} nutrients (20 near wells, 30 scattered)`
+    {
+      event: 'sphere_nutrients_spawned',
+      count: nutrientIndex,
+      distribution: byMultiplier,
+      attempts
+    },
+    `Spawned ${nutrientIndex} nutrients on sphere (green: ${byMultiplier[1] || 0}, cyan: ${byMultiplier[2] || 0}, gold: ${byMultiplier[3] || 0}, magenta: ${byMultiplier[5] || 0})`
   );
 }
 
