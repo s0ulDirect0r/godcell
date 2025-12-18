@@ -373,8 +373,10 @@ function initializeGame(settings: PreGameSettings): void {
 
   // Canvas click handler for pointer lock (observer mode OR godcell flight mode)
   // Pointer lock MUST be requested on canvas element, not document.body
+  // Don't request pointer lock when in fullscreen - they can conflict on some browsers
   const canvas = renderer.getCanvas();
   canvas.addEventListener('click', () => {
+    if (document.fullscreenElement) return;
     if (renderer?.isObserverMode() || inputManager.isGodcellFlightMode()) {
       renderer.requestPointerLock();
     }

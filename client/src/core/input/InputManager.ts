@@ -67,22 +67,8 @@ export class InputManager {
   private _godcellPitch = 0;
   private godcellLookCallback?: (deltaX: number, deltaY: number) => void;
 
-  // Handler reference for cleanup (prevents memory leaks)
-  private pointerLockClickHandler: () => void;
-
   constructor() {
     this.inputState = new InputState();
-
-    // Store handler reference so it can be removed in dispose()
-    // NOTE: This handler uses document.body which doesn't work reliably.
-    // Pointer lock for godcell/observer modes is handled via canvas click in main.ts
-    this.pointerLockClickHandler = () => {
-      if ((this.firstPersonMode || this.godcellFlightMode) && !this.inputState.pointerLock.isLocked) {
-        document.body.requestPointerLock();
-      }
-    };
-
-    this.setupPointerLockClickHandler();
   }
 
   /**
@@ -192,13 +178,6 @@ export class InputManager {
     this.inputState.pointerLock.deltaX = 0;
     this.inputState.pointerLock.deltaY = 0;
     return { deltaX, deltaY };
-  }
-
-  /**
-   * Setup click handler to request pointer lock in first-person mode
-   */
-  private setupPointerLockClickHandler(): void {
-    document.addEventListener('click', this.pointerLockClickHandler);
   }
 
   /**
@@ -387,6 +366,9 @@ export class InputManager {
       // Emit fullscreen toggle intent
       eventBus.emit({ type: 'client:toggleFullscreen' });
 
+      // Clear the key immediately - fullscreen transition can swallow keyup events
+      this.inputState.keys.delete('f');
+
       this.lastFullscreenKeyTime = now;
     }
   }
@@ -535,7 +517,6 @@ export class InputManager {
    * Clean up (prevents memory leaks on game restart)
    */
   dispose(): void {
-    document.removeEventListener('click', this.pointerLockClickHandler);
     this.inputState.dispose();
   }
 }
