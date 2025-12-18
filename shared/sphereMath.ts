@@ -230,3 +230,81 @@ export function sphereDistance(
 export function isSphereMode(): boolean {
   return GAME_CONFIG.SPHERE_MODE;
 }
+
+/**
+ * Generate a point on a sphere using Fibonacci/golden spiral distribution
+ * Provides nearly uniform distribution of points on sphere surface
+ *
+ * @param index - Point index (0 to total-1)
+ * @param total - Total number of points
+ * @param radius - Sphere radius
+ * @returns Position on sphere surface
+ */
+export function fibonacciSpherePoint(index: number, total: number, radius: number): Vec3 {
+  const goldenRatio = (1 + Math.sqrt(5)) / 2;
+
+  // Fibonacci spiral on sphere
+  const theta = (2 * Math.PI * index) / goldenRatio; // Longitude
+  const phi = Math.acos(1 - (2 * (index + 0.5)) / total); // Latitude (uniform on sphere)
+
+  return {
+    x: radius * Math.sin(phi) * Math.cos(theta),
+    y: radius * Math.cos(phi),
+    z: radius * Math.sin(phi) * Math.sin(theta),
+  };
+}
+
+/**
+ * Spherical linear interpolation between two unit vectors
+ * Used for smooth interpolation along great circle arcs
+ *
+ * @param a - Start direction (will be normalized)
+ * @param b - End direction (will be normalized)
+ * @param t - Interpolation factor (0 to 1)
+ * @returns Interpolated direction (unit vector)
+ */
+export function slerp(a: Vec3, b: Vec3, t: number): Vec3 {
+  // Normalize inputs
+  const aMag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+  const bMag = Math.sqrt(b.x * b.x + b.y * b.y + b.z * b.z);
+
+  if (aMag < 0.0001 || bMag < 0.0001) {
+    return { x: 0, y: 1, z: 0 }; // Fallback
+  }
+
+  const aUnit = { x: a.x / aMag, y: a.y / aMag, z: a.z / aMag };
+  const bUnit = { x: b.x / bMag, y: b.y / bMag, z: b.z / bMag };
+
+  // Calculate angle between vectors
+  let dot = aUnit.x * bUnit.x + aUnit.y * bUnit.y + aUnit.z * bUnit.z;
+  dot = Math.max(-1, Math.min(1, dot)); // Clamp for numerical stability
+
+  const theta = Math.acos(dot);
+
+  // If vectors are very close, use linear interpolation
+  if (theta < 0.0001) {
+    return {
+      x: aUnit.x + (bUnit.x - aUnit.x) * t,
+      y: aUnit.y + (bUnit.y - aUnit.y) * t,
+      z: aUnit.z + (bUnit.z - aUnit.z) * t,
+    };
+  }
+
+  // Slerp formula
+  const sinTheta = Math.sin(theta);
+  const wa = Math.sin((1 - t) * theta) / sinTheta;
+  const wb = Math.sin(t * theta) / sinTheta;
+
+  return {
+    x: wa * aUnit.x + wb * bUnit.x,
+    y: wa * aUnit.y + wb * bUnit.y,
+    z: wa * aUnit.z + wb * bUnit.z,
+  };
+}
+
+/**
+ * Scale a vector by a scalar
+ */
+export function scaleVec3(v: Vec3, s: number): Vec3 {
+  return { x: v.x * s, y: v.y * s, z: v.z * s };
+}

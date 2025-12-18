@@ -18,6 +18,10 @@ import {
   createFirstPersonGround,
 } from '../three/JungleBackground';
 import {
+  createSphereJungleBackground,
+  SphereJungleComponents,
+} from '../three/SphereJungleBackground';
+import {
   createSubdividedLine,
   updateGridLineDistortion,
   updateGravityWellCache,
@@ -439,6 +443,10 @@ export class EnvironmentSystem {
     size: number;
   }> = [];
 
+  // Sphere jungle (Stage 3-4 outer surface with grass, particles, etc.)
+  private sphereJungle?: SphereJungleComponents;
+  private sphereJungleTime: number = 0;
+
   /**
    * Initialize environment system with scene and world references
    */
@@ -654,6 +662,11 @@ export class EnvironmentSystem {
     this.sphereBackgroundGroup.add(godWireframeMesh);
 
     this.scene.add(this.sphereBackgroundGroup);
+
+    // === LAYER 7: Sphere Jungle (outer surface with grass, particles) ===
+    // Full jungle aesthetic wrapped onto the jungle sphere outer surface
+    // Players walk on this surface like a planet
+    this.sphereJungle = createSphereJungleBackground(this.scene, jungleRadius);
   }
 
   /**
@@ -818,6 +831,12 @@ export class EnvironmentSystem {
         if (getGravityWellCache().length > 0) {
           this.gravityWellCacheUpdated = true;
         }
+      }
+
+      // Update sphere jungle animations (grass wind, fireflies, undergrowth)
+      if (this.sphereJungle) {
+        this.sphereJungleTime += dt / 1000; // Convert to seconds
+        this.sphereJungle.update(this.sphereJungleTime, dt / 1000);
       }
       return;
     }

@@ -1981,7 +1981,7 @@ export function getAllTreeSnapshots(world: World): TreeSnapshot[] {
     snapshots.push({
       entity,
       id,
-      position: { x: pos.x, y: pos.y },
+      position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
       radius: tree.radius,
       height: tree.height,
       variant: tree.variant,
@@ -2025,7 +2025,7 @@ export function buildTreesRecord(world: World): Record<
   forEachTree(world, (_entity, id, pos, tree) => {
     result[id] = {
       id,
-      position: { x: pos.x, y: pos.y },
+      position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
       radius: tree.radius,
       height: tree.height,
       variant: tree.variant,

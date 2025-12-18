@@ -853,7 +853,7 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.refreshGravityWellCache();
     }
 
-    this.treeRenderSystem.sync(this.environmentSystem.getMode());
+    this.treeRenderSystem.sync();
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 

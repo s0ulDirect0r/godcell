@@ -8,14 +8,20 @@ import * as THREE from 'three';
 import { createDataTree, updateDataTreeAnimation, disposeDataTree } from '../meshes/DataTreeMesh';
 import { createRootNetworkFromTrees, updateRootNetworkAnimation } from '../three/JungleBackground';
 import {
+  createSphereRootNetwork,
+  updateSphereRootAnimation,
+} from '../three/SphereJungleBackground';
+import { setMeshPosition, orientToSurface } from '../utils/SphereRenderUtils';
+import {
   World,
   Tags,
   Components,
   getStringIdByEntity,
+  isSphereMode,
+  GAME_CONFIG,
   type PositionComponent,
   type TreeComponent,
 } from '../../ecs';
-import type { RenderMode } from './EnvironmentSystem';
 
 /**
  * TreeRenderSystem - Manages digital jungle tree rendering
@@ -52,17 +58,8 @@ export class TreeRenderSystem {
    * Sync trees by querying ECS World directly
    * Creates new meshes for new trees, removes meshes for despawned trees
    * Trees don't move, so only create once
-   * @param renderMode - Current render mode (soup vs jungle)
    */
-  sync(renderMode: RenderMode): void {
-    // Skip entirely in soup mode - trees are invisible to soup-scale players
-    if (renderMode === 'soup') {
-      // If switching from jungle to soup, clear all trees
-      if (this.treeMeshes.size > 0) {
-        this.clearAll();
-      }
-      return;
-    }
+  sync(): void {
 
     // Track which trees exist in ECS
     const currentTreeIds = new Set<string>();
@@ -83,9 +80,10 @@ export class TreeRenderSystem {
         const group = createDataTree(tree.radius, tree.height, tree.variant);
 
         // Position tree in world space
-        // Three.js coords: X = game X, Y = height (up), Z = -game Y
-        // Trees sit at ground level (Y=0)
-        group.position.set(pos.x, 0, -pos.y);
+        // setMeshPosition handles both flat and sphere modes
+        setMeshPosition(group, pos);
+        // orientToSurface makes tree point outward from sphere center
+        orientToSurface(group, pos);
 
         this.scene.add(group);
         this.treeMeshes.set(treeId, group);
@@ -140,13 +138,21 @@ export class TreeRenderSystem {
 
     // Update root network pulse animation
     if (this.rootNetwork) {
-      updateRootNetworkAnimation(this.rootNetwork, dt / 1000);
+      if (isSphereMode()) {
+        // Sphere roots use great circle arcs with pulsing emissive
+        updateSphereRootAnimation(this.rootNetwork, dt / 1000);
+      } else {
+        // Flat roots use 2D ground-level lines
+        updateRootNetworkAnimation(this.rootNetwork, dt / 1000);
+      }
     }
   }
 
   /**
    * Rebuild root network from current tree positions
    * Called when tree count changes
+   * Sphere mode: great circle arcs connecting nearby trees on sphere surface
+   * Flat mode: ground-level lines in 2D
    */
   private rebuildRootNetwork(): void {
     // Remove existing root network
@@ -163,19 +169,39 @@ export class TreeRenderSystem {
       this.rootNetwork = null;
     }
 
-    // Collect tree positions from meshes (using game coordinates)
-    const treePositions: Array<{ x: number; y: number }> = [];
-    this.treeMeshes.forEach((group) => {
-      // Convert back from Three.js coords to game coords
-      // Three.js: X = game X, Z = -game Y
-      treePositions.push({
-        x: group.position.x,
-        y: -group.position.z, // Convert back to game Y
+    if (isSphereMode()) {
+      // Sphere mode: collect 3D positions for great circle arcs
+      const treePositions3D: Array<{ x: number; y: number; z: number }> = [];
+      this.treeMeshes.forEach((group) => {
+        // Positions are already in Three.js world space on sphere surface
+        treePositions3D.push({
+          x: group.position.x,
+          y: group.position.y,
+          z: group.position.z,
+        });
       });
-    });
 
-    // Create new root network
-    this.rootNetwork = createRootNetworkFromTrees(treePositions);
+      // Create sphere root network with great circle arcs
+      this.rootNetwork = createSphereRootNetwork(
+        treePositions3D,
+        GAME_CONFIG.JUNGLE_SPHERE_RADIUS
+      );
+    } else {
+      // Flat mode: collect 2D positions for ground-level lines
+      const treePositions: Array<{ x: number; y: number }> = [];
+      this.treeMeshes.forEach((group) => {
+        // Convert back from Three.js coords to game coords
+        // Three.js: X = game X, Z = -game Y
+        treePositions.push({
+          x: group.position.x,
+          y: -group.position.z, // Convert back to game Y
+        });
+      });
+
+      // Create flat root network
+      this.rootNetwork = createRootNetworkFromTrees(treePositions);
+    }
+
     this.scene.add(this.rootNetwork);
     this.rootNetworkTreeCount = this.treeMeshes.size;
   }

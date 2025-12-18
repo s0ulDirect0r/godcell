@@ -496,6 +496,7 @@ export function upsertTree(world: World, tree: Tree): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: tree.position.x,
     y: tree.position.y,
+    z: tree.position.z ?? 0,
   });
 
   world.addComponent<TreeComponent>(entity, Components.Tree, {
