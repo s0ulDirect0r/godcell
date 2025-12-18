@@ -14,7 +14,6 @@ import {
   getStringIdByEntity,
   getPlayer,
   getLocalPlayerId,
-  isSphereMode,
   type InterpolationTargetComponent,
   type ClientDamageInfoComponent,
 } from '../../ecs';
@@ -285,31 +284,17 @@ export class PlayerRenderSystem {
           cellGroup = createSingleCell(radius, colorHex);
         }
 
-        // Position group at player location
-        // Lift Stage 3+ creatures above the grid (legs extend downward) in flat mode only
-        if (isSphereMode()) {
-          // Sphere mode: use 3D coordinates directly
-          cellGroup.position.set(
-            player.position.x,
-            player.position.y,
-            player.position.z ?? 0
-          );
-          // Orient flat organisms to lie on sphere surface
-          if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
-            orientFlatToSurface(cellGroup, player.position);
-          }
-          cellGroup.userData.isSphere = true;
-        } else {
-          // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
-          const heightOffset =
-            player.stage === 'cyber_organism' ||
-            player.stage === 'humanoid' ||
-            player.stage === 'godcell'
-              ? 5
-              : 0;
-          cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
-          cellGroup.userData.isSphere = false;
+        // Position group at player location (sphere surface coordinates)
+        cellGroup.position.set(
+          player.position.x,
+          player.position.y,
+          player.position.z ?? 0
+        );
+        // Orient flat organisms to lie on sphere surface
+        if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
+          orientFlatToSurface(cellGroup, player.position);
         }
+        cellGroup.userData.isSphere = true;
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -369,7 +354,7 @@ export class PlayerRenderSystem {
         const target: InterpolationTarget = {
           x: interp.targetX,
           y: interp.targetY,
-          z: isSphereMode() ? (interp.targetZ ?? player.position.z ?? 0) : undefined,
+          z: interp.targetZ ?? player.position.z ?? 0,
           timestamp: interp.timestamp,
         };
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
@@ -950,15 +935,8 @@ export class PlayerRenderSystem {
       updateGodcellEnergy(cellGroup, energyRatio);
       animateGodcell(cellGroup, 1 / 60);
 
-      // Godcell uses 3D position
-      if (isSphereMode()) {
-        // Sphere mode: direct 3D coordinates (no conversion needed)
-        cellGroup.position.set(player.position.x, player.position.y, player.position.z ?? 0);
-      } else {
-        // Flat mode: Convert game coordinates to Three.js: game Y → -Z, game Z → Y
-        const posZ = player.position.z ?? 0;
-        cellGroup.position.set(player.position.x, posZ, -player.position.y);
-      }
+      // Godcell uses 3D position on sphere
+      cellGroup.position.set(player.position.x, player.position.y, player.position.z ?? 0);
     } else if (player.stage === 'cyber_organism') {
       // Stage 3: Cyber-organism
       const energyRatio = player.energy / player.maxEnergy;

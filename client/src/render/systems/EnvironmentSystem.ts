@@ -4,28 +4,14 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, isSphereMode } from '#shared';
-import {
-  createJungleBackground,
-  updateJungleParticles,
-  updateSoupActivity,
-  updateUndergrowth,
-  updateFireflies,
-  updateGroundTexture,
-  getJungleBackgroundColor,
-  getSoupBackgroundColor,
-  getFirstPersonSkyColor,
-  createFirstPersonGround,
-} from '../three/JungleBackground';
+import { GAME_CONFIG } from '#shared';
+// Note: Flat mode JungleBackground imports removed - game is sphere-only now
 import {
   createSphereJungleBackground,
   SphereJungleComponents,
 } from '../three/SphereJungleBackground';
 import {
-  createSubdividedLine,
-  updateGridLineDistortion,
   updateGravityWellCache,
-  clearGravityWellCache,
   getGravityWellCache,
 } from '../utils/GravityDistortionUtils';
 import { World, Tags, Components } from '../../ecs';
@@ -453,43 +439,11 @@ export class EnvironmentSystem {
   init(scene: THREE.Scene, world: World): void {
     this.scene = scene;
     this.world = world;
-    this.isSphereWorld = isSphereMode();
+    this.isSphereWorld = true; // Game is now sphere-only
 
-    // Sphere mode: create sphere-specific environment
-    if (this.isSphereWorld) {
-      this.createSphereEnvironment();
-      scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
-      return; // Skip flat world setup
-    }
-
-    // Create soup background group (grid + particles)
-    this.soupBackgroundGroup = new THREE.Group();
-    this.soupBackgroundGroup.name = 'soupBackground';
-    scene.add(this.soupBackgroundGroup);
-
-    // Create soup grid and particles
-    this.createGrid();
-    this.createDataParticles();
-
-    // Create jungle background (uses JungleBackground helper)
-    const jungleResult = createJungleBackground(scene);
-    this.jungleBackgroundGroup = jungleResult.group;
-    this.jungleParticles = jungleResult.particles;
-    this.jungleParticleData = jungleResult.particleData;
-    this.soupActivityPoints = jungleResult.soupActivityPoints;
-    this.soupActivityData = jungleResult.soupActivityData;
-    this.undergrowthPoints = jungleResult.undergrowthPoints;
-    this.undergrowthData = jungleResult.undergrowthData;
-    this.fireflyPoints = jungleResult.fireflyPoints;
-    this.fireflyData = jungleResult.fireflyData;
-
-    // Create first-person ground plane (Stage 4+)
-    this.firstPersonGround = createFirstPersonGround();
-    this.firstPersonGround.visible = false;
-    scene.add(this.firstPersonGround);
-
-    // Set initial background color (soup mode)
-    scene.background = new THREE.Color(getSoupBackgroundColor());
+    // Create sphere-specific environment
+    this.createSphereEnvironment();
+    scene.background = new THREE.Color(GAME_CONFIG.BACKGROUND_COLOR);
   }
 
   /**
@@ -741,49 +695,11 @@ export class EnvironmentSystem {
   /**
    * Set render mode (soup vs jungle)
    * Returns true if mode changed (caller should clear entities when switching to jungle)
+   * Note: In sphere mode, always returns false (no mode switching)
    */
-  setMode(mode: RenderMode): boolean {
+  setMode(_mode: RenderMode): boolean {
     // Sphere mode: always stay in 'soup' mode, no switching
-    if (this.isSphereWorld) return false;
-
-    if (this.mode === mode) return false;
-
-    console.log(`[RenderMode] Switching from ${this.mode} to ${mode}`);
-
-    if (mode === 'jungle') {
-      // Transitioning to jungle (Stage 3+)
-      // Remove soup background from scene entirely
-      if (this.soupBackgroundGroup.parent === this.scene) {
-        this.scene.remove(this.soupBackgroundGroup);
-      }
-
-      // Show jungle background
-      if (this.jungleBackgroundGroup.parent !== this.scene) {
-        this.scene.add(this.jungleBackgroundGroup);
-      }
-      this.jungleBackgroundGroup.visible = true;
-      this.scene.background = new THREE.Color(getJungleBackgroundColor());
-
-      // Clear gravity well cache (no obstacles in jungle)
-      clearGravityWellCache();
-    } else {
-      // Transitioning to soup (Stage 1-2, e.g., death respawn)
-      // Re-add soup background
-      if (this.soupBackgroundGroup.parent !== this.scene) {
-        this.scene.add(this.soupBackgroundGroup);
-      }
-      this.soupBackgroundGroup.visible = true;
-
-      // Hide jungle background
-      this.jungleBackgroundGroup.visible = false;
-      this.scene.background = new THREE.Color(getSoupBackgroundColor());
-
-      // Reset gravity well cache flag so it gets rebuilt
-      this.gravityWellCacheUpdated = false;
-    }
-
-    this.mode = mode;
-    return true; // Mode changed
+    return false;
   }
 
   // ============================================
@@ -793,24 +709,10 @@ export class EnvironmentSystem {
   /**
    * Set first-person ground visibility
    * Called when entering/exiting first-person mode
+   * Note: In sphere mode, this is a no-op (no first-person ground plane)
    */
-  setFirstPersonGroundVisible(visible: boolean): void {
-    // Guard: firstPersonGround only exists in flat mode, not sphere mode
-    if (!this.firstPersonGround) return;
-
-    this.firstPersonGround.visible = visible;
-
-    // Update background color based on visibility
-    if (visible) {
-      this.scene.background = new THREE.Color(getFirstPersonSkyColor());
-    } else {
-      // Restore based on current mode
-      if (this.mode === 'jungle') {
-        this.scene.background = new THREE.Color(getJungleBackgroundColor());
-      } else {
-        this.scene.background = new THREE.Color(getSoupBackgroundColor());
-      }
-    }
+  setFirstPersonGroundVisible(_visible: boolean): void {
+    // No-op in sphere mode - there's no first-person ground plane
   }
 
   // ============================================
@@ -823,35 +725,19 @@ export class EnvironmentSystem {
    */
   update(dt: number): void {
     // Sphere mode: update particles, surface flow shader, and gravity well cache
-    if (this.isSphereWorld) {
-      this.updateSphereParticles(dt);
-      this.updateSurfaceFlowShader(dt);
-      if (!this.gravityWellCacheUpdated && this.world) {
-        updateGravityWellCache(this.world);
-        if (getGravityWellCache().length > 0) {
-          this.gravityWellCacheUpdated = true;
-        }
+    this.updateSphereParticles(dt);
+    this.updateSurfaceFlowShader(dt);
+    if (!this.gravityWellCacheUpdated && this.world) {
+      updateGravityWellCache(this.world);
+      if (getGravityWellCache().length > 0) {
+        this.gravityWellCacheUpdated = true;
       }
-
-      // Update sphere jungle animations (grass wind, fireflies, undergrowth)
-      if (this.sphereJungle) {
-        this.sphereJungleTime += dt / 1000; // Convert to seconds
-        this.sphereJungle.update(this.sphereJungleTime, dt / 1000);
-      }
-      return;
     }
 
-    if (this.mode === 'soup') {
-      this.updateSoupParticles(dt);
-      this.updateGridDistortion();
-    } else {
-      // Jungle mode: update all jungle particles and ambient effects
-      const dtSeconds = dt / 1000;
-      updateJungleParticles(this.jungleParticles, this.jungleParticleData, dtSeconds);
-      updateSoupActivity(this.soupActivityPoints, this.soupActivityData, dtSeconds);
-      updateUndergrowth(this.undergrowthPoints, this.undergrowthData, dtSeconds);
-      updateFireflies(this.fireflyPoints, this.fireflyData, dtSeconds);
-      updateGroundTexture(this.jungleBackgroundGroup, dtSeconds);
+    // Update sphere jungle animations (grass wind, fireflies, undergrowth)
+    if (this.sphereJungle) {
+      this.sphereJungleTime += dt / 1000; // Convert to seconds
+      this.sphereJungle.update(this.sphereJungleTime, dt / 1000);
     }
   }
 

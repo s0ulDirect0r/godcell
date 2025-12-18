@@ -10,7 +10,6 @@ import {
   Tags,
   Components,
   getEntityScale,
-  isSphereMode,
   type EntityScale,
   type EntityId,
   type StageComponent,
@@ -217,11 +216,7 @@ export class AuraRenderSystem {
       auraMesh.add(singleAura);
     }
 
-    // In flat mode, offset below player (Y=height)
     // In sphere mode, don't offset - position is set when syncing
-    if (!isSphereMode()) {
-      auraMesh.position.y = -1;
-    }
     return auraMesh;
   }
 
@@ -258,10 +253,7 @@ export class AuraRenderSystem {
       auraMesh = new THREE.Group();
       const swarmAura = createCellAura(swarmSize);
       auraMesh.add(swarmAura);
-      // In flat mode, offset below swarm
-      if (!isSphereMode()) {
-        auraMesh.position.y = -1;
-      }
+      // In sphere mode, don't offset - position is set when syncing
       auraMesh.userData.swarmSize = swarmSize;
 
       this.drainAuraMeshes.set(auraId, auraMesh);
@@ -294,10 +286,7 @@ export class AuraRenderSystem {
 
     if (!auraMesh) {
       auraMesh = createGainAura(stageComp.radius, gainAura.color);
-      // In flat mode, slight height offset
-      if (!isSphereMode()) {
-        auraMesh.position.y = 0.05;
-      }
+      // In sphere mode, don't offset - position is set when syncing
       this.gainAuraMeshes.set(entityId, auraMesh);
       this.scene.add(auraMesh);
     }

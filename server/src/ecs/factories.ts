@@ -3,7 +3,7 @@
 // Functions to create entities with proper components
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags, isSphereMode } from '#shared';
+import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags } from '#shared';
 import type {
   Position,
   Player,
@@ -1317,9 +1317,9 @@ export function setStage(world: World, entity: EntityId, stage: EvolutionStage):
     stageComp.radius = stageValues.radius;
   }
 
-  // Sphere mode: Godcell starts floating (surfaceRadius = null)
+  // Godcell starts floating (surfaceRadius = null)
   // GodcellFlightSystem handles all movement for floating entities
-  if (isSphereMode() && stage === EvolutionStage.GODCELL) {
+  if (stage === EvolutionStage.GODCELL) {
     const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
     if (sphereContext) {
       sphereContext.surfaceRadius = null; // Now floating, GodcellFlightSystem takes over
@@ -1329,25 +1329,6 @@ export function setStage(world: World, entity: EntityId, stage: EvolutionStage):
       velComp.x = 0;
       velComp.y = 0;
       velComp.z = 0;
-    }
-  }
-
-  // Initialize z position for Stage 3+ in FLAT mode only
-  // In sphere mode, z is part of the 3D sphere position - don't change it
-  if (
-    !isSphereMode() &&
-    (stage === EvolutionStage.CYBER_ORGANISM ||
-      stage === EvolutionStage.HUMANOID ||
-      stage === EvolutionStage.GODCELL)
-  ) {
-    const posComp = getPosition(world, entity);
-    const velComp = getVelocity(world, entity);
-    if (posComp) {
-      // Godcell starts airborne, others sit on ground
-      posComp.z = stage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
-    }
-    if (velComp) {
-      velComp.z = 0; // Reset z velocity
     }
   }
 }

@@ -76,7 +76,6 @@ export const DEV_TUNABLE_CONFIGS = [
   'MULTI_CELL_DETECTION_RADIUS',
 
   // Sphere Mode
-  'SPHERE_MODE',
   'SPHERE_RADIUS',
 ] as const;
 
@@ -131,10 +130,9 @@ export const GAME_CONFIG = {
   SOUP_HEIGHT: 3200, // Same as WORLD_HEIGHT
 
   // ============================================
-  // Sphere Mode (experimental)
-  // When enabled, world is a sphere surface instead of flat plane
+  // Sphere Mode
+  // World is a sphere surface - players exist on concentric sphere shells
   // ============================================
-  SPHERE_MODE: true, // Toggle sphere vs flat world (enabled for testing)
   // Sphere radii for multi-sphere world
   // Soup is innermost (players on outer surface)
   // Jungle wraps soup (players on inner surface, 4x radius)

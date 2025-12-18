@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components, isSphereMode, fibonacciSpherePoint } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components, fibonacciSpherePoint } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -22,9 +22,9 @@ import type {
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
-import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
+import { processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
-import { initNutrientModule, initializeNutrients, spawnNutrientAt } from './nutrients';
+import { initNutrientModule, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '#shared';
 import {
@@ -98,7 +98,6 @@ import {
   SwarmCollisionSystem,
   TreeCollisionSystem,
   MovementSystem,
-  SphereMovementSystem,
   GodcellFlightSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
@@ -109,8 +108,6 @@ import {
   SpecializationSystem,
   RespawnSystem,
   tryAddAbilityIntent,
-  isSphereMode,
-  getRandomSpherePosition,
   type CombatSpecializationComponent,
 } from './ecs';
 import {
@@ -118,7 +115,6 @@ import {
   getStageEnergy,
   randomColor,
   randomSpawnPosition,
-  poissonDiscSampling,
   isNutrientSpawnSafe,
   calculateNutrientValueMultiplier,
 } from './helpers';
@@ -164,192 +160,83 @@ const world: World = createWorld();
  * Note: Obstacles are soup-scale hazards, placed within the soup region
  */
 function initializeObstacles() {
-  const MIN_OBSTACLE_SEPARATION = 850; // Good spacing for 12 obstacles on 4800×3200 soup
-  const WALL_PADDING = 330; // Event horizon (180px) + 150px buffer
   let obstacleIdCounter = 0;
 
-  if (isSphereMode()) {
-    // Sphere mode: Poisson disc-style sampling on sphere surface
-    // No artificial limit - fill sphere naturally based on separation distance
-    const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
-    const positions: Array<{ x: number; y: number; z: number }> = [];
-    const sphereMinSeparation = 1000; // Chord distance between obstacles
+  // Poisson disc-style sampling on sphere surface
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+  const positions: Array<{ x: number; y: number; z: number }> = [];
+  const sphereMinSeparation = 1000; // Chord distance between obstacles
 
-    // Keep trying until we fail many times in a row (sphere is "full")
-    let consecutiveFailures = 0;
-    const maxConsecutiveFailures = 500;
+  // Keep trying until we fail many times in a row (sphere is "full")
+  let consecutiveFailures = 0;
+  const maxConsecutiveFailures = 500;
 
-    while (consecutiveFailures < maxConsecutiveFailures) {
-      const candidate = getRandomSpherePosition(sphereRadius);
-      // Check distance from existing obstacles
-      let valid = true;
-      for (const existing of positions) {
-        const dx = candidate.x - existing.x;
-        const dy = candidate.y - existing.y;
-        const dz = (candidate.z ?? 0) - existing.z;
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist < sphereMinSeparation) {
-          valid = false;
-          break;
-        }
-      }
-      if (valid) {
-        positions.push({ x: candidate.x, y: candidate.y, z: candidate.z ?? 0 });
-        consecutiveFailures = 0; // Reset on success
-      } else {
-        consecutiveFailures++;
+  while (consecutiveFailures < maxConsecutiveFailures) {
+    const candidate = getRandomSpherePosition(sphereRadius);
+    // Check distance from existing obstacles
+    let valid = true;
+    for (const existing of positions) {
+      const dx = candidate.x - existing.x;
+      const dy = candidate.y - existing.y;
+      const dz = (candidate.z ?? 0) - existing.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < sphereMinSeparation) {
+        valid = false;
+        break;
       }
     }
-
-    // Create obstacles from generated positions
-    for (const position of positions) {
-      const obstacleId = `obstacle-${obstacleIdCounter++}`;
-      createObstacle(
-        world,
-        obstacleId,
-        position,
-        getConfig('OBSTACLE_GRAVITY_RADIUS'),
-        getConfig('OBSTACLE_GRAVITY_STRENGTH')
-      );
+    if (valid) {
+      positions.push({ x: candidate.x, y: candidate.y, z: candidate.z ?? 0 });
+      consecutiveFailures = 0; // Reset on success
+    } else {
+      consecutiveFailures++;
     }
-    logger.info({ event: 'sphere_obstacles_spawned', count: positions.length }, `Spawned ${positions.length} obstacles on sphere`);
-  } else {
-    // Flat mode: Generate obstacle positions using Bridson's algorithm on a padded area
-    // Obstacles spawn within the soup region (which is centered in the jungle)
-    const paddedWidth = GAME_CONFIG.SOUP_WIDTH - WALL_PADDING * 2;
-    const paddedHeight = GAME_CONFIG.SOUP_HEIGHT - WALL_PADDING * 2;
+  }
 
-    const obstaclePositions = poissonDiscSampling(
-      paddedWidth,
-      paddedHeight,
-      MIN_OBSTACLE_SEPARATION,
-      GAME_CONFIG.OBSTACLE_COUNT
+  // Create obstacles from generated positions
+  for (const position of positions) {
+    const obstacleId = `obstacle-${obstacleIdCounter++}`;
+    createObstacle(
+      world,
+      obstacleId,
+      position,
+      getConfig('OBSTACLE_GRAVITY_RADIUS'),
+      getConfig('OBSTACLE_GRAVITY_STRENGTH')
     );
-
-    // Offset positions to account for padding AND soup origin in jungle
-    const offsetPositions = obstaclePositions.map((pos) => ({
-      x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
-      y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
-    }));
-
-    // Create obstacles from generated positions (ECS is sole source of truth)
-    for (const position of offsetPositions) {
-      const obstacleId = `obstacle-${obstacleIdCounter++}`;
-      createObstacle(
-        world,
-        obstacleId,
-        position,
-        getConfig('OBSTACLE_GRAVITY_RADIUS'),
-        getConfig('OBSTACLE_GRAVITY_STRENGTH')
-      );
-    }
   }
 
   const obstacleCount = getObstacleCount(world);
   logObstaclesSpawned(obstacleCount);
-
-  if (obstacleCount < GAME_CONFIG.OBSTACLE_COUNT) {
-    logger.warn(
-      `Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`
-    );
-  }
+  logger.info({ event: 'sphere_obstacles_spawned', count: obstacleCount }, `Spawned ${obstacleCount} obstacles on sphere`);
 }
 
 /**
- * Initialize digital jungle trees.
+ * Initialize digital jungle trees on sphere surface.
  * Trees are Stage 3+ obstacles that block movement (hard collision).
  *
  * Multi-scale architecture:
- * - Stage 1-2 (soup): Cannot see or collide with trees (invisible/intangible)
- * - Stage 3+ (jungle): Trees are visible obstacles requiring navigation
+ * - Stage 1-2 (soup sphere): Cannot see or collide with trees (invisible/intangible)
+ * - Stage 3+ (jungle sphere): Trees are visible obstacles requiring navigation
  *
- * Sphere mode: Trees spawn on jungle sphere surface using Fibonacci distribution
- * Flat mode: Trees use Poisson disc sampling on 2D plane
+ * Trees spawn on jungle sphere surface using Fibonacci distribution for uniform coverage.
  */
 function initializeTrees() {
-  let treeIdCounter = 0;
-
-  if (isSphereMode()) {
-    // Sphere mode: distribute trees uniformly on jungle sphere surface
-    const jungleRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
-    const treeCount = GAME_CONFIG.SPHERE_TREE_COUNT ?? 200;
-
-    logger.info({
-      event: 'sphere_tree_init',
-      count: treeCount,
-      radius: jungleRadius,
-    });
-
-    for (let i = 0; i < treeCount; i++) {
-      const treeId = `tree-${treeIdCounter++}`;
-
-      // Fibonacci sphere distribution for uniform coverage
-      const position = fibonacciSpherePoint(i, treeCount, jungleRadius);
-
-      // Randomize tree size
-      const radius =
-        GAME_CONFIG.TREE_MIN_RADIUS +
-        Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
-      const height =
-        GAME_CONFIG.TREE_MIN_HEIGHT +
-        Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
-      const variant = Math.random();
-
-      createTree(world, treeId, position, radius, height, variant);
-    }
-
-    logger.info({
-      event: 'trees_spawned',
-      count: treeCount,
-      mode: 'sphere',
-      sphereRadius: jungleRadius,
-    });
-    return;
-  }
-
-  // Flat mode: Trees spawn in the full jungle, avoiding the soup region
-  const soupAvoidanceZone = {
-    position: {
-      x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
-      y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
-    },
-    radius: GAME_CONFIG.SOUP_POOL_RADIUS + GAME_CONFIG.TREE_POOL_BUFFER,
-  };
+  const jungleRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+  const treeCount = GAME_CONFIG.SPHERE_TREE_COUNT ?? 200;
 
   logger.info({
-    event: 'tree_avoidance_zone',
-    center: soupAvoidanceZone.position,
-    radius: soupAvoidanceZone.radius,
-    jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
+    event: 'sphere_tree_init',
+    count: treeCount,
+    radius: jungleRadius,
   });
 
-  // Generate tree positions using Poisson disc sampling
-  const treePositions = poissonDiscSampling(
-    GAME_CONFIG.JUNGLE_WIDTH,
-    GAME_CONFIG.JUNGLE_HEIGHT,
-    GAME_CONFIG.TREE_MIN_SPACING,
-    Infinity,
-    [],
-    [soupAvoidanceZone]
-  );
+  for (let i = 0; i < treeCount; i++) {
+    const treeId = `tree-${i}`;
 
-  if (treePositions.length > 0) {
-    const sample = treePositions.slice(0, 5);
-    logger.info({
-      event: 'tree_positions_sample',
-      samplePositions: sample.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
-      bounds: {
-        minX: Math.round(Math.min(...treePositions.map((p) => p.x))),
-        maxX: Math.round(Math.max(...treePositions.map((p) => p.x))),
-        minY: Math.round(Math.min(...treePositions.map((p) => p.y))),
-        maxY: Math.round(Math.max(...treePositions.map((p) => p.y))),
-      },
-    });
-  }
+    // Fibonacci sphere distribution for uniform coverage
+    const position = fibonacciSpherePoint(i, treeCount, jungleRadius);
 
-  for (const position of treePositions) {
-    const treeId = `tree-${treeIdCounter++}`;
-
+    // Randomize tree size
     const radius =
       GAME_CONFIG.TREE_MIN_RADIUS +
       Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
@@ -361,12 +248,11 @@ function initializeTrees() {
     createTree(world, treeId, position, radius, height, variant);
   }
 
-  const treeCount = getTreeCount(world);
   logger.info({
     event: 'trees_spawned',
     count: treeCount,
-    spacing: GAME_CONFIG.TREE_MIN_SPACING,
-    jungleSize: `${GAME_CONFIG.JUNGLE_WIDTH}x${GAME_CONFIG.JUNGLE_HEIGHT}`,
+    mode: 'sphere',
+    sphereRadius: jungleRadius,
   });
 }
 
@@ -554,9 +440,9 @@ function initializeSphereNutrients(): void {
 
 if (isPlayground) {
   logger.info({ event: 'playground_mode', port: PORT });
-} else if (isSphereMode()) {
-  // Sphere world initialization - stages 1-2 on sphere surface
-  logger.info({ event: 'sphere_mode', port: PORT }, 'Running in SPHERE MODE - spherical world');
+} else {
+  // Sphere world initialization
+  logger.info({ event: 'server_init', port: PORT }, 'Initializing sphere world');
 
   // Initialize gravity wells (obstacles) on sphere surface
   initializeObstacles();
@@ -567,17 +453,7 @@ if (isPlayground) {
   // Initialize nutrients on sphere surface
   initializeSphereNutrients();
 
-  // Initialize bots and swarms (will be made sphere-aware)
-  setBotEcsWorld(world);
-  initializeBots(io);
-  initializeSwarms(world, io);
-} else {
-  // Flat world initialization (legacy)
-  initializeObstacles();
-  initializeTrees();
-  initializeJungleFauna(world, io);
-  initializeEntropySerpents();
-  initializeNutrients();
+  // Initialize bots and swarms
   setBotEcsWorld(world);
   initializeBots(io);
   initializeSwarms(world, io);
@@ -633,14 +509,9 @@ systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
 systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
 systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
 
-// Use SphereMovementSystem for sphere mode, MovementSystem for flat world
-if (isSphereMode()) {
-  logger.info({ event: 'sphere_mode_enabled' }, 'Using SphereMovementSystem for spherical world');
-  systemRunner.register(new GodcellFlightSystem(), SystemPriority.GODCELL_FLIGHT);
-  systemRunner.register(new SphereMovementSystem(), SystemPriority.MOVEMENT);
-} else {
-  systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
-}
+// Movement systems
+systemRunner.register(new GodcellFlightSystem(), SystemPriority.GODCELL_FLIGHT);
+systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
 
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
@@ -678,10 +549,8 @@ io.on('connection', (socket) => {
   if (!isSpectator) {
     // Create a new player in ECS (source of truth)
     // Energy-only system: energy is the sole resource (life + fuel)
-    // Use sphere spawn position for sphere mode, flat world spawn otherwise
-    const spawnPosition = isSphereMode()
-      ? getRandomSpherePosition() // Returns { x, y, z } on sphere surface
-      : randomSpawnPosition(world);
+    // randomSpawnPosition returns sphere position avoiding gravity wells
+    const spawnPosition = randomSpawnPosition(world);
     const playerColor = randomColor();
 
     ecsCreatePlayer(

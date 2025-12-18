@@ -1,6 +1,6 @@
 # SYSTEM_DESIGN.md
 
-Technical architecture documentation for the GODCELL game. Last updated: Dec 12, 2025.
+Technical architecture documentation for the GODCELL game. Last updated: Dec 18, 2025.
 
 ---
 
@@ -19,10 +19,11 @@ GODCELL is a real-time multiplayer evolution game built on an **Entity-Component
 │  │  ECS World  │   GameStateMessage          │  ECS World          │    │
 │  │  (60fps)    │ ─────────────────────────►  │  (render state)     │    │
 │  │             │                             │                     │    │
-│  │  22 Systems │   PlayerMoveMessage         │  18 Render Systems  │    │
+│  │  23 Systems │   PlayerMoveMessage         │  19 Render Systems  │    │
 │  │  (gameplay) │ ◄─────────────────────────  │  (Three.js)         │    │
 │  └─────────────┘                             └─────────────────────┘    │
 │                                                                         │
+│              World: Concentric spheres (soup → jungle → god)            │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -39,6 +40,7 @@ godcell/
 │   │   ├── components.ts       # All component interfaces
 │   │   └── types.ts            # Tags, ComponentType enum
 │   ├── math.ts                 # Geometry, spatial algorithms
+│   ├── sphereMath.ts           # Sphere surface math (geodesic distance, tangent vectors)
 │   └── index.ts                # Network messages, constants, shared types
 │
 ├── server/                     # Game server
@@ -53,7 +55,7 @@ godcell/
 │       ├── ecs/
 │       │   ├── factories.ts    # Entity creation, lookups
 │       │   ├── serialization/  # ECS → network format
-│       │   └── systems/        # 22 gameplay systems
+│       │   └── systems/        # 23 gameplay systems
 │       └── helpers/            # Math, spawning, stage utilities
 │           ├── math.ts         # Vector math, distance calculations
 │           ├── spawning.ts     # Spawn position utilities
@@ -68,9 +70,11 @@ godcell/
         │   ├── input/          # InputManager
         │   └── net/            # SocketManager
         ├── render/
-        │   ├── systems/        # 17 render systems
+        │   ├── systems/        # 18 render systems
+        │   ├── effects/        # TrailEffect, particle systems
         │   ├── hud/            # HUDOverlay
         │   ├── three/          # ThreeRenderer, postprocessing
+        │   ├── utils/          # SphereRenderUtils, helpers
         │   └── meshes/         # Stage-specific mesh factories
         └── ui/                 # Debug overlay, start screen, dev panel, specialization modal
 ```
@@ -245,35 +249,38 @@ setInterval(() => {
 
 Systems execute in priority order each tick (lower = earlier):
 
-| Priority | System                           | Responsibility                                     |
-| -------- | -------------------------------- | -------------------------------------------------- |
-| 50       | **RespawnSystem**                | Process pending respawns (bots, swarms, nutrients) |
-| 100      | **BotAISystem**                  | Bot decision-making, steering                      |
-| 105      | **CyberBugAISystem**             | Stage 3 prey AI (idle/patrol/flee)                 |
-| 106      | **JungleCreatureAISystem**       | Stage 3 fauna AI (grazer/stalker/ambusher)         |
-| 107      | **EntropySerpentAISystem**       | Stage 3 apex predator AI (patrol/chase/attack)     |
-| 110      | **SwarmAISystem**                | Swarm movement, patrol/chase, respawns             |
-| 120      | **SpecializationSystem**         | Stage 3 combat spec timeout auto-assign            |
-| 150      | **DataFruitSystem**              | Fruit ripening, ripeness decay                     |
-| 200      | **GravitySystem**                | Gravity well attraction                            |
-| 300      | **PseudopodSystem**              | Stage 2 beam travel & hits                         |
-| 310      | **ProjectileSystem**             | Ranged spec projectile travel & hits               |
-| 320      | **TrapSystem**                   | Traps spec trigger detection & lifetime            |
-| 400      | **PredationSystem**              | Multi-cell contact draining                        |
-| 410      | **SwarmCollisionSystem**         | Swarm damage, sets SlowedThisTick                  |
-| 480      | **TreeCollisionSystem**          | Pushes jungle players out of trees                 |
-| 500      | **MovementSystem**               | Physics (reads SlowedThisTick, Knockback)          |
-| 600      | **MetabolismSystem**             | Energy decay                                       |
-| 610      | **NutrientCollisionSystem**      | Stage 1-2 nutrient pickup                          |
-| 615      | **MacroResourceCollisionSystem** | Stage 3 fruit/fauna collection                     |
-| 620      | **NutrientAttractionSystem**     | Visual pull toward nutrients                       |
-| 700      | **DeathSystem**                  | Check deaths, trigger respawns                     |
-| 900      | **NetworkBroadcastSystem**       | Send state to clients                              |
+| Priority | System                           | Responsibility                                          |
+| -------- | -------------------------------- | ------------------------------------------------------- |
+| 50       | **RespawnSystem**                | Process pending respawns (bots, swarms, nutrients)      |
+| 100      | **BotAISystem**                  | Bot decision-making, steering                           |
+| 105      | **CyberBugAISystem**             | Stage 3 prey AI (idle/patrol/flee)                      |
+| 106      | **JungleCreatureAISystem**       | Stage 3 fauna AI (grazer/stalker/ambusher)              |
+| 107      | **EntropySerpentAISystem**       | Stage 3 apex predator AI (patrol/chase/attack)          |
+| 110      | **SwarmAISystem**                | Swarm movement, patrol/chase, respawns                  |
+| 120      | **SpecializationSystem**         | Stage 3 combat spec timeout auto-assign                 |
+| 150      | **DataFruitSystem**              | Fruit ripening, ripeness decay                          |
+| 200      | **GravitySystem**                | Gravity well attraction (sphere-aware)                  |
+| 300      | **PseudopodSystem**              | Stage 2 beam travel & hits                              |
+| 310      | **ProjectileSystem**             | Ranged spec projectile travel & hits                    |
+| 320      | **TrapSystem**                   | Traps spec trigger detection & lifetime                 |
+| 400      | **PredationSystem**              | Multi-cell contact draining                             |
+| 410      | **SwarmCollisionSystem**         | Swarm damage, sets SlowedThisTick                       |
+| 480      | **TreeCollisionSystem**          | Pushes jungle players out of trees                      |
+| 490      | **GodcellFlightSystem**          | Stage 5 3D flight (off-surface movement)                |
+| 500      | **MovementSystem**               | Sphere surface physics (tangent velocity, projection)   |
+| 600      | **MetabolismSystem**             | Energy decay                                            |
+| 610      | **NutrientCollisionSystem**      | Stage 1-2 nutrient pickup                               |
+| 615      | **MacroResourceCollisionSystem** | Stage 3 fruit/fauna collection                          |
+| 620      | **NutrientAttractionSystem**     | Visual pull toward nutrients                            |
+| 700      | **DeathSystem**                  | Check deaths, trigger respawns                          |
+| 900      | **NetworkBroadcastSystem**       | Send state to clients                                   |
 
 **Key Dependencies:**
 
 - SwarmCollision (410) sets `SlowedThisTick` → Movement (500) reads it
 - TreeCollision (480) runs after swarm but before movement
+- GodcellFlight (490) handles Stage 5 3D flight before surface movement
+- Movement (500) keeps velocity tangent to sphere, projects position back to surface
 - MacroResourceCollision (615) handles Stage 3+ pickups
 - EntropySerpentAI (107) hunts players, runs after other fauna AI
 
@@ -446,7 +453,7 @@ class ThreeRenderer {
     this.scene = new THREE.Scene();
     this.world = world;
 
-    // Initialize render systems + AuraStateSystem (18 total)
+    // Initialize render systems + AuraStateSystem (19 total)
     this.cameraSystem = new CameraSystem();
     this.environmentSystem = new EnvironmentSystem();
     this.playerRenderSystem = new PlayerRenderSystem();
@@ -465,6 +472,7 @@ class ThreeRenderer {
     this.auraStateSystem = new AuraStateSystem(); // In client/src/ecs/systems/
     this.auraRenderSystem = new AuraRenderSystem();
     this.trailSystem = new TrailSystem();
+    this.wakeParticleSystem = new WakeParticleSystem();
 
     // Each system.init(scene, world, ...)
   }
@@ -482,26 +490,27 @@ class ThreeRenderer {
 
 ### Render Systems (`render/systems/`)
 
-| System                         | Owns                                                | Queries                      |
-| ------------------------------ | --------------------------------------------------- | ---------------------------- |
-| **CameraSystem**               | Camera position, zoom, mode (topdown/orbit/TPS/FPS) | Local player position, stage |
-| **EnvironmentSystem**          | Background, sky, particles, ground, grass, hex grid | World bounds, stage          |
-| **PlayerRenderSystem**         | Player meshes (5 stages), outlines, evolution       | All player entities          |
-| **NutrientRenderSystem**       | Nutrient spheres (color by multiplier)              | All nutrient entities        |
-| **ObstacleRenderSystem**       | Gravity well visuals (black sphere + glow)          | All obstacle entities        |
-| **SwarmRenderSystem**          | Swarm particle clouds                               | All swarm entities           |
-| **PseudopodRenderSystem**      | Lightning beam effects                              | All pseudopod entities       |
-| **TreeRenderSystem**           | Jungle trees (procedural meshes)                    | All tree entities            |
-| **DataFruitRenderSystem**      | Harvestable fruits (ripeness glow)                  | All datafruit entities       |
-| **CyberBugRenderSystem**       | Small prey bugs                                     | All cyberbug entities        |
-| **JungleCreatureRenderSystem** | Larger fauna (variant models)                       | All junglecreature entities  |
-| **EntropySerpentRenderSystem** | Apex predator (segmented body, clawed arms)         | All entropyserpent entities  |
-| **ProjectileRenderSystem**     | Ranged spec projectile beams                        | All projectile entities      |
-| **TrapRenderSystem**           | Traps spec mine indicators                          | All trap entities            |
-| **EffectsSystem**              | Particle effects (death, evolution)                 | EventBus                     |
-| **AuraStateSystem**†           | ECS-driven damage state tracking                    | Player/swarm entities        |
-| **AuraRenderSystem**           | Damage/drain visual feedback                        | Player/swarm damage info     |
-| **TrailSystem**                | Glowing movement trails                             | Player positions             |
+| System                         | Owns                                                  | Queries                      |
+| ------------------------------ | ----------------------------------------------------- | ---------------------------- |
+| **CameraSystem**               | Camera position on sphere surface, mode switching     | Local player position, stage |
+| **EnvironmentSystem**          | Sphere background, sky dome, ambient particles        | World bounds, stage          |
+| **PlayerRenderSystem**         | Player meshes (5 stages), surface orientation         | All player entities          |
+| **NutrientRenderSystem**       | Nutrient crystals (color by multiplier)               | All nutrient entities        |
+| **ObstacleRenderSystem**       | Gravity well visuals (distortion sphere + glow)       | All obstacle entities        |
+| **SwarmRenderSystem**          | Swarm particle clouds on sphere surface               | All swarm entities           |
+| **PseudopodRenderSystem**      | Lightning beam effects                                | All pseudopod entities       |
+| **TreeRenderSystem**           | Jungle trees with root networks on sphere             | All tree entities            |
+| **DataFruitRenderSystem**      | Harvestable fruits (ripeness glow)                    | All datafruit entities       |
+| **CyberBugRenderSystem**       | Small prey bugs                                       | All cyberbug entities        |
+| **JungleCreatureRenderSystem** | Larger fauna (variant models)                         | All junglecreature entities  |
+| **EntropySerpentRenderSystem** | Apex predator (segmented body, clawed arms)           | All entropyserpent entities  |
+| **ProjectileRenderSystem**     | Ranged spec projectile beams                          | All projectile entities      |
+| **TrapRenderSystem**           | Traps spec mine indicators                            | All trap entities            |
+| **EffectsSystem**              | Particle effects (death, evolution)                   | EventBus                     |
+| **AuraStateSystem**†           | ECS-driven damage state tracking                      | Player/swarm entities        |
+| **AuraRenderSystem**           | Damage/drain visual feedback                          | Player/swarm damage info     |
+| **TrailSystem**                | Glowing ribbon trails on sphere surface               | Player positions             |
+| **WakeParticleSystem**         | Movement wake particles behind players                | Player positions, velocity   |
 
 †AuraStateSystem is in `client/src/ecs/systems/`, not `render/systems/`
 
@@ -530,7 +539,10 @@ class PlayerRenderSystem {
         this.meshes.set(playerId, mesh);
       }
 
-      mesh.position.set(pos.x, pos.y, 0);
+      // Position on sphere surface (3D coordinates)
+      mesh.position.set(pos.x, pos.y, pos.z ?? 0);
+      // Orient mesh to lie flat on sphere surface
+      orientFlatToSurface(mesh, pos);
     });
   }
 }
@@ -574,13 +586,13 @@ composer.addPass(new UnrealBloomPass(resolution, strength, radius, threshold));
 
 Players evolve through 5 stages by increasing their `maxEnergy` through nutrient collection:
 
-| Stage | Name               | Threshold | Abilities                      | Camera Mode  |
-| ----- | ------------------ | --------- | ------------------------------ | ------------ |
-| 1     | **Single-Cell**    | 0         | Basic movement                 | Top-down     |
-| 2     | **Multi-Cell**     | 300       | EMP, Pseudopod, Detection      | Top-down     |
-| 3     | **Cyber-Organism** | 3,000     | Sprint + Combat Specialization | Orbit        |
-| 4     | **Humanoid**       | 30,000    | First-person controls          | First-person |
-| 5     | **Godcell**        | 100,000   | 3D flight (Q/E vertical)       | First-person |
+| Stage | Name               | Threshold | Abilities                      | Camera Mode          |
+| ----- | ------------------ | --------- | ------------------------------ | -------------------- |
+| 1     | **Single-Cell**    | 0         | Basic movement                 | Sphere top-down      |
+| 2     | **Multi-Cell**     | 300       | EMP, Pseudopod, Detection      | Sphere top-down      |
+| 3     | **Cyber-Organism** | 3,000     | Sprint + Combat Specialization | Sphere top-down      |
+| 4     | **Humanoid**       | 30,000    | First-person controls          | Sphere first-person  |
+| 5     | **Godcell**        | 100,000   | 3D flight (Q/E vertical)       | Third-person flight  |
 
 **Stage Progression:**
 
@@ -615,30 +627,50 @@ At Stage 3, players choose one of three combat specializations (locked for that 
 
 ---
 
-## 7. World Layout
+## 7. World Layout (Sphere Architecture)
+
+The game world consists of three concentric spheres. Players exist on the outer surface of each sphere, with gravity pointing toward the center.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    JUNGLE (19,200 x 12,800)                         │
-│                                                                     │
-│   Trees, DataFruits, CyberBugs, JungleCreatures, EntropySerpents   │
-│                                                                     │
-│                    ┌───────────────────────┐                        │
-│                    │    SOUP (4,800 x      │                        │
-│                    │       3,200)          │                        │
-│                    │                       │                        │
-│                    │  Nutrients, Obstacles │                        │
-│                    │  Swarms, Players      │                        │
-│                    │  (Stage 1-2)          │                        │
-│                    └───────────────────────┘                        │
-│                    (centered at 7200, 4800)                         │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+                    ┌─────────────────────────────┐
+                   ╱                               ╲
+                  ╱   GOD SPHERE (r=14688)          ╲
+                 ╱         Stage 5 flight           ╲
+                ╱                                    ╲
+               │     ┌───────────────────┐           │
+               │    ╱                     ╲          │
+               │   ╱  JUNGLE SPHERE        ╲         │
+               │  ╱      (r=9792)           ╲        │
+               │ │   Stage 3+ ecosystem      │       │
+               │ │   Trees, Fauna, Serpents  │       │
+               │ │                           │       │
+               │ │    ┌─────────────┐        │       │
+               │ │   │ SOUP SPHERE  │        │       │
+               │ │   │   (r=2448)   │        │       │
+               │ │   │  Stage 1-2   │        │       │
+               │ │   │  Nutrients   │        │       │
+               │ │   │  Swarms      │        │       │
+               │ │    └─────────────┘        │       │
+               │  ╲                         ╱        │
+               │   ╲                       ╱         │
+               │    ╲_____________________╱          │
+                ╲                                   ╱
+                 ╲                                 ╱
+                  ╲_______________________________╱
 ```
 
-- **Soup**: Central 4,800×3,200 area for Stage 1-2 gameplay
-- **Jungle**: Surrounding 19,200×12,800 area for Stage 3+ gameplay
-- Stage 3+ players transition to jungle view with trees and fauna
+| Sphere       | Radius | Purpose                                             |
+| ------------ | ------ | --------------------------------------------------- |
+| **Soup**     | 2,448  | Stage 1-2: Nutrients, gravity wells, entropy swarms |
+| **Jungle**   | 9,792  | Stage 3+: Trees, data fruits, fauna, serpents       |
+| **God**      | 14,688 | Stage 5: 3D flight space                            |
+
+**Key Characteristics:**
+- All movement is tangent to the sphere surface (except Stage 5 flight)
+- Camera hovers above player along surface normal
+- Positions use 3D coordinates (x, y, z) on sphere surface
+- Great-circle (geodesic) distance for collision detection
+- Fibonacci sphere distribution for uniform entity placement
 
 ---
 

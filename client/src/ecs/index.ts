@@ -3,7 +3,7 @@
 // ============================================
 
 // Re-export core types and classes from shared
-export { World, ComponentStore, Components, Tags, GAME_CONFIG, getEntityScale, isSphereMode } from '#shared';
+export { World, ComponentStore, Components, Tags, GAME_CONFIG, getEntityScale } from '#shared';
 export type {
   EntityId,
   EntityScale,

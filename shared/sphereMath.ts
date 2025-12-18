@@ -225,13 +225,6 @@ export function sphereDistance(
 }
 
 /**
- * Check if sphere mode is enabled
- */
-export function isSphereMode(): boolean {
-  return GAME_CONFIG.SPHERE_MODE;
-}
-
-/**
  * Generate a point on a sphere using Fibonacci/golden spiral distribution
  * Provides nearly uniform distribution of points on sphere surface
  *

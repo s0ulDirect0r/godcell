@@ -4,9 +4,8 @@
 // Query ECS for obstacle data
 // ============================================
 
-import { GAME_CONFIG, type Position, isSphereMode, getRandomSpherePosition, distanceForMode } from '#shared';
+import { GAME_CONFIG, type Position, getRandomSpherePosition, distanceForMode } from '#shared';
 import { getConfig } from '../dev';
-import { distance } from './math';
 import { forEachObstacle, type World } from '../ecs';
 
 /**
@@ -17,36 +16,19 @@ export function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position
- * - Sphere mode: Random position on sphere surface
- * - Flat mode: Within soup region, avoiding obstacle death zones
+ * Generate a random spawn position on the sphere surface
+ * Avoids spawning inside obstacle death zones
  */
 export function randomSpawnPosition(world: World): Position {
-  if (isSphereMode()) {
-    // Sphere mode: random position on sphere surface
-    // Gravity wells are part of gameplay, no need to avoid them for spawns
-    return getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
-  }
-
-  // Flat world: spawn within soup region, avoiding obstacles
-  const padding = 100;
   const MIN_DIST_FROM_OBSTACLE_CORE = 400;
   const maxAttempts = 20;
 
-  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
-  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
-  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
-  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
-
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const position = {
-      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-    };
+    const position = getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
 
     let tooClose = false;
     forEachObstacle(world, (_entity, obstaclePos) => {
-      if (distance(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
+      if (distanceForMode(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
         tooClose = true;
       }
     });
@@ -56,10 +38,8 @@ export function randomSpawnPosition(world: World): Position {
     }
   }
 
-  return {
-    x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-    y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-  };
+  // Fallback: return random position (rare case where all attempts fail)
+  return getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
 }
 
 /**
