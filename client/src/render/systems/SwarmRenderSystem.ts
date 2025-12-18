@@ -13,14 +13,12 @@ import {
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
 } from '../meshes/SwarmMesh';
-import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
 import {
   World,
   Tags,
   Components,
   getStringIdByEntity,
-  isSphereMode,
   type PositionComponent,
   type SwarmComponent,
   type InterpolationTargetComponent,
@@ -135,16 +133,9 @@ export class SwarmRenderSystem {
         // Random phase offset for pulsing (so swarms don't pulse in sync)
         this.swarmPulsePhase.set(swarmId, Math.random() * Math.PI * 2);
 
-        // Set initial position based on mode
-        if (isSphereMode()) {
-          // Sphere mode: use 3D coordinates directly
-          group.position.set(pos.x, pos.y, pos.z ?? 0);
-          group.userData.isSphere = true;
-        } else {
-          // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
-          group.position.set(pos.x, 0, -pos.y);
-          group.userData.isSphere = false;
-        }
+        // Sphere mode: use 3D coordinates directly
+        group.position.set(pos.x, pos.y, pos.z ?? 0);
+        group.userData.isSphere = true;
 
         this.scene.add(group);
         this.swarmMeshes.set(swarmId, group);
@@ -154,7 +145,7 @@ export class SwarmRenderSystem {
       // Update target position for interpolation (use interp target if available)
       const targetX = interp ? interp.targetX : pos.x;
       const targetY = interp ? interp.targetY : pos.y;
-      const targetZ = isSphereMode() ? (pos.z ?? 0) : 0;
+      const targetZ = pos.z ?? 0;
       this.swarmTargets.set(swarmId, { x: targetX, y: targetY, z: targetZ });
 
       // Cache state for animation
@@ -243,26 +234,10 @@ export class SwarmRenderSystem {
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
       if (target) {
-        if (group.userData.isSphere) {
-          // Sphere mode: interpolate in 3D space directly
-          group.position.x += (target.x - group.position.x) * lerpFactor;
-          group.position.y += (target.y - group.position.y) * lerpFactor;
-          group.position.z += ((target.z ?? 0) - group.position.z) * lerpFactor;
-        } else {
-          // Flat mode: XZ plane (game Y maps to -Z)
-          group.position.x += (target.x - group.position.x) * lerpFactor;
-          const targetZ = -target.y;
-          group.position.z += (targetZ - group.position.z) * lerpFactor;
-
-          // Apply gravity well distortion effect (flat world only)
-          // Creates visual "spaghettification" when swarms are near gravity wells
-          const gameX = group.position.x;
-          const gameY = -group.position.z; // Three.js Z = -game Y
-          const warp = calculateEntityWarp(gameX, gameY);
-          // Pass energy scale so gravity warp multiplies rather than overwrites
-          const energyScale = this.swarmEnergyScales.get(id) ?? 1.0;
-          applyEntityWarp(group, warp, energyScale);
-        }
+        // Sphere mode: interpolate in 3D space directly
+        group.position.x += (target.x - group.position.x) * lerpFactor;
+        group.position.y += (target.y - group.position.y) * lerpFactor;
+        group.position.z += ((target.z ?? 0) - group.position.z) * lerpFactor;
       }
     });
   }
@@ -577,18 +552,11 @@ export class SwarmRenderSystem {
       material.emissiveIntensity = emissiveIntensity;
     }
     // Sync position with swarm (slightly elevated)
-    if (isSphereMode()) {
-      // Sphere mode: orient ring tangent to sphere surface
-      const normal = group.position.clone().normalize();
-      auraRing.position.copy(group.position).addScaledVector(normal, 0.5);
-      // Orient ring to face along surface normal (ring lies in tangent plane)
-      auraRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-    } else {
-      // Flat mode: ring lies in XZ plane
-      auraRing.position.copy(group.position);
-      auraRing.position.y = 0.25;
-      auraRing.rotation.set(-Math.PI / 2, 0, 0);
-    }
+    // Sphere mode: orient ring tangent to sphere surface
+    const normal = group.position.clone().normalize();
+    auraRing.position.copy(group.position).addScaledVector(normal, 0.5);
+    // Orient ring to face along surface normal (ring lies in tangent plane)
+    auraRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
 
     // === AURA PARTICLES ===
     // Particle count grows with absorbed energy (1 particle per 50 energy absorbed, min 3)
@@ -598,40 +566,30 @@ export class SwarmRenderSystem {
     let auraParticles = this.swarmAuraParticles.get(swarmId);
     // Note: 'time' already declared above for ring pulsing
 
-    // Helper to compute particle positions (in local coords for flat, world coords for sphere)
+    // Helper to compute particle positions (world coords for sphere mode)
     const computeParticlePositions = (count: number, t: number): Float32Array => {
       const positions = new Float32Array(count * 3);
-      if (isSphereMode()) {
-        // Sphere mode: orbit in tangent plane around swarm position
-        const swarmPos = group.position;
-        const normal = swarmPos.clone().normalize();
-        // Build tangent basis vectors
-        const worldUp = new THREE.Vector3(0, 1, 0);
-        let tangent = new THREE.Vector3().crossVectors(worldUp, normal);
-        if (tangent.lengthSq() < 0.0001) {
-          tangent.set(1, 0, 0).crossVectors(tangent, normal);
-        }
-        tangent.normalize();
-        const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
-        // Lift position slightly above surface
-        const liftedCenter = swarmPos.clone().addScaledVector(normal, 0.5);
-        for (let i = 0; i < count; i++) {
-          const angle = (i / count) * Math.PI * 2 + t * 0.5;
-          const px = liftedCenter.x + Math.cos(angle) * orbitRadius * tangent.x + Math.sin(angle) * orbitRadius * bitangent.x;
-          const py = liftedCenter.y + Math.cos(angle) * orbitRadius * tangent.y + Math.sin(angle) * orbitRadius * bitangent.y;
-          const pz = liftedCenter.z + Math.cos(angle) * orbitRadius * tangent.z + Math.sin(angle) * orbitRadius * bitangent.z;
-          positions[i * 3] = px;
-          positions[i * 3 + 1] = py;
-          positions[i * 3 + 2] = pz;
-        }
-      } else {
-        // Flat mode: orbit in XZ plane (local coords, positioned by parent)
-        for (let i = 0; i < count; i++) {
-          const angle = (i / count) * Math.PI * 2 + t * 0.5;
-          positions[i * 3] = Math.cos(angle) * orbitRadius;
-          positions[i * 3 + 1] = 0;
-          positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
-        }
+      // Sphere mode: orbit in tangent plane around swarm position
+      const swarmPos = group.position;
+      const normal = swarmPos.clone().normalize();
+      // Build tangent basis vectors
+      const worldUp = new THREE.Vector3(0, 1, 0);
+      let tangent = new THREE.Vector3().crossVectors(worldUp, normal);
+      if (tangent.lengthSq() < 0.0001) {
+        tangent.set(1, 0, 0).crossVectors(tangent, normal);
+      }
+      tangent.normalize();
+      const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+      // Lift position slightly above surface
+      const liftedCenter = swarmPos.clone().addScaledVector(normal, 0.5);
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + t * 0.5;
+        const px = liftedCenter.x + Math.cos(angle) * orbitRadius * tangent.x + Math.sin(angle) * orbitRadius * bitangent.x;
+        const py = liftedCenter.y + Math.cos(angle) * orbitRadius * tangent.y + Math.sin(angle) * orbitRadius * bitangent.y;
+        const pz = liftedCenter.z + Math.cos(angle) * orbitRadius * tangent.z + Math.sin(angle) * orbitRadius * bitangent.z;
+        positions[i * 3] = px;
+        positions[i * 3 + 1] = py;
+        positions[i * 3 + 2] = pz;
       }
       return positions;
     };
@@ -675,14 +633,8 @@ export class SwarmRenderSystem {
       material.opacity = auraOpacity;
       material.size = 4 + intensityFactor * 4;
     }
-    // Sync position with swarm (only needed for flat mode where positions are local)
-    if (isSphereMode()) {
-      // Sphere mode: positions are already world coords
-      auraParticles.position.set(0, 0, 0);
-    } else {
-      auraParticles.position.copy(group.position);
-      auraParticles.position.y = 0.25;
-    }
+    // Sphere mode: positions are already world coords
+    auraParticles.position.set(0, 0, 0);
   }
 
   /**

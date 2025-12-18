@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { World, Tags, Components, type PositionComponent, type ObstacleComponent } from '../../ecs';
-import { isSphereMode, getSurfaceNormal } from '#shared';
+import { getSurfaceNormal } from '#shared';
 
 /**
  * Cached gravity well data for spatial queries

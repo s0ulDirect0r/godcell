@@ -6,7 +6,6 @@
 
 import * as THREE from 'three';
 import { createDataTree, updateDataTreeAnimation, disposeDataTree } from '../meshes/DataTreeMesh';
-import { createRootNetworkFromTrees, updateRootNetworkAnimation } from '../three/JungleBackground';
 import {
   createSphereRootNetwork,
   updateSphereRootAnimation,
@@ -17,7 +16,6 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
-  isSphereMode,
   GAME_CONFIG,
   type PositionComponent,
   type TreeComponent,
@@ -138,21 +136,15 @@ export class TreeRenderSystem {
 
     // Update root network pulse animation
     if (this.rootNetwork) {
-      if (isSphereMode()) {
-        // Sphere roots use great circle arcs with pulsing emissive
-        updateSphereRootAnimation(this.rootNetwork, dt / 1000);
-      } else {
-        // Flat roots use 2D ground-level lines
-        updateRootNetworkAnimation(this.rootNetwork, dt / 1000);
-      }
+      // Sphere roots use great circle arcs with pulsing emissive
+      updateSphereRootAnimation(this.rootNetwork, dt / 1000);
     }
   }
 
   /**
    * Rebuild root network from current tree positions
    * Called when tree count changes
-   * Sphere mode: great circle arcs connecting nearby trees on sphere surface
-   * Flat mode: ground-level lines in 2D
+   * Uses great circle arcs connecting nearby trees on sphere surface
    */
   private rebuildRootNetwork(): void {
     // Remove existing root network
@@ -169,38 +161,22 @@ export class TreeRenderSystem {
       this.rootNetwork = null;
     }
 
-    if (isSphereMode()) {
-      // Sphere mode: collect 3D positions for great circle arcs
-      const treePositions3D: Array<{ x: number; y: number; z: number }> = [];
-      this.treeMeshes.forEach((group) => {
-        // Positions are already in Three.js world space on sphere surface
-        treePositions3D.push({
-          x: group.position.x,
-          y: group.position.y,
-          z: group.position.z,
-        });
+    // Collect 3D positions for great circle arcs
+    const treePositions3D: Array<{ x: number; y: number; z: number }> = [];
+    this.treeMeshes.forEach((group) => {
+      // Positions are already in Three.js world space on sphere surface
+      treePositions3D.push({
+        x: group.position.x,
+        y: group.position.y,
+        z: group.position.z,
       });
+    });
 
-      // Create sphere root network with great circle arcs
-      this.rootNetwork = createSphereRootNetwork(
-        treePositions3D,
-        GAME_CONFIG.JUNGLE_SPHERE_RADIUS
-      );
-    } else {
-      // Flat mode: collect 2D positions for ground-level lines
-      const treePositions: Array<{ x: number; y: number }> = [];
-      this.treeMeshes.forEach((group) => {
-        // Convert back from Three.js coords to game coords
-        // Three.js: X = game X, Z = -game Y
-        treePositions.push({
-          x: group.position.x,
-          y: -group.position.z, // Convert back to game Y
-        });
-      });
-
-      // Create flat root network
-      this.rootNetwork = createRootNetworkFromTrees(treePositions);
-    }
+    // Create sphere root network with great circle arcs
+    this.rootNetwork = createSphereRootNetwork(
+      treePositions3D,
+      GAME_CONFIG.JUNGLE_SPHERE_RADIUS
+    );
 
     this.scene.add(this.rootNetwork);
     this.rootNetworkTreeCount = this.treeMeshes.size;

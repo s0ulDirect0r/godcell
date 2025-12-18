@@ -822,19 +822,7 @@ export class ThreeRenderer implements Renderer {
     // Note: Sphere mode camera is updated later using interpolated mesh position
     // Skip if in observer mode (camera is controlled by free-fly input)
     const activeMode = this.cameraSystem.getMode();
-    if (activeMode !== 'observer' && myPlayer && !this.cameraSystem.isSphereMode()) {
-      if (activeMode === 'firstperson') {
-        this.cameraSystem.updateFirstPersonPosition(
-          myPlayer.position.x,
-          myPlayer.position.y,
-          GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
-        );
-      } else if (activeMode === 'thirdperson') {
-        // Third-person camera for godcell - uses 3D position
-        const posZ = myPlayer.position.z ?? 0;
-        this.cameraSystem.updateThirdPersonPosition(myPlayer.position.x, myPlayer.position.y, posZ);
-      }
-    }
+    // In sphere mode, camera position is updated later using interpolated mesh position
 
     // Update environment particles (soup or jungle based on mode)
     this.environmentSystem.update(dt);
@@ -939,7 +927,6 @@ export class ThreeRenderer implements Renderer {
           if (this._camDebugCount % 60 === 0) {
             console.log('[Renderer] Camera update:', {
               mode: activeMode,
-              sphereMode: this.cameraSystem.isSphereMode(),
               stage: myPlayer?.stage,
               meshPos: {
                 x: mesh.position.x.toFixed(0),
@@ -955,20 +942,11 @@ export class ThreeRenderer implements Renderer {
           }
 
           if (activeMode === 'thirdperson') {
-            // Stage 5 Godcell: third-person camera
-            if (this.cameraSystem.isSphereMode()) {
-              // Sphere mode: mesh position is direct 3D coords
-              this.cameraSystem.updateThirdPersonSphere(mesh.position.x, mesh.position.y, mesh.position.z);
-            } else {
-              // Flat mode: convert game coords to Three.js
-              this.cameraSystem.updateThirdPersonPosition(mesh.position.x, -mesh.position.z, mesh.position.y);
-            }
-          } else if (this.cameraSystem.isSphereMode()) {
+            // Stage 5 Godcell: third-person camera (sphere mode: mesh position is direct 3D coords)
+            this.cameraSystem.updateThirdPersonSphere(mesh.position.x, mesh.position.y, mesh.position.z);
+          } else {
             // Sphere mode surface camera: position above player along surface normal
             this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
-          } else {
-            // Flat mode: game coords (mesh.x = game X, -mesh.z = game Y)
-            this.cameraSystem.update(mesh.position.x, -mesh.position.z);
           }
         } else {
           this.cameraSystem.update();

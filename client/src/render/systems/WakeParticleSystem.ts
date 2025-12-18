@@ -5,7 +5,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { World, Tags, Components, isSphereMode, GAME_CONFIG } from '../../ecs';
+import { World, Tags, Components, GAME_CONFIG } from '../../ecs';
 
 // ============================================
 // Configuration
@@ -106,7 +106,6 @@ export class WakeParticleSystem {
    */
   update(world: World, dt: number): void {
     const dtSec = dt / 1000;
-    const sphereMode = isSphereMode();
 
     // Track which entities we've seen this frame
     const seenEntities = new Set<number>();
@@ -134,7 +133,7 @@ export class WakeParticleSystem {
       // Spawn particles
       while (accumulator >= 1 && this.particles.length < WAKE_CONFIG.maxParticles) {
         accumulator -= 1;
-        this.spawnWakeParticle(pos, vel, speed, sphereMode);
+        this.spawnWakeParticle(pos, vel, speed);
       }
 
       this.spawnAccumulators.set(entity, accumulator);
@@ -148,7 +147,7 @@ export class WakeParticleSystem {
     });
 
     // Update existing particles
-    this.updateParticles(dtSec, sphereMode);
+    this.updateParticles(dtSec);
 
     // Update GPU buffers
     this.updateBuffers();
@@ -160,8 +159,7 @@ export class WakeParticleSystem {
   private spawnWakeParticle(
     pos: { x: number; y: number; z?: number },
     vel: { x: number; y: number; z?: number },
-    speed: number,
-    sphereMode: boolean
+    speed: number
   ): void {
     // Normalize velocity to get movement direction
     const dirX = vel.x / speed;
@@ -177,51 +175,29 @@ export class WakeParticleSystem {
     // Calculate perpendicular drift direction
     let driftX: number, driftY: number, driftZ: number;
 
-    if (sphereMode) {
-      // In sphere mode, perpendicular is more complex
-      // Use cross product with surface normal to get tangent perpendicular
-      const surfaceNormal = new THREE.Vector3(pos.x, pos.y, pos.z ?? 0).normalize();
-      const moveDir = new THREE.Vector3(dirX, dirY, dirZ);
+    // In sphere mode, perpendicular is more complex
+    // Use cross product with surface normal to get tangent perpendicular
+    const surfaceNormal = new THREE.Vector3(pos.x, pos.y, pos.z ?? 0).normalize();
+    const moveDir = new THREE.Vector3(dirX, dirY, dirZ);
 
-      // Perpendicular on sphere surface (sideways direction)
-      const perp = new THREE.Vector3().crossVectors(surfaceNormal, moveDir).normalize();
+    // Perpendicular on sphere surface (sideways direction)
+    const perp = new THREE.Vector3().crossVectors(surfaceNormal, moveDir).normalize();
 
-      // V-pattern: drift sideways (perp) with some backward component
-      // angle determines how much sideways vs backward
-      const sideways = Math.sin(angle); // How much to the side
-      const backward = -Math.cos(angle) * 0.3; // Small backward component
+    // V-pattern: drift sideways (perp) with some backward component
+    // angle determines how much sideways vs backward
+    const sideways = Math.sin(angle); // How much to the side
+    const backward = -Math.cos(angle) * 0.3; // Small backward component
 
-      driftX = perp.x * sideways + moveDir.x * backward;
-      driftY = perp.y * sideways + moveDir.y * backward;
-      driftZ = perp.z * sideways + moveDir.z * backward;
+    driftX = perp.x * sideways + moveDir.x * backward;
+    driftY = perp.y * sideways + moveDir.y * backward;
+    driftZ = perp.z * sideways + moveDir.z * backward;
 
-      // Normalize drift direction
-      const len = Math.sqrt(driftX * driftX + driftY * driftY + driftZ * driftZ);
-      if (len > 0) {
-        driftX /= len;
-        driftY /= len;
-        driftZ /= len;
-      }
-    } else {
-      // Flat mode: 2D perpendicular is simple rotation
-      // Perpendicular to movement direction (sideways)
-      const perpX = -dirY;
-      const perpY = dirX;
-
-      // V-pattern: drift sideways with small backward component
-      const sideways = Math.sin(angle);
-      const backward = -Math.cos(angle) * 0.3;
-
-      driftX = perpX * sideways + dirX * backward;
-      driftY = perpY * sideways + dirY * backward;
-      driftZ = 0;
-
-      // Normalize
-      const len = Math.sqrt(driftX * driftX + driftY * driftY);
-      if (len > 0) {
-        driftX /= len;
-        driftY /= len;
-      }
+    // Normalize drift direction
+    const len = Math.sqrt(driftX * driftX + driftY * driftY + driftZ * driftZ);
+    if (len > 0) {
+      driftX /= len;
+      driftY /= len;
+      driftZ /= len;
     }
 
     // Spawn behind entity (positive offset = behind movement direction)
@@ -230,8 +206,8 @@ export class WakeParticleSystem {
     let spawnY = pos.y - dirY * spawnOffset;
     let spawnZ = (pos.z ?? 0) - dirZ * spawnOffset;
 
-    // In sphere mode, re-project spawn point onto sphere surface immediately
-    if (sphereMode) {
+    // Re-project spawn point onto sphere surface immediately
+    {
       const len = Math.sqrt(spawnX * spawnX + spawnY * spawnY + spawnZ * spawnZ);
       if (len > 0) {
         const targetRadius = GAME_CONFIG.SPHERE_RADIUS + 2; // Sphere radius + slight lift
@@ -261,7 +237,7 @@ export class WakeParticleSystem {
   /**
    * Update all particles (position, age, cull dead)
    */
-  private updateParticles(dtSec: number, sphereMode: boolean): void {
+  private updateParticles(dtSec: number): void {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
 
@@ -279,17 +255,15 @@ export class WakeParticleSystem {
       p.y += p.vy * dtSec;
       p.z += p.vz * dtSec;
 
-      // In sphere mode, re-project onto sphere surface with slight lift
-      if (sphereMode) {
-        const len = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-        if (len > 0) {
-          // Keep particles slightly above sphere surface
-          const targetRadius = GAME_CONFIG.SPHERE_RADIUS + 2; // Sphere radius + lift
-          const scale = targetRadius / len;
-          p.x *= scale;
-          p.y *= scale;
-          p.z *= scale;
-        }
+      // Re-project onto sphere surface with slight lift
+      const len = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+      if (len > 0) {
+        // Keep particles slightly above sphere surface
+        const targetRadius = GAME_CONFIG.SPHERE_RADIUS + 2; // Sphere radius + lift
+        const scale = targetRadius / len;
+        p.x *= scale;
+        p.y *= scale;
+        p.z *= scale;
       }
     }
   }
@@ -301,24 +275,16 @@ export class WakeParticleSystem {
     const positions = this.geometry.attributes.position.array as Float32Array;
     const colors = this.geometry.attributes.color.array as Float32Array;
     const sizes = this.geometry.attributes.size.array as Float32Array;
-    const sphereMode = isSphereMode();
 
     for (let i = 0; i < WAKE_CONFIG.maxParticles; i++) {
       if (i < this.particles.length) {
         const p = this.particles[i];
         const progress = p.age / p.lifetime;
 
-        // Position
-        if (sphereMode) {
-          positions[i * 3] = p.x;
-          positions[i * 3 + 1] = p.y;
-          positions[i * 3 + 2] = p.z;
-        } else {
-          // Flat mode: convert game coords to Three.js coords
-          positions[i * 3] = p.x;
-          positions[i * 3 + 1] = 1; // Slightly above ground
-          positions[i * 3 + 2] = -p.y;
-        }
+        // Position (sphere mode: direct 3D coords)
+        positions[i * 3] = p.x;
+        positions[i * 3 + 1] = p.y;
+        positions[i * 3 + 2] = p.z;
 
         // Color with fade
         const opacity = 1 - progress;

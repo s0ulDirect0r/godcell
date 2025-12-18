@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, EvolutionStage, isSphereMode } from '#shared';
+import { GAME_CONFIG, EvolutionStage } from '#shared';
 
 export type CameraMode = 'topdown' | 'firstperson' | 'thirdperson' | 'observer';
 
@@ -47,9 +47,8 @@ export class CameraSystem {
   private viewportWidth: number;
   private viewportHeight: number;
 
-  // Sphere mode state
-  private sphereMode: boolean;
-  private readonly SPHERE_CAMERA_HEIGHT = 800; // Height above sphere surface
+  // Sphere camera height above surface
+  private readonly SPHERE_CAMERA_HEIGHT = 800;
 
   // Observer mode state (free-fly camera for debugging multi-sphere world)
   private observerVelocity = new THREE.Vector3();
@@ -77,10 +76,8 @@ export class CameraSystem {
     this.viewportWidth = viewportWidth;
     this.viewportHeight = viewportHeight;
     this.aspect = viewportWidth / viewportHeight;
-    this.sphereMode = isSphereMode();
 
-    // Create orthographic camera (top-down for Stages 1-3 flat mode)
-    // Camera looks down Y-axis at XZ plane
+    // Create orthographic camera (used for flat world projection/coordinate conversion)
     const frustumSize = GAME_CONFIG.VIEWPORT_HEIGHT;
     this.orthoCamera = new THREE.OrthographicCamera(
       (frustumSize * this.aspect) / -2,
@@ -90,28 +87,20 @@ export class CameraSystem {
       1,
       2000
     );
-
-    // Position at soup center, looking down
-    const soupCenterX = GAME_CONFIG.SOUP_WIDTH / 2;
-    const soupCenterY = GAME_CONFIG.SOUP_HEIGHT / 2;
-    this.orthoCamera.position.set(soupCenterX, 1000, -soupCenterY);
-    this.orthoCamera.lookAt(soupCenterX, 0, -soupCenterY);
+    this.orthoCamera.position.set(0, 1000, 0);
+    this.orthoCamera.lookAt(0, 0, 0);
     this.orthoCamera.up.set(0, 0, -1);
 
-    // Create perspective camera (first-person for Stage 4+, or sphere mode)
+    // Create perspective camera (main camera for sphere world)
     // Far plane set to 50000 to accommodate god sphere (radius 14688) viewing from distance
     this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 50000);
 
-    if (this.sphereMode) {
-      // Sphere mode: start camera above the sphere at default position
-      const startPos = new THREE.Vector3(GAME_CONFIG.SPHERE_RADIUS, 0, 0);
-      const normal = startPos.clone().normalize();
-      this.perspCamera.position.copy(startPos).addScaledVector(normal, this.SPHERE_CAMERA_HEIGHT);
-      this.perspCamera.lookAt(startPos);
-      this.perspCamera.up.set(0, 1, 0);
-    } else {
-      this.perspCamera.position.set(0, 0, 0);
-    }
+    // Start camera above the sphere at default position
+    const startPos = new THREE.Vector3(GAME_CONFIG.SPHERE_RADIUS, 0, 0);
+    const normal = startPos.clone().normalize();
+    this.perspCamera.position.copy(startPos).addScaledVector(normal, this.SPHERE_CAMERA_HEIGHT);
+    this.perspCamera.lookAt(startPos);
+    this.perspCamera.up.set(0, 1, 0);
   }
 
   // ============================================
@@ -127,17 +116,8 @@ export class CameraSystem {
   }
 
   getActiveCamera(): THREE.Camera {
-    // Sphere mode always uses perspective camera (for 3D surface rendering)
-    if (this.sphereMode) {
-      return this.perspCamera;
-    }
-    return this.mode === 'firstperson' || this.mode === 'thirdperson'
-      ? this.perspCamera
-      : this.orthoCamera;
-  }
-
-  isSphereMode(): boolean {
-    return this.sphereMode;
+    // Sphere world always uses perspective camera for 3D surface rendering
+    return this.perspCamera;
   }
 
   getMode(): CameraMode {
@@ -378,8 +358,6 @@ export class CameraSystem {
    * @param z - Player Z position on sphere
    */
   updateSpherePosition(x: number, y: number, z: number): void {
-    if (!this.sphereMode) return;
-
     const playerPos = new THREE.Vector3(x, y, z);
     const surfaceNormal = playerPos.clone().normalize();
 

@@ -4,16 +4,16 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, getSurfaceNormal, isSphereMode, type Position } from '#shared';
+import { GAME_CONFIG, getSurfaceNormal, type Position } from '#shared';
 
 const PLANET_RADIUS = GAME_CONFIG.PLANET_RADIUS;
 
 /**
  * Set mesh position from game Position
- * Handles both flat (2D) and spherical (3D) coordinate systems
+ * Positions objects on sphere surface with optional height offset
  *
  * @param mesh - Three.js object to position
- * @param pos - Game position (x, y, z optional)
+ * @param pos - Game position on sphere surface (x, y, z)
  * @param heightOffset - Additional offset above surface (e.g., for floating effects)
  */
 export function setMeshPosition(
@@ -21,21 +21,16 @@ export function setMeshPosition(
   pos: Position,
   heightOffset: number = 0
 ): void {
-  if (isSphereMode()) {
-    // Spherical world: position directly, add height along surface normal
-    if (heightOffset !== 0) {
-      const normal = getSurfaceNormal(pos);
-      mesh.position.set(
-        pos.x + normal.x * heightOffset,
-        pos.y + normal.y * heightOffset,
-        (pos.z ?? 0) + (normal.z ?? 0) * heightOffset
-      );
-    } else {
-      mesh.position.set(pos.x, pos.y, pos.z ?? 0);
-    }
+  // Spherical world: position directly, add height along surface normal
+  if (heightOffset !== 0) {
+    const normal = getSurfaceNormal(pos);
+    mesh.position.set(
+      pos.x + normal.x * heightOffset,
+      pos.y + normal.y * heightOffset,
+      (pos.z ?? 0) + (normal.z ?? 0) * heightOffset
+    );
   } else {
-    // Flat world: Y is height, negate game Y for Z (old coordinate system)
-    mesh.position.set(pos.x, heightOffset, -(pos.y));
+    mesh.position.set(pos.x, pos.y, pos.z ?? 0);
   }
 }
 
@@ -47,11 +42,6 @@ export function setMeshPosition(
  * @param pos - Game position on sphere surface
  */
 export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
-  if (!isSphereMode()) {
-    // Flat world: no special orientation needed
-    return;
-  }
-
   const normal = getSurfaceNormal(pos);
 
   // Create a quaternion that rotates from world up (0,1,0) to surface normal
@@ -81,12 +71,6 @@ export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
  * @param pos - Game position on sphere surface
  */
 export function orientFlatToSurface(mesh: THREE.Object3D, pos: Position): void {
-  if (!isSphereMode()) {
-    // Flat mode: standard -90° X rotation to lie in XZ plane
-    mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-    return;
-  }
-
   const normal = getSurfaceNormal(pos);
   const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
@@ -98,7 +82,6 @@ export function orientFlatToSurface(mesh: THREE.Object3D, pos: Position): void {
   if (Math.abs(surfaceNormal.dot(negZ)) > 0.999) {
     // Surface normal is parallel to -Z
     if (surfaceNormal.z < 0) {
-      // Pointing same direction, use flat-mode rotation
       mesh.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
     } else {
       // Pointing opposite, flip
@@ -149,14 +132,6 @@ export function getSphereCameraPosition(
   playerPos: Position,
   cameraDistance: number
 ): { position: THREE.Vector3; up: THREE.Vector3 } {
-  if (!isSphereMode()) {
-    // Flat world: traditional top-down camera
-    return {
-      position: new THREE.Vector3(playerPos.x, cameraDistance, -playerPos.y),
-      up: new THREE.Vector3(0, 0, -1), // Z-negative is "up" in screen space
-    };
-  }
-
   const normal = getSurfaceNormal(playerPos);
   const normalVec = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
@@ -197,11 +172,6 @@ export function localToWorldDirection(
   playerPos: Position,
   cameraUp: THREE.Vector3
 ): { x: number; y: number; z: number } {
-  if (!isSphereMode()) {
-    // Flat world: local Y is forward (negative Z in Three.js)
-    return { x: localX, y: localY, z: 0 };
-  }
-
   const normal = getSurfaceNormal(playerPos);
   const normalVec = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
@@ -251,14 +221,6 @@ export function orientHexapodToSurface(
   pos: Position,
   headingDir: THREE.Vector3
 ): void {
-  if (!isSphereMode()) {
-    // Flat mode: rotate around Y to face heading (mesh Z is up in flat mode view)
-    // Head is at -X, so we want -X to point toward heading
-    const yaw = Math.atan2(headingDir.z, headingDir.x);
-    mesh.quaternion.setFromEuler(new THREE.Euler(0, -yaw + Math.PI, 0));
-    return;
-  }
-
   const normal = getSurfaceNormal(pos);
   const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 

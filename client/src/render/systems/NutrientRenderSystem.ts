@@ -10,7 +10,6 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
-  isSphereMode,
   type PositionComponent,
   type NutrientComponent,
 } from '../../ecs';
@@ -21,7 +20,6 @@ import {
   disposeNutrient,
   setNutrientOpacity,
 } from '../meshes/NutrientMesh';
-import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 
 /**
  * NutrientRenderSystem - Manages nutrient entity rendering
@@ -83,30 +81,15 @@ export class NutrientRenderSystem {
       }
 
       // Update base position (bobbing animation added in updateAnimations)
-      if (isSphereMode()) {
-        // Sphere mode: use 3D coordinates directly
-        group.userData.baseX = pos.x;
-        group.userData.baseY = pos.y;
-        group.userData.baseZ = pos.z ?? 0;
-        group.userData.isSphere = true;
-        group.position.set(pos.x, pos.y, pos.z ?? 0);
+      // Use 3D coordinates on sphere surface
+      group.userData.baseX = pos.x;
+      group.userData.baseY = pos.y;
+      group.userData.baseZ = pos.z ?? 0;
+      group.userData.isSphere = true;
+      group.position.set(pos.x, pos.y, pos.z ?? 0);
 
-        // Cache 3D position for energy transfer effect
-        this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y, z: pos.z });
-      } else {
-        // Flat mode: XZ plane (X=game X, Y=height, Z=-game Y)
-        group.userData.baseX = pos.x;
-        group.userData.baseZ = -pos.y;
-        group.userData.isSphere = false;
-        group.position.set(pos.x, 0, -pos.y);
-
-        // Apply gravity well distortion effect (flat world only)
-        const warp = calculateEntityWarp(pos.x, pos.y);
-        applyEntityWarp(group, warp);
-
-        // Cache 2D position for energy transfer effect
-        this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y });
-      }
+      // Cache 3D position for energy transfer effect
+      this.nutrientPositionCache.set(nutrientId, { x: pos.x, y: pos.y, z: pos.z });
     });
 
     // Remove nutrients that no longer exist in ECS
