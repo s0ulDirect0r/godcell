@@ -177,7 +177,7 @@ export class CameraSystem {
    * Get zoom multiplier for evolution stage
    */
   static getStageZoom(stage: EvolutionStage): number {
-    // Zoom multiplier per stage - controls how much of the world is visible
+    // Zoom multiplier per stage - controls how much of the world is visible (FLAT MODE)
     // Higher = more zoomed out (see more world, player appears smaller)
     switch (stage) {
       case EvolutionStage.SINGLE_CELL:
@@ -185,7 +185,7 @@ export class CameraSystem {
       case EvolutionStage.MULTI_CELL:
         return 1.5; // Slightly wider for larger multi-cell
       case EvolutionStage.CYBER_ORGANISM:
-        return 4.0; // Jungle scale - see nearby trees and terrain
+        return 4.0; // Jungle scale
       case EvolutionStage.HUMANOID:
         return 4.0; // First-person mode uses perspective camera instead
       case EvolutionStage.GODCELL:

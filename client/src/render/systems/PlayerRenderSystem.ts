@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { Player, EvolutionStage, DamageSource } from '#shared';
-import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '#shared';
+import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum, getSurfaceNormal } from '#shared';
 import {
   World,
   Tags,
@@ -50,7 +50,7 @@ import {
   applyEvolutionEffects,
 } from '../three/EvolutionVisuals';
 import type { RenderMode } from './EnvironmentSystem';
-import { orientFlatToSurface } from '../utils/SphereRenderUtils';
+import { orientFlatToSurface, orientHexapodToSurface } from '../utils/SphereRenderUtils';
 
 /**
  * Interpolation target for smooth position updates
@@ -385,6 +385,17 @@ export class PlayerRenderSystem {
           // Orient flat organisms to lie on sphere surface
           if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
             orientFlatToSurface(cellGroup, player.position);
+          } else if (player.stage === 'cyber_organism') {
+            // Orient hexapod on sphere surface
+            const heading = this.getHexapodHeading(cellGroup);
+            orientHexapodToSurface(cellGroup, player.position, heading);
+
+            // Add height offset along surface normal (legs extend below body)
+            const normal = getSurfaceNormal(player.position);
+            const heightOffset = 5;
+            cellGroup.position.x += normal.x * heightOffset;
+            cellGroup.position.y += normal.y * heightOffset;
+            cellGroup.position.z += (normal.z ?? 0) * heightOffset;
           }
 
           const outline = this.playerOutlines.get(id);
@@ -953,37 +964,43 @@ export class PlayerRenderSystem {
       const energyRatio = player.energy / player.maxEnergy;
       updateCyberOrganismEnergy(cellGroup, energyRatio);
 
-      const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
-      const currPos = player.position;
-      const isMoving = prevPos
-        ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
-        : false;
-      cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+      // Track position for movement detection (3D for sphere mode)
+      const prevPos = cellGroup.userData.lastPosition3D as
+        | { x: number; y: number; z: number }
+        | undefined;
+      const currPos = {
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z ?? 0,
+      };
 
-      // Calculate movement speed (distance / dt = units per second)
-      const speed = prevPos
-        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) / (this.dt / 1000)
-        : 0;
+      // Calculate movement in 3D
+      const dx = prevPos ? currPos.x - prevPos.x : 0;
+      const dy = prevPos ? currPos.y - prevPos.y : 0;
+      const dz = prevPos ? currPos.z - prevPos.z : 0;
+      const distMoved = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const isMoving = distMoved > 1;
 
-      // Update heading
+      cellGroup.userData.lastPosition3D = currPos;
+
+      // Calculate movement speed (units per second)
+      const speed = prevPos && this.dt > 0 ? distMoved / (this.dt / 1000) : 0;
+
+      // Update heading direction (3D vector for sphere orientation)
       if (prevPos && isMoving) {
-        const dx = currPos.x - prevPos.x;
-        const dy = currPos.y - prevPos.y;
-        const targetHeading = Math.atan2(dy, dx) + Math.PI;
+        // Target heading is normalized velocity direction
+        const targetHeading = new THREE.Vector3(dx, dy, dz).normalize();
 
-        if (cellGroup.userData.heading === undefined) {
-          cellGroup.userData.heading = targetHeading;
+        // Initialize or get current heading
+        let currentHeading = cellGroup.userData.heading3D as THREE.Vector3 | undefined;
+        if (!currentHeading) {
+          currentHeading = targetHeading.clone();
+          cellGroup.userData.heading3D = currentHeading;
         }
 
-        let currentHeading = cellGroup.userData.heading as number;
-        let delta = targetHeading - currentHeading;
-
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-
-        currentHeading += delta * 0.15;
-        cellGroup.userData.heading = currentHeading;
-        cellGroup.rotation.z = currentHeading;
+        // Smoothly interpolate toward target heading
+        currentHeading.lerp(targetHeading, 0.15);
+        currentHeading.normalize();
       }
 
       updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
@@ -1095,6 +1112,18 @@ export class PlayerRenderSystem {
       if (stage === 'single_cell' || stage === 'multi_cell') {
         const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
         orientFlatToSurface(cellGroup, pos);
+      } else if (stage === 'cyber_organism') {
+        // Orient hexapod on sphere surface
+        const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
+        const heading = this.getHexapodHeading(cellGroup);
+        orientHexapodToSurface(cellGroup, pos, heading);
+
+        // Add height offset along surface normal (legs extend below body)
+        const normal = getSurfaceNormal(pos);
+        const heightOffset = 5;
+        cellGroup.position.x += normal.x * heightOffset;
+        cellGroup.position.y += normal.y * heightOffset;
+        cellGroup.position.z += (normal.z ?? 0) * heightOffset;
       }
 
       const outline = this.playerOutlines.get(playerId);
@@ -1169,5 +1198,18 @@ export class PlayerRenderSystem {
       this.geometryCache.set(key, geometry);
     }
     return geometry;
+  }
+
+  /**
+   * Get heading direction for hexapod orientation on sphere
+   * Uses stored heading3D vector, with fallback to default forward direction
+   */
+  private getHexapodHeading(cellGroup: THREE.Group): THREE.Vector3 {
+    const stored = cellGroup.userData.heading3D as THREE.Vector3 | undefined;
+    if (stored) {
+      return stored.clone();
+    }
+    // Default: positive X direction (will be projected to tangent plane by orientHexapodToSurface)
+    return new THREE.Vector3(1, 0, 0);
   }
 }

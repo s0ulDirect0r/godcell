@@ -238,6 +238,80 @@ export function raycastToSphere(
 }
 
 /**
+ * Orient a hexapod (cyber-organism) mesh on sphere surface
+ * - Local +Z (dorsal) points away from sphere center (along surface normal)
+ * - Local -X (head) faces the heading direction
+ *
+ * @param mesh - The hexapod mesh group
+ * @param pos - Position on sphere surface
+ * @param headingDir - Desired forward direction (world space velocity direction)
+ */
+export function orientHexapodToSurface(
+  mesh: THREE.Object3D,
+  pos: Position,
+  headingDir: THREE.Vector3
+): void {
+  if (!isSphereMode()) {
+    // Flat mode: rotate around Y to face heading (mesh Z is up in flat mode view)
+    // Head is at -X, so we want -X to point toward heading
+    const yaw = Math.atan2(headingDir.z, headingDir.x);
+    mesh.quaternion.setFromEuler(new THREE.Euler(0, -yaw + Math.PI, 0));
+    return;
+  }
+
+  const normal = getSurfaceNormal(pos);
+  const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
+
+  // Step 1: Get surface orientation (local +Z -> surface normal)
+  const posZ = new THREE.Vector3(0, 0, 1);
+  const surfaceQuat = new THREE.Quaternion();
+
+  if (Math.abs(surfaceNormal.dot(posZ)) > 0.999) {
+    if (surfaceNormal.z > 0) {
+      surfaceQuat.identity();
+    } else {
+      surfaceQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+    }
+  } else {
+    surfaceQuat.setFromUnitVectors(posZ, surfaceNormal);
+  }
+
+  // Step 2: Calculate heading rotation around local Z (surface normal)
+  // Project heading onto tangent plane
+  const headingTangent = headingDir.clone().projectOnPlane(surfaceNormal);
+
+  if (headingTangent.lengthSq() > 0.001) {
+    headingTangent.normalize();
+
+    // After surface rotation, find where local -X ends up (that's where head points)
+    const localNegX = new THREE.Vector3(-1, 0, 0).applyQuaternion(surfaceQuat);
+
+    // Calculate angle between current head direction and desired heading
+    // We want head (-X) to point toward headingTangent
+    const currentForward = localNegX.clone().projectOnPlane(surfaceNormal).normalize();
+
+    if (currentForward.lengthSq() > 0.001) {
+      // Angle between current and target heading
+      let angle = Math.acos(Math.max(-1, Math.min(1, currentForward.dot(headingTangent))));
+
+      // Determine sign using cross product
+      const cross = new THREE.Vector3().crossVectors(currentForward, headingTangent);
+      if (cross.dot(surfaceNormal) < 0) {
+        angle = -angle;
+      }
+
+      // Apply heading rotation around surface normal
+      const headingQuat = new THREE.Quaternion().setFromAxisAngle(surfaceNormal, angle);
+      mesh.quaternion.copy(headingQuat.multiply(surfaceQuat));
+    } else {
+      mesh.quaternion.copy(surfaceQuat);
+    }
+  } else {
+    mesh.quaternion.copy(surfaceQuat);
+  }
+}
+
+/**
  * Interpolate position on sphere surface
  * Simple linear interpolation works for small distances
  *
