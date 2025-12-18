@@ -52,6 +52,7 @@ export class ThreeRenderer implements Renderer {
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
   private bloomPass!: import('three/addons/postprocessing/UnrealBloomPass.js').UnrealBloomPass;
+  private noBloomRenderPass!: RenderPass; // Render pass for layer 1 (no bloom) objects
 
   // Perf debug toggles
   private _bloomEnabled = true;
@@ -221,6 +222,7 @@ export class ThreeRenderer implements Renderer {
     this.composer = composerResult.composer;
     this.renderPass = composerResult.renderPass;
     this.bloomPass = composerResult.bloomPass;
+    this.noBloomRenderPass = composerResult.noBloomRenderPass;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -956,8 +958,10 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Update renderPass camera based on current mode before rendering
-    this.renderPass.camera = this.cameraSystem.getActiveCamera();
+    // Update render pass cameras based on current mode before rendering
+    const camera = this.cameraSystem.getActiveCamera();
+    this.renderPass.camera = camera;
+    this.noBloomRenderPass.camera = camera;
 
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
@@ -965,7 +969,9 @@ export class ThreeRenderer implements Renderer {
     // Track render time
     const renderStart = performance.now();
 
-    // Render scene with postprocessing
+    // Simple single-pass rendering with bloom
+    // All objects on layer 0 (default) - bloom applies to everything
+    // The void temple shader handles glow through material design (bright values > threshold)
     this.composer.render();
 
     const renderTime = performance.now() - renderStart;

@@ -92,8 +92,10 @@ export class CameraSystem {
     this.orthoCamera.up.set(0, 0, -1);
 
     // Create perspective camera (main camera for sphere world)
-    // Far plane set to 50000 to accommodate god sphere (radius 14688) viewing from distance
-    this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 50000);
+    // Far plane set to 50000 to accommodate god sphere (radius ~30000) viewing from distance
+    this.perspCamera = new THREE.PerspectiveCamera(60, this.aspect, 1, 80000);
+    // Enable layer 1 so camera sees both regular objects (layer 0) and no-bloom objects (layer 1)
+    this.perspCamera.layers.enable(1);
 
     // Start camera above the sphere at default position
     const startPos = new THREE.Vector3(GAME_CONFIG.SPHERE_RADIUS, 0, 0);

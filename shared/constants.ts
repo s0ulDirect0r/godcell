@@ -140,7 +140,7 @@ export const GAME_CONFIG = {
   SPHERE_RADIUS: 2448, // Soup sphere - backward compat alias
   SOUP_SPHERE_RADIUS: 2448, // Soup sphere (Stage 1-2)
   JUNGLE_SPHERE_RADIUS: 9792, // 4x soup, inner surface for Stage 3+
-  GOD_SPHERE_RADIUS: 14688, // 6x soup, final destination
+  GOD_SPHERE_RADIUS: 29376, // 12x soup, doubled for more space between jungle and god
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void
