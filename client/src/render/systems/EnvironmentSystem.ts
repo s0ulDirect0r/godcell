@@ -88,6 +88,326 @@ const SURFACE_FLOW_CONFIG = {
 };
 
 // ============================================
+// Void Temple Shader for God Sphere
+// ============================================
+// Dark void surface with glowing golden sacred geometry patterns
+// Evangelion Angel / AT Field aesthetic - "Be not afraid"
+// Dark base stays below bloom threshold, golden lines glow through bloom
+
+/**
+ * Void Temple Shader Configuration
+ *
+ * Controls the god sphere's otherworldly appearance:
+ * - Near-black void base that absorbs light
+ * - Golden geometric patterns that pulse with divine energy
+ * - Sacred geometry lines emanating from icosahedron structure
+ */
+const VOID_TEMPLE_CONFIG = {
+  // === BASE VOID PARAMETERS ===
+  // voidColor: Near-black base - must stay below bloom threshold (0.3)
+  // Very dark with subtle deep blue undertone for depth
+  voidColor: { r: 0.02, g: 0.02, b: 0.04 },
+
+  // === GOLDEN GLOW PARAMETERS ===
+  // glowColor: Divine gold - bright enough to trigger bloom
+  // RGB values > 0.3 will glow; 0.8+ creates strong bloom
+  glowColor: { r: 1.0, g: 0.85, b: 0.3 },
+
+  // glowIntensity: Multiplier for glow brightness
+  // Range: 0.1 - 1.0, Default: 0.3 (subtle glow, not blinding)
+  glowIntensity: 0.3,
+
+  // === SACRED GEOMETRY PARAMETERS ===
+  // lineFrequency: Controls density of geometric patterns
+  // Higher = more intricate patterns; Lower = bolder, simpler lines
+  // Range: 0.0002 - 0.001, Default: 0.0004
+  lineFrequency: 0.0004,
+
+  // lineSharpness: How sharp vs soft the line edges are
+  // Higher = crisp lines; Lower = soft glow gradient
+  // Range: 10 - 100, Default: 40
+  lineSharpness: 40.0,
+
+  // === ANIMATION PARAMETERS ===
+  // pulseSpeed: Breathing animation frequency (radians/second)
+  // 0.3 = slow divine pulse; 1.0 = rapid heartbeat
+  // Range: 0.1 - 1.0, Default: 0.3
+  pulseSpeed: 0.3,
+
+  // pulseDepth: How much the glow intensity varies during pulse
+  // 0.0 = no pulse; 0.5 = 50% variation
+  // Range: 0.0 - 0.5, Default: 0.2
+  pulseDepth: 0.2,
+};
+
+const VOID_TEMPLE_VERTEX_SHADER = /* glsl */ `
+uniform float uTime;
+
+varying vec3 vPosition;
+varying vec3 vNormal;
+varying vec3 vWorldPosition;
+
+void main() {
+  vPosition = position;
+  vNormal = normal;
+  vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const VOID_TEMPLE_FRAGMENT_SHADER = /* glsl */ `
+uniform float uTime;
+uniform vec3 uVoidColor;
+uniform vec3 uGlowColor;
+uniform float uGlowIntensity;
+uniform float uLineFrequency;
+uniform float uLineSharpness;
+uniform float uPulseSpeed;
+uniform float uPulseDepth;
+
+varying vec3 vPosition;
+varying vec3 vNormal;
+varying vec3 vWorldPosition;
+
+// Hash function for pseudo-random values
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+// 3D Value noise
+float noise3D(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+
+  return mix(
+    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+    f.z
+  );
+}
+
+// Sacred geometry pattern - creates interlocking triangular/hexagonal lines
+// Based on distance to nearest edge in a tessellated pattern
+float sacredGeometry(vec3 p) {
+  // Scale position for pattern density
+  vec3 q = p * uLineFrequency;
+
+  // Multiple overlapping geometric patterns at different scales
+  // Creates the "divine architecture" feel
+
+  // Primary pattern: large-scale icosahedron-like divisions
+  float pattern1 = 0.0;
+  // Use spherical coordinates for clean sphere-surface patterns
+  float r = length(p);
+  float theta = atan(p.z, p.x);
+  float phi = acos(p.y / r);
+
+  // Create latitude/longitude grid with golden ratio proportions
+  // Golden ratio (phi) appears in icosahedron geometry
+  float goldenAngle = 2.39996; // ~137.5 degrees in radians
+
+  // Longitudinal lines (meridians) - 20 divisions like icosahedron faces
+  float lonLines = abs(sin(theta * 10.0));
+
+  // Latitudinal lines (parallels) - 6 divisions
+  float latLines = abs(sin(phi * 6.0));
+
+  // Diagonal sacred geometry lines - creates triangular tessellation
+  float diagLines1 = abs(sin((theta + phi) * 8.0));
+  float diagLines2 = abs(sin((theta - phi) * 8.0));
+
+  // Combine patterns - take minimum distance to any line
+  float lines = min(lonLines, latLines);
+  lines = min(lines, diagLines1);
+  lines = min(lines, diagLines2);
+
+  // Convert to sharp lines using smoothstep
+  // lines close to 0 = on a line, close to 1 = between lines
+  float lineGlow = 1.0 - smoothstep(0.0, 0.15, lines);
+
+  // Add secondary finer pattern for complexity
+  float fineTheta = abs(sin(theta * 30.0));
+  float finePhi = abs(sin(phi * 15.0));
+  float fineLines = min(fineTheta, finePhi);
+  float fineGlow = 1.0 - smoothstep(0.0, 0.1, fineLines);
+
+  // Combine: primary lines at full intensity, fine lines at reduced
+  return lineGlow + fineGlow * 0.3;
+}
+
+// Hexagonal pattern for additional sacred geometry feel
+float hexPattern(vec3 p) {
+  vec3 q = p * uLineFrequency * 2.0;
+
+  // Project onto sphere surface and create hex grid
+  float r = length(p);
+  vec2 uv = vec2(atan(p.z, p.x), acos(p.y / r));
+  uv *= 10.0; // Scale for hex size
+
+  // Hex grid math
+  vec2 hexUV = uv;
+  hexUV.x *= 1.1547; // 2/sqrt(3)
+  hexUV.y += mod(floor(hexUV.x), 2.0) * 0.5;
+  hexUV = fract(hexUV) - 0.5;
+
+  // Distance to hex edge
+  float hexDist = max(abs(hexUV.x), abs(hexUV.y) * 0.866 + abs(hexUV.x) * 0.5);
+
+  // Sharp hex edges
+  return 1.0 - smoothstep(0.4, 0.5, hexDist);
+}
+
+void main() {
+  // Base void color - near black, won't trigger bloom
+  vec3 color = uVoidColor;
+
+  // Calculate sacred geometry pattern intensity
+  float geometry = sacredGeometry(vPosition);
+
+  // Add hexagonal overlay for extra complexity
+  float hex = hexPattern(vPosition) * 0.4;
+  geometry = max(geometry, hex);
+
+  // Animated pulse - slow divine breathing
+  float pulse = 1.0 - uPulseDepth + uPulseDepth * sin(uTime * uPulseSpeed);
+
+  // Apply golden glow to geometric patterns
+  // Glow color is bright enough to trigger bloom (values > 0.3)
+  vec3 glow = uGlowColor * geometry * uGlowIntensity * pulse;
+
+  // Add subtle noise variation to prevent banding
+  float noiseVar = noise3D(vPosition * 0.001) * 0.1;
+  glow *= (1.0 + noiseVar);
+
+  // Fresnel effect - edges glow brighter (rim lighting)
+  vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+  float fresnel = 1.0 - abs(dot(normalize(vNormal), viewDir));
+  fresnel = pow(fresnel, 2.0);
+
+  // Add subtle golden fresnel rim
+  glow += uGlowColor * fresnel * 0.3 * pulse;
+
+  // Final color: void base + glowing patterns
+  color += glow;
+
+  // Full opacity - solid divine barrier
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+// Legacy marble shader constants (kept for reference, no longer used)
+const MARBLE_VERTEX_SHADER = /* glsl */ `
+varying vec3 vPosition;
+varying vec3 vNormal;
+
+void main() {
+  vPosition = position;
+  vNormal = normal;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const MARBLE_FRAGMENT_SHADER = /* glsl */ `
+varying vec3 vPosition;
+varying vec3 vNormal;
+
+// Hash function for pseudo-random values
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+// 3D Value noise
+float noise3D(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+
+  return mix(
+    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+    f.z
+  );
+}
+
+// Fractal Brownian Motion for layered veining
+float fbm(vec3 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  float frequency = 1.0;
+  for (int i = 0; i < 5; i++) {
+    value += amplitude * noise3D(p * frequency);
+    frequency *= 2.0;
+    amplitude *= 0.5;
+  }
+  return value;
+}
+
+// Calacatta marble pattern - golden/amber veins on cream base
+float marble(vec3 p) {
+  // Scale for marble vein size on large sphere
+  // Lower = larger, more spread out veins
+  float scale = 0.0004;
+  vec3 q = p * scale;
+
+  // Multiple noise octaves for organic, flowing veins
+  float n = fbm(q);
+  n += 0.5 * fbm(q * 2.0 + vec3(1.7, 9.2, 8.3));
+  n += 0.25 * fbm(q * 4.0 + vec3(8.3, 2.8, 4.1));
+
+  // Create vein pattern - sine creates characteristic marble flow
+  float vein = sin((q.x + q.y * 0.7 + q.z * 0.5) * 2.5 + n * 10.0);
+
+  // Map to 0-1 and sharpen for bold veins
+  vein = (vein + 1.0) * 0.5;
+  // Lower power = bolder, more prominent veins
+  vein = pow(vein, 0.5);
+
+  return vein;
+}
+
+void main() {
+  // Calacatta marble colors - bright and realistic
+  // Warm cream/off-white base
+  vec3 creamBase = vec3(0.95, 0.93, 0.88);
+
+  // Golden/amber vein color (matches gold icosahedron lines)
+  vec3 goldVein = vec3(0.76, 0.55, 0.25);
+
+  // Secondary darker accent for depth
+  vec3 brownAccent = vec3(0.45, 0.32, 0.18);
+
+  // Get marble pattern
+  float pattern = marble(vPosition);
+
+  // Secondary pattern offset for color variation
+  float pattern2 = marble(vPosition + vec3(1000.0, 500.0, 750.0));
+
+  // Mix gold and brown for vein color variation
+  vec3 veinColor = mix(goldVein, brownAccent, pattern2 * 0.4);
+
+  // Mix between cream base and vein color
+  // pattern close to 1 = cream, close to 0 = vein
+  vec3 color = mix(veinColor, creamBase, pattern);
+
+  // Subtle lighting for depth (hemisphere light)
+  float light = dot(normalize(vNormal), vec3(0.0, 1.0, 0.0)) * 0.12 + 0.88;
+  color *= light;
+
+  // Full opacity for solid marble feel
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+// ============================================
 // Surface Flow Vertex Shader
 // ============================================
 // Animates sphere surface with flowing waves and entity ripples
@@ -421,6 +741,12 @@ export class EnvironmentSystem {
   private isSphereWorld: boolean = false;
   private sphereParticles!: THREE.Points;
   private surfaceFlowMaterial?: THREE.ShaderMaterial;
+  // God sphere fresnel shader (outer surface)
+  private godSphereMaterial?: THREE.ShaderMaterial;
+  // God sphere inner digital night sky shader
+  private godSphereInnerMaterial?: THREE.ShaderMaterial;
+  // Flower of Life tube shader
+  private flowerOfLifeMaterial?: THREE.ShaderMaterial;
   private sphereParticleData: Array<{
     theta: number;  // Longitude angle
     phi: number;    // Latitude angle
@@ -587,33 +913,223 @@ export class EnvironmentSystem {
     this.sphereBackgroundGroup.add(jungleWireframeMesh);
 
     // === LAYER 6: God Sphere (outermost boundary) ===
-    // Players approach from inside, pass through, emerge on outer surface
-    // BackSide so it's visible as you approach from within
+    // Dark stone surface with prominent golden icosahedron wireframe
+    // Eva Angel / AT Field vibes - "Be not afraid"
     const godRadius = GAME_CONFIG.GOD_SPHERE_RADIUS;
-    const godGeometry = new THREE.IcosahedronGeometry(godRadius, 3);
-    const godMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff, // White/transcendent
-      side: THREE.BackSide,
-      transparent: true,
-      opacity: 0.05, // Very faint - ethereal boundary
-      depthWrite: false,
+
+    // Fresnel sphere - black center, warm edge glow visible from OUTSIDE only
+    const godSurfaceRadius = godRadius - 50;
+    const godGeometry = new THREE.IcosahedronGeometry(godSurfaceRadius, 4);
+
+    this.godSphereMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+          // Transform normal to world space (not view space)
+          vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vViewDir = normalize(cameraPosition - worldPos.xyz);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec3 vNormal;
+        varying vec3 vViewDir;
+        void main() {
+          float fresnel = 1.0 - abs(dot(vNormal, vViewDir));
+          fresnel = pow(fresnel, 2.5);
+          float pulse = 1.0 + sin(uTime * 0.3) * 0.03;
+          vec3 glowColor = vec3(0.95, 0.75, 0.45) * fresnel * 0.9 * pulse;
+          gl_FragColor = vec4(glowColor, 1.0);
+        }
+      `,
+      side: THREE.FrontSide, // Only visible from outside
+      depthWrite: true,
     });
-    const godMesh = new THREE.Mesh(godGeometry, godMaterial);
+
+    const godMesh = new THREE.Mesh(godGeometry, this.godSphereMaterial);
     godMesh.name = 'godSphere';
     this.sphereBackgroundGroup.add(godMesh);
 
-    // God wireframe (faint outer boundary)
-    const godWireframeGeometry = new THREE.IcosahedronGeometry(godRadius - 20, 2);
-    const godWireframeMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffcc, // Faint gold
-      wireframe: true,
-      transparent: true,
-      opacity: 0.08,
+    // Inner surface - digital night sky visible from INSIDE (junglesphere players looking up)
+    const godInnerGeometry = new THREE.IcosahedronGeometry(godSurfaceRadius - 500, 5);
+    const godInnerMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        varying vec3 vPosition;
+        void main() {
+          vPosition = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec3 vPosition;
+
+        // Hash for pseudo-random
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        // Smooth noise
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        void main() {
+          // Spherical UV from position
+          vec3 n = normalize(vPosition);
+          vec2 uv = vec2(atan(n.z, n.x), asin(n.y)) * 2.0;
+
+          // Subtle wisp - just one layer, very faint
+          float time = uTime * 0.01;
+          float wisp = noise(uv * 1.5 + time);
+          wisp = wisp * 0.08;
+
+          // Star points - distance from cell center
+          vec2 starUv = uv * 15.0;
+          vec2 cellId = floor(starUv);
+          vec2 cellUv = fract(starUv) - 0.5;
+          float starRand = hash(cellId);
+          float star = 0.0;
+          if (starRand > 0.92) {
+            // Distance from center of cell
+            float d = length(cellUv);
+            star = smoothstep(0.15, 0.0, d) * 0.5;
+          }
+
+          // Light blue tint - very subtle
+          vec3 wispColor = vec3(0.05, 0.08, 0.1) * wisp;
+          vec3 starColor = vec3(0.5, 0.7, 0.9) * star;
+
+          // Nearly black base
+          vec3 color = vec3(0.0, 0.0, 0.01) + wispColor + starColor;
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
       side: THREE.BackSide,
-      depthWrite: false,
     });
-    const godWireframeMesh = new THREE.Mesh(godWireframeGeometry, godWireframeMaterial);
-    this.sphereBackgroundGroup.add(godWireframeMesh);
+    const godInnerMesh = new THREE.Mesh(godInnerGeometry, godInnerMaterial);
+    godInnerMesh.name = 'godSphereInner';
+    this.sphereBackgroundGroup.add(godInnerMesh);
+
+    // Store for time updates
+    this.godSphereInnerMaterial = godInnerMaterial;
+
+    // Flower of Life pattern - overlapping circles on sphere surface
+    const flowerGroup = new THREE.Group();
+    flowerGroup.name = 'godSphereFlowerOfLife';
+
+    // Tube shader - very slow, subtle warm pulse
+    const tubeMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        void main() {
+          float pulse = 0.65 + sin(uTime * 0.7) * 0.15;
+          vec3 gold = vec3(0.72, 0.53, 0.04) * pulse;
+          gl_FragColor = vec4(gold, 0.7);
+        }
+      `,
+      transparent: true,
+    });
+    this.flowerOfLifeMaterial = tubeMaterial;
+
+    // Circle radius - controls pattern density
+    // In Flower of Life, center-to-center distance equals circle radius
+    const circleRadius = godRadius * 0.28;
+    const circleSegments = 48; // Points around each circle
+    const tubeRadius = 40; // Thickness of the tube (world units)
+    const tubeSegments = 6; // Radial segments for tube cross-section
+
+    // Create a tube circle on the sphere surface
+    const createCircleOnSphere = (theta: number, phi: number) => {
+      const points: THREE.Vector3[] = [];
+
+      // Position on sphere surface
+      const centerX = godRadius * Math.sin(phi) * Math.cos(theta);
+      const centerY = godRadius * Math.cos(phi);
+      const centerZ = godRadius * Math.sin(phi) * Math.sin(theta);
+      const center = new THREE.Vector3(centerX, centerY, centerZ);
+
+      // Normal at this point (points outward from sphere center)
+      const normal = center.clone().normalize();
+
+      // Create two perpendicular vectors on the tangent plane
+      const up = new THREE.Vector3(0, 1, 0);
+      let tangent1 = new THREE.Vector3().crossVectors(up, normal).normalize();
+      if (tangent1.length() < 0.1) {
+        tangent1 = new THREE.Vector3(1, 0, 0);
+      }
+      const tangent2 = new THREE.Vector3().crossVectors(normal, tangent1).normalize();
+
+      // Create circle points projected onto sphere surface (geodesic circle)
+      for (let i = 0; i <= circleSegments; i++) {
+        const angle = (i / circleSegments) * Math.PI * 2;
+        const point = center.clone()
+          .addScaledVector(tangent1, Math.cos(angle) * circleRadius)
+          .addScaledVector(tangent2, Math.sin(angle) * circleRadius);
+        // Project onto sphere surface
+        point.normalize().multiplyScalar(godRadius);
+        points.push(point);
+      }
+
+      // Create a smooth curve from the points and make a tube
+      const curve = new THREE.CatmullRomCurve3(points, true); // true = closed loop
+      const tubeGeometry = new THREE.TubeGeometry(curve, circleSegments, tubeRadius, tubeSegments, true);
+      return new THREE.Mesh(tubeGeometry, this.flowerOfLifeMaterial);
+    };
+
+    // Generate Flower of Life pattern across sphere using hexagonal packing
+    // KEY: In Flower of Life, each circle's CENTER lies ON the CIRCUMFERENCE of neighbors
+    // This means center-to-center distance = radius (NOT diameter)
+    // Creates 50% overlap and the characteristic "petal" vesica piscis shapes
+    const angularRadius = circleRadius / godRadius; // Convert to angular units
+    const rowSpacing = angularRadius * Math.sqrt(3) / 2; // Hex packing vertical: r * sqrt(3)/2
+    const colSpacing = angularRadius; // Center-to-center = radius for 50% overlap
+
+    // Number of latitude rows to cover sphere
+    const numRows = Math.ceil(Math.PI / rowSpacing);
+
+    for (let row = 0; row <= numRows; row++) {
+      const phi = row * rowSpacing; // Latitude from 0 to PI
+      if (phi > Math.PI) continue;
+
+      // Circumference at this latitude determines number of circles
+      const circumference = Math.sin(phi) * 2 * Math.PI;
+      const numCircles = Math.max(1, Math.round(circumference / colSpacing));
+
+      for (let col = 0; col < numCircles; col++) {
+        // Offset every other row by half spacing for hexagonal packing
+        const offset = (row % 2 === 0) ? 0 : colSpacing / 2;
+        const theta = (col / numCircles) * Math.PI * 2 + offset;
+        flowerGroup.add(createCircleOnSphere(theta, phi));
+      }
+    }
+
+    this.sphereBackgroundGroup.add(flowerGroup);
 
     this.scene.add(this.sphereBackgroundGroup);
 
@@ -989,6 +1505,17 @@ export class EnvironmentSystem {
    * Called each frame in sphere mode to animate the "cosmic liquid" surface
    */
   private updateSurfaceFlowShader(dt: number): void {
+    // Update god sphere shaders time
+    if (this.godSphereMaterial) {
+      this.godSphereMaterial.uniforms.uTime.value += dt / 1000;
+    }
+    if (this.godSphereInnerMaterial) {
+      this.godSphereInnerMaterial.uniforms.uTime.value += dt / 1000;
+    }
+    if (this.flowerOfLifeMaterial) {
+      this.flowerOfLifeMaterial.uniforms.uTime.value += dt / 1000;
+    }
+
     if (!this.surfaceFlowMaterial) return;
 
     const uniforms = this.surfaceFlowMaterial.uniforms;
