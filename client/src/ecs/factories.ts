@@ -202,6 +202,9 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     if (interp) {
       interp.targetX = player.position.x;
       interp.targetY = player.position.y;
+      if (player.position.z !== undefined) {
+        interp.targetZ = player.position.z;
+      }
       interp.timestamp = Date.now();
     }
 
@@ -248,6 +251,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
   world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
     targetX: player.position.x,
     targetY: player.position.y,
+    targetZ: player.position.z,
     timestamp: Date.now(),
   });
 
@@ -1389,7 +1393,8 @@ export function getPlayer(world: World, playerId: string): Player | null {
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
-    surfaceRadius: sphereCtx?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    // Preserve null for floating state - only fallback if no sphereContext at all
+    surfaceRadius: sphereCtx ? sphereCtx.surfaceRadius : GAME_CONFIG.SOUP_SPHERE_RADIUS,
     isInnerSurface: sphereCtx?.isInnerSurface ?? false,
   };
 }

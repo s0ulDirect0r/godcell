@@ -9,6 +9,7 @@ type ClientEvent =
   | { type: 'client:inputMove'; direction: { x: number; y: number; z?: number } }
   | { type: 'client:inputRespawn' }
   | { type: 'client:sprint'; sprinting: boolean }
+  | { type: 'client:phaseShift'; active: boolean } // Stage 5 Godcell - pass through sphere surfaces
   | { type: 'client:empActivate' }
   | { type: 'client:pseudopodFire'; targetX: number; targetY: number }
   | { type: 'client:mouseLook'; deltaX: number; deltaY: number } // First-person mouse look
