@@ -495,3 +495,12 @@ export interface SphereContextComponent {
   surfaceRadius: number | null;
   isInnerSurface: boolean;
 }
+
+/**
+ * Intangible - marker component for phase shift mode.
+ * When present, entity can pass through sphere surfaces.
+ * Used by: Godcells (Stage 5) when holding phase shift key
+ */
+export interface IntangibleComponent {
+  // Marker component - presence indicates phase shift active
+}

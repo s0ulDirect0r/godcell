@@ -71,6 +71,7 @@ export const Components = {
 
   // World/Sphere components
   SphereContext: 'SphereContext',
+  Intangible: 'Intangible', // Phase shift - can pass through sphere surfaces
 } as const;
 
 /**

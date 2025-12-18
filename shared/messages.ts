@@ -58,6 +58,12 @@ export interface EMPActivateMessage {
   type: 'empActivate';
 }
 
+// Stage 5 phase shift (Godcell can pass through sphere surfaces)
+export interface PhaseShiftMessage {
+  type: 'phaseShift';
+  active: boolean; // true = phasing through surfaces, false = normal collision
+}
+
 // Stage 3 projectile fire (ranged specialization)
 export interface ProjectileFireMessage {
   type: 'projectileFire';
