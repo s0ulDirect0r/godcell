@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG } from '#shared';
+import { GAME_CONFIG, slerp, type Vec3 } from '#shared';
 
 /**
  * Visual parameters for sphere jungle - adapted from flat JungleBackground
@@ -78,6 +78,17 @@ const SPHERE_JUNGLE_CONFIG = {
     0x102020, // Neutral dark
     0x201510, // Warm dark
   ],
+
+  // === ROOT NETWORK ===
+  ROOT_COLOR: 0x00ffaa, // Cyan-green glow
+  ROOT_OPACITY: 0.7,
+  ROOT_RADIUS: 12, // Tube thickness
+  ROOT_HEIGHT_OFFSET: 15, // Distance above sphere surface
+  ROOT_MAX_CONNECTION_DIST: 2500, // Max distance to connect trees (sphere arc distance)
+  ROOT_CONNECTIONS_PER_TREE: 3, // Max neighbors to connect to
+  ROOT_CURVE_SEGMENTS: 16, // Smoothness of tube curves
+  ROOT_PULSE_SPEED: 0.4, // Animation speed
+  ROOT_PULSE_RANGE: 0.3, // Intensity variation
 };
 
 // Animation data interfaces
@@ -687,4 +698,135 @@ function updateSphereFireflies(
  */
 export function setSphereJungleVisible(components: SphereJungleComponents, visible: boolean): void {
   components.group.visible = visible;
+}
+
+// ============================================
+// SPHERE ROOT NETWORK
+// Glowing tubes connecting trees along great circle arcs
+// ============================================
+
+/**
+ * Create root network between trees on sphere surface
+ * Roots follow great circle arcs (shortest path on sphere)
+ *
+ * @param treePositions - Array of 3D positions on sphere surface
+ * @param radius - Sphere radius
+ */
+export function createSphereRootNetwork(
+  treePositions: Array<{ x: number; y: number; z: number }>,
+  radius: number
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'sphereRootNetwork';
+
+  const config = SPHERE_JUNGLE_CONFIG;
+
+  // Material for glowing roots
+  const material = new THREE.MeshStandardMaterial({
+    color: config.ROOT_COLOR,
+    emissive: config.ROOT_COLOR,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: config.ROOT_OPACITY,
+    roughness: 0.3,
+    metalness: 0.2,
+  });
+
+  // Track connections to avoid duplicates
+  const connections = new Set<string>();
+
+  for (let i = 0; i < treePositions.length; i++) {
+    const treePos = treePositions[i];
+
+    // Find nearest neighbors using 3D distance
+    const neighbors: Array<{ pos: Vec3; dist: number; idx: number }> = [];
+    for (let j = 0; j < treePositions.length; j++) {
+      if (i === j) continue;
+      const other = treePositions[j];
+      const dx = other.x - treePos.x;
+      const dy = other.y - treePos.y;
+      const dz = other.z - treePos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist > 1e-3 && dist < config.ROOT_MAX_CONNECTION_DIST) {
+        neighbors.push({ pos: other, dist, idx: j });
+      }
+    }
+
+    // Sort by distance and take closest N
+    neighbors.sort((a, b) => a.dist - b.dist);
+    const closestNeighbors = neighbors.slice(0, config.ROOT_CONNECTIONS_PER_TREE);
+
+    // Create root tube to each neighbor
+    for (const neighbor of closestNeighbors) {
+      // Skip if already connected
+      const connKey = i < neighbor.idx ? `${i}-${neighbor.idx}` : `${neighbor.idx}-${i}`;
+      if (connections.has(connKey)) continue;
+      connections.add(connKey);
+
+      // Create great circle arc using slerp
+      const points: THREE.Vector3[] = [];
+      const segments = config.ROOT_CURVE_SEGMENTS;
+
+      // Normalize positions to unit sphere for slerp
+      const fromNorm: Vec3 = {
+        x: treePos.x / radius,
+        y: treePos.y / radius,
+        z: treePos.z / radius,
+      };
+      const toNorm: Vec3 = {
+        x: neighbor.pos.x / radius,
+        y: neighbor.pos.y / radius,
+        z: neighbor.pos.z / radius,
+      };
+
+      // Create points along the arc
+      for (let t = 0; t <= segments; t++) {
+        const frac = t / segments;
+        const p = slerp(fromNorm, toNorm, frac);
+
+        // Scale back to sphere surface + height offset
+        const r = radius + config.ROOT_HEIGHT_OFFSET;
+        points.push(new THREE.Vector3(p.x * r, p.y * r, p.z * r));
+      }
+
+      // Create tube geometry along the curve
+      const curve = new THREE.CatmullRomCurve3(points);
+      const tubeGeometry = new THREE.TubeGeometry(
+        curve,
+        segments,
+        config.ROOT_RADIUS,
+        8, // Radial segments
+        false // Not closed
+      );
+
+      const tube = new THREE.Mesh(tubeGeometry, material.clone());
+      tube.name = `root_${i}_${neighbor.idx}`;
+      group.add(tube);
+    }
+  }
+
+  return group;
+}
+
+/**
+ * Update sphere root network animation - pulsing glow
+ */
+export function updateSphereRootAnimation(rootNetwork: THREE.Group, time: number): void {
+  const config = SPHERE_JUNGLE_CONFIG;
+  const basePulse = Math.sin(time * config.ROOT_PULSE_SPEED * Math.PI * 2);
+
+  let meshIndex = 0;
+  rootNetwork.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      const mat = obj.material as THREE.MeshStandardMaterial;
+      if (mat.emissiveIntensity !== undefined) {
+        // Each root pulses with slight phase offset for wave effect
+        const phase = meshIndex * 0.3;
+        const pulse = Math.sin(time * config.ROOT_PULSE_SPEED * Math.PI * 2 + phase);
+        mat.emissiveIntensity = 0.6 + pulse * config.ROOT_PULSE_RANGE;
+        meshIndex++;
+      }
+    }
+  });
 }

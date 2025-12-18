@@ -260,6 +260,7 @@ export const GAME_CONFIG = {
 
   // Digital Jungle Trees (Stage 3+ environment obstacles)
   TREE_COUNT: 80, // Number of trees to spawn (~75-100 for medium density)
+  SPHERE_TREE_COUNT: 200, // Number of trees on sphere surface (Fibonacci distribution)
   TREE_MIN_RADIUS: 80, // Small bush collision radius
   TREE_MAX_RADIUS: 360, // Large ancient tree collision radius
   TREE_MIN_HEIGHT: 200, // Small bush visual height

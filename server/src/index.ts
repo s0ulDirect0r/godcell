@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components, isSphereMode, fibonacciSpherePoint } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -256,27 +256,63 @@ function initializeObstacles() {
 }
 
 /**
- * Initialize digital jungle trees using Bridson's Poisson Disc Sampling
+ * Initialize digital jungle trees.
  * Trees are Stage 3+ obstacles that block movement (hard collision).
- * Trees spawn in the jungle area, avoiding the soup region.
  *
  * Multi-scale architecture:
  * - Stage 1-2 (soup): Cannot see or collide with trees (invisible/intangible)
  * - Stage 3+ (jungle): Trees are visible obstacles requiring navigation
+ *
+ * Sphere mode: Trees spawn on jungle sphere surface using Fibonacci distribution
+ * Flat mode: Trees use Poisson disc sampling on 2D plane
  */
 function initializeTrees() {
   let treeIdCounter = 0;
 
-  // Trees spawn in the full jungle, avoiding the soup region where Stage 1-2 players live
-  // Soup region is centered in the jungle
-  // Trees avoid only the small visual soup pool (not the entire soup region)
-  // This creates a forest around the pool where Stage 3 players spawn
+  if (isSphereMode()) {
+    // Sphere mode: distribute trees uniformly on jungle sphere surface
+    const jungleRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+    const treeCount = GAME_CONFIG.SPHERE_TREE_COUNT ?? 200;
+
+    logger.info({
+      event: 'sphere_tree_init',
+      count: treeCount,
+      radius: jungleRadius,
+    });
+
+    for (let i = 0; i < treeCount; i++) {
+      const treeId = `tree-${treeIdCounter++}`;
+
+      // Fibonacci sphere distribution for uniform coverage
+      const position = fibonacciSpherePoint(i, treeCount, jungleRadius);
+
+      // Randomize tree size
+      const radius =
+        GAME_CONFIG.TREE_MIN_RADIUS +
+        Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
+      const height =
+        GAME_CONFIG.TREE_MIN_HEIGHT +
+        Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
+      const variant = Math.random();
+
+      createTree(world, treeId, position, radius, height, variant);
+    }
+
+    logger.info({
+      event: 'trees_spawned',
+      count: treeCount,
+      mode: 'sphere',
+      sphereRadius: jungleRadius,
+    });
+    return;
+  }
+
+  // Flat mode: Trees spawn in the full jungle, avoiding the soup region
   const soupAvoidanceZone = {
     position: {
       x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
       y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
     },
-    // Only avoid the visual pool (300px) + small buffer, NOT the soup gameplay region
     radius: GAME_CONFIG.SOUP_POOL_RADIUS + GAME_CONFIG.TREE_POOL_BUFFER,
   };
 
@@ -287,18 +323,16 @@ function initializeTrees() {
     jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
   });
 
-  // Generate tree positions using Poisson disc sampling for organic distribution
-  // Let Poisson disc fill naturally - no maxPoints cap
+  // Generate tree positions using Poisson disc sampling
   const treePositions = poissonDiscSampling(
     GAME_CONFIG.JUNGLE_WIDTH,
     GAME_CONFIG.JUNGLE_HEIGHT,
     GAME_CONFIG.TREE_MIN_SPACING,
-    Infinity, // No cap - let it fill naturally
-    [], // No existing points
-    [soupAvoidanceZone] // Avoid the pool itself
+    Infinity,
+    [],
+    [soupAvoidanceZone]
   );
 
-  // Log sample of tree positions for debugging distribution
   if (treePositions.length > 0) {
     const sample = treePositions.slice(0, 5);
     logger.info({
@@ -313,18 +347,16 @@ function initializeTrees() {
     });
   }
 
-  // Create trees from generated positions
   for (const position of treePositions) {
     const treeId = `tree-${treeIdCounter++}`;
 
-    // Randomize tree size within configured bounds
     const radius =
       GAME_CONFIG.TREE_MIN_RADIUS +
       Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
     const height =
       GAME_CONFIG.TREE_MIN_HEIGHT +
       Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
-    const variant = Math.random(); // Seed for procedural generation (0-1)
+    const variant = Math.random();
 
     createTree(world, treeId, position, radius, height, variant);
   }
@@ -528,6 +560,9 @@ if (isPlayground) {
 
   // Initialize gravity wells (obstacles) on sphere surface
   initializeObstacles();
+
+  // Initialize trees on jungle sphere surface
+  initializeTrees();
 
   // Initialize nutrients on sphere surface
   initializeSphereNutrients();
