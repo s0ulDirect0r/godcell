@@ -1,7 +1,6 @@
 // ============================================
-// Sphere Movement System
+// Movement System
 // Handles player movement on a spherical world surface
-// Separate from flat-world MovementSystem for clean isolation
 // ============================================
 
 import type { Server } from 'socket.io';
@@ -31,18 +30,18 @@ import {
 import { getConfig } from '../../dev';
 
 /**
- * SphereMovementSystem - Handles player movement on sphere surface
+ * MovementSystem - Handles player movement on sphere surface
  *
- * Key differences from flat MovementSystem:
+ * Key behaviors:
  * - Input is transformed from 2D screen space to 3D tangent direction
  * - Velocity is kept tangent to sphere surface
  * - Position is projected back to sphere after movement
- * - No rectangular bounds clamping (sphere wraps naturally)
+ * - Sphere wraps naturally (no bounds clamping)
  *
- * NOTE: Gravity is handled by GravitySystem (which is now sphere-aware)
+ * NOTE: Gravity is handled by GravitySystem (which is sphere-aware)
  */
-export class SphereMovementSystem implements System {
-  readonly name = 'SphereMovementSystem';
+export class MovementSystem implements System {
+  readonly name = 'MovementSystem';
 
   // Store camera up per player (momentum-locked orientation)
   private playerCameraUp = new Map<string, Vec3>();

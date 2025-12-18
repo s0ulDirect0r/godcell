@@ -1,11 +1,10 @@
 // ============================================
 // Gravity System
-// Applies gravitational forces from obstacles to entities
-// Works in both flat world (2D) and sphere world (3D geodesic)
+// Applies gravitational forces from obstacles to entities on sphere surface
 // ============================================
 
 import type { Server } from 'socket.io';
-import { type World, isSphereMode, distanceForMode, tangentToward, makeTangent, type Vec3 } from '#shared';
+import { type World, distanceForMode, tangentToward, makeTangent, type Vec3 } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,
@@ -20,7 +19,7 @@ import {
   Components,
   type SpawnImmunityComponent,
 } from '../index';
-import { distance, isJungleStage } from '../../helpers';
+import { isJungleStage } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logSingularityCrush, logGravityDebug } from '../../logger';
 import { isBot } from '../../bots';
@@ -32,13 +31,9 @@ import { isBot } from '../../bots';
  * - Gravitational pull from obstacles (inverse-square)
  * - Singularity instant death at obstacle cores
  * - Friction/momentum decay for swarms (player friction is in MovementSystem)
- *
- * Works in both flat world (2D Euclidean) and sphere world (3D geodesic)
  */
 export class GravitySystem implements System {
   readonly name = 'GravitySystem';
-
-  private sphereMode = isSphereMode();
 
   update(world: World, deltaTime: number, _io: Server): void {
     // Apply gravity to players (iterate ECS directly)
@@ -62,10 +57,8 @@ export class GravitySystem implements System {
       // Stage 3+ players don't interact with soup obstacles (they've transcended)
       if (isJungleStage(stageComponent.stage)) return;
 
-      // Build player position (2D for flat, 3D for sphere)
-      const playerPos = this.sphereMode
-        ? { x: positionComponent.x, y: positionComponent.y, z: positionComponent.z ?? 0 }
-        : { x: positionComponent.x, y: positionComponent.y };
+      // Build 3D player position on sphere
+      const playerPos: Vec3 = { x: positionComponent.x, y: positionComponent.y, z: positionComponent.z ?? 0 };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
       forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
@@ -111,41 +104,24 @@ export class GravitySystem implements System {
         const gravityStrength = obstacle.strength * 100000000;
         const forceMagnitude = gravityStrength / distSq;
 
-        if (this.sphereMode) {
-          // Sphere mode: use tangent direction on sphere surface
-          const playerPos3D = playerPos as Vec3;
-          const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
-          const gravityDir = tangentToward(playerPos3D, obstaclePos3D);
+        // Use tangent direction on sphere surface toward obstacle
+        const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
+        const gravityDir = tangentToward(playerPos, obstaclePos3D);
 
-          // Apply gravitational acceleration (tangent to sphere)
-          velocityComponent.x += gravityDir.x * forceMagnitude * deltaTime;
-          velocityComponent.y += gravityDir.y * forceMagnitude * deltaTime;
-          velocityComponent.z = (velocityComponent.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
+        // Apply gravitational acceleration (tangent to sphere)
+        velocityComponent.x += gravityDir.x * forceMagnitude * deltaTime;
+        velocityComponent.y += gravityDir.y * forceMagnitude * deltaTime;
+        velocityComponent.z = (velocityComponent.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
 
-          // Keep velocity tangent to sphere surface
-          const tangentVel = makeTangent(playerPos3D, {
-            x: velocityComponent.x,
-            y: velocityComponent.y,
-            z: velocityComponent.z ?? 0,
-          });
-          velocityComponent.x = tangentVel.x;
-          velocityComponent.y = tangentVel.y;
-          velocityComponent.z = tangentVel.z;
-        } else {
-          // Flat mode: use 2D direction
-          const dx = obstaclePos.x - playerPos.x;
-          const dy = obstaclePos.y - playerPos.y;
-          const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-          if (dirLength === 0) return;
-
-          const dirX = dx / dirLength;
-          const dirY = dy / dirLength;
-
-          // Accumulate gravitational acceleration into velocity
-          velocityComponent.x += dirX * forceMagnitude * deltaTime;
-          velocityComponent.y += dirY * forceMagnitude * deltaTime;
-        }
+        // Keep velocity tangent to sphere surface
+        const tangentVel = makeTangent(playerPos, {
+          x: velocityComponent.x,
+          y: velocityComponent.y,
+          z: velocityComponent.z ?? 0,
+        });
+        velocityComponent.x = tangentVel.x;
+        velocityComponent.y = tangentVel.y;
+        velocityComponent.z = tangentVel.z;
 
         // DEBUG: Log gravity forces
         if (!isBot(playerId)) {
@@ -161,18 +137,14 @@ export class GravitySystem implements System {
       const swarmFrictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
       swarmVelocityComp.x *= swarmFrictionFactor;
       swarmVelocityComp.y *= swarmFrictionFactor;
-      if (this.sphereMode) {
-        swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) * swarmFrictionFactor;
-      }
+      swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) * swarmFrictionFactor;
 
-      // Build swarm position (2D for flat, 3D for sphere)
-      const swarmPosition = this.sphereMode
-        ? { x: swarmPosComp.x, y: swarmPosComp.y, z: swarmPosComp.z ?? 0 }
-        : { x: swarmPosComp.x, y: swarmPosComp.y };
+      // Build 3D swarm position on sphere
+      const swarmPosition: Vec3 = { x: swarmPosComp.x, y: swarmPosComp.y, z: swarmPosComp.z ?? 0 };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
       forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
-        // Use mode-aware distance (geodesic for sphere, Euclidean for flat)
+        // Use geodesic distance on sphere
         const dist = distanceForMode(swarmPosition, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
@@ -187,41 +159,24 @@ export class GravitySystem implements System {
         const gravityStrength = obstacle.strength * 100000000;
         const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity
 
-        if (this.sphereMode) {
-          // Sphere mode: use tangent direction on sphere surface
-          const swarmPos3D = swarmPosition as Vec3;
-          const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
-          const gravityDir = tangentToward(swarmPos3D, obstaclePos3D);
+        // Use tangent direction on sphere surface toward obstacle
+        const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
+        const gravityDir = tangentToward(swarmPosition, obstaclePos3D);
 
-          // Apply gravitational acceleration (tangent to sphere)
-          swarmVelocityComp.x += gravityDir.x * forceMagnitude * deltaTime;
-          swarmVelocityComp.y += gravityDir.y * forceMagnitude * deltaTime;
-          swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
+        // Apply gravitational acceleration (tangent to sphere)
+        swarmVelocityComp.x += gravityDir.x * forceMagnitude * deltaTime;
+        swarmVelocityComp.y += gravityDir.y * forceMagnitude * deltaTime;
+        swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
 
-          // Keep velocity tangent to sphere surface
-          const tangentVel = makeTangent(swarmPos3D, {
-            x: swarmVelocityComp.x,
-            y: swarmVelocityComp.y,
-            z: swarmVelocityComp.z ?? 0,
-          });
-          swarmVelocityComp.x = tangentVel.x;
-          swarmVelocityComp.y = tangentVel.y;
-          swarmVelocityComp.z = tangentVel.z;
-        } else {
-          // Flat mode: use 2D direction
-          const dx = obstaclePos.x - swarmPosition.x;
-          const dy = obstaclePos.y - swarmPosition.y;
-          const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-          if (dirLength === 0) return;
-
-          const dirX = dx / dirLength;
-          const dirY = dy / dirLength;
-
-          // Accumulate gravitational acceleration into velocity (mutate ECS component)
-          swarmVelocityComp.x += dirX * forceMagnitude * deltaTime;
-          swarmVelocityComp.y += dirY * forceMagnitude * deltaTime;
-        }
+        // Keep velocity tangent to sphere surface
+        const tangentVel = makeTangent(swarmPosition, {
+          x: swarmVelocityComp.x,
+          y: swarmVelocityComp.y,
+          z: swarmVelocityComp.z ?? 0,
+        });
+        swarmVelocityComp.x = tangentVel.x;
+        swarmVelocityComp.y = tangentVel.y;
+        swarmVelocityComp.z = tangentVel.z;
       });
     });
   }
