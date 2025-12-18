@@ -89,6 +89,14 @@ const SPHERE_JUNGLE_CONFIG = {
   ROOT_CURVE_SEGMENTS: 16, // Smoothness of tube curves
   ROOT_PULSE_SPEED: 0.4, // Animation speed
   ROOT_PULSE_RANGE: 0.3, // Intensity variation
+
+  // === INNER SURFACE (visible from inside sphere) ===
+  // Black background with pink geodesic grid, seen when looking "up" from inside
+  INNER_BACKGROUND_COLOR: 0x000000, // Pure black base
+  INNER_GRID_COLOR: 0xff6699, // Soft pink grid lines
+  INNER_GRID_OPACITY: 0.7, // Base grid line opacity
+  INNER_PULSE_SPEED: 0.3, // Breathing pulse (cycles/second)
+  INNER_PULSE_RANGE: 0.6, // Intensity variation - visible pulse
 };
 
 // Animation data interfaces
@@ -113,6 +121,7 @@ interface SphereFireflyParticle {
 // Return type for the create function
 export interface SphereJungleComponents {
   group: THREE.Group;
+  innerSurface: THREE.Group; // Black background + pink geodesic grid (BackSide, visible from inside)
   grassMesh: THREE.Mesh;
   gridLines: THREE.LineSegments;
   dirtSphere: THREE.Mesh;
@@ -136,7 +145,13 @@ export function createSphereJungleBackground(
   group.name = 'sphereJungleBackground';
   group.visible = true;
 
-  // Create components from bottom to top (render order)
+  // Create components from inside to outside (render order)
+
+  // Inner surface: black background + pink geodesic grid (visible from inside sphere)
+  // Pulled inward slightly so it's just below the jungle surface
+  const { group: innerSurface, gridMaterial: innerGridMaterial } = createInnerSurface(radius - 300);
+  group.add(innerSurface);
+
   const dirtSphere = createSphereDirtGround(radius - SPHERE_JUNGLE_CONFIG.DIRT_OFFSET);
   group.add(dirtSphere);
 
@@ -158,6 +173,14 @@ export function createSphereJungleBackground(
 
   // Update function for animations
   const update = (time: number, delta: number) => {
+    // Update inner surface pulse animation (very subtle emissive pulse)
+    const pulse =
+      1.0 -
+      SPHERE_JUNGLE_CONFIG.INNER_PULSE_RANGE +
+      SPHERE_JUNGLE_CONFIG.INNER_PULSE_RANGE *
+        Math.sin(time * SPHERE_JUNGLE_CONFIG.INNER_PULSE_SPEED * 6.283);
+    innerGridMaterial.emissiveIntensity = 0.6 * pulse;
+
     // Update grass shader time
     const grassMaterial = grassMesh.material as THREE.ShaderMaterial;
     if (grassMaterial.uniforms) {
@@ -178,6 +201,7 @@ export function createSphereJungleBackground(
 
   return {
     group,
+    innerSurface,
     grassMesh,
     gridLines,
     dirtSphere,
@@ -207,6 +231,71 @@ function createGeodesicGrid(radius: number): THREE.LineSegments {
   gridLines.name = 'sphereJungleGrid';
 
   return gridLines;
+}
+
+/**
+ * Create inner surface visible from inside the sphere
+ * Two-layer approach: black background mesh + pink geodesic grid lines
+ * Uses BackSide rendering so it's only visible when camera is inside
+ */
+function createInnerSurface(radius: number): {
+  group: THREE.Group;
+  gridMaterial: THREE.MeshStandardMaterial;
+} {
+  const group = new THREE.Group();
+  group.name = 'sphereJungleInnerSurface';
+
+  // Layer 1: Solid black background (BackSide) - at full radius
+  const bgGeometry = new THREE.IcosahedronGeometry(radius, 5);
+  const bgMaterial = new THREE.MeshBasicMaterial({
+    color: SPHERE_JUNGLE_CONFIG.INNER_BACKGROUND_COLOR,
+    side: THREE.BackSide,
+  });
+  const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial);
+  bgMesh.name = 'innerSurfaceBackground';
+  group.add(bgMesh);
+
+  // Layer 2: Pink geodesic grid as tubes - smaller radius, in front of black when viewed from inside
+  const gridRadius = radius - 70;
+  const tubeRadius = 12; // Thickness of tubes
+  const tubeSegments = 4; // Radial segments for tube cross-section
+
+  // Get edges from icosahedron geometry
+  const gridGeom = new THREE.IcosahedronGeometry(gridRadius, SPHERE_JUNGLE_CONFIG.GRID_SUBDIVISION);
+  const edges = new THREE.EdgesGeometry(gridGeom);
+  const edgePositions = edges.attributes.position.array;
+
+  // Material for glowing tubes
+  const gridMaterial = new THREE.MeshStandardMaterial({
+    color: SPHERE_JUNGLE_CONFIG.INNER_GRID_COLOR,
+    emissive: SPHERE_JUNGLE_CONFIG.INNER_GRID_COLOR,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: SPHERE_JUNGLE_CONFIG.INNER_GRID_OPACITY,
+    roughness: 0.3,
+    metalness: 0.2,
+  });
+
+  // Create a tube for each edge
+  const tubesGroup = new THREE.Group();
+  tubesGroup.name = 'innerSurfaceGrid';
+
+  for (let i = 0; i < edgePositions.length; i += 6) {
+    // Each edge is 2 vertices (6 floats)
+    const start = new THREE.Vector3(edgePositions[i], edgePositions[i + 1], edgePositions[i + 2]);
+    const end = new THREE.Vector3(edgePositions[i + 3], edgePositions[i + 4], edgePositions[i + 5]);
+
+    // Create a simple 2-point curve
+    const curve = new THREE.LineCurve3(start, end);
+    const tubeGeometry = new THREE.TubeGeometry(curve, 1, tubeRadius, tubeSegments, false);
+
+    const tube = new THREE.Mesh(tubeGeometry, gridMaterial);
+    tubesGroup.add(tube);
+  }
+
+  group.add(tubesGroup);
+
+  return { group, gridMaterial };
 }
 
 /**

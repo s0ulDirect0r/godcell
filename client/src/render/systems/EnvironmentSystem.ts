@@ -842,7 +842,7 @@ export class EnvironmentSystem {
         },
       },
       side: THREE.FrontSide,
-      transparent: true,
+      transparent: false, // TEMP: disabled for testing
       depthWrite: true, // Write depth so far-side entities fail depth test
       depthTest: true,
     });
