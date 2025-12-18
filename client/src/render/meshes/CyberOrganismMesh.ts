@@ -1,7 +1,14 @@
 // ============================================
 // Cyber-Organism Renderer (Stage 3)
 // Segmented creature with head, body pods, spiked tail, and 6 legs
-// Built for XZ plane top-down view (dorsal faces +Z, which becomes +Y after rotation)
+//
+// Local coordinate system (no baked-in rotation):
+// - X axis: body axis (head at -X, tail at +X) = forward direction
+// - Y axis: leg direction (left leg +Y, right leg -Y) = right direction
+// - Z axis: dorsal direction (+Z = dorsal/top) = up direction
+//
+// Orientation is applied externally by orientHexapodToSurface() based on
+// sphere position and heading. Legs curve toward -Z (toward sphere center).
 // ============================================
 
 import * as THREE from 'three';
@@ -196,11 +203,15 @@ function calculateLegGait(
 }
 
 /**
- * Create the cyber-organism
- * Built for top-down XZ plane view:
+ * Create the cyber-organism mesh
+ *
+ * Local coordinate system (no baked rotation):
  * - Body extends along local X axis (head at -X, tail at +X)
- * - Dorsal (top) faces local +Z (becomes world +Y after rotation, toward camera)
- * - Legs extend in local ±Y (becomes world ±Z after rotation, on ground plane)
+ * - Dorsal (top) faces local +Z (will be oriented toward surface normal)
+ * - Legs extend in local ±Y (perpendicular to body and dorsal)
+ * - Leg feet curve toward local -Z (toward sphere center when oriented)
+ *
+ * Orientation is handled by orientHexapodToSurface() in PlayerRenderSystem.
  */
 export function createCyberOrganism(radius: number, colorHex: number): THREE.Group {
   const group = new THREE.Group();
@@ -347,9 +358,9 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     bodyGroup.add(right);
   });
 
-  // Rotate for top-down view
-  group.rotation.order = 'XZY';
-  group.rotation.x = -Math.PI / 2;
+  // NOTE: No rotation applied here - orientation is handled by orientHexapodToSurface()
+  // in PlayerRenderSystem based on sphere position and heading direction.
+  // Mesh local axes: X = forward (body axis), Y = right/left (leg direction), Z = up (dorsal)
 
   return group;
 }
