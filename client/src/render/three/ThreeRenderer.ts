@@ -1079,6 +1079,36 @@ export class ThreeRenderer implements Renderer {
     this.cameraSystem.resize(width, height);
   }
 
+  // === FULLSCREEN ===
+
+  toggleFullscreen(): void {
+    const container = this.renderer.domElement.parentElement;
+    if (!document.fullscreenElement) {
+      container?.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  handleFullscreenChange(): void {
+    if (document.fullscreenElement) {
+      // Entering fullscreen - use requestAnimationFrame to let browser update dimensions
+      requestAnimationFrame(() => {
+        const fsElement = document.fullscreenElement as HTMLElement;
+        const width = fsElement.clientWidth;
+        const height = fsElement.clientHeight;
+        console.log(`[Fullscreen] Entering: ${width}x${height}`);
+        this.renderer.setSize(width, height);
+        this.composer.setSize(width, height);
+      });
+    } else {
+      // Exiting fullscreen - restore original size
+      console.log('[Fullscreen] Exiting');
+      this.renderer.setSize(GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+      this.composer.setSize(GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+    }
+  }
+
   getCameraCapabilities(): CameraCapabilities {
     return this.cameraSystem.getCapabilities();
   }

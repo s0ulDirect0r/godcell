@@ -25,6 +25,9 @@ export class InputManager {
   private lastRespawnKeyTime = 0;
   private respawnKeyCooldown = 300; // Prevent key spam
 
+  private lastFullscreenKeyTime = 0;
+  private fullscreenKeyCooldown = 500; // Prevent accidental double-toggle
+
   private lastEMPTime = 0;
   private empClientCooldown = 300; // Local anti-spam cooldown
 
@@ -210,6 +213,7 @@ export class InputManager {
     this.updateEMP();
     this.updateCombatInput();
     this.updateMouseLook();
+    this.updateFullscreen();
   }
 
   /**
@@ -368,6 +372,22 @@ export class InputManager {
       eventBus.emit({ type: 'client:inputRespawn' });
 
       this.lastRespawnKeyTime = now;
+    }
+  }
+
+  private updateFullscreen(): void {
+    const now = Date.now();
+
+    if (this.inputState.isKeyDown('f')) {
+      // Check cooldown (prevent accidental double-toggle)
+      if (now - this.lastFullscreenKeyTime < this.fullscreenKeyCooldown) {
+        return;
+      }
+
+      // Emit fullscreen toggle intent
+      eventBus.emit({ type: 'client:toggleFullscreen' });
+
+      this.lastFullscreenKeyTime = now;
     }
   }
 

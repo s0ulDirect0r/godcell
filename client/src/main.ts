@@ -212,25 +212,16 @@ function initializeGame(settings: PreGameSettings): void {
       }
     });
 
-    // ECS X-Ray Panel - entity inspector for demos
-    ecsXRayPanel = new ECSXRayPanel({ world });
-
-    // Entity selector - click to inspect entities
-    entitySelector = new EntitySelector({
-      world,
-      renderer,
-      onSelect: (entityId) => {
-        ecsXRayPanel?.selectEntity(entityId);
-      },
-    });
-    entitySelector.enable();
-
-    // X-Ray panel toggle (X key) - tracked for cleanup
-    addTrackedListener(window, 'keydown', (e) => {
-      if ((e as KeyboardEvent).key === 'x' || (e as KeyboardEvent).key === 'X') {
-        ecsXRayPanel?.toggle();
-      }
-    });
+    // ECS X-Ray Panel - disabled for now
+    // ecsXRayPanel = new ECSXRayPanel({ world });
+    // entitySelector = new EntitySelector({
+    //   world,
+    //   renderer,
+    //   onSelect: (entityId) => {
+    //     ecsXRayPanel?.selectEntity(entityId);
+    //   },
+    // });
+    // entitySelector.enable();
 
     // Pause toggle (P key) - tracked for cleanup
     let isPaused = false;
@@ -361,6 +352,18 @@ function initializeGame(settings: PreGameSettings): void {
       inputManager.setFirstPersonYaw(renderer.getFirstPersonYaw());
     })
   );
+
+  // Fullscreen toggle (F key)
+  eventSubscriptions.push(
+    eventBus.on('client:toggleFullscreen', () => {
+      renderer.toggleFullscreen();
+    })
+  );
+
+  // Handle browser fullscreen changes (user presses ESC, etc.)
+  document.addEventListener('fullscreenchange', () => {
+    renderer.handleFullscreenChange();
+  });
 
   // Auto-enable observer mode if requested from start screen
   if (startInObserverMode) {
