@@ -741,8 +741,10 @@ export class EnvironmentSystem {
   private isSphereWorld: boolean = false;
   private sphereParticles!: THREE.Points;
   private surfaceFlowMaterial?: THREE.ShaderMaterial;
-  // God sphere fresnel shader
+  // God sphere fresnel shader (outer surface)
   private godSphereMaterial?: THREE.ShaderMaterial;
+  // God sphere inner digital night sky shader
+  private godSphereInnerMaterial?: THREE.ShaderMaterial;
   // Flower of Life tube shader
   private flowerOfLifeMaterial?: THREE.ShaderMaterial;
   private sphereParticleData: Array<{
@@ -953,6 +955,81 @@ export class EnvironmentSystem {
     const godMesh = new THREE.Mesh(godGeometry, this.godSphereMaterial);
     godMesh.name = 'godSphere';
     this.sphereBackgroundGroup.add(godMesh);
+
+    // Inner surface - digital night sky visible from INSIDE (junglesphere players looking up)
+    const godInnerGeometry = new THREE.IcosahedronGeometry(godSurfaceRadius - 500, 5);
+    const godInnerMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0.0 },
+      },
+      vertexShader: `
+        varying vec3 vPosition;
+        void main() {
+          vPosition = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec3 vPosition;
+
+        // Hash for pseudo-random
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        // Smooth noise
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        void main() {
+          // Spherical UV from position
+          vec3 n = normalize(vPosition);
+          vec2 uv = vec2(atan(n.z, n.x), asin(n.y)) * 2.0;
+
+          // Subtle wisp - just one layer, very faint
+          float time = uTime * 0.01;
+          float wisp = noise(uv * 1.5 + time);
+          wisp = wisp * 0.08;
+
+          // Star points - distance from cell center
+          vec2 starUv = uv * 15.0;
+          vec2 cellId = floor(starUv);
+          vec2 cellUv = fract(starUv) - 0.5;
+          float starRand = hash(cellId);
+          float star = 0.0;
+          if (starRand > 0.92) {
+            // Distance from center of cell
+            float d = length(cellUv);
+            star = smoothstep(0.15, 0.0, d) * 0.5;
+          }
+
+          // Light blue tint - very subtle
+          vec3 wispColor = vec3(0.05, 0.08, 0.1) * wisp;
+          vec3 starColor = vec3(0.5, 0.7, 0.9) * star;
+
+          // Nearly black base
+          vec3 color = vec3(0.0, 0.0, 0.01) + wispColor + starColor;
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
+      side: THREE.BackSide,
+    });
+    const godInnerMesh = new THREE.Mesh(godInnerGeometry, godInnerMaterial);
+    godInnerMesh.name = 'godSphereInner';
+    this.sphereBackgroundGroup.add(godInnerMesh);
+
+    // Store for time updates
+    this.godSphereInnerMaterial = godInnerMaterial;
 
     // Flower of Life pattern - overlapping circles on sphere surface
     const flowerGroup = new THREE.Group();
@@ -1428,9 +1505,12 @@ export class EnvironmentSystem {
    * Called each frame in sphere mode to animate the "cosmic liquid" surface
    */
   private updateSurfaceFlowShader(dt: number): void {
-    // Update god sphere and flower of life shader time
+    // Update god sphere shaders time
     if (this.godSphereMaterial) {
       this.godSphereMaterial.uniforms.uTime.value += dt / 1000;
+    }
+    if (this.godSphereInnerMaterial) {
+      this.godSphereInnerMaterial.uniforms.uTime.value += dt / 1000;
     }
     if (this.flowerOfLifeMaterial) {
       this.flowerOfLifeMaterial.uniforms.uTime.value += dt / 1000;
