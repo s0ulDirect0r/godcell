@@ -1,306 +1,214 @@
 // ============================================
-// Movement System
-// Handles player movement, velocity, and position updates
+// Sphere Movement System
+// Handles player movement on a spherical world surface
+// Separate from flat-world MovementSystem for clean isolation
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, Tags, Components, type World } from '#shared';
-import type {
-  PlayerMovedMessage,
-  StunnedComponent,
-  SprintComponent,
-  KnockbackComponent,
+import {
+  Tags,
+  Components,
+  type World,
+  GAME_CONFIG,
+  EvolutionStage,
+  projectToSphere,
+  makeTangent,
+  getCameraUp,
+  inputToWorldDirection,
+  type Vec3,
+  type SphereContextComponent,
 } from '#shared';
+import type { PlayerMovedMessage } from '#shared';
 import type { System } from './types';
-import { getConfig } from '../../dev';
 import {
   getSocketIdByEntity,
-  hasDrainTarget,
   requireEnergy,
   requirePosition,
   requireStage,
   requireVelocity,
   requireInput,
 } from '../factories';
-import { getWorldBoundsForStage } from '../../helpers';
+import { getConfig } from '../../dev';
 
 /**
- * MovementSystem - Handles all player movement
+ * SphereMovementSystem - Handles player movement on sphere surface
  *
- * Uses ECS components directly for all reads and writes.
+ * Key differences from flat MovementSystem:
+ * - Input is transformed from 2D screen space to 3D tangent direction
+ * - Velocity is kept tangent to sphere surface
+ * - Position is projected back to sphere after movement
+ * - No rectangular bounds clamping (sphere wraps naturally)
  *
- * Responsibilities:
- * - Process player input into velocity
- * - Apply stage-specific speed modifiers
- * - Apply debuffs (swarm slow, drain slow)
- * - Handle sprinting (Stage 3+)
- * - Cap velocity to max speed
- * - Update positions
- * - Deduct movement energy cost
- * - Clamp to world bounds
- * - Broadcast position updates
+ * NOTE: Gravity is handled by GravitySystem (which is now sphere-aware)
  */
-export class MovementSystem implements System {
-  readonly name = 'MovementSystem';
+export class SphereMovementSystem implements System {
+  readonly name = 'SphereMovementSystem';
+
+  // Store camera up per player (momentum-locked orientation)
+  private playerCameraUp = new Map<string, Vec3>();
 
   update(world: World, deltaTime: number, io: Server): void {
-    // Iterate over all player entities in ECS
+    const baseAcceleration = GAME_CONFIG.PLAYER_SPEED * 8;
+    const friction = GAME_CONFIG.MOVEMENT_FRICTION;
+    const baseMaxSpeed = GAME_CONFIG.PLAYER_SPEED * 1.2;
+
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
       if (!playerId) return;
 
-      // Get ECS components directly (throws if missing - invariant violation)
+      // Get ECS components
       const energyComponent = requireEnergy(world, entity);
       const positionComponent = requirePosition(world, entity);
-      const stageComponent = requireStage(world, entity);
       const velocityComponent = requireVelocity(world, entity);
       const inputComponent = requireInput(world, entity);
+
+      // Get sphere context - determines which sphere surface this entity is on
+      const sphereContext = world.getComponent<SphereContextComponent>(
+        entity,
+        Components.SphereContext
+      );
+      const stageComp = requireStage(world, entity);
+
+      // Skip Stage 5 Godcells - handled by GodcellFlightSystem
+      if (stageComp.stage === EvolutionStage.GODCELL) return;
+
+      const sphereRadius = sphereContext?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS;
 
       // Skip dead players
       if (energyComponent.current <= 0) return;
 
-      // Stunned players can't move
-      const stunnedComponent = world.getComponent<StunnedComponent>(entity, Components.Stunned);
-      if (stunnedComponent?.until && Date.now() < stunnedComponent.until) {
-        velocityComponent.x = 0;
-        velocityComponent.y = 0;
-        return;
+      // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
+      let acceleration = baseAcceleration;
+      let maxSpeed = baseMaxSpeed;
+      const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
+      if (isSlowed) {
+        acceleration *= getConfig('SWARM_SLOW_EFFECT');
+        maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
       }
 
       const inputDirection = inputComponent.direction;
 
-      const stage = stageComponent.stage;
-
-      // Get z input for Stage 5 (godcell) 3D movement
-      const inputZ = stage === EvolutionStage.GODCELL ? (inputDirection.z ?? 0) : 0;
-
-      // Normalize diagonal input for consistent acceleration
-      // For Stage 5, normalize in 3D; for others, normalize in 2D
-      const inputLengthXY = Math.sqrt(
+      // Normalize diagonal input
+      const inputLength = Math.sqrt(
         inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y
       );
-      const inputLength3D = Math.sqrt(
-        inputDirection.x * inputDirection.x + inputDirection.y * inputDirection.y + inputZ * inputZ
-      );
-      const inputLength = stage === EvolutionStage.GODCELL ? inputLength3D : inputLengthXY;
       const inputNormX = inputLength > 0 ? inputDirection.x / inputLength : 0;
       const inputNormY = inputLength > 0 ? inputDirection.y / inputLength : 0;
-      const inputNormZ = inputLength > 0 ? inputZ / inputLength : 0;
 
-      // Base acceleration (8x speed for responsive controls)
-      let acceleration = getConfig('PLAYER_SPEED') * 8;
+      // Current position as Vec3
+      const pos: Vec3 = {
+        x: positionComponent.x,
+        y: positionComponent.y,
+        z: positionComponent.z ?? 0,
+      };
 
-      // Stage-specific acceleration modifiers
-      if (stage === EvolutionStage.MULTI_CELL) {
-        acceleration *= 0.8; // 20% slower than single-cells
-      } else if (stage === EvolutionStage.CYBER_ORGANISM) {
-        acceleration *= getConfig('CYBER_ORGANISM_ACCELERATION_MULT');
-      } else if (stage === EvolutionStage.HUMANOID) {
-        acceleration *= getConfig('HUMANOID_ACCELERATION_MULT');
-      } else if (stage === EvolutionStage.GODCELL) {
-        acceleration *= getConfig('GODCELL_ACCELERATION_MULT');
+      // Get or initialize camera up for this player
+      let camUp = this.playerCameraUp.get(playerId);
+      if (!camUp) {
+        camUp = getCameraUp(pos);
+        this.playerCameraUp.set(playerId, camUp);
       }
 
-      // Swarm slow debuff - read from ECS tag set by SwarmCollisionSystem
-      const isSlowed = world.hasTag(entity, Tags.SlowedThisTick);
-      if (isSlowed) {
-        acceleration *= getConfig('SWARM_SLOW_EFFECT');
-      }
+      // Surface-attached: tangent movement only
+      // Transform 2D input to 3D world direction tangent to sphere
+      const worldDir = inputToWorldDirection(inputNormX, inputNormY, pos, camUp);
 
-      // Contact drain slow debuff
-      if (hasDrainTarget(world, playerId)) {
-        acceleration *= 0.5;
-      }
+      // Apply acceleration in 3D
+      velocityComponent.x += worldDir.x * acceleration * deltaTime;
+      velocityComponent.y += worldDir.y * acceleration * deltaTime;
+      velocityComponent.z = (velocityComponent.z ?? 0) + worldDir.z * acceleration * deltaTime;
 
-      // Apply input as acceleration
-      velocityComponent.x += inputNormX * acceleration * deltaTime;
-      velocityComponent.y += inputNormY * acceleration * deltaTime;
+      // Keep velocity tangent to sphere surface
+      const tangentVel = makeTangent(pos, {
+        x: velocityComponent.x,
+        y: velocityComponent.y,
+        z: velocityComponent.z ?? 0,
+      });
+      velocityComponent.x = tangentVel.x;
+      velocityComponent.y = tangentVel.y;
+      velocityComponent.z = tangentVel.z;
 
-      // Apply z acceleration for Stage 5 (godcell) 3D flight
-      if (stage === EvolutionStage.GODCELL) {
-        const currentVZ = velocityComponent.z ?? 0;
-        velocityComponent.z = currentVZ + inputNormZ * acceleration * deltaTime;
-      }
-
-      // Apply knockback force (from melee attacks, etc.)
-      const knockbackComponent = world.getComponent<KnockbackComponent>(
-        entity,
-        Components.Knockback
-      );
-      if (knockbackComponent) {
-        // Apply knockback to velocity (instant impulse, not additive)
-        velocityComponent.x += knockbackComponent.forceX * deltaTime;
-        velocityComponent.y += knockbackComponent.forceY * deltaTime;
-
-        // Decay knockback force over time
-        const decay = knockbackComponent.decayRate * deltaTime;
-        const forceMag = Math.sqrt(
-          knockbackComponent.forceX * knockbackComponent.forceX +
-            knockbackComponent.forceY * knockbackComponent.forceY
-        );
-
-        if (forceMag <= decay || forceMag < 1) {
-          // Knockback exhausted - remove component
-          world.removeComponent(entity, Components.Knockback);
-        } else {
-          // Reduce knockback force
-          const scale = (forceMag - decay) / forceMag;
-          knockbackComponent.forceX *= scale;
-          knockbackComponent.forceY *= scale;
-        }
-      }
-
-      // Calculate max speed (2D for most stages, 3D for godcell)
-      const vz = velocityComponent.z ?? 0;
-      const currentSpeedXY = Math.sqrt(
-        velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y
-      );
-      const currentSpeed3D = Math.sqrt(
+      // Calculate current speed (3D)
+      const currentSpeed = Math.sqrt(
         velocityComponent.x * velocityComponent.x +
           velocityComponent.y * velocityComponent.y +
-          vz * vz
+          (velocityComponent.z ?? 0) * (velocityComponent.z ?? 0)
       );
-      const currentSpeed = stage === EvolutionStage.GODCELL ? currentSpeed3D : currentSpeedXY;
-      let maxSpeed = getConfig('PLAYER_SPEED') * 1.2; // Allow 20% overspeed for gravity boost
 
-      // Stage-specific max speed modifiers
-      if (stage === EvolutionStage.MULTI_CELL) {
-        maxSpeed *= 0.8;
-      } else if (stage === EvolutionStage.CYBER_ORGANISM) {
-        maxSpeed *= getConfig('CYBER_ORGANISM_MAX_SPEED_MULT');
-
-        // Sprint boost (Stage 3+) - read directly from ECS SprintComponent
-        const sprintComponent = world.getComponent<SprintComponent>(entity, Components.Sprint);
-        if (sprintComponent?.isSprinting && energyComponent.current > energyComponent.max * 0.2) {
-          maxSpeed *= getConfig('CYBER_ORGANISM_SPRINT_SPEED_MULT');
-          // Deduct sprint energy cost - write to ECS component directly
-          energyComponent.current -= getConfig('CYBER_ORGANISM_SPRINT_ENERGY_COST') * deltaTime;
-        } else if (sprintComponent?.isSprinting) {
-          // Auto-disable sprint when energy too low - write to ECS component directly
-          sprintComponent.isSprinting = false;
-        }
-      } else if (stage === EvolutionStage.HUMANOID) {
-        maxSpeed *= getConfig('HUMANOID_MAX_SPEED_MULT');
-
-        // Sprint boost for humanoid (Stage 4)
-        const sprintComponent = world.getComponent<SprintComponent>(entity, Components.Sprint);
-        if (sprintComponent?.isSprinting && energyComponent.current > energyComponent.max * 0.2) {
-          maxSpeed *= getConfig('HUMANOID_SPRINT_SPEED_MULT');
-          // Deduct sprint energy cost - write to ECS component directly
-          energyComponent.current -= getConfig('HUMANOID_SPRINT_ENERGY_COST') * deltaTime;
-        } else if (sprintComponent?.isSprinting) {
-          // Auto-disable sprint when energy too low - write to ECS component directly
-          sprintComponent.isSprinting = false;
-        }
-      } else if (stage === EvolutionStage.GODCELL) {
-        maxSpeed *= getConfig('GODCELL_MAX_SPEED_MULT');
-        // Note: Godcells don't use sprint - they have 3D flight instead
-      }
-
-      // Apply slow effects to max speed cap
-      if (isSlowed) {
-        maxSpeed *= getConfig('SWARM_SLOW_EFFECT');
-      }
-      if (hasDrainTarget(world, playerId)) {
-        maxSpeed *= 0.5;
-      }
-
-      // Cap velocity (include z for godcell 3D movement)
+      // Cap velocity to max speed
       if (currentSpeed > maxSpeed) {
         const scale = maxSpeed / currentSpeed;
         velocityComponent.x *= scale;
         velocityComponent.y *= scale;
-        if (stage === EvolutionStage.GODCELL) {
-          velocityComponent.z = (velocityComponent.z ?? 0) * scale;
-        }
+        velocityComponent.z = (velocityComponent.z ?? 0) * scale;
       }
 
-      // Apply friction (velocity decay) - stage-specific for different movement feels
-      // Use exponential decay for smooth deceleration: v = v * friction^dt
-      let friction: number;
-      if (stage === EvolutionStage.CYBER_ORGANISM) {
-        friction = getConfig('CYBER_ORGANISM_FRICTION'); // Quick stop (0.25)
-      } else if (stage === EvolutionStage.HUMANOID) {
-        friction = getConfig('HUMANOID_FRICTION'); // FPS-style tight control (0.35)
-      } else if (stage === EvolutionStage.GODCELL) {
-        friction = getConfig('GODCELL_FRICTION'); // 3D flight friction (0.4)
-      } else {
-        friction = getConfig('MOVEMENT_FRICTION'); // Soup friction (0.66) - floaty feel
-      }
-
+      // Apply friction (exponential decay)
       const frictionFactor = Math.pow(friction, deltaTime);
       velocityComponent.x *= frictionFactor;
       velocityComponent.y *= frictionFactor;
-      if (stage === EvolutionStage.GODCELL) {
-        velocityComponent.z = (velocityComponent.z ?? 0) * frictionFactor;
+      velocityComponent.z = (velocityComponent.z ?? 0) * frictionFactor;
+
+      // NOTE: Gravity is handled by GravitySystem (sphere-aware)
+
+      // Update camera up based on velocity (momentum-locked feel)
+      const speed = Math.sqrt(
+        velocityComponent.x * velocityComponent.x +
+          velocityComponent.y * velocityComponent.y +
+          (velocityComponent.z ?? 0) * (velocityComponent.z ?? 0)
+      );
+      if (speed > 5) {
+        camUp.x = velocityComponent.x / speed;
+        camUp.y = velocityComponent.y / speed;
+        camUp.z = (velocityComponent.z ?? 0) / speed;
       }
 
-      // Skip if no movement (include z for godcell)
-      const currentVZ = velocityComponent.z ?? 0;
-      const hasMovement =
-        stage === EvolutionStage.GODCELL
-          ? velocityComponent.x !== 0 || velocityComponent.y !== 0 || currentVZ !== 0
-          : velocityComponent.x !== 0 || velocityComponent.y !== 0;
-      if (!hasMovement) return;
+      // Skip if no movement
+      const vz = velocityComponent.z ?? 0;
+      if (velocityComponent.x === 0 && velocityComponent.y === 0 && vz === 0) {
+        return;
+      }
 
-      // Calculate distance for energy cost (3D for godcell)
-      const distanceMovedXY =
-        Math.sqrt(
-          velocityComponent.x * velocityComponent.x + velocityComponent.y * velocityComponent.y
-        ) * deltaTime;
-      const distanceMoved3D =
+      // Calculate distance moved for energy cost
+      const distanceMoved =
         Math.sqrt(
           velocityComponent.x * velocityComponent.x +
             velocityComponent.y * velocityComponent.y +
-            currentVZ * currentVZ
+            vz * vz
         ) * deltaTime;
-      const distanceMoved = stage === EvolutionStage.GODCELL ? distanceMoved3D : distanceMovedXY;
 
-      // Update position - write to ECS component directly
+      // Update position in 3D
       positionComponent.x += velocityComponent.x * deltaTime;
       positionComponent.y += velocityComponent.y * deltaTime;
+      positionComponent.z = (positionComponent.z ?? 0) + vz * deltaTime;
 
-      // Update z position for Stage 5 (godcell) 3D flight
-      if (stage === EvolutionStage.GODCELL) {
-        const currentZ = positionComponent.z ?? 0;
-        positionComponent.z = currentZ + currentVZ * deltaTime;
-      }
+      // Project position back to sphere surface (all stages 1-4 are surface-attached)
+      const projected = projectToSphere(
+        {
+          x: positionComponent.x,
+          y: positionComponent.y,
+          z: positionComponent.z ?? 0,
+        },
+        sphereRadius
+      );
+      positionComponent.x = projected.x;
+      positionComponent.y = projected.y;
+      positionComponent.z = projected.z;
 
-      // Deduct movement energy - write to ECS component directly
+      // Deduct movement energy
       if (energyComponent.current > 0) {
-        energyComponent.current -= distanceMoved * getConfig('MOVEMENT_ENERGY_COST');
+        energyComponent.current -= distanceMoved * GAME_CONFIG.MOVEMENT_ENERGY_COST;
         energyComponent.current = Math.max(0, energyComponent.current);
       }
 
-      // Clamp to world bounds - write to ECS component directly
-      const playerRadius = stageComponent.radius;
-      const bounds = getWorldBoundsForStage(stageComponent.stage);
-      positionComponent.x = Math.max(
-        bounds.minX + playerRadius,
-        Math.min(bounds.maxX - playerRadius, positionComponent.x)
-      );
-      positionComponent.y = Math.max(
-        bounds.minY + playerRadius,
-        Math.min(bounds.maxY - playerRadius, positionComponent.y)
-      );
-
-      // Clamp z for Stage 5 (godcell) 3D flight
-      if (stage === EvolutionStage.GODCELL && positionComponent.z !== undefined) {
-        const zMin = getConfig('GODCELL_Z_MIN');
-        const zMax = getConfig('GODCELL_Z_MAX');
-        positionComponent.z = Math.max(zMin, Math.min(zMax, positionComponent.z));
-      }
-
-      // Broadcast position update
+      // Broadcast position update (include z for sphere mode)
       const moveMessage: PlayerMovedMessage = {
         type: 'playerMoved',
         playerId,
         position: {
           x: positionComponent.x,
           y: positionComponent.y,
-          ...(stage === EvolutionStage.GODCELL && positionComponent.z !== undefined
-            ? { z: positionComponent.z }
-            : {}),
+          z: positionComponent.z,
         },
         velocity: {
           x: velocityComponent.x,
@@ -310,5 +218,12 @@ export class MovementSystem implements System {
       };
       io.emit('playerMoved', moveMessage);
     });
+  }
+
+  /**
+   * Clean up camera state when player disconnects
+   */
+  removePlayer(playerId: string): void {
+    this.playerCameraUp.delete(playerId);
   }
 }
