@@ -436,11 +436,12 @@ function update(): void {
       console.log('[Flight] ENABLING godcell flight mode!');
       inputManager.setGodcellFlightMode(true, (deltaX, deltaY) => {
         renderer.getCameraSystem().updateGodcellLook(deltaX, deltaY);
-        // Sync yaw/pitch back to input manager for movement transformation
-        inputManager.setGodcellYawPitch(
-          renderer.getCameraSystem().getGodcellYaw(),
-          renderer.getCameraSystem().getGodcellPitch()
-        );
+        const yaw = renderer.getCameraSystem().getGodcellYaw();
+        const pitch = renderer.getCameraSystem().getGodcellPitch();
+        // Sync yaw/pitch back to input manager (for legacy code if needed)
+        inputManager.setGodcellYawPitch(yaw, pitch);
+        // Send camera facing to server for server-side input transform
+        socketManager.sendCameraFacing(yaw, pitch);
       });
       renderer.getCameraSystem().setGodcellFlightMode(true);
       // Request pointer lock immediately (like observer mode does)

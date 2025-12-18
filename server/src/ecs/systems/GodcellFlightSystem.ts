@@ -11,6 +11,7 @@ import {
   type World,
   GAME_CONFIG,
   EvolutionStage,
+  type CameraFacingComponent,
 } from '#shared';
 import type { System } from './types';
 import {
@@ -24,8 +25,8 @@ import {
 import { logger } from '../../logger';
 
 // Flight physics constants
-const GODCELL_ACCEL = 15000; // High acceleration for responsiveness
-const GODCELL_MAX_SPEED = 8000; // Fast for combat maneuverability
+const GODCELL_ACCEL = 18000; // High acceleration for responsiveness (+20%)
+const GODCELL_MAX_SPEED = 9600; // Fast for combat maneuverability (+20%)
 const GODCELL_FRICTION = 0.3; // Low friction, floaty feel
 
 // Sphere radii for collision
@@ -64,29 +65,76 @@ export class GodcellFlightSystem implements System {
 
       const playerId = getSocketIdByEntity(entity);
 
-      // Get input direction (already transformed to world space by client)
-      const inputX = input.direction.x ?? 0;
-      const inputY = input.direction.y ?? 0;
-      const inputZ = input.direction.z ?? 0;
+      // Get raw input direction (local-space: x=strafe, y=forward/back, z=up/down)
+      const localRight = input.direction.x ?? 0; // A/D strafe
+      const localForward = input.direction.y ?? 0; // W/S forward/back
+      const localUp = input.direction.z ?? 0; // Q/E up/down
+
+      // Get camera facing for local→world transform
+      const facing = world.getComponent<CameraFacingComponent>(
+        entity,
+        Components.CameraFacing
+      );
+
+      // Calculate world-space direction from local input + camera facing
+      let worldX = 0;
+      let worldY = 0;
+      let worldZ = 0;
+
+      if (localForward !== 0 || localRight !== 0 || localUp !== 0) {
+        if (facing) {
+          // Transform local→world using camera yaw/pitch
+          const yaw = facing.yaw;
+          const pitch = facing.pitch;
+
+          // Forward vector in world space (where camera is looking)
+          const fwdX = -Math.sin(yaw) * Math.cos(pitch);
+          const fwdY = Math.sin(pitch);
+          const fwdZ = -Math.cos(yaw) * Math.cos(pitch);
+
+          // Right vector (perpendicular to forward, horizontal only)
+          const rightX = Math.cos(yaw);
+          const rightY = 0;
+          const rightZ = -Math.sin(yaw);
+
+          // Up vector (world up for consistent behavior)
+          const upX = 0;
+          const upY = 1;
+          const upZ = 0;
+
+          // Combine local input with basis vectors to get world direction
+          worldX = localForward * fwdX + localRight * rightX + localUp * upX;
+          worldY = localForward * fwdY + localRight * rightY + localUp * upY;
+          worldZ = localForward * fwdZ + localRight * rightZ + localUp * upZ;
+        } else {
+          // No camera facing yet - use raw input as fallback
+          // (this shouldn't happen in normal gameplay)
+          worldX = localRight;
+          worldY = localUp;
+          worldZ = localForward;
+        }
+      }
 
       // DEBUG: Log once per second when we have a godcell
       if (Math.random() < 0.016) {
         logger.info({
           event: 'godcell_flight_tick',
           playerId,
-          input: { x: inputX, y: inputY, z: inputZ },
+          localInput: { forward: localForward, right: localRight, up: localUp },
+          facing: facing ? { yaw: facing.yaw.toFixed(2), pitch: facing.pitch.toFixed(2) } : null,
+          worldDir: { x: worldX.toFixed(2), y: worldY.toFixed(2), z: worldZ.toFixed(2) },
           pos: { x: pos.x.toFixed(0), y: pos.y.toFixed(0), z: pos.z.toFixed(0) },
           vel: { x: vel.x.toFixed(0), y: vel.y.toFixed(0), z: vel.z.toFixed(0) },
         }, 'GodcellFlightSystem processing');
       }
 
-      // Apply acceleration based on input
-      if (inputX !== 0 || inputY !== 0 || inputZ !== 0) {
-        // Normalize input for consistent speed in all directions
-        const inputMag = Math.sqrt(inputX * inputX + inputY * inputY + inputZ * inputZ);
-        const normX = inputX / inputMag;
-        const normY = inputY / inputMag;
-        const normZ = inputZ / inputMag;
+      // Apply acceleration based on world-space direction
+      if (worldX !== 0 || worldY !== 0 || worldZ !== 0) {
+        // Normalize for consistent speed in all directions
+        const mag = Math.sqrt(worldX * worldX + worldY * worldY + worldZ * worldZ);
+        const normX = worldX / mag;
+        const normY = worldY / mag;
+        const normZ = worldZ / mag;
 
         vel.x += normX * GODCELL_ACCEL * deltaTime;
         vel.y += normY * GODCELL_ACCEL * deltaTime;

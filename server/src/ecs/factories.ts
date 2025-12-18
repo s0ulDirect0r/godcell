@@ -46,6 +46,7 @@ import type {
   // World/Sphere components
   SphereContextComponent,
   IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 
 // ============================================
@@ -95,6 +96,7 @@ export function createWorld(): World {
   // Sphere context (multi-sphere world)
   world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
   world.registerStore<IntangibleComponent>(Components.Intangible, new ComponentStore());
+  world.registerStore<CameraFacingComponent>(Components.CameraFacing, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());

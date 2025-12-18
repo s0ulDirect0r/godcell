@@ -56,4 +56,5 @@ export type {
   // World/Sphere components
   SphereContextComponent,
   IntangibleComponent,
+  CameraFacingComponent,
 } from './components';

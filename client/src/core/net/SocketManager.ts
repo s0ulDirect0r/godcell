@@ -256,6 +256,17 @@ export class SocketManager {
   }
 
   /**
+   * Send camera facing direction (Stage 5 Godcell flight - for server-side input transform)
+   */
+  sendCameraFacing(yaw: number, pitch: number): void {
+    this.socket.emit('cameraFacing', {
+      type: 'cameraFacing',
+      yaw,
+      pitch,
+    });
+  }
+
+  /**
    * Send projectile fire (Stage 3 ranged specialization attack)
    */
   sendProjectileFire(targetX: number, targetY: number): void {

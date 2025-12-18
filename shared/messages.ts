@@ -64,6 +64,13 @@ export interface PhaseShiftMessage {
   active: boolean; // true = phasing through surfaces, false = normal collision
 }
 
+// Stage 5 camera facing (for server-side input transform in Godcell flight)
+export interface CameraFacingMessage {
+  type: 'cameraFacing';
+  yaw: number; // Horizontal rotation in radians
+  pitch: number; // Vertical rotation in radians
+}
+
 // Stage 3 projectile fire (ranged specialization)
 export interface ProjectileFireMessage {
   type: 'projectileFire';

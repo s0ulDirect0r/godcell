@@ -18,6 +18,7 @@ import type {
   Position,
   StageComponent,
   IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
@@ -944,6 +945,46 @@ io.on('connection', (socket) => {
           world.removeComponent(entity, Components.Intangible);
           logger.debug({ event: 'phase_shift_end', socketId: socket.id });
         }
+      }
+    })
+  );
+
+  // ============================================
+  // Camera Facing (Godcell Flight Mode)
+  // ============================================
+
+  socket.on(
+    'cameraFacing',
+    safeHandler('cameraFacing', (message: { yaw: number; pitch: number }) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+
+      // Only Godcells need camera facing for flight control
+      const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!stage || stage.stage !== EvolutionStage.GODCELL) {
+        return; // Silently ignore for non-Godcells
+      }
+
+      // Validate yaw/pitch are numbers
+      if (typeof message.yaw !== 'number' || typeof message.pitch !== 'number') {
+        return;
+      }
+
+      // Update or add CameraFacing component
+      if (world.hasComponent(entity, Components.CameraFacing)) {
+        const facing = world.getComponent<CameraFacingComponent>(
+          entity,
+          Components.CameraFacing
+        );
+        if (facing) {
+          facing.yaw = message.yaw;
+          facing.pitch = message.pitch;
+        }
+      } else {
+        world.addComponent<CameraFacingComponent>(entity, Components.CameraFacing, {
+          yaw: message.yaw,
+          pitch: message.pitch,
+        });
       }
     })
   );
