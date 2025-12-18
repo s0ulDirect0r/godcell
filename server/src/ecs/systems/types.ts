@@ -72,6 +72,7 @@ export const SystemPriority = {
   TREE_COLLISION: 480, // After swarm, before movement - pushes jungle players out of trees
 
   // Movement (after collisions set slow debuffs)
+  GODCELL_FLIGHT: 490, // Stage 5 3D flight - before surface movement
   MOVEMENT: 500,
 
   // Life cycle
