@@ -3,7 +3,7 @@
 // Functions to create entities with proper components
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags } from '#shared';
+import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags, isSphereMode } from '#shared';
 import type {
   Position,
   Player,
@@ -45,6 +45,8 @@ import type {
   PendingExpirationComponent,
   // World/Sphere components
   SphereContextComponent,
+  IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 
 // ============================================
@@ -93,6 +95,8 @@ export function createWorld(): World {
 
   // Sphere context (multi-sphere world)
   world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
+  world.registerStore<IntangibleComponent>(Components.Intangible, new ComponentStore());
+  world.registerStore<CameraFacingComponent>(Components.CameraFacing, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -721,7 +725,8 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
-    surfaceRadius: sphereContext?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    // Preserve null for floating state - only fallback if no sphereContext at all
+    surfaceRadius: sphereContext ? sphereContext.surfaceRadius : GAME_CONFIG.SOUP_SPHERE_RADIUS,
     isInnerSurface: sphereContext?.isInnerSurface ?? false,
     stunnedUntil: stunned?.until,
     lastEMPTime: cooldowns?.lastEMPTime,
@@ -1300,7 +1305,8 @@ export function subtractEnergy(world: World, entity: EntityId, amount: number): 
 
 /**
  * Set player stage by entity ID.
- * Also initializes z position for Stage 3+ (ground placement / flight).
+ * Also initializes z position for Stage 3+ in FLAT mode (ground placement / flight).
+ * In SPHERE mode, z is part of 3D position - don't clobber it.
  */
 export function setStage(world: World, entity: EntityId, stage: EvolutionStage): void {
   const stageValues = getStageValues(stage);
@@ -1311,11 +1317,28 @@ export function setStage(world: World, entity: EntityId, stage: EvolutionStage):
     stageComp.radius = stageValues.radius;
   }
 
-  // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
+  // Sphere mode: Godcell starts floating (surfaceRadius = null)
+  // GodcellFlightSystem handles all movement for floating entities
+  if (isSphereMode() && stage === EvolutionStage.GODCELL) {
+    const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
+    if (sphereContext) {
+      sphereContext.surfaceRadius = null; // Now floating, GodcellFlightSystem takes over
+    }
+    const velComp = getVelocity(world, entity);
+    if (velComp) {
+      velComp.x = 0;
+      velComp.y = 0;
+      velComp.z = 0;
+    }
+  }
+
+  // Initialize z position for Stage 3+ in FLAT mode only
+  // In sphere mode, z is part of the 3D sphere position - don't change it
   if (
-    stage === EvolutionStage.CYBER_ORGANISM ||
-    stage === EvolutionStage.HUMANOID ||
-    stage === EvolutionStage.GODCELL
+    !isSphereMode() &&
+    (stage === EvolutionStage.CYBER_ORGANISM ||
+      stage === EvolutionStage.HUMANOID ||
+      stage === EvolutionStage.GODCELL)
   ) {
     const posComp = getPosition(world, entity);
     const velComp = getVelocity(world, entity);

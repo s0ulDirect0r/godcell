@@ -10,6 +10,7 @@ import {
   Components,
   type World,
   GAME_CONFIG,
+  EvolutionStage,
   projectToSphere,
   makeTangent,
   getCameraUp,
@@ -66,6 +67,11 @@ export class SphereMovementSystem implements System {
         entity,
         Components.SphereContext
       );
+      const stageComp = requireStage(world, entity);
+
+      // Skip Stage 5 Godcells - handled by GodcellFlightSystem
+      if (stageComp.stage === EvolutionStage.GODCELL) return;
+
       const sphereRadius = sphereContext?.surfaceRadius ?? GAME_CONFIG.SOUP_SPHERE_RADIUS;
 
       // Skip dead players
@@ -103,6 +109,7 @@ export class SphereMovementSystem implements System {
         this.playerCameraUp.set(playerId, camUp);
       }
 
+      // Surface-attached: tangent movement only
       // Transform 2D input to 3D world direction tangent to sphere
       const worldDir = inputToWorldDirection(inputNormX, inputNormY, pos, camUp);
 
@@ -175,7 +182,7 @@ export class SphereMovementSystem implements System {
       positionComponent.y += velocityComponent.y * deltaTime;
       positionComponent.z = (positionComponent.z ?? 0) + vz * deltaTime;
 
-      // Project position back to sphere surface
+      // Project position back to sphere surface (all stages 1-4 are surface-attached)
       const projected = projectToSphere(
         {
           x: positionComponent.x,

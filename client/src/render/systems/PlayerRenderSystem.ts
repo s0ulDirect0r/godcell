@@ -369,7 +369,7 @@ export class PlayerRenderSystem {
         const target: InterpolationTarget = {
           x: interp.targetX,
           y: interp.targetY,
-          z: isSphereMode() ? (player.position.z ?? 0) : undefined,
+          z: isSphereMode() ? (interp.targetZ ?? player.position.z ?? 0) : undefined,
           timestamp: interp.timestamp,
         };
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
@@ -939,10 +939,15 @@ export class PlayerRenderSystem {
       updateGodcellEnergy(cellGroup, energyRatio);
       animateGodcell(cellGroup, 1 / 60);
 
-      // Godcell uses 3D position (z from player.position)
-      const posZ = player.position.z ?? 0;
-      // Convert game coordinates to Three.js: game Y → -Z, game Z → Y
-      cellGroup.position.set(player.position.x, posZ, -player.position.y);
+      // Godcell uses 3D position
+      if (isSphereMode()) {
+        // Sphere mode: direct 3D coordinates (no conversion needed)
+        cellGroup.position.set(player.position.x, player.position.y, player.position.z ?? 0);
+      } else {
+        // Flat mode: Convert game coordinates to Three.js: game Y → -Z, game Z → Y
+        const posZ = player.position.z ?? 0;
+        cellGroup.position.set(player.position.x, posZ, -player.position.y);
+      }
     } else if (player.stage === 'cyber_organism') {
       // Stage 3: Cyber-organism
       const energyRatio = player.energy / player.maxEnergy;

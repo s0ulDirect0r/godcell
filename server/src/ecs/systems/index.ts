@@ -21,6 +21,7 @@ export { SpecializationSystem } from './SpecializationSystem';
 export { GravitySystem } from './GravitySystem';
 export { MovementSystem } from './MovementSystem';
 export { SphereMovementSystem } from './SphereMovementSystem';
+export { GodcellFlightSystem } from './GodcellFlightSystem';
 
 // Ability Systems
 export { AbilityIntentSystem } from './AbilityIntentSystem';

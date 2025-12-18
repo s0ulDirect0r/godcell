@@ -58,6 +58,12 @@ export class InputManager {
   private firstPersonMode = false;
   private _firstPersonYaw = 0; // Camera yaw for rotating movement input (used in Step 4)
 
+  // Godcell flight mode (Stage 5 floating) - mouse look like observer
+  private godcellFlightMode = false;
+  private _godcellYaw = 0;
+  private _godcellPitch = 0;
+  private godcellLookCallback?: (deltaX: number, deltaY: number) => void;
+
   // Handler reference for cleanup (prevents memory leaks)
   private pointerLockClickHandler: () => void;
 
@@ -65,8 +71,10 @@ export class InputManager {
     this.inputState = new InputState();
 
     // Store handler reference so it can be removed in dispose()
+    // NOTE: This handler uses document.body which doesn't work reliably.
+    // Pointer lock for godcell/observer modes is handled via canvas click in main.ts
     this.pointerLockClickHandler = () => {
-      if (this.firstPersonMode && !this.inputState.pointerLock.isLocked) {
+      if ((this.firstPersonMode || this.godcellFlightMode) && !this.inputState.pointerLock.isLocked) {
         document.body.requestPointerLock();
       }
     };
@@ -95,7 +103,8 @@ export class InputManager {
     this.firstPersonMode = enabled;
 
     // Exit pointer lock when leaving first-person mode
-    if (!enabled && this.inputState.pointerLock.isLocked) {
+    // BUT don't exit if we're in godcell flight mode (which also uses pointer lock)
+    if (!enabled && this.inputState.pointerLock.isLocked && !this.godcellFlightMode) {
       document.exitPointerLock();
     }
   }
@@ -113,6 +122,33 @@ export class InputManager {
    */
   getFirstPersonYaw(): number {
     return this._firstPersonYaw;
+  }
+
+  /**
+   * Enable/disable Godcell flight mode (mouse look + WASD relative to camera)
+   */
+  setGodcellFlightMode(enabled: boolean, lookCallback?: (deltaX: number, deltaY: number) => void): void {
+    this.godcellFlightMode = enabled;
+    this.godcellLookCallback = lookCallback;
+
+    if (!enabled && this.inputState.pointerLock.isLocked) {
+      document.exitPointerLock();
+    }
+  }
+
+  /**
+   * Update Godcell flight yaw/pitch (synced from CameraSystem)
+   */
+  setGodcellYawPitch(yaw: number, pitch: number): void {
+    this._godcellYaw = yaw;
+    this._godcellPitch = pitch;
+  }
+
+  /**
+   * Check if in Godcell flight mode
+   */
+  isGodcellFlightMode(): boolean {
+    return this.godcellFlightMode;
   }
 
   /**
@@ -169,6 +205,7 @@ export class InputManager {
   update(_dt: number): void {
     this.updateMovement();
     this.updateSprint();
+    this.updatePhaseShift();
     this.updateRespawn();
     this.updateEMP();
     this.updateCombatInput();
@@ -176,24 +213,31 @@ export class InputManager {
   }
 
   /**
-   * Update mouse look (first-person mode only)
+   * Update mouse look (first-person mode or godcell flight mode)
    * Emits look deltas for camera rotation
    */
   private updateMouseLook(): void {
-    if (!this.firstPersonMode || !this.inputState.pointerLock.isLocked) {
+    if (!this.inputState.pointerLock.isLocked) {
       return;
     }
 
     // Consume accumulated mouse deltas
     const { deltaX, deltaY } = this.inputState.consumeMouseDelta();
 
-    // Only emit if there was movement
+    // Only process if there was movement
     if (deltaX !== 0 || deltaY !== 0) {
-      eventBus.emit({
-        type: 'client:mouseLook',
-        deltaX,
-        deltaY,
-      });
+      // Godcell flight mode: call the look callback directly
+      if (this.godcellFlightMode && this.godcellLookCallback) {
+        this.godcellLookCallback(deltaX, deltaY);
+      }
+      // First-person mode: emit event
+      else if (this.firstPersonMode) {
+        eventBus.emit({
+          type: 'client:mouseLook',
+          deltaX,
+          deltaY,
+        });
+      }
     }
   }
 
@@ -252,6 +296,11 @@ export class InputManager {
       vy = worldY;
     }
 
+    // In godcell flight mode, send LOCAL-SPACE input to server
+    // Server will transform using CameraFacingComponent
+    // vx = strafe (A/D), vy = forward/back (W/S), vz = up/down (Q/E)
+    // NO transform here - server handles it with yaw/pitch from cameraFacing message
+
     // Only emit if direction changed (reduces network traffic)
     const dirChanged =
       vx !== this.lastMoveDirection.x ||
@@ -271,6 +320,9 @@ export class InputManager {
 
   private updateSprint(): void {
     // Shift key for sprint (Stage 3+ ability)
+    // Skip for Godcell flight mode - Shift is used for phase shift instead
+    if (this.godcellFlightMode) return;
+
     const isSprinting =
       this.inputState.isKeyDown('shift') ||
       this.inputState.isKeyDown('shiftleft') ||
@@ -280,6 +332,26 @@ export class InputManager {
     if (isSprinting !== this.wasSprinting) {
       eventBus.emit({ type: 'client:sprint', sprinting: isSprinting });
       this.wasSprinting = isSprinting;
+    }
+  }
+
+  // Track phase shift state for Godcell
+  private wasPhaseShifting = false;
+
+  private updatePhaseShift(): void {
+    // Shift key for phase shift (Stage 5 Godcell only)
+    // Only active in godcell flight mode
+    if (!this.godcellFlightMode) return;
+
+    const isPhaseShifting =
+      this.inputState.isKeyDown('shift') ||
+      this.inputState.isKeyDown('shiftleft') ||
+      this.inputState.isKeyDown('shiftright');
+
+    // Only emit on state change (reduces network traffic)
+    if (isPhaseShifting !== this.wasPhaseShifting) {
+      eventBus.emit({ type: 'client:phaseShift', active: isPhaseShifting });
+      this.wasPhaseShifting = isPhaseShifting;
     }
   }
 

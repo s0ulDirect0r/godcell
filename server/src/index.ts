@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -16,6 +16,9 @@ import type {
   CombatSpecialization,
   MeleeAttackMessage,
   Position,
+  StageComponent,
+  IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
@@ -96,6 +99,7 @@ import {
   TreeCollisionSystem,
   MovementSystem,
   SphereMovementSystem,
+  GodcellFlightSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
   MacroResourceCollisionSystem,
@@ -597,6 +601,7 @@ systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
 // Use SphereMovementSystem for sphere mode, MovementSystem for flat world
 if (isSphereMode()) {
   logger.info({ event: 'sphere_mode_enabled' }, 'Using SphereMovementSystem for spherical world');
+  systemRunner.register(new GodcellFlightSystem(), SystemPriority.GODCELL_FLIGHT);
   systemRunner.register(new SphereMovementSystem(), SystemPriority.MOVEMENT);
 } else {
   systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
@@ -904,6 +909,83 @@ io.on('connection', (socket) => {
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, { abilityType: 'trap' });
+    })
+  );
+
+  // ============================================
+  // Stage 5 Godcell Phase Shift
+  // ============================================
+
+  socket.on(
+    'phaseShift',
+    safeHandler('phaseShift', (message: { active: boolean }) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+
+      // Only Godcells can phase shift
+      const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!stage || stage.stage !== EvolutionStage.GODCELL) {
+        logger.warn({
+          event: 'phase_shift_denied',
+          socketId: socket.id,
+          reason: 'not_godcell',
+        });
+        return;
+      }
+
+      if (message.active) {
+        // Add Intangible component
+        if (!world.hasComponent(entity, Components.Intangible)) {
+          world.addComponent<IntangibleComponent>(entity, Components.Intangible, {});
+          logger.debug({ event: 'phase_shift_start', socketId: socket.id });
+        }
+      } else {
+        // Remove Intangible component
+        if (world.hasComponent(entity, Components.Intangible)) {
+          world.removeComponent(entity, Components.Intangible);
+          logger.debug({ event: 'phase_shift_end', socketId: socket.id });
+        }
+      }
+    })
+  );
+
+  // ============================================
+  // Camera Facing (Godcell Flight Mode)
+  // ============================================
+
+  socket.on(
+    'cameraFacing',
+    safeHandler('cameraFacing', (message: { yaw: number; pitch: number }) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+
+      // Only Godcells need camera facing for flight control
+      const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!stage || stage.stage !== EvolutionStage.GODCELL) {
+        return; // Silently ignore for non-Godcells
+      }
+
+      // Validate yaw/pitch are numbers
+      if (typeof message.yaw !== 'number' || typeof message.pitch !== 'number') {
+        return;
+      }
+
+      // Update or add CameraFacing component
+      if (world.hasComponent(entity, Components.CameraFacing)) {
+        const facing = world.getComponent<CameraFacingComponent>(
+          entity,
+          Components.CameraFacing
+        );
+        if (facing) {
+          facing.yaw = message.yaw;
+          facing.pitch = message.pitch;
+        }
+      } else {
+        world.addComponent<CameraFacingComponent>(entity, Components.CameraFacing, {
+          yaw: message.yaw,
+          pitch: message.pitch,
+        });
+      }
     })
   );
 

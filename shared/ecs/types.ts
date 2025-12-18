@@ -71,6 +71,8 @@ export const Components = {
 
   // World/Sphere components
   SphereContext: 'SphereContext',
+  Intangible: 'Intangible', // Phase shift - can pass through sphere surfaces
+  CameraFacing: 'CameraFacing', // Camera yaw/pitch for server-side input transform
 } as const;
 
 /**

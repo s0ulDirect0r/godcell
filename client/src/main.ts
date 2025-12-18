@@ -309,6 +309,13 @@ function initializeGame(settings: PreGameSettings): void {
     })
   );
 
+  // Stage 5 Godcell phase shift
+  eventSubscriptions.push(
+    eventBus.on('client:phaseShift', (event) => {
+      socketManager.sendPhaseShift(event.active);
+    })
+  );
+
   // Stage 3 specialization selection
   eventSubscriptions.push(
     eventBus.on('client:selectSpecialization', (event) => {
@@ -358,15 +365,17 @@ function initializeGame(settings: PreGameSettings): void {
   // Auto-enable observer mode if requested from start screen
   if (startInObserverMode) {
     renderer.toggleObserverMode();
-    // Add click handler to lock pointer for mouse look
-    const canvas = renderer.getCanvas();
-    canvas.addEventListener('click', () => {
-      if (renderer?.isObserverMode()) {
-        renderer.requestPointerLock();
-      }
-    });
     console.log('[Observer] Ready - click to lock mouse, WASD to fly, Space/Shift up/down, [/] FOV zoom, O to exit');
   }
+
+  // Canvas click handler for pointer lock (observer mode OR godcell flight mode)
+  // Pointer lock MUST be requested on canvas element, not document.body
+  const canvas = renderer.getCanvas();
+  canvas.addEventListener('click', () => {
+    if (renderer?.isObserverMode() || inputManager.isGodcellFlightMode()) {
+      renderer.requestPointerLock();
+    }
+  });
 
   // Start game loop
   update();
@@ -406,6 +415,41 @@ function update(): void {
     const myPlayer = getLocalPlayer(world);
     const isFirstPerson = myPlayer?.stage === EvolutionStage.HUMANOID;
     inputManager.setFirstPersonMode(isFirstPerson);
+
+    // Check if player is Godcell - Godcells are ALWAYS in flight mode
+    // (surfaceRadius check removed - Godcells float by definition in new architecture)
+    const isGodcell = myPlayer?.stage === EvolutionStage.GODCELL;
+    const isGodcellFloating = isGodcell; // Always true for Godcells
+
+    // Debug: log once per second via server forwarding
+    if (isGodcell && Math.random() < 0.016) {
+      socketManager.sendLog('log', [
+        '[Flight] Godcell check:',
+        `stage=${myPlayer?.stage}`,
+        `isGodcellFloating=${isGodcellFloating}`,
+        `flightModeActive=${inputManager.isGodcellFlightMode()}`,
+      ]);
+    }
+
+    if (isGodcellFloating && !inputManager.isGodcellFlightMode()) {
+      // Enable godcell flight with callback to camera system
+      console.log('[Flight] ENABLING godcell flight mode!');
+      inputManager.setGodcellFlightMode(true, (deltaX, deltaY) => {
+        renderer.getCameraSystem().updateGodcellLook(deltaX, deltaY);
+        const yaw = renderer.getCameraSystem().getGodcellYaw();
+        const pitch = renderer.getCameraSystem().getGodcellPitch();
+        // Sync yaw/pitch back to input manager (for legacy code if needed)
+        inputManager.setGodcellYawPitch(yaw, pitch);
+        // Send camera facing to server for server-side input transform
+        socketManager.sendCameraFacing(yaw, pitch);
+      });
+      renderer.getCameraSystem().setGodcellFlightMode(true);
+      // Request pointer lock immediately (like observer mode does)
+      renderer.requestPointerLock();
+    } else if (!isGodcellFloating && inputManager.isGodcellFlightMode()) {
+      inputManager.setGodcellFlightMode(false);
+      renderer.getCameraSystem().setGodcellFlightMode(false);
+    }
   }
 
   // Update systems (skip movement input if in observer mode)

@@ -60,7 +60,18 @@ export class CameraSystem {
   private readonly OBSERVER_MIN_FOV = 20; // Telephoto zoom
   private readonly OBSERVER_MAX_FOV = 120; // Wide-angle
   private readonly OBSERVER_SPEED = 8000; // Units per second (fast for large sphere world)
+
+  // Stage-based FOV
+  private readonly BASE_FOV = 60;
+  private readonly GODCELL_FOV = 90; // 50% wider for Stage 5
+  private targetFOV = 60;
+  private isGodcell = false;
   private readonly OBSERVER_FRICTION = 0.85; // Slightly more friction for snappier control
+
+  // Godcell flight mode (mouse look like observer, but follows player)
+  private godcellFlightMode = false;
+  private godcellYaw = 0;
+  private godcellPitch = 0;
 
   constructor(viewportWidth: number, viewportHeight: number) {
     this.viewportWidth = viewportWidth;
@@ -259,7 +270,7 @@ export class CameraSystem {
   // ============================================
 
   /**
-   * Update third-person camera to follow player in 3D space
+   * Update third-person camera to follow player in 3D space (flat world)
    * Camera orbits behind and above the player
    *
    * @param x - Player X position (game coords)
@@ -294,6 +305,64 @@ export class CameraSystem {
     // Look at the player
     this.perspCamera.lookAt(targetPos);
   }
+
+  /**
+   * Update third-person camera for sphere world (Stage 5 Godcell flying in 3D)
+   * Camera positioned radially outward from player (above them from sphere's perspective)
+   *
+   * @param x - Player X position (Three.js coords, direct from mesh)
+   * @param y - Player Y position (Three.js coords, direct from mesh)
+   * @param z - Player Z position (Three.js coords, direct from mesh)
+   */
+  updateThirdPersonSphere(x: number, y: number, z: number): void {
+    if (this.mode !== 'thirdperson') return;
+
+    const playerPos = new THREE.Vector3(x, y, z);
+
+    // Camera distance from player
+    const cameraDistance = 2400;
+
+    let cameraPos: THREE.Vector3;
+
+    if (this.godcellFlightMode) {
+      // Flight mode: camera orbits player based on yaw/pitch (like observer but following player)
+      // Calculate camera offset from yaw/pitch
+      const yaw = this.godcellYaw;
+      const pitch = this.godcellPitch;
+
+      // Spherical to cartesian offset (camera behind and above player based on look direction)
+      // Camera is BEHIND where we're looking, so we negate the direction
+      const offsetX = Math.sin(yaw) * Math.cos(pitch) * cameraDistance;
+      const offsetY = -Math.sin(pitch) * cameraDistance;
+      const offsetZ = Math.cos(yaw) * Math.cos(pitch) * cameraDistance;
+
+      cameraPos = new THREE.Vector3(
+        playerPos.x + offsetX,
+        playerPos.y + offsetY,
+        playerPos.z + offsetZ
+      );
+    } else {
+      // Default: camera radially outward from sphere center
+      const radialDir = playerPos.clone().normalize();
+      cameraPos = playerPos.clone().addScaledVector(radialDir, cameraDistance);
+    }
+
+    // Tight follow - high lerp factor to reduce lag/shake
+    const lerpFactor = 0.5;
+    this.perspCamera.position.lerp(cameraPos, lerpFactor);
+
+    // Smooth the lookAt target too (stored between frames)
+    if (!this._smoothLookTarget) {
+      this._smoothLookTarget = playerPos.clone();
+    }
+    this._smoothLookTarget.lerp(playerPos, lerpFactor);
+    this.perspCamera.lookAt(this._smoothLookTarget);
+  }
+
+  // Debug counter for throttled logging
+  private _tpDebugCount?: number;
+  // Smoothed look target for third-person camera
+  private _smoothLookTarget?: THREE.Vector3;
 
   // ============================================
   // Sphere Mode Camera
@@ -462,6 +531,74 @@ export class CameraSystem {
     return this.observerFOV;
   }
 
+  /**
+   * Set whether player is Godcell (Stage 5) for FOV adjustment
+   * Godcell gets 50% wider FOV for better spatial awareness
+   */
+  setGodcellMode(isGodcell: boolean): void {
+    if (this.isGodcell === isGodcell) return;
+    this.isGodcell = isGodcell;
+    this.targetFOV = isGodcell ? this.GODCELL_FOV : this.BASE_FOV;
+  }
+
+  /**
+   * Enable/disable Godcell flight mode (mouse look like observer)
+   */
+  setGodcellFlightMode(enabled: boolean): void {
+    if (this.godcellFlightMode === enabled) return;
+    this.godcellFlightMode = enabled;
+    if (enabled) {
+      console.log('[CameraSystem] Godcell flight mode ON - mouse look enabled');
+    }
+  }
+
+  isGodcellFlightMode(): boolean {
+    return this.godcellFlightMode;
+  }
+
+  /**
+   * Update Godcell look direction from mouse input
+   */
+  updateGodcellLook(deltaX: number, deltaY: number): void {
+    if (!this.godcellFlightMode) return;
+
+    const sensitivity = 0.002;
+    this.godcellYaw -= deltaX * sensitivity;
+    this.godcellPitch -= deltaY * sensitivity;
+
+    // Clamp pitch to prevent flipping
+    const maxPitch = Math.PI / 2 - 0.01;
+    this.godcellPitch = Math.max(-maxPitch, Math.min(maxPitch, this.godcellPitch));
+  }
+
+  /**
+   * Get Godcell camera yaw (for input transformation)
+   */
+  getGodcellYaw(): number {
+    return this.godcellYaw;
+  }
+
+  /**
+   * Get Godcell camera pitch (for input transformation)
+   */
+  getGodcellPitch(): number {
+    return this.godcellPitch;
+  }
+
+  /**
+   * Update FOV smoothly toward target (for stage transitions)
+   */
+  private updateFOVTransition(): void {
+    if (this.mode === 'observer') return; // Observer mode manages its own FOV
+
+    const currentFOV = this.perspCamera.fov;
+    if (Math.abs(currentFOV - this.targetFOV) > 0.1) {
+      // Lerp toward target FOV
+      this.perspCamera.fov = currentFOV + (this.targetFOV - currentFOV) * 0.1;
+      this.perspCamera.updateProjectionMatrix();
+    }
+  }
+
   // ============================================
   // Update (called each frame)
   // ============================================
@@ -474,6 +611,9 @@ export class CameraSystem {
   update(targetX?: number, targetY?: number): void {
     // Update zoom transition
     this.updateZoomTransition();
+
+    // Update FOV transition (for Godcell wider FOV)
+    this.updateFOVTransition();
 
     // Apply shake and decay
     this.updateShake();

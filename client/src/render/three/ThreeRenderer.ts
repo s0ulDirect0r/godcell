@@ -814,6 +814,8 @@ export class ThreeRenderer implements Renderer {
           this.setCameraMode('topdown');
         }
       }
+      // Godcell gets wider FOV for better spatial awareness
+      this.cameraSystem.setGodcellMode(myPlayer?.stage === EvolutionStage.GODCELL);
     }
 
     // Update camera position based on mode (re-read mode after potential switch)
@@ -930,8 +932,39 @@ export class ThreeRenderer implements Renderer {
       if (myPlayer) {
         const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
         if (mesh) {
-          if (this.cameraSystem.isSphereMode()) {
-            // Sphere mode: use interpolated 3D mesh position directly
+          const activeMode = this.cameraSystem.getMode();
+
+          // DEBUG: Log camera mode and mesh position every 60 frames
+          this._camDebugCount = (this._camDebugCount ?? 0) + 1;
+          if (this._camDebugCount % 60 === 0) {
+            console.log('[Renderer] Camera update:', {
+              mode: activeMode,
+              sphereMode: this.cameraSystem.isSphereMode(),
+              stage: myPlayer?.stage,
+              meshPos: {
+                x: mesh.position.x.toFixed(0),
+                y: mesh.position.y.toFixed(0),
+                z: mesh.position.z.toFixed(0),
+              },
+              playerPos: myPlayer?.position ? {
+                x: myPlayer.position.x.toFixed(0),
+                y: myPlayer.position.y.toFixed(0),
+                z: (myPlayer.position.z ?? 0).toFixed(0),
+              } : 'none',
+            });
+          }
+
+          if (activeMode === 'thirdperson') {
+            // Stage 5 Godcell: third-person camera
+            if (this.cameraSystem.isSphereMode()) {
+              // Sphere mode: mesh position is direct 3D coords
+              this.cameraSystem.updateThirdPersonSphere(mesh.position.x, mesh.position.y, mesh.position.z);
+            } else {
+              // Flat mode: convert game coords to Three.js
+              this.cameraSystem.updateThirdPersonPosition(mesh.position.x, -mesh.position.z, mesh.position.y);
+            }
+          } else if (this.cameraSystem.isSphereMode()) {
+            // Sphere mode surface camera: position above player along surface normal
             this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
           } else {
             // Flat mode: game coords (mesh.x = game X, -mesh.z = game Y)
@@ -1008,6 +1041,7 @@ export class ThreeRenderer implements Renderer {
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
   private _perfRenderTimeSum?: number;
+  private _camDebugCount?: number;
 
   /**
    * Set the render mode (soup vs jungle world)
@@ -1197,6 +1231,13 @@ export class ThreeRenderer implements Renderer {
    */
   isObserverMode(): boolean {
     return this.cameraSystem.isObserverMode();
+  }
+
+  /**
+   * Get camera system (for godcell flight mode coordination)
+   */
+  getCameraSystem(): CameraSystem {
+    return this.cameraSystem;
   }
 
   /**

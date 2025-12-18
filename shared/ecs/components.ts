@@ -495,3 +495,22 @@ export interface SphereContextComponent {
   surfaceRadius: number | null;
   isInnerSurface: boolean;
 }
+
+/**
+ * Intangible - marker component for phase shift mode.
+ * When present, entity can pass through sphere surfaces.
+ * Used by: Godcells (Stage 5) when holding phase shift key
+ */
+export interface IntangibleComponent {
+  // Marker component - presence indicates phase shift active
+}
+
+/**
+ * CameraFacing - stores player's camera orientation for server-side input transform.
+ * Used by: GodcellFlightSystem to transform local-space input to world-space.
+ * Updated when: Client sends cameraFacing message (on mouse movement in flight mode)
+ */
+export interface CameraFacingComponent {
+  yaw: number; // Horizontal rotation in radians
+  pitch: number; // Vertical rotation in radians
+}
