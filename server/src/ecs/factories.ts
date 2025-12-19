@@ -1456,7 +1456,7 @@ export function getAllObstacleSnapshots(world: World): ObstacleSnapshot[] {
       snapshots.push({
         entity,
         id,
-        position: { x: pos.x, y: pos.y },
+        position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
         radius: obs.radius,
         strength: obs.strength,
       });
