@@ -192,14 +192,14 @@ export class MetabolismSystem implements System {
           posComp.y = junglePos.y;
           posComp.z = junglePos.z;
 
-          // Update sphere context to jungle inner surface
+          // Update sphere context to jungle outer surface
           const sphereCtx = world.getComponent<SphereContextComponent>(
             entityNow,
             Components.SphereContext
           );
           if (sphereCtx) {
             sphereCtx.surfaceRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
-            sphereCtx.isInnerSurface = true;
+            sphereCtx.isInnerSurface = false;
           }
 
           // Broadcast position update for sphere transition

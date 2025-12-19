@@ -41,6 +41,7 @@ import {
   type PositionComponent,
   type ObstacleComponent,
 } from '../../ecs';
+import { frameLerp } from '../../utils/math';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -948,7 +949,10 @@ export class ThreeRenderer implements Renderer {
             this.cameraSystem.updateThirdPersonSphere(mesh.position.x, mesh.position.y, mesh.position.z);
           } else {
             // Sphere mode surface camera: position above player along surface normal
-            this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z);
+            // Pass authoritative sphere radius to avoid floating point errors from computing magnitude
+            const isJungleStage = myPlayer.stage === 'cyber_organism' || myPlayer.stage === 'humanoid' || myPlayer.stage === 'godcell';
+            const sphereRadius = isJungleStage ? GAME_CONFIG.JUNGLE_SPHERE_RADIUS : GAME_CONFIG.SOUP_SPHERE_RADIUS;
+            this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z, sphereRadius);
           }
         } else {
           this.cameraSystem.update();
