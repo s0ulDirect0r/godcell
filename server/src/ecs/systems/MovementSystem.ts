@@ -101,11 +101,24 @@ export class MovementSystem implements System {
         z: positionComponent.z ?? 0,
       };
 
-      // Get or initialize camera up for this player
-      let camUp = this.playerCameraUp.get(playerId);
-      if (!camUp) {
+      // Get camera up for input transformation
+      // Bots use stable geographic reference (getCameraUp) so their AI steering works correctly
+      // Human players use momentum-locked cameraUp for smoother control feel
+      const isBot = playerId.startsWith('bot-');
+      let camUp: Vec3;
+
+      if (isBot) {
+        // Bots: always use stable geographic reference frame
+        // This matches what steerTowardsSphere() uses to compute input
         camUp = getCameraUp(pos);
-        this.playerCameraUp.set(playerId, camUp);
+      } else {
+        // Human players: momentum-locked camera for smoother feel
+        let storedCamUp = this.playerCameraUp.get(playerId);
+        if (!storedCamUp) {
+          storedCamUp = getCameraUp(pos);
+          this.playerCameraUp.set(playerId, storedCamUp);
+        }
+        camUp = storedCamUp;
       }
 
       // Surface-attached: tangent movement only
@@ -150,16 +163,20 @@ export class MovementSystem implements System {
 
       // NOTE: Gravity is handled by GravitySystem (sphere-aware)
 
-      // Update camera up based on velocity (momentum-locked feel)
+      // Update camera up based on velocity (momentum-locked feel) - human players only
+      // Bots use stable geographic reference, so skip this for them
       const speed = Math.sqrt(
         velocityComponent.x * velocityComponent.x +
           velocityComponent.y * velocityComponent.y +
           (velocityComponent.z ?? 0) * (velocityComponent.z ?? 0)
       );
-      if (speed > 5) {
-        camUp.x = velocityComponent.x / speed;
-        camUp.y = velocityComponent.y / speed;
-        camUp.z = (velocityComponent.z ?? 0) / speed;
+      if (!isBot && speed > 5) {
+        const storedCamUp = this.playerCameraUp.get(playerId);
+        if (storedCamUp) {
+          storedCamUp.x = velocityComponent.x / speed;
+          storedCamUp.y = velocityComponent.y / speed;
+          storedCamUp.z = (velocityComponent.z ?? 0) / speed;
+        }
       }
 
       // Zero out tiny residual velocities to prevent jitter
