@@ -436,17 +436,14 @@ export function updateCyberOrganismAnimation(
   const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
-  // Initialize walk cycle counter and base Y position on first call
+  // Initialize walk cycle counter on first call
   if (group.userData.walkCycle === undefined) {
     group.userData.walkCycle = 0;
   }
-  if (group.userData.baseY === undefined) {
-    group.userData.baseY = group.position.y;
-  }
 
-  // Float animation (subtle bobbing in world Y) - use absolute positioning to prevent drift
-  const floatOffset = Math.sin(time) * radius * CONFIG.ANIMATION.floatAmplitude * 0.1;
-  group.position.y = group.userData.baseY + floatOffset;
+  // Note: Float animation removed - cyber_organism lives on sphere surface where
+  // group.position is a 3D coordinate. Modifying Y would break sphere positioning.
+  // Float/bob effects could be applied along surface normal if desired.
 
   // Tail sway (Z direction in local space)
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
@@ -518,11 +515,11 @@ export function updateCyberOrganismAnimation(
       }
     });
 
-    // Body secondary motion: subtle bob and sway synced to gait
-    const bodyBob = Math.sin(walkCycle * Math.PI * 2) * radius * CONFIG.GAIT.bodyBob;
+    // Body secondary motion: subtle sway synced to gait
+    // Note: Body bob removed - in sphere mode, group.position is a 3D coordinate
+    // and modifying Y would break sphere positioning
     const bodySway = Math.sin(walkCycle * Math.PI) * radius * CONFIG.GAIT.bodySway;
-    bodyGroup.position.y = bodySway; // Lateral sway in local space
-    group.position.y = group.userData.baseY + floatOffset + bodyBob; // Combine float + bob
+    bodyGroup.position.y = bodySway; // Lateral sway in local space (child group, not main position)
 
     // Debug logging (only for one leg to avoid spam)
     if (CONFIG.DEBUG.gait) {
