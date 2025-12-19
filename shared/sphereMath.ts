@@ -301,3 +301,70 @@ export function slerp(a: Vec3, b: Vec3, t: number): Vec3 {
 export function scaleVec3(v: Vec3, s: number): Vec3 {
   return { x: v.x * s, y: v.y * s, z: v.z * s };
 }
+
+/**
+ * Convert a 3D world direction to 2D input coordinates (inverse of inputToWorldDirection)
+ * Used by bot AI to compute input needed to move toward a target on the sphere
+ *
+ * @param worldDir - Desired direction in 3D world space (should be tangent to sphere)
+ * @param pos - Current position on sphere
+ * @param cameraUp - Camera's "up" direction (defines what "forward" means)
+ * @returns Input coordinates {x: left/right, y: forward/back} in range -1 to 1
+ */
+export function worldDirectionToInput(
+  worldDir: Vec3,
+  pos: Vec3,
+  cameraUp: Vec3
+): { x: number; y: number } {
+  const normal = getSurfaceNormal(pos);
+
+  // Compute "forward" - camera up projected onto tangent plane
+  const upDotNormal = cameraUp.x * normal.x + cameraUp.y * normal.y + cameraUp.z * normal.z;
+  let forwardX = cameraUp.x - normal.x * upDotNormal;
+  let forwardY = cameraUp.y - normal.y * upDotNormal;
+  let forwardZ = cameraUp.z - normal.z * upDotNormal;
+
+  // Normalize forward
+  const forwardMag = Math.sqrt(forwardX * forwardX + forwardY * forwardY + forwardZ * forwardZ);
+  if (forwardMag > 0.0001) {
+    forwardX /= forwardMag;
+    forwardY /= forwardMag;
+    forwardZ /= forwardMag;
+  } else {
+    // Edge case: camera up is parallel to normal (at poles)
+    forwardX = 0;
+    forwardY = 0;
+    forwardZ = 1;
+  }
+
+  // Compute "right" - cross product of forward and normal
+  const rightX = forwardY * normal.z - forwardZ * normal.y;
+  const rightY = forwardZ * normal.x - forwardX * normal.z;
+  const rightZ = forwardX * normal.y - forwardY * normal.x;
+
+  // Project worldDir onto forward and right axes to get input coordinates
+  // worldDir = right * inputX + forward * inputY
+  // So: inputX = dot(worldDir, right), inputY = dot(worldDir, forward)
+  const inputX = worldDir.x * rightX + worldDir.y * rightY + worldDir.z * rightZ;
+  const inputY = worldDir.x * forwardX + worldDir.y * forwardY + worldDir.z * forwardZ;
+
+  return { x: inputX, y: inputY };
+}
+
+/**
+ * Get input direction needed to move from one sphere position toward another
+ * Convenience wrapper combining tangentToward + worldDirectionToInput
+ *
+ * @param from - Current position on sphere
+ * @param to - Target position on sphere
+ * @param cameraUp - Camera's "up" direction
+ * @returns Input coordinates {x: left/right, y: forward/back} normalized
+ */
+export function getInputTowardTarget(
+  from: Vec3,
+  to: Vec3,
+  cameraUp: Vec3
+): { x: number; y: number } {
+  const tangentDir = tangentToward(from, to);
+  return worldDirectionToInput(tangentDir, from, cameraUp);
+}
