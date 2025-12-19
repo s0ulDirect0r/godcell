@@ -8,8 +8,5 @@
     "deploymentEnabled": {
       "staging": true
     }
-  },
-  "alias": {
-    "staging": ["godcell-staging.blacktemple.dev"]
   }
 }
