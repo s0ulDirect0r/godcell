@@ -182,6 +182,11 @@ export class MovementSystem implements System {
       positionComponent.z = (positionComponent.z ?? 0) + vz * deltaTime;
 
       // Project position back to sphere surface (all stages 1-4 are surface-attached)
+      const beforeMag = Math.sqrt(
+        positionComponent.x * positionComponent.x +
+          positionComponent.y * positionComponent.y +
+          (positionComponent.z ?? 0) * (positionComponent.z ?? 0)
+      );
       const projected = projectToSphere(
         {
           x: positionComponent.x,
@@ -193,6 +198,19 @@ export class MovementSystem implements System {
       positionComponent.x = projected.x;
       positionComponent.y = projected.y;
       positionComponent.z = projected.z;
+
+      // DEBUG: Log sphere projection for cyber-organism (once per ~60 frames)
+      if (stageComp.stage === EvolutionStage.CYBER_ORGANISM && Math.random() < 0.017) {
+        const afterMag = Math.sqrt(
+          projected.x * projected.x + projected.y * projected.y + projected.z * projected.z
+        );
+        console.log(
+          `[MovementSystem DEBUG] stage=${stageComp.stage} sphereRadius=${sphereRadius} ` +
+            `beforeMag=${beforeMag.toFixed(1)} afterMag=${afterMag.toFixed(1)} ` +
+            `expected=${GAME_CONFIG.JUNGLE_SPHERE_RADIUS} ` +
+            `MISMATCH=${Math.abs(afterMag - GAME_CONFIG.JUNGLE_SPHERE_RADIUS) > 10 ? 'YES!' : 'no'}`
+        );
+      }
 
       // Deduct movement energy
       if (energyComponent.current > 0) {

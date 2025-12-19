@@ -357,6 +357,18 @@ export class PlayerRenderSystem {
           z: interp.targetZ ?? player.position.z ?? 0,
           timestamp: interp.timestamp,
         };
+
+        // DEBUG: Log interpolation target vs mesh position for cyber_organism
+        if (isMyPlayer && player.stage === 'cyber_organism' && Math.random() < 0.017) {
+          const targetMag = Math.sqrt(target.x * target.x + target.y * target.y + target.z * target.z);
+          const posMag = Math.sqrt(player.position.x ** 2 + player.position.y ** 2 + (player.position.z ?? 0) ** 2);
+          console.log(
+            `[INTERP DEBUG] target=(${target.x.toFixed(0)},${target.y.toFixed(0)},${target.z.toFixed(0)}) mag=${targetMag.toFixed(0)} ` +
+              `pos=(${player.position.x.toFixed(0)},${player.position.y.toFixed(0)},${(player.position.z ?? 0).toFixed(0)}) mag=${posMag.toFixed(0)} ` +
+              `MATCH=${Math.abs(targetMag - posMag) < 10 ? 'yes' : 'NO!'}`
+          );
+        }
+
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
         // Fallback to direct position if no target
@@ -1081,10 +1093,28 @@ export class PlayerRenderSystem {
     const lerpFactor = frameLerp(0.3, this.dt);
 
     if (cellGroup.userData.isSphere) {
-      // Sphere mode: interpolate in 3D space directly
-      cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-      cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
-      cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+      // Sphere mode: use SPHERICAL interpolation (lerp angles, not Cartesian coords)
+      // This follows the great circle arc on the sphere surface instead of cutting through
+      const currentVec = new THREE.Vector3(
+        cellGroup.position.x,
+        cellGroup.position.y,
+        cellGroup.position.z
+      );
+      const targetVec = new THREE.Vector3(target.x, target.y, target.z ?? 0);
+
+      // Convert to spherical coordinates
+      const currentSpherical = new THREE.Spherical().setFromVector3(currentVec);
+      const targetSpherical = new THREE.Spherical().setFromVector3(targetVec);
+
+      // Lerp the angles, use target's radius (the correct sphere surface)
+      const newPhi = currentSpherical.phi + (targetSpherical.phi - currentSpherical.phi) * lerpFactor;
+      const newTheta = currentSpherical.theta + (targetSpherical.theta - currentSpherical.theta) * lerpFactor;
+
+      // Convert back to Cartesian - position stays ON the sphere
+      const resultSpherical = new THREE.Spherical(targetSpherical.radius, newPhi, newTheta);
+      const resultVec = new THREE.Vector3().setFromSpherical(resultSpherical);
+
+      cellGroup.position.copy(resultVec);
 
       // Orient flat organisms to lie on sphere surface
       if (stage === 'single_cell' || stage === 'multi_cell') {
@@ -1102,6 +1132,16 @@ export class PlayerRenderSystem {
         cellGroup.position.x += normal.x * heightOffset;
         cellGroup.position.y += normal.y * heightOffset;
         cellGroup.position.z += (normal.z ?? 0) * heightOffset;
+
+        // DEBUG: Log position magnitudes for cyber-organism (once per ~60 frames)
+        if (isMyPlayer && Math.random() < 0.017) {
+          const targetMag = Math.sqrt(target.x * target.x + target.y * target.y + (target.z ?? 0) * (target.z ?? 0));
+          const meshMag = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+          console.log(
+            `[PlayerRender DEBUG] targetMag=${targetMag.toFixed(1)} meshMag=${meshMag.toFixed(1)} ` +
+              `expected=9792 MISMATCH=${Math.abs(meshMag - 9792) > 100 ? 'YES!' : 'no'}`
+          );
+        }
       }
 
       const outline = this.playerOutlines.get(playerId);
