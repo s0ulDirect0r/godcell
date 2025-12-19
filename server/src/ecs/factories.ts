@@ -3,7 +3,7 @@
 // Functions to create entities with proper components
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags } from '#shared';
+import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags, projectToSphere } from '#shared';
 import type {
   Position,
   Player,
@@ -1305,8 +1305,7 @@ export function subtractEnergy(world: World, entity: EntityId, amount: number): 
 
 /**
  * Set player stage by entity ID.
- * Also initializes z position for Stage 3+ in FLAT mode (ground placement / flight).
- * In SPHERE mode, z is part of 3D position - don't clobber it.
+ * Also handles sphere transitions (soup → jungle) for Stage 3+.
  */
 export function setStage(world: World, entity: EntityId, stage: EvolutionStage): void {
   const stageValues = getStageValues(stage);
@@ -1317,10 +1316,28 @@ export function setStage(world: World, entity: EntityId, stage: EvolutionStage):
     stageComp.radius = stageValues.radius;
   }
 
+  const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
+  const posComp = getPosition(world, entity);
+
+  // Stage 3+ (cyber_organism, humanoid): move to jungle sphere
+  if (stage === EvolutionStage.CYBER_ORGANISM || stage === EvolutionStage.HUMANOID) {
+    if (posComp) {
+      // Project current position to jungle sphere radius
+      const currentPos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+      const junglePos = projectToSphere(currentPos, GAME_CONFIG.JUNGLE_SPHERE_RADIUS);
+      posComp.x = junglePos.x;
+      posComp.y = junglePos.y;
+      posComp.z = junglePos.z;
+    }
+    if (sphereContext) {
+      sphereContext.surfaceRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+      sphereContext.isInnerSurface = false;
+    }
+  }
+
   // Godcell starts floating (surfaceRadius = null)
   // GodcellFlightSystem handles all movement for floating entities
   if (stage === EvolutionStage.GODCELL) {
-    const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
     if (sphereContext) {
       sphereContext.surfaceRadius = null; // Now floating, GodcellFlightSystem takes over
     }

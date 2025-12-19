@@ -47,8 +47,8 @@ export class CameraSystem {
   private viewportWidth: number;
   private viewportHeight: number;
 
-  // Sphere camera height above surface
-  private readonly SPHERE_CAMERA_HEIGHT = 800;
+  // Sphere camera height as ratio of sphere radius (0.5 = camera at 50% above surface)
+  private readonly CAMERA_HEIGHT_RATIO = 0.5;
 
   // Observer mode state (free-fly camera for debugging multi-sphere world)
   private observerVelocity = new THREE.Vector3();
@@ -97,12 +97,22 @@ export class CameraSystem {
     // Enable layer 1 so camera sees both regular objects (layer 0) and no-bloom objects (layer 1)
     this.perspCamera.layers.enable(1);
 
-    // Start camera above the sphere at default position
-    const startPos = new THREE.Vector3(GAME_CONFIG.SPHERE_RADIUS, 0, 0);
+    // Start camera above the soup sphere at default position (players spawn there)
+    const startPos = new THREE.Vector3(GAME_CONFIG.SOUP_SPHERE_RADIUS, 0, 0);
     const normal = startPos.clone().normalize();
-    this.perspCamera.position.copy(startPos).addScaledVector(normal, this.SPHERE_CAMERA_HEIGHT);
+    this.perspCamera.position.copy(startPos).addScaledVector(
+      normal,
+      this.getCameraHeight(GAME_CONFIG.SOUP_SPHERE_RADIUS)
+    );
     this.perspCamera.lookAt(startPos);
     this.perspCamera.up.set(0, 1, 0);
+  }
+
+  /**
+   * Get camera height above surface for a given sphere radius
+   */
+  private getCameraHeight(sphereRadius: number): number {
+    return sphereRadius * this.CAMERA_HEIGHT_RATIO;
   }
 
   // ============================================
@@ -359,12 +369,14 @@ export class CameraSystem {
    * @param y - Player Y position on sphere
    * @param z - Player Z position on sphere
    */
-  updateSpherePosition(x: number, y: number, z: number): void {
+  updateSpherePosition(x: number, y: number, z: number, sphereRadius?: number): void {
     const playerPos = new THREE.Vector3(x, y, z);
     const surfaceNormal = playerPos.clone().normalize();
 
     // Position camera above player along surface normal
-    const cameraPos = playerPos.clone().addScaledVector(surfaceNormal, this.SPHERE_CAMERA_HEIGHT);
+    // Use authoritative radius if provided, otherwise compute from position (legacy fallback)
+    const radius = sphereRadius ?? playerPos.length();
+    const cameraPos = playerPos.clone().addScaledVector(surfaceNormal, this.getCameraHeight(radius));
 
     // Smooth follow
     const lerpFactor = 0.15;
