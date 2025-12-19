@@ -69,16 +69,18 @@ export function createSwarm(
     roughness: 1.0,
     side: THREE.DoubleSide,
     depthWrite: false, // Don't write depth (standard for transparent objects)
-    depthTest: false, // Bypass depth testing (original fix for obstacle overlap)
+    depthTest: true, // Allow sphere surface to occlude swarms
   });
   const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
   group.add(outerSphere);
 
   // === INTERNAL PARTICLE STORM ===
-  const internalParticleCount = 200; // 200 particles per swarm
+  const internalParticleCount = 200; // Initial 200 particles per swarm
+  const MAX_INTERNAL_PARTICLES = 600; // Pre-allocate for max (grows with absorbed energy)
   const internalGeometry = new THREE.BufferGeometry();
-  const internalPositions = new Float32Array(internalParticleCount * 3);
-  const internalSizes = new Float32Array(internalParticleCount);
+  // Pre-allocate for max particles to avoid geometry recreation
+  const internalPositions = new Float32Array(MAX_INTERNAL_PARTICLES * 3);
+  const internalSizes = new Float32Array(MAX_INTERNAL_PARTICLES);
 
   // Random positions inside sphere with random velocities
   const internalParticleData: SwarmInternalParticle[] = [];
@@ -116,6 +118,8 @@ export function createSwarm(
 
   internalGeometry.setAttribute('position', new THREE.BufferAttribute(internalPositions, 3));
   internalGeometry.setAttribute('size', new THREE.BufferAttribute(internalSizes, 1));
+  // Set initial draw range to actual particle count
+  internalGeometry.setDrawRange(0, internalParticleCount);
 
   const internalMaterial = new THREE.PointsMaterial({
     color: 0xffaa00, // Bright orange/yellow

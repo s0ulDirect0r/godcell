@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { EvolutionStage, Tags, Components, type World } from '#shared';
+import { EvolutionStage, Tags, Components, type World, distanceForMode } from '#shared';
 import type {
   EnergyComponent,
   PositionComponent,
@@ -87,14 +87,13 @@ export class SwarmCollisionSystem implements System {
           );
           const energyScale = 1 + energyRatio * (MAX_SCALE - 1); // Used for damage scaling only
           const collisionDist = swarmComp.size + radius;
-          const collisionDistSq = collisionDist * collisionDist;
 
-          // Fast squared distance check (avoid sqrt)
-          const dx = swarmX - posComp.x;
-          const dy = swarmY - posComp.y;
-          const distSq = dx * dx + dy * dy;
+          // Use sphere-aware distance calculation
+          const swarmPos3D = { x: swarmX, y: swarmY, z: swarmPos.z ?? 0 };
+          const playerPos3D = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+          const dist = distanceForMode(swarmPos3D, playerPos3D);
 
-          if (distSq < collisionDistSq) {
+          if (dist < collisionDist) {
             // Damage scales with swarm energy: bigger swarms drain faster
             // Base 100 energy = 1x, 500 energy = 5x rate
             const baseDamage = getConfig('SWARM_DAMAGE_RATE');
@@ -145,6 +144,7 @@ export class SwarmCollisionSystem implements System {
       swarmId: string;
       x: number;
       y: number;
+      z: number;
       size: number;
       swarmComp: SwarmComponent;
       energyComp: EnergyComponent;
@@ -159,6 +159,7 @@ export class SwarmCollisionSystem implements System {
           swarmId,
           x: posComp.x,
           y: posComp.y,
+          z: posComp.z ?? 0,
           size: swarmComp.size,
           swarmComp,
           energyComp,
@@ -174,6 +175,7 @@ export class SwarmCollisionSystem implements System {
       playerId: string;
       x: number;
       y: number;
+      z: number;
       radius: number;
       energyComp: EnergyComponent;
     }[] = [];
@@ -189,6 +191,7 @@ export class SwarmCollisionSystem implements System {
         playerId,
         x: posComp.x,
         y: posComp.y,
+        z: posComp.z ?? 0,
         radius: stageComp.radius,
         energyComp,
       });
@@ -197,15 +200,13 @@ export class SwarmCollisionSystem implements System {
     // Check collisions between multi-cell players and disabled swarms
     for (const player of multiCellPlayers) {
       for (const swarm of disabledSwarms) {
-        // Fast squared distance check
-        const dx = player.x - swarm.x;
-        const dy = player.y - swarm.y;
-        const distSq = dx * dx + dy * dy;
-        // Collision uses base size (no energy-based scaling)
+        // Use sphere-aware distance calculation
+        const playerPos = { x: player.x, y: player.y, z: player.z };
+        const swarmPos = { x: swarm.x, y: swarm.y, z: swarm.z };
+        const dist = distanceForMode(playerPos, swarmPos);
         const collisionDist = swarm.size + player.radius;
-        const collisionDistSq = collisionDist * collisionDist;
 
-        if (distSq < collisionDistSq) {
+        if (dist < collisionDist) {
           // Mark swarm as being consumed
           swarm.swarmComp.beingConsumedBy = player.playerId;
 

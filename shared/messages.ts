@@ -5,6 +5,7 @@
 
 import type {
   Position,
+  Velocity,
   Player,
   Nutrient,
   Obstacle,
@@ -55,6 +56,19 @@ export interface PseudopodFireMessage {
 
 export interface EMPActivateMessage {
   type: 'empActivate';
+}
+
+// Stage 5 phase shift (Godcell can pass through sphere surfaces)
+export interface PhaseShiftMessage {
+  type: 'phaseShift';
+  active: boolean; // true = phasing through surfaces, false = normal collision
+}
+
+// Stage 5 camera facing (for server-side input transform in Godcell flight)
+export interface CameraFacingMessage {
+  type: 'cameraFacing';
+  yaw: number; // Horizontal rotation in radians
+  pitch: number; // Vertical rotation in radians
 }
 
 // Stage 3 projectile fire (ranged specialization)
@@ -127,6 +141,7 @@ export interface PlayerMovedMessage {
   type: 'playerMoved';
   playerId: string;
   position: Position;
+  velocity: Velocity;
 }
 
 export interface NutrientSpawnedMessage {

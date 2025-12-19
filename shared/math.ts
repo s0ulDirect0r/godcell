@@ -5,14 +5,37 @@
 // ============================================
 
 import type { Position } from './index';
+import { GAME_CONFIG } from './constants';
+import { sphereDistance } from './sphereMath';
 
 /**
- * Calculate distance between two positions
+ * Calculate distance between two positions (2D flat world)
  */
 export function distance(p1: Position, p2: Position): number {
   const dx = p1.x - p2.x;
   const dy = p1.y - p2.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Calculate distance between two positions using great circle (geodesic) distance
+ * along the sphere surface.
+ */
+export function distanceForMode(p1: Position, p2: Position): number {
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+
+  const v1 = {
+    x: p1.x,
+    y: p1.y,
+    z: p1.z ?? 0,
+  };
+  const v2 = {
+    x: p2.x,
+    y: p2.y,
+    z: p2.z ?? 0,
+  };
+
+  return sphereDistance(v1, v2, sphereRadius);
 }
 
 /**

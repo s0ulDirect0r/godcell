@@ -10,6 +10,7 @@ export interface StartScreenOptions {
 export interface PreGameSettings {
   playgroundMode: boolean;
   pauseOnStart: boolean;
+  observerMode: boolean; // Skip player creation, go straight to free-fly camera
 }
 
 export class StartScreen {
@@ -18,6 +19,7 @@ export class StartScreen {
   private settings: PreGameSettings = {
     playgroundMode: false,
     pauseOnStart: false,
+    observerMode: false,
   };
 
   constructor(options: StartScreenOptions) {
@@ -76,6 +78,11 @@ export class StartScreen {
 
         <div class="start-buttons">
           <button class="start-button" id="start-play-btn">ENTER</button>
+          ${
+            this.options.devMode
+              ? `<button class="start-button dev-button" id="start-observer-btn">OBSERVER MODE</button>`
+              : ''
+          }
         </div>
 
         ${
@@ -342,6 +349,10 @@ export class StartScreen {
       const playBtn = document.getElementById('start-play-btn');
       playBtn?.addEventListener('click', () => this.handleStart());
 
+      // Observer mode button (dev only)
+      const observerBtn = document.getElementById('start-observer-btn');
+      observerBtn?.addEventListener('click', () => this.handleObserverStart());
+
       // Wire up settings checkboxes
       const playgroundCheckbox = document.getElementById('setting-playground') as HTMLInputElement;
       playgroundCheckbox?.addEventListener('change', (e) => {
@@ -358,6 +369,12 @@ export class StartScreen {
   }
 
   private handleStart(): void {
+    this.hide();
+    this.options.onStart(this.settings);
+  }
+
+  private handleObserverStart(): void {
+    this.settings.observerMode = true;
     this.hide();
     this.options.onStart(this.settings);
   }

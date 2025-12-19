@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { Player, EvolutionStage, DamageSource } from '#shared';
-import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '#shared';
+import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum, getSurfaceNormal } from '#shared';
 import {
   World,
   Tags,
@@ -35,7 +35,9 @@ import { createGodcell, updateGodcellEnergy, animateGodcell } from '../meshes/Go
 import { updateCompassIndicators, disposeCompassIndicators } from '../three/CompassRenderer';
 import {
   calculateEntityWarp,
+  calculateEntityWarp3D,
   applyEntityWarp,
+  applyEntityWarpSphere,
   resetEntityWarp,
 } from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
@@ -47,13 +49,17 @@ import {
   applyEvolutionEffects,
 } from '../three/EvolutionVisuals';
 import type { RenderMode } from './EnvironmentSystem';
+import { orientFlatToSurface, orientHexapodToSurface } from '../utils/SphereRenderUtils';
 
 /**
  * Interpolation target for smooth position updates
+ * In sphere mode: x, y, z are 3D world coordinates
+ * In flat mode: x, y are game coordinates (y maps to -Z in Three.js)
  */
 export interface InterpolationTarget {
   x: number;
   y: number;
+  z?: number;
   timestamp: number;
 }
 
@@ -157,12 +163,22 @@ export class PlayerRenderSystem {
     const currentPlayerIds = new Set<string>();
 
     // Query ECS World for all players
+    // DEBUG: Count how many times we process each player
+    const playerProcessCount = new Map<string, number>();
+
     this.world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getStringIdByEntity(entity);
       if (!playerId) return;
 
       const player = getPlayer(this.world, playerId);
       if (!player) return;
+
+      // DEBUG: Track duplicate processing
+      const count = (playerProcessCount.get(playerId) ?? 0) + 1;
+      playerProcessCount.set(playerId, count);
+      if (count > 1 && playerId === getLocalPlayerId(this.world)) {
+        console.error('[DUPLICATE PLAYER PROCESSING]', { playerId, count, entity });
+      }
 
       currentPlayerIds.add(playerId);
 
@@ -278,15 +294,24 @@ export class PlayerRenderSystem {
           cellGroup = createSingleCell(radius, colorHex);
         }
 
-        // Position group at player location on XZ plane (Y=height)
-        // Lift Stage 3+ creatures above the grid (legs extend downward)
-        const heightOffset =
-          player.stage === 'cyber_organism' ||
-          player.stage === 'humanoid' ||
-          player.stage === 'godcell'
-            ? 5
-            : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+        // Position group at player location (sphere surface coordinates)
+        // ALWAYS use authoritative player.position from server, NOT InterpolationTarget
+        // InterpolationTarget may be stale during evolution transitions
+        const spawnPos = player.position;
+        cellGroup.position.set(spawnPos.x, spawnPos.y, spawnPos.z ?? 0);
+
+        // Reset InterpolationTarget to match spawn position to avoid initial gap
+        if (interp) {
+          interp.targetX = spawnPos.x;
+          interp.targetY = spawnPos.y;
+          interp.targetZ = spawnPos.z ?? 0;
+        }
+
+        // Orient flat organisms to lie on sphere surface
+        if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
+          orientFlatToSurface(cellGroup, spawnPos);
+        }
+        cellGroup.userData.isSphere = true;
 
         // Store stage for change detection
         cellGroup.userData.stage = player.stage;
@@ -346,22 +371,54 @@ export class PlayerRenderSystem {
         const target: InterpolationTarget = {
           x: interp.targetX,
           y: interp.targetY,
+          z: interp.targetZ ?? player.position.z ?? 0,
           timestamp: interp.timestamp,
         };
+
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
-        // Fallback to direct position if no target
-        const heightOffset =
-          player.stage === 'cyber_organism' ||
-          player.stage === 'humanoid' ||
-          player.stage === 'godcell'
-            ? 5
-            : 0;
-        cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+        // Fallback to direct position if no interpolation target
+        if (cellGroup.userData.isSphere) {
+          // Sphere mode: use 3D coordinates directly
+          cellGroup.position.set(
+            player.position.x,
+            player.position.y,
+            player.position.z ?? 0
+          );
+          // Orient flat organisms to lie on sphere surface
+          if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
+            orientFlatToSurface(cellGroup, player.position);
+          } else if (player.stage === 'cyber_organism') {
+            // Orient hexapod on sphere surface
+            const heading = this.getHexapodHeading(cellGroup);
+            orientHexapodToSurface(cellGroup, player.position, heading);
 
-        const outline = this.playerOutlines.get(id);
-        if (outline) {
-          outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
+            // Add height offset along surface normal (legs extend below body)
+            const normal = getSurfaceNormal(player.position);
+            const heightOffset = 5;
+            cellGroup.position.x += normal.x * heightOffset;
+            cellGroup.position.y += normal.y * heightOffset;
+            cellGroup.position.z += (normal.z ?? 0) * heightOffset;
+          }
+
+          const outline = this.playerOutlines.get(id);
+          if (outline) {
+            outline.position.copy(cellGroup.position);
+          }
+        } else {
+          // Flat mode: XZ plane
+          const heightOffset =
+            player.stage === 'cyber_organism' ||
+            player.stage === 'humanoid' ||
+            player.stage === 'godcell'
+              ? 5
+              : 0;
+          cellGroup.position.set(player.position.x, heightOffset, -player.position.y);
+
+          const outline = this.playerOutlines.get(id);
+          if (outline) {
+            outline.position.set(player.position.x, heightOffset + 0.1, -player.position.y);
+          }
         }
 
         // Update compass indicators (multi-cell only - chemical sensing ability)
@@ -392,15 +449,44 @@ export class PlayerRenderSystem {
         player.stage === EvolutionStageEnum.MULTI_CELL;
       const outline = this.playerOutlines.get(id);
       if (isSoupStage && !isJungleMode) {
-        // Calculate warp based on game-space position
-        const gameX = cellGroup.position.x;
-        const gameY = -cellGroup.position.z; // Three.js Z = -game Y
-        const warp = calculateEntityWarp(gameX, gameY);
-        applyEntityWarp(cellGroup, warp);
+        if (cellGroup.userData.isSphere) {
+          // Sphere mode: use 3D warp calculation
+          const pos3D = {
+            x: cellGroup.position.x,
+            y: cellGroup.position.y,
+            z: cellGroup.position.z,
+          };
+          const warp = calculateEntityWarp3D(pos3D);
 
-        // Also warp the player outline ring - spaghettify everything!
-        if (outline) {
-          applyEntityWarp(outline, warp);
+          // Compute fresh surface quaternion for combining with warp
+          const surfaceQuat = new THREE.Quaternion();
+          const normal = { x: pos3D.x, y: pos3D.y, z: pos3D.z };
+          const mag = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+          if (mag > 0.001) {
+            normal.x /= mag;
+            normal.y /= mag;
+            normal.z /= mag;
+          }
+          const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z);
+          const negZ = new THREE.Vector3(0, 0, -1);
+          surfaceQuat.setFromUnitVectors(negZ, surfaceNormal);
+
+          applyEntityWarpSphere(cellGroup, warp, surfaceQuat);
+
+          // Also warp outline
+          if (outline) {
+            applyEntityWarpSphere(outline, warp, surfaceQuat);
+          }
+        } else {
+          // Flat mode: use 2D warp calculation
+          const gameX = cellGroup.position.x;
+          const gameY = -cellGroup.position.z; // Three.js Z = -game Y
+          const warp = calculateEntityWarp(gameX, gameY);
+          applyEntityWarp(cellGroup, warp);
+
+          if (outline) {
+            applyEntityWarp(outline, warp);
+          }
         }
       } else {
         // Reset any warp when not in soup or in jungle stages
@@ -867,46 +953,50 @@ export class PlayerRenderSystem {
       updateGodcellEnergy(cellGroup, energyRatio);
       animateGodcell(cellGroup, 1 / 60);
 
-      // Godcell uses 3D position (z from player.position)
-      const posZ = player.position.z ?? 0;
-      // Convert game coordinates to Three.js: game Y → -Z, game Z → Y
-      cellGroup.position.set(player.position.x, posZ, -player.position.y);
+      // Godcell uses 3D position on sphere
+      cellGroup.position.set(player.position.x, player.position.y, player.position.z ?? 0);
     } else if (player.stage === 'cyber_organism') {
       // Stage 3: Cyber-organism
       const energyRatio = player.energy / player.maxEnergy;
       updateCyberOrganismEnergy(cellGroup, energyRatio);
 
-      const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
-      const currPos = player.position;
-      const isMoving = prevPos
-        ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
-        : false;
-      cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+      // Track position for movement detection (3D for sphere mode)
+      const prevPos = cellGroup.userData.lastPosition3D as
+        | { x: number; y: number; z: number }
+        | undefined;
+      const currPos = {
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z ?? 0,
+      };
 
-      // Calculate movement speed (distance / dt = units per second)
-      const speed = prevPos
-        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) / (this.dt / 1000)
-        : 0;
+      // Calculate movement in 3D
+      const dx = prevPos ? currPos.x - prevPos.x : 0;
+      const dy = prevPos ? currPos.y - prevPos.y : 0;
+      const dz = prevPos ? currPos.z - prevPos.z : 0;
+      const distMoved = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const isMoving = distMoved > 1;
 
-      // Update heading
+      cellGroup.userData.lastPosition3D = currPos;
+
+      // Calculate movement speed (units per second)
+      const speed = prevPos && this.dt > 0 ? distMoved / (this.dt / 1000) : 0;
+
+      // Update heading direction (3D vector for sphere orientation)
       if (prevPos && isMoving) {
-        const dx = currPos.x - prevPos.x;
-        const dy = currPos.y - prevPos.y;
-        const targetHeading = Math.atan2(dy, dx) + Math.PI;
+        // Target heading is normalized velocity direction
+        const targetHeading = new THREE.Vector3(dx, dy, dz).normalize();
 
-        if (cellGroup.userData.heading === undefined) {
-          cellGroup.userData.heading = targetHeading;
+        // Initialize or get current heading
+        let currentHeading = cellGroup.userData.heading3D as THREE.Vector3 | undefined;
+        if (!currentHeading) {
+          currentHeading = targetHeading.clone();
+          cellGroup.userData.heading3D = currentHeading;
         }
 
-        let currentHeading = cellGroup.userData.heading as number;
-        let delta = targetHeading - currentHeading;
-
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-
-        currentHeading += delta * 0.15;
-        cellGroup.userData.heading = currentHeading;
-        cellGroup.rotation.z = currentHeading;
+        // Smoothly interpolate toward target heading
+        currentHeading.lerp(targetHeading, 0.15);
+        currentHeading.normalize();
       }
 
       updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
@@ -1006,28 +1096,85 @@ export class PlayerRenderSystem {
     radius: number,
     stage: string
   ): void {
-    const lerpFactor = frameLerp(0.3, this.dt);
+    // Use consistent lerp for all stages - the real fix is using authoritative sphere radius
+    const baseLerp = 0.3;
+    const lerpFactor = frameLerp(baseLerp, this.dt);
 
-    cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-    const targetZ = -target.y;
-    cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
+    if (cellGroup.userData.isSphere) {
+      // Sphere mode: use SLERP (spherical linear interpolation) for correct arc movement
+      // Cartesian lerp + projection fails for large angular separations
+      const currentVec = new THREE.Vector3(
+        cellGroup.position.x,
+        cellGroup.position.y,
+        cellGroup.position.z
+      );
+      const targetVec = new THREE.Vector3(target.x, target.y, target.z ?? 0);
 
-    const outline = this.playerOutlines.get(playerId);
-    if (outline) {
-      outline.position.x = cellGroup.position.x;
-      outline.position.z = cellGroup.position.z;
+      // Determine sphere radius
+      const isJungleStage = stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell';
+      const sphereRadius = isJungleStage ? GAME_CONFIG.JUNGLE_SPHERE_RADIUS : GAME_CONFIG.SOUP_SPHERE_RADIUS;
+
+      // Normalize both to unit sphere for slerp, then scale back
+      const currentDir = currentVec.clone().normalize();
+      const targetDir = targetVec.clone().normalize();
+
+      // Slerp on unit sphere using quaternion rotation
+      const fullRotation = new THREE.Quaternion();
+      fullRotation.setFromUnitVectors(currentDir, targetDir);
+
+      // Partial rotation: interpolate from identity toward full rotation
+      const partialRotation = new THREE.Quaternion();
+      partialRotation.slerpQuaternions(new THREE.Quaternion(), fullRotation, lerpFactor);
+
+      // Apply partial rotation to current direction
+      currentDir.applyQuaternion(partialRotation);
+
+      // Scale back to sphere surface
+      currentVec.copy(currentDir).multiplyScalar(sphereRadius);
+
+      cellGroup.position.copy(currentVec);
+
+      // Orient flat organisms to lie on sphere surface
+      if (stage === 'single_cell' || stage === 'multi_cell') {
+        const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
+        orientFlatToSurface(cellGroup, pos);
+      } else if (stage === 'cyber_organism') {
+        // Orient hexapod on sphere surface
+        const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
+        const heading = this.getHexapodHeading(cellGroup);
+        orientHexapodToSurface(cellGroup, pos, heading);
+      }
+
+      const outline = this.playerOutlines.get(playerId);
+      if (outline) {
+        outline.position.copy(cellGroup.position);
+      }
+    } else {
+      // Flat mode: XZ plane (game Y maps to -Z)
+      cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+      const targetZ = -target.y;
+      cellGroup.position.z += (targetZ - cellGroup.position.z) * lerpFactor;
+
+      const outline = this.playerOutlines.get(playerId);
+      if (outline) {
+        outline.position.x = cellGroup.position.x;
+        outline.position.z = cellGroup.position.z;
+      }
     }
 
     // Update compass indicators for client player (multi-cell only)
-    // XZ plane: game Y maps to -Z
     if (isMyPlayer) {
       const isMultiCell = stage === 'multi_cell';
       if (isMultiCell) {
+        // Compass uses game coordinates
+        const gamePos = cellGroup.userData.isSphere
+          ? { x: cellGroup.position.x, y: cellGroup.position.y }
+          : { x: cellGroup.position.x, y: -cellGroup.position.z };
         this.compassIndicators = updateCompassIndicators(
           this.scene,
           this.compassIndicators,
           this.detectedEntities,
-          { x: cellGroup.position.x, y: -cellGroup.position.z },
+          gamePos,
           radius,
           stage as EvolutionStage
         );
@@ -1070,5 +1217,18 @@ export class PlayerRenderSystem {
       this.geometryCache.set(key, geometry);
     }
     return geometry;
+  }
+
+  /**
+   * Get heading direction for hexapod orientation on sphere
+   * Uses stored heading3D vector, with fallback to default forward direction
+   */
+  private getHexapodHeading(cellGroup: THREE.Group): THREE.Vector3 {
+    const stored = cellGroup.userData.heading3D as THREE.Vector3 | undefined;
+    if (stored) {
+      return stored.clone();
+    }
+    // Default: positive X direction (will be projected to tangent plane by orientHexapodToSurface)
+    return new THREE.Vector3(1, 0, 0);
   }
 }

@@ -474,3 +474,43 @@ export interface ClientDamageInfoComponent {
   primarySource: DamageSource; // Main damage source type (for color)
   proximityFactor?: number; // For gradient effects (0-1)
 }
+
+// ============================================
+// World/Sphere Components
+// ============================================
+
+/**
+ * SphereContext - which sphere surface the entity is attached to.
+ * Multi-sphere world: soup (2448), jungle (9792), god (14688)
+ *
+ * surfaceRadius: The radius of the sphere this entity is on
+ *   - number: attached to that sphere surface
+ *   - null: floating in space (Stage 5 only, during inter-sphere flight)
+ *
+ * isInnerSurface: Whether entity is on inside of sphere
+ *   - false: outer surface (soup, god) - gravity toward center
+ *   - true: inner surface (jungle) - gravity away from center
+ */
+export interface SphereContextComponent {
+  surfaceRadius: number | null;
+  isInnerSurface: boolean;
+}
+
+/**
+ * Intangible - marker component for phase shift mode.
+ * When present, entity can pass through sphere surfaces.
+ * Used by: Godcells (Stage 5) when holding phase shift key
+ */
+export interface IntangibleComponent {
+  // Marker component - presence indicates phase shift active
+}
+
+/**
+ * CameraFacing - stores player's camera orientation for server-side input transform.
+ * Used by: GodcellFlightSystem to transform local-space input to world-space.
+ * Updated when: Client sends cameraFacing message (on mouse movement in flight mode)
+ */
+export interface CameraFacingComponent {
+  yaw: number; // Horizontal rotation in radians
+  pitch: number; // Vertical rotation in radians
+}

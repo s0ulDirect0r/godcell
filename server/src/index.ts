@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, fibonacciSpherePoint } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -15,12 +15,16 @@ import type {
   SpecializationSelectedMessage,
   CombatSpecialization,
   MeleeAttackMessage,
+  Position,
+  StageComponent,
+  IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 import { initializeBots, isBot, spawnBotAt, removeBotPermanently, setBotEcsWorld } from './bots';
 import { initializeSwarms, spawnSwarmAt } from './swarms';
-import { initializeJungleFauna, processJungleFaunaRespawns } from './jungleFauna';
+import { processJungleFaunaRespawns } from './jungleFauna';
 import { buildSwarmsRecord } from './ecs';
-import { initNutrientModule, initializeNutrients, spawnNutrientAt } from './nutrients';
+import { initNutrientModule, spawnNutrientAt } from './nutrients';
 import { initDevHandler, handleDevCommand, shouldRunTick, getConfig } from './dev';
 import type { DevCommandMessage } from '#shared';
 import {
@@ -48,6 +52,7 @@ import {
   createPlayer as ecsCreatePlayer,
   createObstacle,
   createTree,
+  createNutrient,
   destroyEntity as ecsDestroyEntity,
   getEntityBySocketId,
   Components,
@@ -93,9 +98,9 @@ import {
   SwarmCollisionSystem,
   TreeCollisionSystem,
   MovementSystem,
+  GodcellFlightSystem,
   MetabolismSystem,
   NutrientCollisionSystem,
-  NutrientAttractionSystem,
   MacroResourceCollisionSystem,
   DataFruitSystem,
   DeathSystem,
@@ -110,7 +115,8 @@ import {
   getStageEnergy,
   randomColor,
   randomSpawnPosition,
-  poissonDiscSampling,
+  isNutrientSpawnSafe,
+  calculateNutrientValueMultiplier,
 } from './helpers';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
@@ -154,30 +160,41 @@ const world: World = createWorld();
  * Note: Obstacles are soup-scale hazards, placed within the soup region
  */
 function initializeObstacles() {
-  const MIN_OBSTACLE_SEPARATION = 850; // Good spacing for 12 obstacles on 4800×3200 soup
-  const WALL_PADDING = 330; // Event horizon (180px) + 150px buffer
   let obstacleIdCounter = 0;
 
-  // Generate obstacle positions using Bridson's algorithm on a padded area
-  // Obstacles spawn within the soup region (which is centered in the jungle)
-  const paddedWidth = GAME_CONFIG.SOUP_WIDTH - WALL_PADDING * 2;
-  const paddedHeight = GAME_CONFIG.SOUP_HEIGHT - WALL_PADDING * 2;
+  // Poisson disc-style sampling on sphere surface
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+  const positions: Array<{ x: number; y: number; z: number }> = [];
+  const sphereMinSeparation = 1000; // Chord distance between obstacles
 
-  const obstaclePositions = poissonDiscSampling(
-    paddedWidth,
-    paddedHeight,
-    MIN_OBSTACLE_SEPARATION,
-    GAME_CONFIG.OBSTACLE_COUNT
-  );
+  // Keep trying until we fail many times in a row (sphere is "full")
+  let consecutiveFailures = 0;
+  const maxConsecutiveFailures = 500;
 
-  // Offset positions to account for padding AND soup origin in jungle
-  const offsetPositions = obstaclePositions.map((pos) => ({
-    x: pos.x + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_X,
-    y: pos.y + WALL_PADDING + GAME_CONFIG.SOUP_ORIGIN_Y,
-  }));
+  while (consecutiveFailures < maxConsecutiveFailures) {
+    const candidate = getRandomSpherePosition(sphereRadius);
+    // Check distance from existing obstacles
+    let valid = true;
+    for (const existing of positions) {
+      const dx = candidate.x - existing.x;
+      const dy = candidate.y - existing.y;
+      const dz = (candidate.z ?? 0) - existing.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < sphereMinSeparation) {
+        valid = false;
+        break;
+      }
+    }
+    if (valid) {
+      positions.push({ x: candidate.x, y: candidate.y, z: candidate.z ?? 0 });
+      consecutiveFailures = 0; // Reset on success
+    } else {
+      consecutiveFailures++;
+    }
+  }
 
-  // Create obstacles from generated positions (ECS is sole source of truth)
-  for (const position of offsetPositions) {
+  // Create obstacles from generated positions
+  for (const position of positions) {
     const obstacleId = `obstacle-${obstacleIdCounter++}`;
     createObstacle(
       world,
@@ -190,94 +207,52 @@ function initializeObstacles() {
 
   const obstacleCount = getObstacleCount(world);
   logObstaclesSpawned(obstacleCount);
-
-  if (obstacleCount < GAME_CONFIG.OBSTACLE_COUNT) {
-    logger.warn(
-      `Only placed ${obstacleCount}/${GAME_CONFIG.OBSTACLE_COUNT} obstacles (space constraints)`
-    );
-  }
+  logger.info({ event: 'sphere_obstacles_spawned', count: obstacleCount }, `Spawned ${obstacleCount} obstacles on sphere`);
 }
 
 /**
- * Initialize digital jungle trees using Bridson's Poisson Disc Sampling
+ * Initialize digital jungle trees on sphere surface.
  * Trees are Stage 3+ obstacles that block movement (hard collision).
- * Trees spawn in the jungle area, avoiding the soup region.
  *
  * Multi-scale architecture:
- * - Stage 1-2 (soup): Cannot see or collide with trees (invisible/intangible)
- * - Stage 3+ (jungle): Trees are visible obstacles requiring navigation
+ * - Stage 1-2 (soup sphere): Cannot see or collide with trees (invisible/intangible)
+ * - Stage 3+ (jungle sphere): Trees are visible obstacles requiring navigation
+ *
+ * Trees spawn on jungle sphere surface using Fibonacci distribution for uniform coverage.
  */
 function initializeTrees() {
-  let treeIdCounter = 0;
-
-  // Trees spawn in the full jungle, avoiding the soup region where Stage 1-2 players live
-  // Soup region is centered in the jungle
-  // Trees avoid only the small visual soup pool (not the entire soup region)
-  // This creates a forest around the pool where Stage 3 players spawn
-  const soupAvoidanceZone = {
-    position: {
-      x: GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH / 2,
-      y: GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT / 2,
-    },
-    // Only avoid the visual pool (300px) + small buffer, NOT the soup gameplay region
-    radius: GAME_CONFIG.SOUP_POOL_RADIUS + GAME_CONFIG.TREE_POOL_BUFFER,
-  };
+  const jungleRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+  const treeCount = GAME_CONFIG.SPHERE_TREE_COUNT ?? 200;
 
   logger.info({
-    event: 'tree_avoidance_zone',
-    center: soupAvoidanceZone.position,
-    radius: soupAvoidanceZone.radius,
-    jungleSize: { width: GAME_CONFIG.JUNGLE_WIDTH, height: GAME_CONFIG.JUNGLE_HEIGHT },
+    event: 'sphere_tree_init',
+    count: treeCount,
+    radius: jungleRadius,
   });
 
-  // Generate tree positions using Poisson disc sampling for organic distribution
-  // Let Poisson disc fill naturally - no maxPoints cap
-  const treePositions = poissonDiscSampling(
-    GAME_CONFIG.JUNGLE_WIDTH,
-    GAME_CONFIG.JUNGLE_HEIGHT,
-    GAME_CONFIG.TREE_MIN_SPACING,
-    Infinity, // No cap - let it fill naturally
-    [], // No existing points
-    [soupAvoidanceZone] // Avoid the pool itself
-  );
+  for (let i = 0; i < treeCount; i++) {
+    const treeId = `tree-${i}`;
 
-  // Log sample of tree positions for debugging distribution
-  if (treePositions.length > 0) {
-    const sample = treePositions.slice(0, 5);
-    logger.info({
-      event: 'tree_positions_sample',
-      samplePositions: sample.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })),
-      bounds: {
-        minX: Math.round(Math.min(...treePositions.map((p) => p.x))),
-        maxX: Math.round(Math.max(...treePositions.map((p) => p.x))),
-        minY: Math.round(Math.min(...treePositions.map((p) => p.y))),
-        maxY: Math.round(Math.max(...treePositions.map((p) => p.y))),
-      },
-    });
-  }
+    // Fibonacci sphere distribution for uniform coverage
+    const position = fibonacciSpherePoint(i, treeCount, jungleRadius);
 
-  // Create trees from generated positions
-  for (const position of treePositions) {
-    const treeId = `tree-${treeIdCounter++}`;
-
-    // Randomize tree size within configured bounds
+    // Randomize tree size
     const radius =
       GAME_CONFIG.TREE_MIN_RADIUS +
       Math.random() * (GAME_CONFIG.TREE_MAX_RADIUS - GAME_CONFIG.TREE_MIN_RADIUS);
     const height =
       GAME_CONFIG.TREE_MIN_HEIGHT +
       Math.random() * (GAME_CONFIG.TREE_MAX_HEIGHT - GAME_CONFIG.TREE_MIN_HEIGHT);
-    const variant = Math.random(); // Seed for procedural generation (0-1)
+    const variant = Math.random();
 
     createTree(world, treeId, position, radius, height, variant);
   }
 
-  const treeCount = getTreeCount(world);
   logger.info({
     event: 'trees_spawned',
     count: treeCount,
-    spacing: GAME_CONFIG.TREE_MIN_SPACING,
-    jungleSize: `${GAME_CONFIG.JUNGLE_WIDTH}x${GAME_CONFIG.JUNGLE_HEIGHT}`,
+    mode: 'sphere',
+    sphereRadius: jungleRadius,
   });
 }
 
@@ -382,20 +357,105 @@ initNutrientModule(world, io);
 // Playground mode - empty world for testing (set by PLAYGROUND env var)
 const isPlayground = process.env.PLAYGROUND === 'true';
 
+/**
+ * Initialize nutrients on sphere surface with proper zone-based coloring
+ * Uses the same gradient system as flat mode:
+ * - Green (1x): >600px from obstacles - safe areas
+ * - Cyan (2x): 400-600px - outer gravity well
+ * - Gold (3x): 240-400px - inner gravity well
+ * - Magenta (5x): 180-240px - event horizon edge (high risk/reward)
+ */
+function initializeSphereNutrients(): void {
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+  const targetCount = GAME_CONFIG.NUTRIENT_COUNT;
+  const maxAttempts = targetCount * 10; // Allow plenty of attempts
+  const minSeparation = 150; // Minimum distance between nutrients
+
+  const positions: Position[] = [];
+  let attempts = 0;
+  let nutrientIndex = 0;
+
+  // Spawn nutrients across sphere using rejection sampling
+  // Ensures even distribution while avoiding event horizons
+  while (positions.length < targetCount && attempts < maxAttempts) {
+    const candidate = getRandomSpherePosition(sphereRadius);
+    attempts++;
+
+    // Check if position is safe (not in inner event horizon)
+    if (!isNutrientSpawnSafe(candidate, world)) {
+      continue;
+    }
+
+    // Check minimum separation from existing nutrients (use 3D distance)
+    let tooClose = false;
+    for (const existing of positions) {
+      const dx = candidate.x - existing.x;
+      const dy = candidate.y - existing.y;
+      const dz = (candidate.z ?? 0) - (existing.z ?? 0);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < minSeparation) {
+        tooClose = true;
+        break;
+      }
+    }
+
+    if (!tooClose) {
+      positions.push(candidate);
+    }
+  }
+
+  // Create nutrients with proper value multipliers based on obstacle proximity
+  for (const pos of positions) {
+    const valueMultiplier = calculateNutrientValueMultiplier(pos, world);
+    const isHighValue = valueMultiplier > 1;
+
+    createNutrient(
+      world,
+      `sphere_nutrient_${nutrientIndex++}`,
+      pos,
+      GAME_CONFIG.NUTRIENT_ENERGY_VALUE * valueMultiplier,
+      GAME_CONFIG.NUTRIENT_CAPACITY_INCREASE * valueMultiplier,
+      valueMultiplier,
+      isHighValue
+    );
+  }
+
+  // Log distribution stats
+  const byMultiplier = positions.reduce((acc, pos) => {
+    const mult = calculateNutrientValueMultiplier(pos, world);
+    acc[mult] = (acc[mult] || 0) + 1;
+    return acc;
+  }, {} as Record<number, number>);
+
+  logger.info(
+    {
+      event: 'sphere_nutrients_spawned',
+      count: nutrientIndex,
+      distribution: byMultiplier,
+      attempts
+    },
+    `Spawned ${nutrientIndex} nutrients on sphere (green: ${byMultiplier[1] || 0}, cyan: ${byMultiplier[2] || 0}, gold: ${byMultiplier[3] || 0}, magenta: ${byMultiplier[5] || 0})`
+  );
+}
+
 if (isPlayground) {
   logger.info({ event: 'playground_mode', port: PORT });
 } else {
-  // Initialize game world (normal mode)
-  // Pure Bridson's distribution - obstacles and swarms fill map naturally
+  // Sphere world initialization
+  logger.info({ event: 'server_init', port: PORT }, 'Initializing sphere world');
+
+  // Initialize gravity wells (obstacles) on sphere surface
   initializeObstacles();
-  initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
-  initializeJungleFauna(world, io); // Stage 3+ fauna: DataFruits, CyberBugs, JungleCreatures
-  initializeEntropySerpents(); // APEX PREDATORS - hunt Stage 3+ players relentlessly
-  initializeNutrients();
-  // Set ECS world for bots before initializing
+
+  // Initialize trees on jungle sphere surface
+  initializeTrees();
+
+  // Initialize nutrients on sphere surface
+  initializeSphereNutrients();
+
+  // Initialize bots and swarms
   setBotEcsWorld(world);
   initializeBots(io);
-  // Swarms use ECS directly (world passed as parameter)
   initializeSwarms(world, io);
 }
 
@@ -448,11 +508,15 @@ systemRunner.register(new TrapSystem(), SystemPriority.TRAP);
 systemRunner.register(new PredationSystem(), SystemPriority.PREDATION);
 systemRunner.register(new SwarmCollisionSystem(), SystemPriority.SWARM_COLLISION);
 systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
-systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
+
+// Movement systems
+systemRunner.register(new GodcellFlightSystem(), SystemPriority.GODCELL_FLIGHT);
+const movementSystem = new MovementSystem();
+systemRunner.register(movementSystem, SystemPriority.MOVEMENT);
+
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
 systemRunner.register(new MacroResourceCollisionSystem(), SystemPriority.MACRO_RESOURCE_COLLISION);
-systemRunner.register(new NutrientAttractionSystem(), SystemPriority.NUTRIENT_ATTRACTION);
 systemRunner.register(new DeathSystem(), SystemPriority.DEATH);
 
 // Network
@@ -471,29 +535,42 @@ io.on('connection', (socket) => {
   // Store connect time for session duration tracking
   socket.data.connectTime = Date.now();
 
-  logPlayerConnected(socket.id);
+  // Check if this is a spectator connection (observer mode - no player)
+  const isSpectator = socket.handshake.auth?.spectator === true;
+  socket.data.isSpectator = isSpectator;
 
-  // Create a new player in ECS (source of truth)
-  // Energy-only system: energy is the sole resource (life + fuel)
-  const spawnPosition = randomSpawnPosition(world);
-  const playerColor = randomColor();
+  if (isSpectator) {
+    logger.info({ event: 'spectator_connected', socketId: socket.id }, 'Spectator connected');
+  } else {
+    logPlayerConnected(socket.id);
+  }
 
-  ecsCreatePlayer(
-    world,
-    socket.id,
-    socket.id, // name defaults to socketId
-    playerColor,
-    spawnPosition,
-    EvolutionStage.SINGLE_CELL
-  );
+  // Only create player for non-spectator connections
+  let newPlayer: ReturnType<typeof getPlayerBySocketId> = null;
+  if (!isSpectator) {
+    // Create a new player in ECS (source of truth)
+    // Energy-only system: energy is the sole resource (life + fuel)
+    // randomSpawnPosition returns sphere position avoiding gravity wells
+    const spawnPosition = randomSpawnPosition(world);
+    const playerColor = randomColor();
 
-  // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
+    ecsCreatePlayer(
+      world,
+      socket.id,
+      socket.id, // name defaults to socketId
+      playerColor,
+      spawnPosition,
+      EvolutionStage.SINGLE_CELL
+    );
 
-  // Get the legacy Player object for the joinMessage broadcast
-  const newPlayer = getPlayerBySocketId(world, socket.id)!;
+    // NOTE: Input and velocity initialized by createPlayer via ECS InputComponent and VelocityComponent
 
-  // Track spawn time for evolution rate tracking
-  recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
+    // Get the legacy Player object for the joinMessage broadcast
+    newPlayer = getPlayerBySocketId(world, socket.id)!;
+
+    // Track spawn time for evolution rate tracking
+    recordSpawn(socket.id, EvolutionStage.SINGLE_CELL);
+  }
 
   // Send world snapshot to the new player (initial state, sent once on connect)
   // Uses ECS to build player records, filtering out dead players (energy <= 0)
@@ -514,12 +591,14 @@ io.on('connection', (socket) => {
   };
   socket.emit('worldSnapshot', worldSnapshot);
 
-  // Notify all OTHER players that someone joined
-  const joinMessage: PlayerJoinedMessage = {
-    type: 'playerJoined',
-    player: newPlayer,
-  };
-  socket.broadcast.emit('playerJoined', joinMessage);
+  // Notify all OTHER players that someone joined (skip for spectators)
+  if (newPlayer) {
+    const joinMessage: PlayerJoinedMessage = {
+      type: 'playerJoined',
+      player: newPlayer,
+    };
+    socket.broadcast.emit('playerJoined', joinMessage);
+  }
 
   // ============================================
   // Socket Handler Error Wrapper
@@ -739,6 +818,83 @@ io.on('connection', (socket) => {
   );
 
   // ============================================
+  // Stage 5 Godcell Phase Shift
+  // ============================================
+
+  socket.on(
+    'phaseShift',
+    safeHandler('phaseShift', (message: { active: boolean }) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+
+      // Only Godcells can phase shift
+      const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!stage || stage.stage !== EvolutionStage.GODCELL) {
+        logger.warn({
+          event: 'phase_shift_denied',
+          socketId: socket.id,
+          reason: 'not_godcell',
+        });
+        return;
+      }
+
+      if (message.active) {
+        // Add Intangible component
+        if (!world.hasComponent(entity, Components.Intangible)) {
+          world.addComponent<IntangibleComponent>(entity, Components.Intangible, {});
+          logger.debug({ event: 'phase_shift_start', socketId: socket.id });
+        }
+      } else {
+        // Remove Intangible component
+        if (world.hasComponent(entity, Components.Intangible)) {
+          world.removeComponent(entity, Components.Intangible);
+          logger.debug({ event: 'phase_shift_end', socketId: socket.id });
+        }
+      }
+    })
+  );
+
+  // ============================================
+  // Camera Facing (Godcell Flight Mode)
+  // ============================================
+
+  socket.on(
+    'cameraFacing',
+    safeHandler('cameraFacing', (message: { yaw: number; pitch: number }) => {
+      const entity = getEntityBySocketId(socket.id);
+      if (entity === undefined) return;
+
+      // Only Godcells need camera facing for flight control
+      const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+      if (!stage || stage.stage !== EvolutionStage.GODCELL) {
+        return; // Silently ignore for non-Godcells
+      }
+
+      // Validate yaw/pitch are numbers
+      if (typeof message.yaw !== 'number' || typeof message.pitch !== 'number') {
+        return;
+      }
+
+      // Update or add CameraFacing component
+      if (world.hasComponent(entity, Components.CameraFacing)) {
+        const facing = world.getComponent<CameraFacingComponent>(
+          entity,
+          Components.CameraFacing
+        );
+        if (facing) {
+          facing.yaw = message.yaw;
+          facing.pitch = message.pitch;
+        }
+      } else {
+        world.addComponent<CameraFacingComponent>(entity, Components.CameraFacing, {
+          yaw: message.yaw,
+          pitch: message.pitch,
+        });
+      }
+    })
+  );
+
+  // ============================================
   // Dev Command Handling (development mode only)
   // ============================================
 
@@ -802,6 +958,18 @@ io.on('connection', (socket) => {
       // Compute session duration before any cleanup
       const sessionDuration = Date.now() - (socket.data.connectTime ?? Date.now());
 
+      // Handle spectator disconnect separately
+      if (socket.data.isSpectator) {
+        logger.info({
+          event: 'spectator_disconnected',
+          socketId: socket.id,
+          duration: sessionDuration,
+          durationSec: Math.round(sessionDuration / 1000),
+          reason,
+        });
+        return; // Spectators have no player entity to clean up
+      }
+
       // Check if player was alive before destroying entity
       const entity = getEntityBySocketId(socket.id);
       let wasAlive = false;
@@ -827,7 +995,8 @@ io.on('connection', (socket) => {
         ecsDestroyEntity(world, entity);
       }
 
-      // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
+      // Clean up system state (playerCameraUp Map in MovementSystem)
+      movementSystem.removePlayer(socket.id);
 
       // Notify other players
       const leftMessage: PlayerLeftMessage = {

@@ -1,4 +1,4 @@
-import { GAME_CONFIG, EvolutionStage, distance } from '#shared';
+import { GAME_CONFIG, EvolutionStage, distanceForMode, getCameraUp, getInputTowardTarget, type Vec3 } from '#shared';
 import type {
   Player,
   Position,
@@ -379,10 +379,12 @@ function spawnCyberOrganismBot(io: Server): BotController {
 function updateBotWander(bot: BotController, currentTime: number) {
   // Check if it's time to change wander direction
   if (currentTime >= bot.ai.nextWanderChange) {
-    // Pick new random direction
+    // Pick new random direction using angle for smooth curved paths on sphere
+    // (Random x/y independently produces chaotic zigzagging)
+    const angle = Math.random() * Math.PI * 2;
     bot.ai.wanderDirection = {
-      x: Math.random() * 2 - 1, // -1 to 1
-      y: Math.random() * 2 - 1, // -1 to 1
+      x: Math.cos(angle),
+      y: Math.sin(angle),
     };
 
     // Schedule next direction change
@@ -408,10 +410,14 @@ function findNearestNutrientFast(
   let nearest: NutrientSnapshot | null = null;
   let nearestDistSq = BOT_CONFIG.SEARCH_RADIUS * BOT_CONFIG.SEARCH_RADIUS;
 
+  const botZ = botPosition.z ?? 0;
+
   for (const nutrient of nutrients) {
+    // Use 3D distance for sphere mode
     const dx = botPosition.x - nutrient.x;
     const dy = botPosition.y - nutrient.y;
-    const distSq = dx * dx + dy * dy;
+    const dz = botZ - nutrient.z;
+    const distSq = dx * dx + dy * dy + dz * dz;
     if (distSq < nearestDistSq) {
       nearest = nutrient;
       nearestDistSq = distSq;
@@ -460,6 +466,50 @@ function steerTowards(
 }
 
 /**
+ * Sphere-aware steering - computes input direction toward target on sphere surface
+ * Uses great circle path and projects to input coordinates
+ *
+ * @param from - Current position on sphere
+ * @param to - Target position on sphere
+ * @param currentInput - Current input direction (for smooth steering)
+ * @param maxForce - Max steering force per tick (lower = smoother turns)
+ */
+function steerTowardsSphere(
+  from: Position,
+  to: Position,
+  currentInput: { x: number; y: number },
+  maxForce: number = 0.15
+): { x: number; y: number } {
+  // Convert to Vec3 for sphere math
+  const fromVec: Vec3 = { x: from.x, y: from.y, z: from.z ?? 0 };
+  const toVec: Vec3 = { x: to.x, y: to.y, z: to.z ?? 0 };
+
+  // Get camera up for this position (stable north-pointing reference frame)
+  const cameraUp = getCameraUp(fromVec);
+
+  // Get desired input direction toward target on sphere surface
+  const desiredInput = getInputTowardTarget(fromVec, toVec, cameraUp);
+
+  // Steering force = desired - current (for smooth turns)
+  const steerX = desiredInput.x - currentInput.x;
+  const steerY = desiredInput.y - currentInput.y;
+
+  // Limit steering force for smooth turns
+  const steerDist = Math.sqrt(steerX * steerX + steerY * steerY);
+  if (steerDist > maxForce) {
+    return {
+      x: currentInput.x + (steerX / steerDist) * maxForce,
+      y: currentInput.y + (steerY / steerDist) * maxForce,
+    };
+  }
+
+  return {
+    x: currentInput.x + steerX,
+    y: currentInput.y + steerY,
+  };
+}
+
+/**
  * Calculate avoidance force away from dangerous obstacle cores
  * Bots start avoiding shortly before the event horizon and ramp up to
  * full-thrust escape as they cross it. Multi-cells use a larger caution
@@ -473,8 +523,12 @@ function avoidObstacles(
 ): { x: number; y: number } {
   const avoidanceForce = { x: 0, y: 0 };
 
+  // Get camera reference frame once for all obstacles
+  const botVec: Vec3 = { x: botPosition.x, y: botPosition.y, z: botPosition.z ?? 0 };
+  const cameraUp = getCameraUp(botVec);
+
   for (const obstacle of obstacles) {
-    const dist = distance(botPosition, obstacle.position);
+    const dist = distanceForMode(botPosition, obstacle.position);
 
     // Danger zones - tight buffer outside event horizon
     // coreRadius (60px) = instant death
@@ -499,16 +553,12 @@ function avoidObstacles(
       avoidanceStrength = 0.3 + 0.7 * t;
     }
 
-    // Direction AWAY from obstacle
-    const dx = botPosition.x - obstacle.position.x;
-    const dy = botPosition.y - obstacle.position.y;
-    const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (dirLength > 0) {
-      // Normalize and scale by avoidance strength
-      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
-      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
-    }
+    // Get input-space direction AWAY from obstacle (sphere-aware)
+    const obstacleVec: Vec3 = { x: obstacle.position.x, y: obstacle.position.y, z: obstacle.position.z ?? 0 };
+    const towardObstacle = getInputTowardTarget(botVec, obstacleVec, cameraUp);
+    // Negate to get AWAY direction, scale by strength
+    avoidanceForce.x += -towardObstacle.x * avoidanceStrength;
+    avoidanceForce.y += -towardObstacle.y * avoidanceStrength;
   }
 
   return avoidanceForce;
@@ -530,8 +580,12 @@ function avoidSwarmsEmergencyOnly(
 ): { x: number; y: number } {
   const avoidanceForce = { x: 0, y: 0 };
 
+  // Get camera reference frame once for all swarms
+  const botVec: Vec3 = { x: botPosition.x, y: botPosition.y, z: botPosition.z ?? 0 };
+  const cameraUp = getCameraUp(botVec);
+
   for (const swarm of swarms) {
-    const dist = distance(botPosition, swarm.position);
+    const dist = distanceForMode(botPosition, swarm.position);
 
     // Only avoid when properly caught - ignore swarms beyond emergency radius
     if (dist > EMERGENCY_SWARM_RADIUS) continue;
@@ -540,15 +594,12 @@ function avoidSwarmsEmergencyOnly(
     const t = (EMERGENCY_SWARM_RADIUS - dist) / EMERGENCY_SWARM_RADIUS;
     const avoidanceStrength = 0.6 + 0.2 * t;
 
-    // Direction AWAY from swarm
-    const dx = botPosition.x - swarm.position.x;
-    const dy = botPosition.y - swarm.position.y;
-    const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (dirLength > 0) {
-      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
-      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
-    }
+    // Get input-space direction AWAY from swarm (sphere-aware)
+    const swarmVec: Vec3 = { x: swarm.position.x, y: swarm.position.y, z: swarm.position.z ?? 0 };
+    const towardSwarm = getInputTowardTarget(botVec, swarmVec, cameraUp);
+    // Negate to get AWAY direction, scale by strength
+    avoidanceForce.x += -towardSwarm.x * avoidanceStrength;
+    avoidanceForce.y += -towardSwarm.y * avoidanceStrength;
   }
 
   return avoidanceForce;
@@ -572,19 +623,24 @@ const SWARM_PREDICTION_TIME = 0.5; // seconds
 function avoidSwarms(botPosition: Position, swarms: EntropySwarm[]): { x: number; y: number } {
   const avoidanceForce = { x: 0, y: 0 };
 
+  // Get camera reference frame once for all swarms
+  const botVec: Vec3 = { x: botPosition.x, y: botPosition.y, z: botPosition.z ?? 0 };
+  const cameraUp = getCameraUp(botVec);
+
   for (const swarm of swarms) {
     // PREDICTIVE: Calculate where swarm will be in 0.5 seconds
     // This helps bots avoid running INTO the swarm's path
-    const predictedPosition = {
+    const predictedPosition: Position = {
       x: swarm.position.x + swarm.velocity.x * SWARM_PREDICTION_TIME,
       y: swarm.position.y + swarm.velocity.y * SWARM_PREDICTION_TIME,
+      z: swarm.position.z ?? 0,
     };
 
     // Use BOTH current and predicted positions for threat assessment
     // - Current position: immediate danger (are we being hit right now?)
     // - Predicted position: trajectory danger (are we running into its path?)
-    const currentDist = distance(botPosition, swarm.position);
-    const predictedDist = distance(botPosition, predictedPosition);
+    const currentDist = distanceForMode(botPosition, swarm.position);
+    const predictedDist = distanceForMode(botPosition, predictedPosition);
 
     // Use the MORE THREATENING of the two distances
     // If predicted is closer, swarm is heading toward us - react to that
@@ -611,18 +667,13 @@ function avoidSwarms(botPosition: Position, swarms: EntropySwarm[]): { x: number
       avoidanceStrength = (0.3 * (cautionRadius - effectiveDist)) / (cautionRadius - threatRadius);
     }
 
-    // PREDICTIVE: Steer away from PREDICTED position, not current
-    // This makes bots dodge the swarm's trajectory instead of current position
+    // PREDICTIVE: Steer away from PREDICTED position, not current (sphere-aware)
     const avoidPoint = predictedDist < currentDist ? predictedPosition : swarm.position;
-    const dx = botPosition.x - avoidPoint.x;
-    const dy = botPosition.y - avoidPoint.y;
-    const dirLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (dirLength > 0) {
-      // Normalize and scale by avoidance strength
-      avoidanceForce.x += (dx / dirLength) * avoidanceStrength;
-      avoidanceForce.y += (dy / dirLength) * avoidanceStrength;
-    }
+    const avoidVec: Vec3 = { x: avoidPoint.x, y: avoidPoint.y, z: avoidPoint.z ?? 0 };
+    const towardSwarm = getInputTowardTarget(botVec, avoidVec, cameraUp);
+    // Negate to get AWAY direction, scale by strength
+    avoidanceForce.x += -towardSwarm.x * avoidanceStrength;
+    avoidanceForce.y += -towardSwarm.y * avoidanceStrength;
   }
 
   return avoidanceForce;
@@ -677,9 +728,9 @@ function updateBotAI(
     if (nearestNutrient) {
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
-      const seekDirection = steerTowards(
+      const seekDirection = steerTowardsSphere(
         player.position,
-        { x: nearestNutrient.x, y: nearestNutrient.y },
+        { x: nearestNutrient.x, y: nearestNutrient.y, z: nearestNutrient.z },
         bot.inputDirection
       );
       // Blend: 60% seek, 40% avoid - hungry bots prioritize food!
@@ -703,10 +754,10 @@ function updateBotAI(
       bot.ai.state = 'seek_nutrient';
       bot.ai.targetNutrient = nearestNutrient.id;
 
-      // Steer towards target (returns direction vector, not velocity)
-      const seekDirection = steerTowards(
+      // Steer towards target on sphere (returns direction vector, not velocity)
+      const seekDirection = steerTowardsSphere(
         player.position,
-        { x: nearestNutrient.x, y: nearestNutrient.y },
+        { x: nearestNutrient.x, y: nearestNutrient.y, z: nearestNutrient.z },
         bot.inputDirection
       );
 
@@ -726,7 +777,7 @@ function updateBotAI(
     // Compute nearest nutrient distance for logging
     const nearestNutrient = findNearestNutrientFast(player.position, nutrients);
     const nearestNutrientDist = nearestNutrient
-      ? distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y })
+      ? distanceForMode(player.position, { x: nearestNutrient.x, y: nearestNutrient.y })
       : null;
 
     logger.info({
@@ -898,7 +949,7 @@ function updateMultiCellBotAI(
   const SWARM_HUNT_RANGE = 900; // Increased range - worth traveling for fat swarms
   for (const swarm of swarms) {
     if (swarm.disabledUntil && swarm.disabledUntil > Date.now()) {
-      const dist = distance(player.position, swarm.position);
+      const dist = distanceForMode(player.position, swarm.position);
       if (dist < SWARM_HUNT_RANGE) {
         // Score: energy matters more than distance (fat swarms are VERY valuable)
         const score = (swarm.energy || 100) / Math.max(dist, 100);
@@ -918,7 +969,7 @@ function updateMultiCellBotAI(
   for (const swarm of swarms) {
     const isDisabled = swarm.disabledUntil && swarm.disabledUntil > Date.now();
     if (!isDisabled) {
-      const dist = distance(player.position, swarm.position);
+      const dist = distanceForMode(player.position, swarm.position);
       if (dist < empRange) {
         nearbyActiveSwarmCount++;
         nearbyActiveSwarmTotalEnergy += swarm.energy || 100;
@@ -935,7 +986,7 @@ function updateMultiCellBotAI(
   const preyResult: {
     target: {
       id: string;
-      position: { x: number; y: number };
+      position: { x: number; y: number; z: number };
       energy: number;
       maxEnergy: number;
     } | null;
@@ -953,11 +1004,11 @@ function updateMultiCellBotAI(
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     if (!posComp) return;
 
-    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    const dist = distanceForMode(player.position, { x: posComp.x, y: posComp.y });
     if (dist < preyResult.dist) {
       preyResult.target = {
         id: otherId,
-        position: { x: posComp.x, y: posComp.y },
+        position: { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 },
         energy: energyComp.current,
         maxEnergy: energyComp.max,
       };
@@ -985,7 +1036,7 @@ function updateMultiCellBotAI(
     const posComp = world.getComponent<PositionComponent>(entity, Components.Position);
     if (!posComp) return;
 
-    const dist = distance(player.position, { x: posComp.x, y: posComp.y });
+    const dist = distanceForMode(player.position, { x: posComp.x, y: posComp.y });
     if (dist < enemyResult.dist) {
       enemyResult.target = { id: otherId, position: { x: posComp.x, y: posComp.y } };
       enemyResult.dist = dist;
@@ -1120,10 +1171,10 @@ function updateMultiCellBotAI(
       // Hunt disabled swarm (easy energy) - prioritizes high-energy targets
       action = 'hunt_disabled_swarm';
       targetType = 'swarm';
-      targetDist = distance(player.position, bestDisabledSwarm.position);
-      const seekDirection = steerTowards(
+      targetDist = distanceForMode(player.position, bestDisabledSwarm.position);
+      const seekDirection = steerTowardsSphere(
         player.position,
-        bestDisabledSwarm.position,
+        { x: bestDisabledSwarm.position.x, y: bestDisabledSwarm.position.y, z: bestDisabledSwarm.position.z ?? 0 },
         bot.inputDirection
       );
       bot.inputDirection.x = seekDirection.x;
@@ -1133,7 +1184,11 @@ function updateMultiCellBotAI(
       action = 'hunt_prey';
       targetType = 'single_cell';
       targetDist = nearestPreyDist;
-      const seekDirection = steerTowards(player.position, nearestPrey.position, bot.inputDirection);
+      const seekDirection = steerTowardsSphere(
+        player.position,
+        nearestPrey.position,
+        bot.inputDirection
+      );
       bot.inputDirection.x = seekDirection.x;
       bot.inputDirection.y = seekDirection.y;
     } else {
@@ -1142,10 +1197,10 @@ function updateMultiCellBotAI(
       if (nearestNutrient) {
         action = 'seek_nutrient';
         targetType = 'nutrient';
-        targetDist = distance(player.position, { x: nearestNutrient.x, y: nearestNutrient.y });
-        const seekDirection = steerTowards(
+        targetDist = distanceForMode(player.position, { x: nearestNutrient.x, y: nearestNutrient.y });
+        const seekDirection = steerTowardsSphere(
           player.position,
-          { x: nearestNutrient.x, y: nearestNutrient.y },
+          { x: nearestNutrient.x, y: nearestNutrient.y, z: nearestNutrient.z },
           bot.inputDirection
         );
         bot.inputDirection.x = seekDirection.x;
@@ -1188,6 +1243,7 @@ interface FaunaSnapshot {
   id: string;
   x: number;
   y: number;
+  z: number;
   type: 'bug' | 'creature' | 'fruit' | 'player';
 }
 
@@ -1274,31 +1330,33 @@ function updateCyberOrganismBotAI(
       if (nearestDist > idealDistance + 100) {
         // Too far - approach
         action = 'approach';
-        const seekDir = steerTowards(
+        const seekDir = steerTowardsSphere(
           player.position,
-          { x: nearestTarget.x, y: nearestTarget.y },
+          { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z },
           bot.inputDirection
         );
         bot.inputDirection.x = seekDir.x;
         bot.inputDirection.y = seekDir.y;
       } else if (nearestDist < idealDistance - 100) {
-        // Too close - retreat while still facing target
+        // Too close - retreat while still facing target (sphere-aware)
         action = 'retreat';
-        const dx = player.position.x - nearestTarget.x;
-        const dy = player.position.y - nearestTarget.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 0) {
-          bot.inputDirection.x = dx / len;
-          bot.inputDirection.y = dy / len;
-        }
+        const botVec: Vec3 = { x: player.position.x, y: player.position.y, z: player.position.z ?? 0 };
+        const targetVec: Vec3 = { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z ?? 0 };
+        const cameraUp = getCameraUp(botVec);
+        const toward = getInputTowardTarget(botVec, targetVec, cameraUp);
+        // Negate to retreat
+        bot.inputDirection.x = -toward.x;
+        bot.inputDirection.y = -toward.y;
       } else {
-        // Good distance - strafe slowly
+        // Good distance - strafe slowly (sphere-aware)
         action = 'strafe';
-        const dx = nearestTarget.x - player.position.x;
-        const dy = nearestTarget.y - player.position.y;
-        // Perpendicular strafe
-        bot.inputDirection.x = -dy * 0.3;
-        bot.inputDirection.y = dx * 0.3;
+        const botVec: Vec3 = { x: player.position.x, y: player.position.y, z: player.position.z ?? 0 };
+        const targetVec: Vec3 = { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z ?? 0 };
+        const cameraUp = getCameraUp(botVec);
+        const toward = getInputTowardTarget(botVec, targetVec, cameraUp);
+        // Perpendicular strafe: rotate 90 degrees
+        bot.inputDirection.x = -toward.y * 0.3;
+        bot.inputDirection.y = toward.x * 0.3;
       }
     } else {
       action = 'wander';
@@ -1334,9 +1392,9 @@ function updateCyberOrganismBotAI(
 
       // Always chase - melee wants to close distance
       action = 'chase';
-      const seekDir = steerTowards(
+      const seekDir = steerTowardsSphere(
         player.position,
-        { x: nearestTarget.x, y: nearestTarget.y },
+        { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z },
         bot.inputDirection,
         0.2
       );
@@ -1371,31 +1429,29 @@ function updateCyberOrganismBotAI(
         }
       }
 
-      // Kite behavior: retreat while leading enemy through traps
+      // Kite behavior: retreat while leading enemy through traps (sphere-aware)
+      const botVec: Vec3 = { x: player.position.x, y: player.position.y, z: player.position.z ?? 0 };
+      const targetVec: Vec3 = { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z ?? 0 };
+      const cameraUp = getCameraUp(botVec);
+      const toward = getInputTowardTarget(botVec, targetVec, cameraUp);
+
       if (nearestDist < 200) {
         // Too close - retreat
         action = 'retreat';
-        const dx = player.position.x - nearestTarget.x;
-        const dy = player.position.y - nearestTarget.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 0) {
-          bot.inputDirection.x = dx / len;
-          bot.inputDirection.y = dy / len;
-        }
+        bot.inputDirection.x = -toward.x;
+        bot.inputDirection.y = -toward.y;
       } else if (nearestDist < 400) {
         // Medium range - circle/strafe to reposition
         action = 'kite';
-        const dx = nearestTarget.x - player.position.x;
-        const dy = nearestTarget.y - player.position.y;
-        // Perpendicular movement with slight retreat
-        bot.inputDirection.x = -dy * 0.5 + dx * -0.3;
-        bot.inputDirection.y = dx * 0.5 + dy * -0.3;
+        // Perpendicular movement with slight retreat: strafe + back away
+        bot.inputDirection.x = -toward.y * 0.5 + -toward.x * 0.3;
+        bot.inputDirection.y = toward.x * 0.5 + -toward.y * 0.3;
       } else {
         // Far away - approach cautiously to lure into trap range
         action = 'approach';
-        const seekDir = steerTowards(
+        const seekDir = steerTowardsSphere(
           player.position,
-          { x: nearestTarget.x, y: nearestTarget.y },
+          { x: nearestTarget.x, y: nearestTarget.y, z: nearestTarget.z },
           bot.inputDirection,
           0.1
         );
@@ -1442,6 +1498,7 @@ interface NutrientSnapshot {
   id: string;
   x: number;
   y: number;
+  z: number;
   value: number;
 }
 
@@ -1456,7 +1513,7 @@ export function updateBots(currentTime: number, world: World, swarms: EntropySwa
     const nutrientComp = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
     const id = getStringIdByEntity(entity);
     if (pos && nutrientComp && id) {
-      nutrients.push({ id, x: pos.x, y: pos.y, value: nutrientComp.value });
+      nutrients.push({ id, x: pos.x, y: pos.y, z: pos.z ?? 0, value: nutrientComp.value });
     }
   });
 
@@ -1489,7 +1546,7 @@ export function updateBots(currentTime: number, world: World, swarms: EntropySwa
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     const id = getStringIdByEntity(entity);
     if (pos && id) {
-      fauna.push({ id, x: pos.x, y: pos.y, type: 'bug' });
+      fauna.push({ id, x: pos.x, y: pos.y, z: pos.z ?? 0, type: 'bug' });
     }
   });
 
@@ -1498,7 +1555,7 @@ export function updateBots(currentTime: number, world: World, swarms: EntropySwa
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     const id = getStringIdByEntity(entity);
     if (pos && id) {
-      fauna.push({ id, x: pos.x, y: pos.y, type: 'creature' });
+      fauna.push({ id, x: pos.x, y: pos.y, z: pos.z ?? 0, type: 'creature' });
     }
   });
 
@@ -1507,7 +1564,7 @@ export function updateBots(currentTime: number, world: World, swarms: EntropySwa
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     const id = getStringIdByEntity(entity);
     if (pos && id) {
-      fauna.push({ id, x: pos.x, y: pos.y, type: 'fruit' });
+      fauna.push({ id, x: pos.x, y: pos.y, z: pos.z ?? 0, type: 'fruit' });
     }
   });
 
@@ -1519,7 +1576,7 @@ export function updateBots(currentTime: number, world: World, swarms: EntropySwa
     if (!pos || !stageComp || !playerComp) return;
     // Only include Stage 3+ (jungle scale)
     if (stageComp.stage < EvolutionStage.CYBER_ORGANISM) return;
-    fauna.push({ id: playerComp.socketId, x: pos.x, y: pos.y, type: 'player' });
+    fauna.push({ id: playerComp.socketId, x: pos.x, y: pos.y, z: pos.z ?? 0, type: 'player' });
   });
 
   // Update cyber-organism bots (Stage 3 - jungle hunters with combat specializations)
@@ -1655,6 +1712,7 @@ export function respawnBotNow(botId: string, stage: number, io: Server, world: W
     const newPos = randomSpawnPosition();
     posComp.x = newPos.x;
     posComp.y = newPos.y;
+    posComp.z = newPos.z ?? 0;
     energyComp.current = GAME_CONFIG.SINGLE_CELL_ENERGY;
     energyComp.max = GAME_CONFIG.SINGLE_CELL_MAX_ENERGY;
     stageComp.stage = EvolutionStage.SINGLE_CELL;
@@ -1689,6 +1747,7 @@ export function respawnBotNow(botId: string, stage: number, io: Server, world: W
     const newPos = randomSpawnPosition();
     posComp.x = newPos.x;
     posComp.y = newPos.y;
+    posComp.z = newPos.z ?? 0;
     energyComp.current = GAME_CONFIG.MULTI_CELL_ENERGY;
     energyComp.max = GAME_CONFIG.MULTI_CELL_MAX_ENERGY;
     stageComp.stage = EvolutionStage.MULTI_CELL;

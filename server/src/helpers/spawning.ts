@@ -4,9 +4,8 @@
 // Query ECS for obstacle data
 // ============================================
 
-import { GAME_CONFIG, type Position } from '#shared';
+import { GAME_CONFIG, type Position, getRandomSpherePosition, distanceForMode } from '#shared';
 import { getConfig } from '../dev';
-import { distance } from './math';
 import { forEachObstacle, type World } from '../ecs';
 
 /**
@@ -17,32 +16,19 @@ export function randomColor(): string {
 }
 
 /**
- * Generate a random spawn position in the soup region
- * Avoids spawning directly in obstacle death zones (200px safety radius)
- * Queries ECS for obstacle positions.
- * Note: Players always spawn in soup (Stage 1). Soup is now a region within the jungle.
+ * Generate a random spawn position on the sphere surface
+ * Avoids spawning inside obstacle death zones
  */
 export function randomSpawnPosition(world: World): Position {
-  const padding = 100;
-  const MIN_DIST_FROM_OBSTACLE_CORE = 400; // Stay outside inner gravity well
+  const MIN_DIST_FROM_OBSTACLE_CORE = 400;
   const maxAttempts = 20;
 
-  // Spawn within soup region (which is centered in the jungle world)
-  const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X + padding;
-  const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y + padding;
-  const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH - padding;
-  const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT - padding;
-
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const position = {
-      x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-      y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-    };
+    const position = getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
 
-    // Check distance from all obstacle cores via ECS
     let tooClose = false;
     forEachObstacle(world, (_entity, obstaclePos) => {
-      if (distance(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
+      if (distanceForMode(position, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
         tooClose = true;
       }
     });
@@ -52,12 +38,8 @@ export function randomSpawnPosition(world: World): Position {
     }
   }
 
-  // If we can't find a safe spot after maxAttempts, spawn anyway
-  // (extremely unlikely with 12 obstacles on the soup map)
-  return {
-    x: soupMinX + Math.random() * (soupMaxX - soupMinX),
-    y: soupMinY + Math.random() * (soupMaxY - soupMinY),
-  };
+  // Fallback: return random position (rare case where all attempts fail)
+  return getRandomSpherePosition(GAME_CONFIG.SPHERE_RADIUS);
 }
 
 /**
@@ -65,13 +47,15 @@ export function randomSpawnPosition(world: World): Position {
  * Nutrients can spawn inside gravity well and even outer edge of event horizon (180-240px)
  * Only exclude the inner event horizon (0-180px) where escape is truly impossible
  * Queries ECS for obstacle positions.
+ * Uses mode-appropriate distance (2D for flat, 3D for sphere)
  */
 export function isNutrientSpawnSafe(position: Position, world: World): boolean {
   const INNER_EVENT_HORIZON = 180; // Inner 180px - truly inescapable, no nutrients
 
   let safe = true;
   forEachObstacle(world, (_entity, obstaclePos) => {
-    if (distance(position, obstaclePos) < INNER_EVENT_HORIZON) {
+    // Use distanceForMode for proper sphere support
+    if (distanceForMode(position, obstaclePos) < INNER_EVENT_HORIZON) {
       safe = false;
     }
   });
@@ -82,17 +66,20 @@ export function isNutrientSpawnSafe(position: Position, world: World): boolean {
 /**
  * Calculate nutrient value multiplier based on proximity to nearest obstacle
  * Gradient system creates risk/reward:
- * - 400-600px (outer gravity well): 2x
- * - 240-400px (inner gravity well): 3x
- * - 180-240px (outer event horizon): 5x - high risk, high reward!
+ * - >600px: 1x (green) - safe areas outside gravity wells
+ * - 400-600px (outer gravity well): 2x (cyan)
+ * - 240-400px (inner gravity well): 3x (gold)
+ * - 180-240px (outer event horizon): 5x (magenta) - high risk, high reward!
  * - <180px: N/A (nutrients don't spawn here)
  * Queries ECS for obstacle positions.
+ * Uses mode-appropriate distance (2D for flat, 3D for sphere)
  */
 export function calculateNutrientValueMultiplier(position: Position, world: World): number {
   let closestDist = Infinity;
 
   forEachObstacle(world, (_entity, obstaclePos) => {
-    const dist = distance(position, obstaclePos);
+    // Use distanceForMode for proper sphere support (3D distance in sphere mode)
+    const dist = distanceForMode(position, obstaclePos);
     if (dist < closestDist) {
       closestDist = dist;
     }
@@ -102,15 +89,15 @@ export function calculateNutrientValueMultiplier(position: Position, world: Worl
 
   // Not in any gravity well
   if (closestDist >= GRAVITY_RADIUS) {
-    return 1; // Base value
+    return 1; // Base value - GREEN
   }
 
-  // Gradient system
+  // Gradient system based on distance from obstacle center
   if (closestDist >= 400) {
-    return 2; // Outer gravity well
+    return 2; // Outer gravity well - CYAN
   } else if (closestDist >= 240) {
-    return 3; // Inner gravity well, approaching danger
+    return 3; // Inner gravity well, approaching danger - GOLD
   } else {
-    return 5; // Outer event horizon - extreme risk, extreme reward!
+    return 5; // Outer event horizon - extreme risk, extreme reward! - MAGENTA
   }
 }

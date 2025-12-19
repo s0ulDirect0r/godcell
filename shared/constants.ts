@@ -74,6 +74,9 @@ export const DEV_TUNABLE_CONFIGS = [
 
   // Detection
   'MULTI_CELL_DETECTION_RADIUS',
+
+  // Sphere Mode
+  'SPHERE_RADIUS',
 ] as const;
 
 export type TunableConfigKey = (typeof DEV_TUNABLE_CONFIGS)[number];
@@ -126,6 +129,19 @@ export const GAME_CONFIG = {
   SOUP_WIDTH: 4800, // Same as WORLD_WIDTH
   SOUP_HEIGHT: 3200, // Same as WORLD_HEIGHT
 
+  // ============================================
+  // Sphere Mode
+  // World is a sphere surface - players exist on concentric sphere shells
+  // ============================================
+  // Sphere radii for multi-sphere world
+  // Soup is innermost (players on outer surface)
+  // Jungle wraps soup (players on inner surface, 4x radius)
+  // God is outermost boundary (players emerge to outer surface, one-way)
+  SPHERE_RADIUS: 2448, // Soup sphere - backward compat alias
+  SOUP_SPHERE_RADIUS: 2448, // Soup sphere (Stage 1-2)
+  JUNGLE_SPHERE_RADIUS: 9792, // 4x soup, inner surface for Stage 3+
+  GOD_SPHERE_RADIUS: 29376, // 12x soup, doubled for more space between jungle and god
+
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void
   GRID_COLOR: 0x1a1a3e, // Subtle grid lines
@@ -150,7 +166,7 @@ export const GAME_CONFIG = {
   ],
 
   // Nutrients (data packets)
-  NUTRIENT_COUNT: 38, // Initial spawn count (balanced for stage 1-2)
+  NUTRIENT_COUNT: 80, // Initial spawn count (balanced for stage 1-2)
   NUTRIENT_RESPAWN_TIME: 10000, // 10 seconds in milliseconds
   NUTRIENT_SIZE: 12, // Radius (balanced for collection difficulty)
   NUTRIENT_COLOR: 0x00ff00, // Green data crystals (base 1x)
@@ -242,6 +258,7 @@ export const GAME_CONFIG = {
 
   // Digital Jungle Trees (Stage 3+ environment obstacles)
   TREE_COUNT: 80, // Number of trees to spawn (~75-100 for medium density)
+  SPHERE_TREE_COUNT: 200, // Number of trees on sphere surface (Fibonacci distribution)
   TREE_MIN_RADIUS: 80, // Small bush collision radius
   TREE_MAX_RADIUS: 360, // Large ancient tree collision radius
   TREE_MIN_HEIGHT: 200, // Small bush visual height

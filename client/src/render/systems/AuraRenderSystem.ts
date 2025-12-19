@@ -216,7 +216,7 @@ export class AuraRenderSystem {
       auraMesh.add(singleAura);
     }
 
-    auraMesh.position.y = -1; // Below player (Y=height)
+    // In sphere mode, don't offset - position is set when syncing
     return auraMesh;
   }
 
@@ -253,16 +253,15 @@ export class AuraRenderSystem {
       auraMesh = new THREE.Group();
       const swarmAura = createCellAura(swarmSize);
       auraMesh.add(swarmAura);
-      auraMesh.position.y = -1;
+      // In sphere mode, don't offset - position is set when syncing
       auraMesh.userData.swarmSize = swarmSize;
 
       this.drainAuraMeshes.set(auraId, auraMesh);
       this.scene.add(auraMesh);
     }
 
-    // Position at swarm
-    auraMesh.position.x = swarmMesh.position.x;
-    auraMesh.position.z = swarmMesh.position.z;
+    // Position at swarm (full 3D for sphere mode)
+    auraMesh.position.copy(swarmMesh.position);
 
     const color = getAuraColor(drainAura.source);
     applyAuraIntensity(auraMesh, drainAura.intensity, color, time);
@@ -287,14 +286,13 @@ export class AuraRenderSystem {
 
     if (!auraMesh) {
       auraMesh = createGainAura(stageComp.radius, gainAura.color);
-      auraMesh.position.y = 0.05;
+      // In sphere mode, don't offset - position is set when syncing
       this.gainAuraMeshes.set(entityId, auraMesh);
       this.scene.add(auraMesh);
     }
 
-    // Position at player
-    auraMesh.position.x = playerMesh.position.x;
-    auraMesh.position.z = playerMesh.position.z;
+    // Position at player (full 3D for sphere mode)
+    auraMesh.position.copy(playerMesh.position);
 
     // Trigger flash if not already active or if retriggered
     if (!auraMesh.userData.active || auraMesh.userData.triggerTime !== gainAura.triggerTime) {

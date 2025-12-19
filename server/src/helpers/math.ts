@@ -4,10 +4,10 @@
 // ============================================
 
 import type { Position } from '#shared';
-import { distance, poissonDiscSampling } from '#shared';
+import { distance, distanceForMode, poissonDiscSampling } from '#shared';
 
 // Re-export shared math functions
-export { distance, poissonDiscSampling };
+export { distance, distanceForMode, poissonDiscSampling };
 
 /**
  * Check if a line segment (ray) intersects a circle

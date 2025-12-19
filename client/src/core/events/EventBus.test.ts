@@ -25,6 +25,7 @@ describe('EventBus', () => {
         type: 'playerMoved',
         playerId: 'p1',
         position: { x: 100, y: 200 },
+        velocity: { x: 10, y: 5 },
       };
 
       bus.emit(message);
@@ -58,12 +59,12 @@ describe('EventBus', () => {
       let count = 0;
       const unsubscribe = bus.on('playerMoved', () => count++);
 
-      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 } });
+      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 }, velocity: { x: 10, y: 5 } });
       expect(count).toBe(1);
 
       unsubscribe();
 
-      bus.emit({ type: 'playerMoved', playerId: 'p2', position: { x: 150, y: 250 } });
+      bus.emit({ type: 'playerMoved', playerId: 'p2', position: { x: 150, y: 250 }, velocity: { x: 15, y: 10 } });
       expect(count).toBe(1); // Still 1, not incremented
     });
   });
@@ -102,7 +103,7 @@ describe('EventBus', () => {
 
       bus.clear();
 
-      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 } });
+      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 }, velocity: { x: 10, y: 5 } });
 
       expect(count).toBe(0); // Handler was cleared
     });
@@ -121,7 +122,7 @@ describe('EventBus', () => {
 
       bus.off('playerMoved', handler1);
 
-      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 } });
+      bus.emit({ type: 'playerMoved', playerId: 'p1', position: { x: 100, y: 200 }, velocity: { x: 10, y: 5 } });
 
       expect(count1).toBe(0); // handler1 was removed
       expect(count2).toBe(1); // handler2 still active

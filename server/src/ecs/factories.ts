@@ -3,7 +3,7 @@
 // Functions to create entities with proper components
 // ============================================
 
-import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags } from '#shared';
+import { GAME_CONFIG, EvolutionStage, World, ComponentStore, Components, Tags, projectToSphere } from '#shared';
 import type {
   Position,
   Player,
@@ -43,6 +43,10 @@ import type {
   PendingRespawnComponent,
   AbilityIntentComponent,
   PendingExpirationComponent,
+  // World/Sphere components
+  SphereContextComponent,
+  IntangibleComponent,
+  CameraFacingComponent,
 } from '#shared';
 
 // ============================================
@@ -88,6 +92,11 @@ export function createWorld(): World {
     new ComponentStore()
   );
   world.registerStore<KnockbackComponent>(Components.Knockback, new ComponentStore());
+
+  // Sphere context (multi-sphere world)
+  world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
+  world.registerStore<IntangibleComponent>(Components.Intangible, new ComponentStore());
+  world.registerStore<CameraFacingComponent>(Components.CameraFacing, new ComponentStore());
 
   // Ability markers (no data, just presence)
   world.registerStore<CanFireEMPComponent>(Components.CanFireEMP, new ComponentStore());
@@ -301,6 +310,12 @@ export function createPlayer(
   });
   world.addComponent<DamageTrackingComponent>(entity, Components.DamageTracking, {
     activeDamage: [],
+  });
+
+  // Sphere context - all players start on soup sphere outer surface
+  world.addComponent<SphereContextComponent>(entity, Components.SphereContext, {
+    surfaceRadius: GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: false,
   });
 
   // Ability components based on stage
@@ -665,8 +680,8 @@ export function getPlayerSnapshot(world: World, entity: EntityId): PlayerSnapsho
     socketId: socketId || player.socketId,
     name: player.name,
     color: player.color,
-    position: { x: pos.x, y: pos.y },
-    velocity: vel ? { x: vel.x, y: vel.y } : { x: 0, y: 0 },
+    position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: vel ? { x: vel.x, y: vel.y, z: vel.z } : { x: 0, y: 0, z: 0 },
     energy: energy.current,
     maxEnergy: energy.max,
     stage: stage.stage,
@@ -687,26 +702,32 @@ export function getPlayerSnapshot(world: World, entity: EntityId): PlayerSnapsho
 export function entityToLegacyPlayer(world: World, entity: EntityId): Player | null {
   const player = world.getComponent<PlayerComponent>(entity, Components.Player);
   const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+  const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
   const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
   const stage = world.getComponent<StageComponent>(entity, Components.Stage);
   const socketId = getSocketIdByEntity(entity);
 
-  if (!player || !pos || !energy || !stage || !socketId) {
+  if (!player || !pos || !vel || !energy || !stage || !socketId) {
     return null;
   }
 
   const stunned = world.getComponent<StunnedComponent>(entity, Components.Stunned);
   const cooldowns = world.getComponent<CooldownsComponent>(entity, Components.Cooldowns);
+  const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
 
   return {
     id: socketId,
     position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: { x: vel.x, y: vel.y, z: vel.z },
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
+    // Preserve null for floating state - only fallback if no sphereContext at all
+    surfaceRadius: sphereContext ? sphereContext.surfaceRadius : GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: sphereContext?.isInnerSurface ?? false,
     stunnedUntil: stunned?.until,
     lastEMPTime: cooldowns?.lastEMPTime,
   };
@@ -1284,7 +1305,7 @@ export function subtractEnergy(world: World, entity: EntityId, amount: number): 
 
 /**
  * Set player stage by entity ID.
- * Also initializes z position for Stage 3+ (ground placement / flight).
+ * Also handles sphere transitions (soup → jungle) for Stage 3+.
  */
 export function setStage(world: World, entity: EntityId, stage: EvolutionStage): void {
   const stageValues = getStageValues(stage);
@@ -1295,20 +1316,36 @@ export function setStage(world: World, entity: EntityId, stage: EvolutionStage):
     stageComp.radius = stageValues.radius;
   }
 
-  // Initialize z position for Stage 3+ (so meshes sit on ground, not clip through)
-  if (
-    stage === EvolutionStage.CYBER_ORGANISM ||
-    stage === EvolutionStage.HUMANOID ||
-    stage === EvolutionStage.GODCELL
-  ) {
-    const posComp = getPosition(world, entity);
-    const velComp = getVelocity(world, entity);
+  const sphereContext = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
+  const posComp = getPosition(world, entity);
+
+  // Stage 3+ (cyber_organism, humanoid): move to jungle sphere
+  if (stage === EvolutionStage.CYBER_ORGANISM || stage === EvolutionStage.HUMANOID) {
     if (posComp) {
-      // Godcell starts airborne, others sit on ground
-      posComp.z = stage === EvolutionStage.GODCELL ? stageValues.radius + 100 : stageValues.radius;
+      // Project current position to jungle sphere radius
+      const currentPos = { x: posComp.x, y: posComp.y, z: posComp.z ?? 0 };
+      const junglePos = projectToSphere(currentPos, GAME_CONFIG.JUNGLE_SPHERE_RADIUS);
+      posComp.x = junglePos.x;
+      posComp.y = junglePos.y;
+      posComp.z = junglePos.z;
     }
+    if (sphereContext) {
+      sphereContext.surfaceRadius = GAME_CONFIG.JUNGLE_SPHERE_RADIUS;
+      sphereContext.isInnerSurface = false;
+    }
+  }
+
+  // Godcell starts floating (surfaceRadius = null)
+  // GodcellFlightSystem handles all movement for floating entities
+  if (stage === EvolutionStage.GODCELL) {
+    if (sphereContext) {
+      sphereContext.surfaceRadius = null; // Now floating, GodcellFlightSystem takes over
+    }
+    const velComp = getVelocity(world, entity);
     if (velComp) {
-      velComp.z = 0; // Reset z velocity
+      velComp.x = 0;
+      velComp.y = 0;
+      velComp.z = 0;
     }
   }
 }
@@ -1400,7 +1437,7 @@ export function forEachObstacle(
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     const obs = world.getComponent<ObstacleComponent>(entity, Components.Obstacle);
     if (pos && obs) {
-      callback(entity, { x: pos.x, y: pos.y }, obs);
+      callback(entity, { x: pos.x, y: pos.y, z: pos.z }, obs);
     }
   });
 }
@@ -1419,7 +1456,7 @@ export function getAllObstacleSnapshots(world: World): ObstacleSnapshot[] {
       snapshots.push({
         entity,
         id,
-        position: { x: pos.x, y: pos.y },
+        position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
         radius: obs.radius,
         strength: obs.strength,
       });
@@ -1478,7 +1515,7 @@ export function buildObstaclesRecord(world: World): Record<
     if (pos && obs && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y },
+        position: { x: pos.x, y: pos.y, z: pos.z },
         radius: obs.radius,
         strength: obs.strength,
         // damageRate is derived from config, not stored in component
@@ -1521,7 +1558,7 @@ export function forEachNutrient(
     const nutrient = world.getComponent<NutrientComponent>(entity, Components.Nutrient);
     const id = getStringIdByEntity(entity);
     if (pos && nutrient && id) {
-      callback(entity, id, { x: pos.x, y: pos.y }, nutrient);
+      callback(entity, id, { x: pos.x, y: pos.y, z: pos.z }, nutrient);
     }
   });
 }
@@ -1536,7 +1573,7 @@ export function getAllNutrientSnapshots(world: World): NutrientSnapshot[] {
     snapshots.push({
       entity,
       id,
-      position: { x: position.x, y: position.y },
+      position: { x: position.x, y: position.y, z: position.z },
       value: nutrient.value,
       capacityIncrease: nutrient.capacityIncrease,
       valueMultiplier: nutrient.valueMultiplier,
@@ -1858,8 +1895,8 @@ export function buildSwarmsRecord(world: World): Record<
     if (pos && vel && swarm && energy && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y },
-        velocity: { x: vel.x, y: vel.y },
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        velocity: { x: vel.x, y: vel.y, z: vel.z },
         size: swarm.size,
         state: swarm.state,
         targetPlayerId: swarm.targetPlayerId,
@@ -1942,7 +1979,7 @@ export function getAllTreeSnapshots(world: World): TreeSnapshot[] {
     snapshots.push({
       entity,
       id,
-      position: { x: pos.x, y: pos.y },
+      position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
       radius: tree.radius,
       height: tree.height,
       variant: tree.variant,
@@ -1986,7 +2023,7 @@ export function buildTreesRecord(world: World): Record<
   forEachTree(world, (_entity, id, pos, tree) => {
     result[id] = {
       id,
-      position: { x: pos.x, y: pos.y },
+      position: { x: pos.x, y: pos.y, z: pos.z ?? 0 },
       radius: tree.radius,
       height: tree.height,
       variant: tree.variant,
