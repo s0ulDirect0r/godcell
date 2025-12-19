@@ -163,12 +163,22 @@ export class PlayerRenderSystem {
     const currentPlayerIds = new Set<string>();
 
     // Query ECS World for all players
+    // DEBUG: Count how many times we process each player
+    const playerProcessCount = new Map<string, number>();
+
     this.world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getStringIdByEntity(entity);
       if (!playerId) return;
 
       const player = getPlayer(this.world, playerId);
       if (!player) return;
+
+      // DEBUG: Track duplicate processing
+      const count = (playerProcessCount.get(playerId) ?? 0) + 1;
+      playerProcessCount.set(playerId, count);
+      if (count > 1 && playerId === getLocalPlayerId(this.world)) {
+        console.error('[DUPLICATE PLAYER PROCESSING]', { playerId, count, entity });
+      }
 
       currentPlayerIds.add(playerId);
 
@@ -285,14 +295,21 @@ export class PlayerRenderSystem {
         }
 
         // Position group at player location (sphere surface coordinates)
-        cellGroup.position.set(
-          player.position.x,
-          player.position.y,
-          player.position.z ?? 0
-        );
+        // ALWAYS use authoritative player.position from server, NOT InterpolationTarget
+        // InterpolationTarget may be stale during evolution transitions
+        const spawnPos = player.position;
+        cellGroup.position.set(spawnPos.x, spawnPos.y, spawnPos.z ?? 0);
+
+        // Reset InterpolationTarget to match spawn position to avoid initial gap
+        if (interp) {
+          interp.targetX = spawnPos.x;
+          interp.targetY = spawnPos.y;
+          interp.targetZ = spawnPos.z ?? 0;
+        }
+
         // Orient flat organisms to lie on sphere surface
         if (player.stage === 'single_cell' || player.stage === 'multi_cell') {
-          orientFlatToSurface(cellGroup, player.position);
+          orientFlatToSurface(cellGroup, spawnPos);
         }
         cellGroup.userData.isSphere = true;
 
@@ -358,20 +375,9 @@ export class PlayerRenderSystem {
           timestamp: interp.timestamp,
         };
 
-        // DEBUG: Log interpolation target vs mesh position for cyber_organism
-        if (isMyPlayer && player.stage === 'cyber_organism' && Math.random() < 0.017) {
-          const targetMag = Math.sqrt(target.x * target.x + target.y * target.y + target.z * target.z);
-          const posMag = Math.sqrt(player.position.x ** 2 + player.position.y ** 2 + (player.position.z ?? 0) ** 2);
-          console.log(
-            `[INTERP DEBUG] target=(${target.x.toFixed(0)},${target.y.toFixed(0)},${target.z.toFixed(0)}) mag=${targetMag.toFixed(0)} ` +
-              `pos=(${player.position.x.toFixed(0)},${player.position.y.toFixed(0)},${(player.position.z ?? 0).toFixed(0)}) mag=${posMag.toFixed(0)} ` +
-              `MATCH=${Math.abs(targetMag - posMag) < 10 ? 'yes' : 'NO!'}`
-          );
-        }
-
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
-        // Fallback to direct position if no target
+        // Fallback to direct position if no interpolation target
         if (cellGroup.userData.isSphere) {
           // Sphere mode: use 3D coordinates directly
           cellGroup.position.set(
@@ -1090,11 +1096,13 @@ export class PlayerRenderSystem {
     radius: number,
     stage: string
   ): void {
-    const lerpFactor = frameLerp(0.3, this.dt);
+    // Use consistent lerp for all stages - the real fix is using authoritative sphere radius
+    const baseLerp = 0.3;
+    const lerpFactor = frameLerp(baseLerp, this.dt);
 
     if (cellGroup.userData.isSphere) {
-      // Sphere mode: use SPHERICAL interpolation (lerp angles, not Cartesian coords)
-      // This follows the great circle arc on the sphere surface instead of cutting through
+      // Sphere mode: use SLERP (spherical linear interpolation) for correct arc movement
+      // Cartesian lerp + projection fails for large angular separations
       const currentVec = new THREE.Vector3(
         cellGroup.position.x,
         cellGroup.position.y,
@@ -1102,19 +1110,29 @@ export class PlayerRenderSystem {
       );
       const targetVec = new THREE.Vector3(target.x, target.y, target.z ?? 0);
 
-      // Convert to spherical coordinates
-      const currentSpherical = new THREE.Spherical().setFromVector3(currentVec);
-      const targetSpherical = new THREE.Spherical().setFromVector3(targetVec);
+      // Determine sphere radius
+      const isJungleStage = stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell';
+      const sphereRadius = isJungleStage ? GAME_CONFIG.JUNGLE_SPHERE_RADIUS : GAME_CONFIG.SOUP_SPHERE_RADIUS;
 
-      // Lerp the angles, use target's radius (the correct sphere surface)
-      const newPhi = currentSpherical.phi + (targetSpherical.phi - currentSpherical.phi) * lerpFactor;
-      const newTheta = currentSpherical.theta + (targetSpherical.theta - currentSpherical.theta) * lerpFactor;
+      // Normalize both to unit sphere for slerp, then scale back
+      const currentDir = currentVec.clone().normalize();
+      const targetDir = targetVec.clone().normalize();
 
-      // Convert back to Cartesian - position stays ON the sphere
-      const resultSpherical = new THREE.Spherical(targetSpherical.radius, newPhi, newTheta);
-      const resultVec = new THREE.Vector3().setFromSpherical(resultSpherical);
+      // Slerp on unit sphere using quaternion rotation
+      const fullRotation = new THREE.Quaternion();
+      fullRotation.setFromUnitVectors(currentDir, targetDir);
 
-      cellGroup.position.copy(resultVec);
+      // Partial rotation: interpolate from identity toward full rotation
+      const partialRotation = new THREE.Quaternion();
+      partialRotation.slerpQuaternions(new THREE.Quaternion(), fullRotation, lerpFactor);
+
+      // Apply partial rotation to current direction
+      currentDir.applyQuaternion(partialRotation);
+
+      // Scale back to sphere surface
+      currentVec.copy(currentDir).multiplyScalar(sphereRadius);
+
+      cellGroup.position.copy(currentVec);
 
       // Orient flat organisms to lie on sphere surface
       if (stage === 'single_cell' || stage === 'multi_cell') {
@@ -1125,23 +1143,6 @@ export class PlayerRenderSystem {
         const pos = { x: cellGroup.position.x, y: cellGroup.position.y, z: cellGroup.position.z };
         const heading = this.getHexapodHeading(cellGroup);
         orientHexapodToSurface(cellGroup, pos, heading);
-
-        // Add height offset along surface normal (legs extend below body)
-        const normal = getSurfaceNormal(pos);
-        const heightOffset = 5;
-        cellGroup.position.x += normal.x * heightOffset;
-        cellGroup.position.y += normal.y * heightOffset;
-        cellGroup.position.z += (normal.z ?? 0) * heightOffset;
-
-        // DEBUG: Log position magnitudes for cyber-organism (once per ~60 frames)
-        if (isMyPlayer && Math.random() < 0.017) {
-          const targetMag = Math.sqrt(target.x * target.x + target.y * target.y + (target.z ?? 0) * (target.z ?? 0));
-          const meshMag = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
-          console.log(
-            `[PlayerRender DEBUG] targetMag=${targetMag.toFixed(1)} meshMag=${meshMag.toFixed(1)} ` +
-              `expected=9792 MISMATCH=${Math.abs(meshMag - 9792) > 100 ? 'YES!' : 'no'}`
-          );
-        }
       }
 
       const outline = this.playerOutlines.get(playerId);
