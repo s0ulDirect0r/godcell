@@ -84,6 +84,13 @@ export class SwarmRenderSystem {
   // Base energy (swarms start at 100)
   private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
 
+  // Reusable Vector3 objects to avoid per-frame allocations
+  private readonly _normal = new THREE.Vector3();
+  private readonly _tangent = new THREE.Vector3();
+  private readonly _bitangent = new THREE.Vector3();
+  private readonly _liftedCenter = new THREE.Vector3();
+  private readonly _worldUp = new THREE.Vector3(0, 1, 0);
+
   /**
    * Initialize swarm system with scene and world references
    */
@@ -403,24 +410,29 @@ export class SwarmRenderSystem {
     const internalStorm = group.children[1] as THREE.Points;
     if (!internalStorm) return;
 
-    // Create new particle data
+    // Get pre-allocated buffer arrays
+    const posAttr = internalStorm.geometry.attributes.position as THREE.BufferAttribute;
+    const sizeAttr = internalStorm.geometry.attributes.size as THREE.BufferAttribute;
+    const positions = posAttr.array as Float32Array;
+    const sizes = sizeAttr.array as Float32Array;
+
+    // Cap to max pre-allocated size (600)
+    const MAX_INTERNAL_PARTICLES = 600;
+    const safeTargetCount = Math.min(targetCount, MAX_INTERNAL_PARTICLES);
+
+    // Create new particle data array
     const newParticles: SwarmInternalParticle[] = [];
-    const positions = new Float32Array(targetCount * 3);
-    const sizes = new Float32Array(targetCount);
 
     // Copy existing particles up to the target count
-    const copyCount = Math.min(currentCount, targetCount);
+    const copyCount = Math.min(currentCount, safeTargetCount);
     for (let i = 0; i < copyCount; i++) {
       const p = currentParticles[i];
       newParticles.push({ ...p });
-      positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
-      positions[i * 3 + 2] = p.z;
-      sizes[i] = 1 + Math.random() * 1.5;
+      // Positions are already in buffer from animation updates
     }
 
     // Add new particles if growing
-    for (let i = copyCount; i < targetCount; i++) {
+    for (let i = copyCount; i < safeTargetCount; i++) {
       // Random point inside sphere (uniform distribution)
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
@@ -450,12 +462,10 @@ export class SwarmRenderSystem {
       });
     }
 
-    // Update geometry
-    internalStorm.geometry.dispose();
-    const newGeometry = new THREE.BufferGeometry();
-    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    newGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    internalStorm.geometry = newGeometry;
+    // Mark buffers for GPU upload and update draw range
+    posAttr.needsUpdate = true;
+    sizeAttr.needsUpdate = true;
+    internalStorm.geometry.setDrawRange(0, safeTargetCount);
 
     // Update particle data
     this.swarmInternalParticles.set(swarmId, newParticles);
@@ -523,13 +533,14 @@ export class SwarmRenderSystem {
     const pulseAmplitude = 0.03 * intensityFactor; // Up to 3% extra at max energy
     const ringThickness = baseThickness + pulseWave * pulseAmplitude;
 
-    const ringInnerRadius = scaledBodyRadius * 1.15; // 15% gap between body and ring
-    const ringOuterRadius = ringInnerRadius + scaledBodyRadius * ringThickness;
+    // Create ring at base size and use scale for pulsing animation
+    const baseRingInner = scaledBodyRadius * 1.15;
+    const baseRingOuter = baseRingInner + scaledBodyRadius * baseThickness;
 
     let auraRing = this.swarmAuras.get(swarmId);
     if (!auraRing) {
-      // Create new aura ring
-      const ringGeometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
+      // Create new aura ring at base size (scale will animate pulsing)
+      const ringGeometry = new THREE.RingGeometry(baseRingInner, baseRingOuter, 64);
       const ringMaterial = new THREE.MeshStandardMaterial({
         color: 0xff6600, // Orange
         emissive: 0xff6600,
@@ -543,60 +554,55 @@ export class SwarmRenderSystem {
       this.scene.add(auraRing);
       this.swarmAuras.set(swarmId, auraRing);
     } else {
-      // Update existing ring geometry (dispose old, create new)
-      auraRing.geometry.dispose();
-      auraRing.geometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64);
+      // Animate ring via scale instead of recreating geometry
+      const pulseScale = 1 + (pulseWave * pulseAmplitude) / baseThickness;
+      auraRing.scale.setScalar(pulseScale);
       // Update material properties
       const material = auraRing.material as THREE.MeshStandardMaterial;
       material.opacity = auraOpacity;
       material.emissiveIntensity = emissiveIntensity;
     }
-    // Sync position with swarm (slightly elevated)
-    // Sphere mode: orient ring tangent to sphere surface
-    const normal = group.position.clone().normalize();
-    auraRing.position.copy(group.position).addScaledVector(normal, 0.5);
+    // Sync position with swarm (slightly elevated) - using reusable vectors
+    this._normal.copy(group.position).normalize();
+    auraRing.position.copy(group.position).addScaledVector(this._normal, 0.5);
     // Orient ring to face along surface normal (ring lies in tangent plane)
-    auraRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    auraRing.quaternion.setFromUnitVectors(this._worldUp.set(0, 0, 1), this._normal);
 
     // === AURA PARTICLES ===
     // Particle count grows with absorbed energy (1 particle per 50 energy absorbed, min 3)
     const particleCount = Math.max(3, Math.floor(absorbedEnergy / 50));
     const orbitRadius = scaledBodyRadius * 1.1; // Just outside the ring
+    const MAX_AURA_PARTICLES = 20; // Pre-allocate for max possible
 
     let auraParticles = this.swarmAuraParticles.get(swarmId);
-    // Note: 'time' already declared above for ring pulsing
 
-    // Helper to compute particle positions (world coords for sphere mode)
-    const computeParticlePositions = (count: number, t: number): Float32Array => {
-      const positions = new Float32Array(count * 3);
-      // Sphere mode: orbit in tangent plane around swarm position
-      const swarmPos = group.position;
-      const normal = swarmPos.clone().normalize();
+    // Compute particle positions using reusable vectors
+    const computeParticlePositions = (positions: Float32Array, count: number, t: number): void => {
+      // Sphere mode: orbit in tangent plane around swarm position (using reusable vectors)
+      this._normal.copy(group.position).normalize();
       // Build tangent basis vectors
-      const worldUp = new THREE.Vector3(0, 1, 0);
-      let tangent = new THREE.Vector3().crossVectors(worldUp, normal);
-      if (tangent.lengthSq() < 0.0001) {
-        tangent.set(1, 0, 0).crossVectors(tangent, normal);
+      this._tangent.crossVectors(this._worldUp.set(0, 1, 0), this._normal);
+      if (this._tangent.lengthSq() < 0.0001) {
+        this._tangent.set(1, 0, 0).crossVectors(this._tangent, this._normal);
       }
-      tangent.normalize();
-      const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+      this._tangent.normalize();
+      this._bitangent.crossVectors(this._normal, this._tangent).normalize();
       // Lift position slightly above surface
-      const liftedCenter = swarmPos.clone().addScaledVector(normal, 0.5);
+      this._liftedCenter.copy(group.position).addScaledVector(this._normal, 0.5);
       for (let i = 0; i < count; i++) {
         const angle = (i / count) * Math.PI * 2 + t * 0.5;
-        const px = liftedCenter.x + Math.cos(angle) * orbitRadius * tangent.x + Math.sin(angle) * orbitRadius * bitangent.x;
-        const py = liftedCenter.y + Math.cos(angle) * orbitRadius * tangent.y + Math.sin(angle) * orbitRadius * bitangent.y;
-        const pz = liftedCenter.z + Math.cos(angle) * orbitRadius * tangent.z + Math.sin(angle) * orbitRadius * bitangent.z;
-        positions[i * 3] = px;
-        positions[i * 3 + 1] = py;
-        positions[i * 3 + 2] = pz;
+        const cosA = Math.cos(angle) * orbitRadius;
+        const sinA = Math.sin(angle) * orbitRadius;
+        positions[i * 3] = this._liftedCenter.x + cosA * this._tangent.x + sinA * this._bitangent.x;
+        positions[i * 3 + 1] = this._liftedCenter.y + cosA * this._tangent.y + sinA * this._bitangent.y;
+        positions[i * 3 + 2] = this._liftedCenter.z + cosA * this._tangent.z + sinA * this._bitangent.z;
       }
-      return positions;
     };
 
     if (!auraParticles) {
-      // Create new particle system
-      const positions = computeParticlePositions(particleCount, time);
+      // Create new particle system with pre-allocated buffer
+      const positions = new Float32Array(MAX_AURA_PARTICLES * 3);
+      computeParticlePositions(positions, particleCount, time);
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       const material = new THREE.PointsMaterial({
@@ -611,28 +617,20 @@ export class SwarmRenderSystem {
       auraParticles = new THREE.Points(geometry, material);
       this.scene.add(auraParticles);
       this.swarmAuraParticles.set(swarmId, auraParticles);
-    } else {
-      // Check if particle count changed significantly (recreate if so)
-      const currentCount = auraParticles.geometry.attributes.position.count;
-      if (Math.abs(currentCount - particleCount) > 2) {
-        // Recreate geometry with new count
-        auraParticles.geometry.dispose();
-        const positions = computeParticlePositions(particleCount, time);
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        auraParticles.geometry = geometry;
-      } else {
-        // Update positions for orbital animation
-        const count = auraParticles.geometry.attributes.position.count;
-        const positions = computeParticlePositions(count, time);
-        auraParticles.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        auraParticles.geometry.attributes.position.needsUpdate = true;
-      }
-      // Update material
-      const material = auraParticles.material as THREE.PointsMaterial;
-      material.opacity = auraOpacity;
-      material.size = 4 + intensityFactor * 4;
     }
+
+    // Update positions in pre-allocated buffer
+    const posAttr = auraParticles.geometry.attributes.position as THREE.BufferAttribute;
+    const positions = posAttr.array as Float32Array;
+    computeParticlePositions(positions, particleCount, time);
+    posAttr.needsUpdate = true;
+    auraParticles.geometry.setDrawRange(0, particleCount);
+
+    // Update material
+    const material = auraParticles.material as THREE.PointsMaterial;
+    material.opacity = auraOpacity;
+    material.size = 4 + intensityFactor * 4;
+
     // Sphere mode: positions are already world coords
     auraParticles.position.set(0, 0, 0);
   }

@@ -8,6 +8,13 @@
 import * as THREE from 'three';
 import { EvolutionStage } from '#shared';
 
+// Reusable Vector3 objects to avoid per-frame allocations
+const _pos = new THREE.Vector3();
+const _normal = new THREE.Vector3();
+const _tangent = new THREE.Vector3();
+const _perp = new THREE.Vector3();
+const _liftedPos = new THREE.Vector3();
+
 // Note: Player radius is now stored on the entity and passed via TrailPlayerData.radius
 // The getPlayerRadius() function has been removed - radius flows from server via ECS
 
@@ -135,10 +142,22 @@ export function updateTrails(
         points.shift();
       }
 
-      // Get or create trail mesh
+      // Get or create trail mesh with pre-allocated buffers
       let trailMesh = trailMeshes.get(trailKey);
       if (!trailMesh) {
         const geometry = new THREE.BufferGeometry();
+
+        // Pre-allocate buffers at max trail length to avoid per-frame allocations
+        const maxVertices = maxTrailLength * 2;
+        const positions = new Float32Array(maxVertices * 3);
+        const colors = new Float32Array(maxVertices * 3);
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        // Pre-allocate index buffer (max triangles = (maxTrailLength - 1) * 2 * 3 indices)
+        const maxIndices = (maxTrailLength - 1) * 6;
+        const indices = new Uint16Array(maxIndices);
+        geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
         const colorHex = parseInt(player.color.replace('#', ''), 16);
         const material = new THREE.MeshBasicMaterial({
           color: colorHex,
@@ -161,17 +180,28 @@ export function updateTrails(
       const baseOpacity = isMultiCell ? 0.7 : 1.0;
       trailMaterial.opacity = Math.max(0.2, energyRatio * 0.8 * baseOpacity + 0.2);
 
-      // Create tapered ribbon geometry
+      // Update tapered ribbon geometry (reusing pre-allocated buffers)
       if (points.length >= 2) {
         const vertexCount = points.length * 2;
-        const positions = new Float32Array(vertexCount * 3);
-        const colors = new Float32Array(vertexCount * 3);
-        const indices: number[] = [];
+
+        // Get pre-allocated buffer arrays
+        const posAttr = trailMesh.geometry.attributes.position as THREE.BufferAttribute;
+        const colorAttr = trailMesh.geometry.attributes.color as THREE.BufferAttribute;
+        const indexAttr = trailMesh.geometry.index as THREE.BufferAttribute;
+        const positions = posAttr.array as Float32Array;
+        const colors = colorAttr.array as Float32Array;
+        const indices = indexAttr.array as Uint16Array;
 
         const colorHex = parseInt(player.color.replace('#', ''), 16);
         const r = ((colorHex >> 16) & 255) / 255;
         const g = ((colorHex >> 8) & 255) / 255;
         const b = (colorHex & 255) / 255;
+
+        // Turbulence constants (calculated once per trail)
+        const turbulenceFreq = 2.5;
+        const turbulenceAmp = 0.375;
+        const flowSpeed = 4.0;
+        const time = performance.now() * 0.001;
 
         for (let i = 0; i < points.length; i++) {
           const point = points[i];
@@ -183,13 +213,6 @@ export function updateTrails(
           const width = maxWidth * taperFactor;
 
           // Turbulent wake effect - sinusoidal width variation for liquid feel
-          // turbulenceFreq: waves per trail length (1.5-4.0, higher = more ripples)
-          // turbulenceAmp: % of width variation (0.15-0.5, higher = more dramatic)
-          // flowSpeed: how fast ripples travel along trail (rad/sec)
-          const turbulenceFreq = 2.5;
-          const turbulenceAmp = 0.375;
-          const flowSpeed = 4.0;
-          const time = performance.now() * 0.001;
           const phase = (i / points.length) * Math.PI * 2 * turbulenceFreq + time * flowSpeed;
           const turbulence = 1 + Math.sin(phase) * turbulenceAmp;
           const finalWidth = width * turbulence;
@@ -199,43 +222,42 @@ export function updateTrails(
 
           const idx = i * 2;
 
-          // Build ribbon in 3D on sphere surface
-          const pos = new THREE.Vector3(point.x, point.y, point.z ?? 0);
-          const normal = pos.clone().normalize();
+          // Build ribbon in 3D on sphere surface (using reusable vectors)
+          _pos.set(point.x, point.y, point.z ?? 0);
+          _normal.copy(_pos).normalize();
 
           // Get tangent direction along trail
-          let tangent = new THREE.Vector3();
           if (i < points.length - 1) {
             const next = points[i + 1];
-            tangent.set(next.x - point.x, next.y - point.y, (next.z ?? 0) - (point.z ?? 0));
+            _tangent.set(next.x - point.x, next.y - point.y, (next.z ?? 0) - (point.z ?? 0));
           } else if (i > 0) {
             const prev = points[i - 1];
-            tangent.set(point.x - prev.x, point.y - prev.y, (point.z ?? 0) - (prev.z ?? 0));
+            _tangent.set(point.x - prev.x, point.y - prev.y, (point.z ?? 0) - (prev.z ?? 0));
           }
           // Project tangent onto sphere surface (remove normal component)
-          tangent.addScaledVector(normal, -tangent.dot(normal));
-          if (tangent.lengthSq() > 0.0001) {
-            tangent.normalize();
+          _tangent.addScaledVector(_normal, -_tangent.dot(_normal));
+          if (_tangent.lengthSq() > 0.0001) {
+            _tangent.normalize();
           } else {
-            tangent.set(1, 0, 0);
-            tangent.addScaledVector(normal, -tangent.dot(normal)).normalize();
+            _tangent.set(1, 0, 0);
+            _tangent.addScaledVector(_normal, -_tangent.dot(_normal)).normalize();
           }
 
           // Perpendicular direction on sphere surface
-          const perp = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+          _perp.crossVectors(_normal, _tangent).normalize();
 
           // Lift trail slightly above sphere surface
-          const liftedPos = pos.clone().addScaledVector(normal, 0.5);
+          _liftedPos.copy(_pos).addScaledVector(_normal, 0.5);
 
           // Top vertex
-          positions[idx * 3] = liftedPos.x + perp.x * finalWidth;
-          positions[idx * 3 + 1] = liftedPos.y + perp.y * finalWidth;
-          positions[idx * 3 + 2] = liftedPos.z + perp.z * finalWidth;
+          positions[idx * 3] = _liftedPos.x + _perp.x * finalWidth;
+          positions[idx * 3 + 1] = _liftedPos.y + _perp.y * finalWidth;
+          positions[idx * 3 + 2] = _liftedPos.z + _perp.z * finalWidth;
 
           // Bottom vertex
-          positions[(idx + 1) * 3] = liftedPos.x - perp.x * finalWidth;
-          positions[(idx + 1) * 3 + 1] = liftedPos.y - perp.y * finalWidth;
-          positions[(idx + 1) * 3 + 2] = liftedPos.z - perp.z * finalWidth;
+          positions[(idx + 1) * 3] = _liftedPos.x - _perp.x * finalWidth;
+          positions[(idx + 1) * 3 + 1] = _liftedPos.y - _perp.y * finalWidth;
+          positions[(idx + 1) * 3 + 2] = _liftedPos.z - _perp.z * finalWidth;
 
           // Colors (same for both modes)
           colors[idx * 3] = r;
@@ -247,18 +269,25 @@ export function updateTrails(
           colors[(idx + 1) * 3 + 1] = g * opacity;
           colors[(idx + 1) * 3 + 2] = b * opacity;
 
-          // Create triangle indices for ribbon
+          // Write triangle indices for ribbon
           if (i < points.length - 1) {
             const current = i * 2;
-            const next = (i + 1) * 2;
-            indices.push(current, next, current + 1);
-            indices.push(next, next + 1, current + 1);
+            const nextIdx = (i + 1) * 2;
+            const indexOffset = i * 6;
+            indices[indexOffset] = current;
+            indices[indexOffset + 1] = nextIdx;
+            indices[indexOffset + 2] = current + 1;
+            indices[indexOffset + 3] = nextIdx;
+            indices[indexOffset + 4] = nextIdx + 1;
+            indices[indexOffset + 5] = current + 1;
           }
         }
 
-        trailMesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        trailMesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        trailMesh.geometry.setIndex(indices);
+        // Mark buffers for GPU upload and set draw range
+        posAttr.needsUpdate = true;
+        colorAttr.needsUpdate = true;
+        indexAttr.needsUpdate = true;
+        trailMesh.geometry.setDrawRange(0, (points.length - 1) * 6);
         trailMesh.geometry.computeBoundingSphere();
       }
     }
