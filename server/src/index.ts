@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, Components, fibonacciSpherePoint } from '#shared';
+import { GAME_CONFIG, EvolutionStage, getRandomSpherePosition, fibonacciSpherePoint } from '#shared';
 import type {
   PlayerMoveMessage,
   PlayerRespawnRequestMessage,
@@ -511,7 +511,8 @@ systemRunner.register(new TreeCollisionSystem(), SystemPriority.TREE_COLLISION);
 
 // Movement systems
 systemRunner.register(new GodcellFlightSystem(), SystemPriority.GODCELL_FLIGHT);
-systemRunner.register(new MovementSystem(), SystemPriority.MOVEMENT);
+const movementSystem = new MovementSystem();
+systemRunner.register(movementSystem, SystemPriority.MOVEMENT);
 
 systemRunner.register(new MetabolismSystem(), SystemPriority.METABOLISM);
 systemRunner.register(new NutrientCollisionSystem(), SystemPriority.NUTRIENT_COLLISION);
@@ -994,7 +995,8 @@ io.on('connection', (socket) => {
         ecsDestroyEntity(world, entity);
       }
 
-      // NOTE: All player ECS components (Input, Velocity, Sprint) removed by ecsDestroyEntity above
+      // Clean up system state (playerCameraUp Map in MovementSystem)
+      movementSystem.removePlayer(socket.id);
 
       // Notify other players
       const leftMessage: PlayerLeftMessage = {

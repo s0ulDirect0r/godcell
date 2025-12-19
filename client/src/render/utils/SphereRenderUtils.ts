@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GAME_CONFIG, getSurfaceNormal, type Position } from '#shared';
 
-const PLANET_RADIUS = GAME_CONFIG.PLANET_RADIUS;
+const PLANET_RADIUS = GAME_CONFIG.SPHERE_RADIUS;
 
 /**
  * Set mesh position from game Position
