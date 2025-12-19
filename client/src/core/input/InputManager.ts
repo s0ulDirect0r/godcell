@@ -354,7 +354,8 @@ export class InputManager {
     }
   }
 
-  private updateFullscreen(): void {
+  // Public so it can be called in observer mode (when main update is skipped)
+  updateFullscreen(): void {
     const now = Date.now();
 
     if (this.inputState.isKeyDown('f')) {

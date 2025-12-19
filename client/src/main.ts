@@ -212,7 +212,8 @@ function initializeGame(settings: PreGameSettings): void {
       }
     });
 
-    // ECS X-Ray Panel - disabled for now
+    // ECS X-Ray Panel - click entities to inspect their components
+    // Disabled for now - enable for debugging entity state
     // ecsXRayPanel = new ECSXRayPanel({ world });
     // entitySelector = new EntitySelector({
     //   world,
@@ -460,6 +461,9 @@ function update(): void {
   // Update systems (skip movement input if in observer mode)
   if (!renderer?.isObserverMode()) {
     inputManager.update(dt);
+  } else {
+    // Still allow fullscreen toggle in observer mode
+    inputManager.updateFullscreen();
   }
 
   // Render (renderer queries World directly)
