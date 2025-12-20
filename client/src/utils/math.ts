@@ -19,5 +19,9 @@
  * position += (target - position) * lerpFactor;
  */
 export function frameLerp(baseLerp: number, dt: number, baseDt: number = 16.67): number {
-  return 1 - Math.pow(1 - baseLerp, dt / baseDt);
+  // Normalize dt to milliseconds in case a caller passes seconds (e.g., 0.016 instead of 16.67)
+  const dtMs = dt < 1 ? dt * 1000 : dt;
+  const factor = 1 - Math.pow(1 - baseLerp, dtMs / baseDt);
+  // Clamp for safety to avoid overshoot from floating point error
+  return Math.min(Math.max(factor, 0), 1);
 }

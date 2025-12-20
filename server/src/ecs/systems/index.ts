@@ -20,6 +20,7 @@ export { SpecializationSystem } from './SpecializationSystem';
 // Physics Systems
 export { GravitySystem } from './GravitySystem';
 export { MovementSystem } from './MovementSystem';
+export { GodcellFlightSystem } from './GodcellFlightSystem';
 
 // Ability Systems
 export { AbilityIntentSystem } from './AbilityIntentSystem';
@@ -32,7 +33,6 @@ export { PredationSystem } from './PredationSystem';
 export { SwarmCollisionSystem } from './SwarmCollisionSystem';
 export { TreeCollisionSystem } from './TreeCollisionSystem';
 export { NutrientCollisionSystem } from './NutrientCollisionSystem';
-export { NutrientAttractionSystem } from './NutrientAttractionSystem';
 export { MacroResourceCollisionSystem } from './MacroResourceCollisionSystem';
 
 // Lifecycle Systems

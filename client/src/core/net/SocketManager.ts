@@ -115,13 +115,16 @@ export class SocketManager {
   // Local player's combat specialization (Stage 3+)
   private _mySpecialization: CombatSpecialization = null;
 
-  constructor(serverUrl: string, world: World, isPlaygroundParam = false) {
+  constructor(serverUrl: string, world: World, isPlaygroundParam = false, isSpectatorParam = false) {
     this.world = world;
 
     // Check for playground mode - connects to separate server on port 3001
     // Can be enabled via URL param (?playground) OR passed directly from start screen
     const isPlayground =
       isPlaygroundParam || new URLSearchParams(window.location.search).has('playground');
+    const isSpectator =
+      isSpectatorParam || new URLSearchParams(window.location.search).has('spectator');
+
     let targetUrl = serverUrl;
     if (isPlayground) {
       console.log('[Socket] Playground mode - connecting to port 3001');
@@ -134,12 +137,19 @@ export class SocketManager {
       }
     }
 
+    if (isSpectator) {
+      console.log('[Socket] Spectator mode - no player will be created');
+    }
+
     this.socket = io(targetUrl, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: this.maxReconnectAttempts,
+      auth: {
+        spectator: isSpectator,
+      },
     });
 
     this.setupHandlers();
@@ -232,6 +242,27 @@ export class SocketManager {
     this.socket.emit('playerSprint', {
       type: 'playerSprint',
       sprinting,
+    });
+  }
+
+  /**
+   * Send phase shift state (Stage 5 Godcell - pass through sphere surfaces)
+   */
+  sendPhaseShift(active: boolean): void {
+    this.socket.emit('phaseShift', {
+      type: 'phaseShift',
+      active,
+    });
+  }
+
+  /**
+   * Send camera facing direction (Stage 5 Godcell flight - for server-side input transform)
+   */
+  sendCameraFacing(yaw: number, pitch: number): void {
+    this.socket.emit('cameraFacing', {
+      type: 'cameraFacing',
+      yaw,
+      pitch,
     });
   }
 
@@ -396,7 +427,8 @@ export class SocketManager {
         data.playerId,
         data.position.x,
         data.position.y,
-        data.position.z
+        data.position.z,
+        data.velocity
       );
       eventBus.emit(data);
     });
@@ -467,6 +499,7 @@ export class SocketManager {
         data.swarmId,
         data.position.x,
         data.position.y,
+        data.position.z,
         data.disabledUntil,
         data.energy
       );

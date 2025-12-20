@@ -26,9 +26,11 @@ import type {
   EntropySerpentComponent,
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
+  SphereContextComponent,
 } from '#shared';
 import type {
   Player,
+  Velocity,
   Nutrient,
   Obstacle,
   EntropySwarm,
@@ -78,6 +80,9 @@ export function createClientWorld(): World {
   world.registerStore<ProjectileComponent>(Components.Projectile, new ComponentStore());
   world.registerStore<TrapComponent>(Components.Trap, new ComponentStore());
   world.registerStore<EntropySerpentComponent>(Components.EntropySerpent, new ComponentStore());
+
+  // Sphere context (multi-sphere world)
+  world.registerStore<SphereContextComponent>(Components.SphereContext, new ComponentStore());
 
   // Client-only components
   world.registerStore<InterpolationTargetComponent>(
@@ -159,6 +164,14 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     if (pos) {
       pos.x = player.position.x;
       pos.y = player.position.y;
+      pos.z = player.position.z;
+    }
+
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    if (vel) {
+      vel.x = player.velocity.x;
+      vel.y = player.velocity.y;
+      vel.z = player.velocity.z;
     }
 
     const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
@@ -174,6 +187,13 @@ export function upsertPlayer(world: World, player: Player): EntityId {
       stage.radius = player.radius;
     }
 
+    // Update sphere context
+    const sphereCtx = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
+    if (sphereCtx) {
+      sphereCtx.surfaceRadius = player.surfaceRadius;
+      sphereCtx.isInnerSurface = player.isInnerSurface;
+    }
+
     // Update interpolation target
     const interp = world.getComponent<InterpolationTargetComponent>(
       entity,
@@ -182,6 +202,9 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     if (interp) {
       interp.targetX = player.position.x;
       interp.targetY = player.position.y;
+      if (player.position.z !== undefined) {
+        interp.targetZ = player.position.z;
+      }
       interp.timestamp = Date.now();
     }
 
@@ -194,6 +217,13 @@ export function upsertPlayer(world: World, player: Player): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: player.position.x,
     y: player.position.y,
+    z: player.position.z,
+  });
+
+  world.addComponent<VelocityComponent>(entity, Components.Velocity, {
+    x: player.velocity.x,
+    y: player.velocity.y,
+    z: player.velocity.z,
   });
 
   world.addComponent<EnergyComponent>(entity, Components.Energy, {
@@ -213,9 +243,15 @@ export function upsertPlayer(world: World, player: Player): EntityId {
     radius: player.radius,
   });
 
+  world.addComponent<SphereContextComponent>(entity, Components.SphereContext, {
+    surfaceRadius: player.surfaceRadius,
+    isInnerSurface: player.isInnerSurface,
+  });
+
   world.addComponent<InterpolationTargetComponent>(entity, Components.InterpolationTarget, {
     targetX: player.position.x,
     targetY: player.position.y,
+    targetZ: player.position.z,
     timestamp: Date.now(),
   });
 
@@ -226,7 +262,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
 }
 
 /**
- * Update player position target (for interpolation).
+ * Update player position target (for interpolation) and velocity.
  * z is optional - only used for Stage 5 (godcell) 3D movement.
  */
 export function updatePlayerTarget(
@@ -234,7 +270,8 @@ export function updatePlayerTarget(
   playerId: string,
   x: number,
   y: number,
-  z?: number
+  z?: number,
+  velocity?: Velocity
 ): void {
   const entity = stringIdToEntity.get(playerId);
   if (entity === undefined) return;
@@ -245,6 +282,16 @@ export function updatePlayerTarget(
     pos.y = y;
     if (z !== undefined) {
       pos.z = z;
+    }
+  }
+
+  // Update velocity component (for client-side visual effects)
+  if (velocity) {
+    const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
+    if (vel) {
+      vel.x = velocity.x;
+      vel.y = velocity.y;
+      vel.z = velocity.z ?? 0;
     }
   }
 
@@ -345,6 +392,7 @@ export function upsertNutrient(world: World, nutrient: Nutrient): EntityId {
     if (pos) {
       pos.x = nutrient.position.x;
       pos.y = nutrient.position.y;
+      pos.z = nutrient.position.z;
     }
     return entity;
   }
@@ -355,6 +403,7 @@ export function upsertNutrient(world: World, nutrient: Nutrient): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: nutrient.position.x,
     y: nutrient.position.y,
+    z: nutrient.position.z,
   });
 
   world.addComponent<NutrientComponent>(entity, Components.Nutrient, {
@@ -416,6 +465,7 @@ export function upsertObstacle(world: World, obstacle: Obstacle): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: obstacle.position.x,
     y: obstacle.position.y,
+    z: obstacle.position.z,
   });
 
   world.addComponent<ObstacleComponent>(entity, Components.Obstacle, {
@@ -446,6 +496,7 @@ export function upsertTree(world: World, tree: Tree): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: tree.position.x,
     y: tree.position.y,
+    z: tree.position.z ?? 0,
   });
 
   world.addComponent<TreeComponent>(entity, Components.Tree, {
@@ -473,6 +524,7 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
     if (pos) {
       pos.x = swarm.position.x;
       pos.y = swarm.position.y;
+      pos.z = swarm.position.z;
     }
 
     const swarmComp = world.getComponent<SwarmComponent>(entity, Components.Swarm);
@@ -507,6 +559,7 @@ export function upsertSwarm(world: World, swarm: EntropySwarm): EntityId {
   world.addComponent<PositionComponent>(entity, Components.Position, {
     x: swarm.position.x,
     y: swarm.position.y,
+    z: swarm.position.z,
   });
 
   world.addComponent<SwarmComponent>(entity, Components.Swarm, {
@@ -541,6 +594,7 @@ export function updateSwarmTarget(
   swarmId: string,
   x: number,
   y: number,
+  z?: number,
   disabledUntil?: number,
   energy?: number
 ): void {
@@ -551,6 +605,7 @@ export function updateSwarmTarget(
   if (pos) {
     pos.x = x;
     pos.y = y;
+    pos.z = z;
   }
 
   const swarmComp = world.getComponent<SwarmComponent>(entity, Components.Swarm);
@@ -1325,18 +1380,23 @@ export function getPlayer(world: World, playerId: string): Player | null {
   const player = world.getComponent<PlayerComponent>(entity, Components.Player);
   const energy = world.getComponent<EnergyComponent>(entity, Components.Energy);
   const stage = world.getComponent<StageComponent>(entity, Components.Stage);
+  const sphereCtx = world.getComponent<SphereContextComponent>(entity, Components.SphereContext);
 
   if (!pos || !player || !energy || !stage) return null;
 
   return {
     id: playerId,
     position: { x: pos.x, y: pos.y, z: pos.z },
+    velocity: { x: 0, y: 0, z: 0 }, // Client doesn't track velocity in getPlayer
     color: player.color,
     energy: energy.current,
     maxEnergy: energy.max,
     stage: stage.stage,
     isEvolving: stage.isEvolving,
     radius: stage.radius,
+    // Preserve null for floating state - only fallback if no sphereContext at all
+    surfaceRadius: sphereCtx ? sphereCtx.surfaceRadius : GAME_CONFIG.SOUP_SPHERE_RADIUS,
+    isInnerSurface: sphereCtx?.isInnerSurface ?? false,
   };
 }
 

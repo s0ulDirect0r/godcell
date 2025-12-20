@@ -28,6 +28,7 @@ import { JungleCreatureRenderSystem } from '../systems/JungleCreatureRenderSyste
 import { EntropySerpentRenderSystem } from '../systems/EntropySerpentRenderSystem';
 import { ProjectileRenderSystem } from '../systems/ProjectileRenderSystem';
 import { TrapRenderSystem } from '../systems/TrapRenderSystem';
+import { WakeParticleSystem } from '../systems/WakeParticleSystem';
 import {
   World,
   Tags,
@@ -40,6 +41,7 @@ import {
   type PositionComponent,
   type ObstacleComponent,
 } from '../../ecs';
+import { frameLerp } from '../../utils/math';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -51,6 +53,7 @@ export class ThreeRenderer implements Renderer {
   private composer!: EffectComposer;
   private renderPass!: RenderPass; // Stored to update camera on mode switch
   private bloomPass!: import('three/addons/postprocessing/UnrealBloomPass.js').UnrealBloomPass;
+  private noBloomRenderPass!: RenderPass; // Render pass for layer 1 (no bloom) objects
 
   // Perf debug toggles
   private _bloomEnabled = true;
@@ -108,6 +111,9 @@ export class ThreeRenderer implements Renderer {
   private entropySerpentRenderSystem!: EntropySerpentRenderSystem;
   private projectileRenderSystem!: ProjectileRenderSystem;
   private trapRenderSystem!: TrapRenderSystem;
+
+  // Wake particle system (liquid wake effect behind moving entities)
+  private wakeParticleSystem!: WakeParticleSystem;
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
@@ -194,6 +200,10 @@ export class ThreeRenderer implements Renderer {
     this.trapRenderSystem = new TrapRenderSystem();
     this.trapRenderSystem.init(this.scene, this.world);
 
+    // Create wake particle system (liquid wake behind moving entities)
+    this.wakeParticleSystem = new WakeParticleSystem();
+    this.wakeParticleSystem.init(this.scene);
+
     // Basic lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambientLight);
@@ -213,6 +223,7 @@ export class ThreeRenderer implements Renderer {
     this.composer = composerResult.composer;
     this.renderPass = composerResult.renderPass;
     this.bloomPass = composerResult.bloomPass;
+    this.noBloomRenderPass = composerResult.noBloomRenderPass;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -786,40 +797,35 @@ export class ThreeRenderer implements Renderer {
     // Update render mode based on local player stage (soup vs jungle world)
     this.updateRenderModeForStage(myPlayer?.stage ?? EvolutionStage.SINGLE_CELL);
 
-    // Update camera mode based on player stage
+    // Update camera mode based on player stage (skip if in observer mode)
     // - Stages 1-3: top-down (orthographic)
     // - Stage 4 (humanoid): first-person (perspective)
     // - Stage 5 (godcell): third-person (perspective, following sphere)
+    // - Observer mode: manual free-fly (don't override)
     const currentMode = this.cameraSystem.getMode();
-    if (myPlayer?.stage === EvolutionStage.GODCELL) {
-      if (currentMode !== 'thirdperson') {
-        this.setCameraMode('thirdperson');
+    if (currentMode !== 'observer') {
+      if (myPlayer?.stage === EvolutionStage.GODCELL) {
+        if (currentMode !== 'thirdperson') {
+          this.setCameraMode('thirdperson');
+        }
+      } else if (myPlayer?.stage === EvolutionStage.HUMANOID) {
+        if (currentMode !== 'firstperson') {
+          this.setCameraMode('firstperson');
+        }
+      } else {
+        if (currentMode !== 'topdown') {
+          this.setCameraMode('topdown');
+        }
       }
-    } else if (myPlayer?.stage === EvolutionStage.HUMANOID) {
-      if (currentMode !== 'firstperson') {
-        this.setCameraMode('firstperson');
-      }
-    } else {
-      if (currentMode !== 'topdown') {
-        this.setCameraMode('topdown');
-      }
+      // Godcell gets wider FOV for better spatial awareness
+      this.cameraSystem.setGodcellMode(myPlayer?.stage === EvolutionStage.GODCELL);
     }
 
     // Update camera position based on mode (re-read mode after potential switch)
+    // Note: Sphere mode camera is updated later using interpolated mesh position
+    // Skip if in observer mode (camera is controlled by free-fly input)
     const activeMode = this.cameraSystem.getMode();
-    if (myPlayer) {
-      if (activeMode === 'firstperson') {
-        this.cameraSystem.updateFirstPersonPosition(
-          myPlayer.position.x,
-          myPlayer.position.y,
-          GAME_CONFIG.HUMANOID_CAMERA_HEIGHT
-        );
-      } else if (activeMode === 'thirdperson') {
-        // Third-person camera for godcell - uses 3D position
-        const posZ = myPlayer.position.z ?? 0;
-        this.cameraSystem.updateThirdPersonPosition(myPlayer.position.x, myPlayer.position.y, posZ);
-      }
-    }
+    // In sphere mode, camera position is updated later using interpolated mesh position
 
     // Update environment particles (soup or jungle based on mode)
     this.environmentSystem.update(dt);
@@ -838,7 +844,7 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.refreshGravityWellCache();
     }
 
-    this.treeRenderSystem.sync(this.environmentSystem.getMode());
+    this.treeRenderSystem.sync();
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -907,21 +913,59 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.getMode()
     );
 
+    // Update wake particles (liquid wake behind moving entities)
+    this.wakeParticleSystem.update(this.world, dt);
+
     // Update camera system (follows player, applies shake, transitions zoom)
-    // Pass player's interpolated mesh position (game coords: mesh.x = game X, -mesh.z = game Y)
-    if (myPlayer) {
-      const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
-      if (mesh) {
-        this.cameraSystem.update(mesh.position.x, -mesh.position.z);
+    // Skip if in observer mode (camera controlled by free-fly input)
+    // Pass player's interpolated mesh position for smooth camera follow
+    if (!this.cameraSystem.isObserverMode()) {
+      if (myPlayer) {
+        const mesh = this.playerRenderSystem.getPlayerMesh(myPlayer.id);
+        if (mesh) {
+          const activeMode = this.cameraSystem.getMode();
+
+          // DEBUG: Log camera mode and mesh position every 60 frames
+          this._camDebugCount = (this._camDebugCount ?? 0) + 1;
+          if (this._camDebugCount % 60 === 0) {
+            console.log('[Renderer] Camera update:', {
+              mode: activeMode,
+              stage: myPlayer?.stage,
+              meshPos: {
+                x: mesh.position.x.toFixed(0),
+                y: mesh.position.y.toFixed(0),
+                z: mesh.position.z.toFixed(0),
+              },
+              playerPos: myPlayer?.position ? {
+                x: myPlayer.position.x.toFixed(0),
+                y: myPlayer.position.y.toFixed(0),
+                z: (myPlayer.position.z ?? 0).toFixed(0),
+              } : 'none',
+            });
+          }
+
+          if (activeMode === 'thirdperson') {
+            // Stage 5 Godcell: third-person camera (sphere mode: mesh position is direct 3D coords)
+            this.cameraSystem.updateThirdPersonSphere(mesh.position.x, mesh.position.y, mesh.position.z);
+          } else {
+            // Sphere mode surface camera: position above player along surface normal
+            // Pass authoritative sphere radius to avoid floating point errors from computing magnitude
+            const isJungleStage = myPlayer.stage === 'cyber_organism' || myPlayer.stage === 'humanoid' || myPlayer.stage === 'godcell';
+            const sphereRadius = isJungleStage ? GAME_CONFIG.JUNGLE_SPHERE_RADIUS : GAME_CONFIG.SOUP_SPHERE_RADIUS;
+            this.cameraSystem.updateSpherePosition(mesh.position.x, mesh.position.y, mesh.position.z, sphereRadius);
+          }
+        } else {
+          this.cameraSystem.update();
+        }
       } else {
         this.cameraSystem.update();
       }
-    } else {
-      this.cameraSystem.update();
     }
 
-    // Update renderPass camera based on current mode before rendering
-    this.renderPass.camera = this.cameraSystem.getActiveCamera();
+    // Update render pass cameras based on current mode before rendering
+    const camera = this.cameraSystem.getActiveCamera();
+    this.renderPass.camera = camera;
+    this.noBloomRenderPass.camera = camera;
 
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
@@ -929,7 +973,9 @@ export class ThreeRenderer implements Renderer {
     // Track render time
     const renderStart = performance.now();
 
-    // Render scene with postprocessing
+    // Simple single-pass rendering with bloom
+    // All objects on layer 0 (default) - bloom applies to everything
+    // The void temple shader handles glow through material design (bright values > threshold)
     this.composer.render();
 
     const renderTime = performance.now() - renderStart;
@@ -983,6 +1029,7 @@ export class ThreeRenderer implements Renderer {
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
   private _perfRenderTimeSum?: number;
+  private _camDebugCount?: number;
 
   /**
    * Set the render mode (soup vs jungle world)
@@ -1034,6 +1081,36 @@ export class ThreeRenderer implements Renderer {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
     this.cameraSystem.resize(width, height);
+  }
+
+  // === FULLSCREEN ===
+
+  toggleFullscreen(): void {
+    const container = this.renderer.domElement.parentElement;
+    if (!document.fullscreenElement) {
+      container?.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  handleFullscreenChange(): void {
+    if (document.fullscreenElement) {
+      // Entering fullscreen - use requestAnimationFrame to let browser update dimensions
+      requestAnimationFrame(() => {
+        const fsElement = document.fullscreenElement as HTMLElement;
+        const width = fsElement.clientWidth;
+        const height = fsElement.clientHeight;
+        console.log(`[Fullscreen] Entering: ${width}x${height}`);
+        this.renderer.setSize(width, height);
+        this.composer.setSize(width, height);
+      });
+    } else {
+      // Exiting fullscreen - restore original size
+      console.log('[Fullscreen] Exiting');
+      this.renderer.setSize(GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+      this.composer.setSize(GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT);
+    }
   }
 
   getCameraCapabilities(): CameraCapabilities {
@@ -1156,6 +1233,78 @@ export class ThreeRenderer implements Renderer {
   }
 
   // ============================================
+  // Observer Mode (free-fly camera for debugging)
+  // ============================================
+
+  /**
+   * Toggle observer mode on/off
+   * Returns true if observer mode is now active
+   */
+  toggleObserverMode(): boolean {
+    return this.cameraSystem.toggleObserverMode();
+  }
+
+  /**
+   * Check if observer mode is active
+   */
+  isObserverMode(): boolean {
+    return this.cameraSystem.isObserverMode();
+  }
+
+  /**
+   * Get camera system (for godcell flight mode coordination)
+   */
+  getCameraSystem(): CameraSystem {
+    return this.cameraSystem;
+  }
+
+  /**
+   * Set observer camera movement input
+   * @param forward -1 (back) to 1 (forward)
+   * @param right -1 (left) to 1 (right)
+   * @param up -1 (down) to 1 (up)
+   */
+  setObserverInput(forward: number, right: number, up: number): void {
+    this.cameraSystem.setObserverInput(forward, right, up);
+  }
+
+  /**
+   * Update observer camera look direction from mouse input
+   */
+  updateObserverLook(deltaX: number, deltaY: number): void {
+    this.cameraSystem.updateObserverLook(deltaX, deltaY);
+  }
+
+  /**
+   * Update observer camera position (called each frame when in observer mode)
+   */
+  updateObserver(dt: number): void {
+    this.cameraSystem.updateObserver(dt);
+  }
+
+  /**
+   * Adjust observer FOV (zoom in/out)
+   * @param delta - Positive to zoom out (wider), negative to zoom in (narrower)
+   */
+  adjustObserverFOV(delta: number): void {
+    this.cameraSystem.adjustObserverFOV(delta);
+  }
+
+  /**
+   * Get the canvas element (for pointer lock, etc.)
+   */
+  getCanvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
+  }
+
+  /**
+   * Request pointer lock on the canvas
+   */
+  requestPointerLock(): void {
+    this.renderer.domElement.requestPointerLock();
+  }
+
+  // ============================================
   // Private helpers for building data maps from World
   // ============================================
 
@@ -1212,6 +1361,9 @@ export class ThreeRenderer implements Renderer {
 
     // Clean up player trails
     this.trailSystem.dispose();
+
+    // Clean up wake particles
+    this.wakeParticleSystem.dispose();
 
     // Clean up auras (drain and gain)
     this.auraRenderSystem.dispose();

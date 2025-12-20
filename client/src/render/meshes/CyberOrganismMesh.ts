@@ -1,7 +1,14 @@
 // ============================================
 // Cyber-Organism Renderer (Stage 3)
 // Segmented creature with head, body pods, spiked tail, and 6 legs
-// Built for XZ plane top-down view (dorsal faces +Z, which becomes +Y after rotation)
+//
+// Local coordinate system (no baked-in rotation):
+// - X axis: body axis (head at -X, tail at +X) = forward direction
+// - Y axis: leg direction (left leg +Y, right leg -Y) = right direction
+// - Z axis: dorsal direction (+Z = dorsal/top) = up direction
+//
+// Orientation is applied externally by orientHexapodToSurface() based on
+// sphere position and heading. Legs curve toward -Z (toward sphere center).
 // ============================================
 
 import * as THREE from 'three';
@@ -196,11 +203,15 @@ function calculateLegGait(
 }
 
 /**
- * Create the cyber-organism
- * Built for top-down XZ plane view:
+ * Create the cyber-organism mesh
+ *
+ * Local coordinate system (no baked rotation):
  * - Body extends along local X axis (head at -X, tail at +X)
- * - Dorsal (top) faces local +Z (becomes world +Y after rotation, toward camera)
- * - Legs extend in local ±Y (becomes world ±Z after rotation, on ground plane)
+ * - Dorsal (top) faces local +Z (will be oriented toward surface normal)
+ * - Legs extend in local ±Y (perpendicular to body and dorsal)
+ * - Leg feet curve toward local -Z (toward sphere center when oriented)
+ *
+ * Orientation is handled by orientHexapodToSurface() in PlayerRenderSystem.
  */
 export function createCyberOrganism(radius: number, colorHex: number): THREE.Group {
   const group = new THREE.Group();
@@ -347,9 +358,9 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     bodyGroup.add(right);
   });
 
-  // Rotate for top-down view
-  group.rotation.order = 'XZY';
-  group.rotation.x = -Math.PI / 2;
+  // NOTE: No rotation applied here - orientation is handled by orientHexapodToSurface()
+  // in PlayerRenderSystem based on sphere position and heading direction.
+  // Mesh local axes: X = forward (body axis), Y = right/left (leg direction), Z = up (dorsal)
 
   return group;
 }
@@ -425,17 +436,14 @@ export function updateCyberOrganismAnimation(
   const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
-  // Initialize walk cycle counter and base Y position on first call
+  // Initialize walk cycle counter on first call
   if (group.userData.walkCycle === undefined) {
     group.userData.walkCycle = 0;
   }
-  if (group.userData.baseY === undefined) {
-    group.userData.baseY = group.position.y;
-  }
 
-  // Float animation (subtle bobbing in world Y) - use absolute positioning to prevent drift
-  const floatOffset = Math.sin(time) * radius * CONFIG.ANIMATION.floatAmplitude * 0.1;
-  group.position.y = group.userData.baseY + floatOffset;
+  // Note: Float animation removed - cyber_organism lives on sphere surface where
+  // group.position is a 3D coordinate. Modifying Y would break sphere positioning.
+  // Float/bob effects could be applied along surface normal if desired.
 
   // Tail sway (Z direction in local space)
   const tip = group.userData.tailTip as THREE.Mesh | undefined;
@@ -507,11 +515,11 @@ export function updateCyberOrganismAnimation(
       }
     });
 
-    // Body secondary motion: subtle bob and sway synced to gait
-    const bodyBob = Math.sin(walkCycle * Math.PI * 2) * radius * CONFIG.GAIT.bodyBob;
+    // Body secondary motion: subtle sway synced to gait
+    // Note: Body bob removed - in sphere mode, group.position is a 3D coordinate
+    // and modifying Y would break sphere positioning
     const bodySway = Math.sin(walkCycle * Math.PI) * radius * CONFIG.GAIT.bodySway;
-    bodyGroup.position.y = bodySway; // Lateral sway in local space
-    group.position.y = group.userData.baseY + floatOffset + bodyBob; // Combine float + bob
+    bodyGroup.position.y = bodySway; // Lateral sway in local space (child group, not main position)
 
     // Debug logging (only for one leg to avoid spam)
     if (CONFIG.DEBUG.gait) {

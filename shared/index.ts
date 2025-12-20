@@ -9,6 +9,9 @@ export * from './ecs';
 // Math utilities - geometry and spatial algorithms
 export * from './math';
 
+// Sphere math utilities - spherical world physics
+export * from './sphereMath';
+
 // Game constants (GAME_CONFIG, DEV_TUNABLE_CONFIGS)
 export * from './constants';
 

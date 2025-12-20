@@ -1,10 +1,10 @@
 // ============================================
 // Gravity System
-// Applies gravitational forces from obstacles to entities
+// Applies gravitational forces from obstacles to entities on sphere surface
 // ============================================
 
 import type { Server } from 'socket.io';
-import { type World } from '#shared';
+import { type World, distanceForMode, tangentToward, makeTangent, type Vec3 } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,
@@ -19,7 +19,7 @@ import {
   Components,
   type SpawnImmunityComponent,
 } from '../index';
-import { distance, isJungleStage } from '../../helpers';
+import { isJungleStage } from '../../helpers';
 import { getConfig } from '../../dev';
 import { logSingularityCrush, logGravityDebug } from '../../logger';
 import { isBot } from '../../bots';
@@ -57,11 +57,13 @@ export class GravitySystem implements System {
       // Stage 3+ players don't interact with soup obstacles (they've transcended)
       if (isJungleStage(stageComponent.stage)) return;
 
-      const playerPos = { x: positionComponent.x, y: positionComponent.y };
+      // Build 3D player position on sphere
+      const playerPos: Vec3 = { x: positionComponent.x, y: positionComponent.y, z: positionComponent.z ?? 0 };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
       forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
-        const dist = distance(playerPos, obstaclePos);
+        // Use mode-aware distance (geodesic for sphere, Euclidean for flat)
+        const dist = distanceForMode(playerPos, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Instant death at inner spark (energy-only: energy = 0)
@@ -98,22 +100,28 @@ export class GravitySystem implements System {
         const distSq = Math.max(dist * dist, 100);
 
         // Scale gravity strength for pixels/second velocity units
+        // Same multiplier for both modes - nearby geodesic distance ≈ Euclidean distance
         const gravityStrength = obstacle.strength * 100000000;
         const forceMagnitude = gravityStrength / distSq;
 
-        // Direction FROM player TO obstacle (attraction)
-        const dx = obstaclePos.x - playerPos.x;
-        const dy = obstaclePos.y - playerPos.y;
-        const dirLength = Math.sqrt(dx * dx + dy * dy);
+        // Use tangent direction on sphere surface toward obstacle
+        const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
+        const gravityDir = tangentToward(playerPos, obstaclePos3D);
 
-        if (dirLength === 0) return;
+        // Apply gravitational acceleration (tangent to sphere)
+        velocityComponent.x += gravityDir.x * forceMagnitude * deltaTime;
+        velocityComponent.y += gravityDir.y * forceMagnitude * deltaTime;
+        velocityComponent.z = (velocityComponent.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
 
-        const dirX = dx / dirLength;
-        const dirY = dy / dirLength;
-
-        // Accumulate gravitational acceleration into velocity
-        velocityComponent.x += dirX * forceMagnitude * deltaTime;
-        velocityComponent.y += dirY * forceMagnitude * deltaTime;
+        // Keep velocity tangent to sphere surface
+        const tangentVel = makeTangent(playerPos, {
+          x: velocityComponent.x,
+          y: velocityComponent.y,
+          z: velocityComponent.z ?? 0,
+        });
+        velocityComponent.x = tangentVel.x;
+        velocityComponent.y = tangentVel.y;
+        velocityComponent.z = tangentVel.z;
 
         // DEBUG: Log gravity forces
         if (!isBot(playerId)) {
@@ -129,12 +137,15 @@ export class GravitySystem implements System {
       const swarmFrictionFactor = Math.pow(getConfig('MOVEMENT_FRICTION'), deltaTime);
       swarmVelocityComp.x *= swarmFrictionFactor;
       swarmVelocityComp.y *= swarmFrictionFactor;
+      swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) * swarmFrictionFactor;
 
-      const swarmPosition = { x: swarmPosComp.x, y: swarmPosComp.y };
+      // Build 3D swarm position on sphere
+      const swarmPosition: Vec3 = { x: swarmPosComp.x, y: swarmPosComp.y, z: swarmPosComp.z ?? 0 };
 
       // Accumulate gravity forces from all obstacles (using ECS query)
       forEachObstacle(world, (_obstacleEntity, obstaclePos, obstacle) => {
-        const dist = distance(swarmPosition, obstaclePos);
+        // Use geodesic distance on sphere
+        const dist = distanceForMode(swarmPosition, obstaclePos);
         if (dist > obstacle.radius) return; // Outside event horizon
 
         // Swarms are IMMUNE to singularity death spark - they pass through unharmed
@@ -148,19 +159,24 @@ export class GravitySystem implements System {
         const gravityStrength = obstacle.strength * 100000000;
         const forceMagnitude = (gravityStrength / distSq) * 0.2; // 20% gravity
 
-        // Direction FROM swarm TO obstacle (attraction)
-        const dx = obstaclePos.x - swarmPosition.x;
-        const dy = obstaclePos.y - swarmPosition.y;
-        const dirLength = Math.sqrt(dx * dx + dy * dy);
+        // Use tangent direction on sphere surface toward obstacle
+        const obstaclePos3D: Vec3 = { x: obstaclePos.x, y: obstaclePos.y, z: obstaclePos.z ?? 0 };
+        const gravityDir = tangentToward(swarmPosition, obstaclePos3D);
 
-        if (dirLength === 0) return;
+        // Apply gravitational acceleration (tangent to sphere)
+        swarmVelocityComp.x += gravityDir.x * forceMagnitude * deltaTime;
+        swarmVelocityComp.y += gravityDir.y * forceMagnitude * deltaTime;
+        swarmVelocityComp.z = (swarmVelocityComp.z ?? 0) + gravityDir.z * forceMagnitude * deltaTime;
 
-        const dirX = dx / dirLength;
-        const dirY = dy / dirLength;
-
-        // Accumulate gravitational acceleration into velocity (mutate ECS component)
-        swarmVelocityComp.x += dirX * forceMagnitude * deltaTime;
-        swarmVelocityComp.y += dirY * forceMagnitude * deltaTime;
+        // Keep velocity tangent to sphere surface
+        const tangentVel = makeTangent(swarmPosition, {
+          x: swarmVelocityComp.x,
+          y: swarmVelocityComp.y,
+          z: swarmVelocityComp.z ?? 0,
+        });
+        swarmVelocityComp.x = tangentVel.x;
+        swarmVelocityComp.y = tangentVel.y;
+        swarmVelocityComp.z = tangentVel.z;
       });
     });
   }

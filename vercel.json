@@ -3,5 +3,10 @@
   "buildCommand": "npm install && npm run build:client",
   "outputDirectory": "dist/client",
   "installCommand": "npm install",
-  "framework": null
+  "framework": null,
+  "git": {
+    "deploymentEnabled": {
+      "staging": true
+    }
+  }
 }

@@ -9,8 +9,8 @@
 
 import type { Server } from 'socket.io';
 import type { Nutrient, Position, World, NutrientSpawnedMessage } from '#shared';
-import { GAME_CONFIG } from '#shared';
-import { createNutrient, getNutrientCount, getAllObstacleSnapshots } from './ecs';
+import { GAME_CONFIG, getRandomSpherePosition, distanceForMode } from '#shared';
+import { createNutrient, getNutrientCount, getAllObstacleSnapshots, forEachObstacle } from './ecs';
 import {
   isNutrientSpawnSafe,
   calculateNutrientValueMultiplier,
@@ -130,7 +130,7 @@ export function spawnNutrientAt(
   // Build nutrient data for return/broadcast
   const nutrient: Nutrient = {
     id,
-    position: { x: position.x, y: position.y },
+    position: { x: position.x, y: position.y, z: position.z ?? 0 },
     value,
     capacityIncrease,
     valueMultiplier,
@@ -150,6 +150,38 @@ export function spawnNutrientAt(
 }
 
 /**
+ * Spawn a nutrient at a random position on the sphere surface
+ * Uses rejection sampling to avoid spawning inside obstacle event horizons
+ */
+export function spawnSphereNutrient(emitEvent: boolean = false): Nutrient {
+  assertInitialized();
+  const sphereRadius = GAME_CONFIG.SPHERE_RADIUS;
+  const maxAttempts = 20;
+  const MIN_DIST_FROM_OBSTACLE_CORE = 180; // Avoid inner event horizon
+
+  let position = getRandomSpherePosition(sphereRadius);
+
+  // Try to find a safe position not inside obstacle event horizon
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = getRandomSpherePosition(sphereRadius);
+
+    let tooClose = false;
+    forEachObstacle(world, (_entity, obstaclePos) => {
+      if (distanceForMode(candidate, obstaclePos) < MIN_DIST_FROM_OBSTACLE_CORE) {
+        tooClose = true;
+      }
+    });
+
+    if (!tooClose) {
+      position = candidate;
+      break;
+    }
+  }
+
+  return spawnNutrientAt(position, undefined, emitEvent);
+}
+
+/**
  * Schedule a nutrient to respawn after delay
  */
 export function respawnNutrient(nutrientId: string): void {
@@ -160,7 +192,7 @@ export function respawnNutrient(nutrientId: string): void {
   }
 
   const timer = setTimeout(() => {
-    spawnNutrient(true); // emitEvent=true for spawn animations
+    spawnSphereNutrient(true); // emitEvent=true for spawn animations
     nutrientRespawnTimers.delete(nutrientId);
   }, getConfig('NUTRIENT_RESPAWN_TIME'));
 

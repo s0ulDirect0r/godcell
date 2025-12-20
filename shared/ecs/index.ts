@@ -53,4 +53,8 @@ export type {
   PendingRespawnComponent,
   AbilityIntentComponent,
   PendingExpirationComponent,
+  // World/Sphere components
+  SphereContextComponent,
+  IntangibleComponent,
+  CameraFacingComponent,
 } from './components';
