@@ -38,6 +38,7 @@ export type {
   DataFruitComponent,
   CyberBugComponent,
   JungleCreatureComponent,
+  EntropySerpentComponent,
   ProjectileComponent,
   TrapComponent,
   // Ability components

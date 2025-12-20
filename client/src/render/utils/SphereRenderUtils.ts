@@ -4,7 +4,7 @@
 // ============================================
 
 import * as THREE from 'three';
-import { GAME_CONFIG, getSurfaceNormal, type Position } from '#shared';
+import { GAME_CONFIG, getSurfaceNormal, toVec3, type Position } from '#shared';
 
 const PLANET_RADIUS = GAME_CONFIG.SPHERE_RADIUS;
 
@@ -23,7 +23,7 @@ export function setMeshPosition(
 ): void {
   // Spherical world: position directly, add height along surface normal
   if (heightOffset !== 0) {
-    const normal = getSurfaceNormal(pos);
+    const normal = getSurfaceNormal(toVec3(pos));
     mesh.position.set(
       pos.x + normal.x * heightOffset,
       pos.y + normal.y * heightOffset,
@@ -42,7 +42,7 @@ export function setMeshPosition(
  * @param pos - Game position on sphere surface
  */
 export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
-  const normal = getSurfaceNormal(pos);
+  const normal = getSurfaceNormal(toVec3(pos));
 
   // Create a quaternion that rotates from world up (0,1,0) to surface normal
   const up = new THREE.Vector3(0, 1, 0);
@@ -71,7 +71,7 @@ export function orientToSurface(mesh: THREE.Object3D, pos: Position): void {
  * @param pos - Game position on sphere surface
  */
 export function orientFlatToSurface(mesh: THREE.Object3D, pos: Position): void {
-  const normal = getSurfaceNormal(pos);
+  const normal = getSurfaceNormal(toVec3(pos));
   const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
   // We want the mesh's local -Z to point along surface normal
@@ -132,7 +132,7 @@ export function getSphereCameraPosition(
   playerPos: Position,
   cameraDistance: number
 ): { position: THREE.Vector3; up: THREE.Vector3 } {
-  const normal = getSurfaceNormal(playerPos);
+  const normal = getSurfaceNormal(toVec3(playerPos));
   const normalVec = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
   // Camera position: above player along surface normal
@@ -172,7 +172,7 @@ export function localToWorldDirection(
   playerPos: Position,
   cameraUp: THREE.Vector3
 ): { x: number; y: number; z: number } {
-  const normal = getSurfaceNormal(playerPos);
+  const normal = getSurfaceNormal(toVec3(playerPos));
   const normalVec = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
   // Forward direction is camera's up (projected onto surface tangent)
@@ -221,7 +221,7 @@ export function orientHexapodToSurface(
   pos: Position,
   headingDir: THREE.Vector3
 ): void {
-  const normal = getSurfaceNormal(pos);
+  const normal = getSurfaceNormal(toVec3(pos));
   const surfaceNormal = new THREE.Vector3(normal.x, normal.y, normal.z ?? 0);
 
   // Step 1: Get surface orientation (local +Z -> surface normal)

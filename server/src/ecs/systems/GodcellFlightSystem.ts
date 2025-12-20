@@ -60,6 +60,10 @@ export class GodcellFlightSystem implements System {
       const vel = requireVelocity(world, entity);
       const input = requireInput(world, entity);
 
+      // Ensure z is always defined for 3D flight (Godcells use full 3D space)
+      if (pos.z === undefined) pos.z = 0;
+      if (vel.z === undefined) vel.z = 0;
+
       // Skip dead players
       if (energyComponent.current <= 0) return;
 
@@ -164,7 +168,11 @@ export class GodcellFlightSystem implements System {
       // Check for sphere collision (unless intangible/phasing)
       const isIntangible = world.hasComponent(entity, Components.Intangible);
       if (!isIntangible) {
-        this.handleSphereCollision(pos, vel);
+        // pos.z and vel.z are guaranteed to be defined after initialization above
+        this.handleSphereCollision(
+          pos as { x: number; y: number; z: number },
+          vel as { x: number; y: number; z: number }
+        );
       }
 
       // Broadcast position update to all clients

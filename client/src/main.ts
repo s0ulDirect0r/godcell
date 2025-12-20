@@ -36,8 +36,8 @@ let renderer: ThreeRenderer;
 let hudOverlay: HUDOverlay;
 let devPanel: DevPanel | null = null;
 let debugOverlay: DebugOverlay | null = null;
-let ecsXRayPanel: ECSXRayPanel | null = null;
-let entitySelector: EntitySelector | null = null;
+const ecsXRayPanel: ECSXRayPanel | null = null;
+const entitySelector: EntitySelector | null = null;
 let perfMonitor: PerformanceMonitor;
 let gameStarted = false;
 

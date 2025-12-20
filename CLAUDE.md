@@ -50,6 +50,25 @@ Focus on **concrete code edits** and **small, coherent diffs**. Avoid essays and
 - Explain where you changed things using file and symbol names.
 - When unsure, propose a small change and note tradeoffs in a few sentences.
 
+### Work Discipline
+
+**Work Unit Sizing:**
+- Plan work to complete in one session (plan → implement → test → commit)
+- If too big, break into multiple PRs during planning
+- Don't start work that can't finish before compaction
+
+**Communication (Clarity Over Compliance):**
+- If a request is ambiguous, **ask BEFORE implementing**—not after
+- If something doesn't make sense, **say so**: "I'm confused about X because Y"
+- If you see a problem, **push back**: "That might cause X—are you sure?"
+- Before significant work, **state your understanding** in one sentence
+- One clarifying question early > implementing the wrong thing
+
+**Commits:**
+- Single line, imperative mood, ~50 chars
+- NO AI attribution, NO co-author lines, NO emoji
+- Write it like a human developer would
+
 ---
 
 ## 2. Project Overview: GODCELL

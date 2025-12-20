@@ -641,8 +641,8 @@ export interface PlayerSnapshot {
   socketId: string;
   name: string;
   color: string;
-  position: { x: number; y: number };
-  velocity: { x: number; y: number };
+  position: { x: number; y: number; z?: number };
+  velocity: { x: number; y: number; z?: number };
   energy: number;
   maxEnergy: number;
   stage: EvolutionStage;
@@ -1895,8 +1895,8 @@ export function buildSwarmsRecord(world: World): Record<
     if (pos && vel && swarm && energy && id) {
       result[id] = {
         id,
-        position: { x: pos.x, y: pos.y, z: pos.z },
-        velocity: { x: vel.x, y: vel.y, z: vel.z },
+        position: { x: pos.x, y: pos.y }, // Swarms are 2D entities
+        velocity: { x: vel.x, y: vel.y },
         size: swarm.size,
         state: swarm.state,
         targetPlayerId: swarm.targetPlayerId,

@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { Player, EvolutionStage, DamageSource } from '#shared';
-import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum, getSurfaceNormal } from '#shared';
+import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum, getSurfaceNormal, toVec3 } from '#shared';
 import {
   World,
   Tags,
@@ -394,7 +394,7 @@ export class PlayerRenderSystem {
             orientHexapodToSurface(cellGroup, player.position, heading);
 
             // Add height offset along surface normal (legs extend below body)
-            const normal = getSurfaceNormal(player.position);
+            const normal = getSurfaceNormal(toVec3(player.position));
             const heightOffset = 5;
             cellGroup.position.x += normal.x * heightOffset;
             cellGroup.position.y += normal.y * heightOffset;
