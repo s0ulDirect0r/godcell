@@ -1,0 +1,5 @@
+=== SESSION START ===
+- For non-trivial work: Read SYSTEM_DESIGN.md first
+- Check beads for related/blocking issues
+- Confirm understanding before writing code
+- If unclear, ask questions first

@@ -13,8 +13,10 @@ import {
 import {
   updateGravityWellCache,
   getGravityWellCache,
+  updateGridLineDistortion,
+  createSubdividedLine,
 } from '../utils/GravityDistortionUtils';
-import { World, Tags, Components } from '../../ecs';
+import { World, Tags, Components, type PositionComponent } from '../../ecs';
 
 export type RenderMode = 'soup' | 'jungle';
 
@@ -1529,7 +1531,7 @@ export class EnvironmentSystem {
     this.world.forEachWithTag(Tags.Player, (entity) => {
       if (positions.length >= SURFACE_FLOW_CONFIG.maxEntities) return;
 
-      const pos = this.world.getComponent(entity, Components.Position);
+      const pos = this.world.getComponent<PositionComponent>(entity, Components.Position);
       if (pos) {
         positions.push(new THREE.Vector3(pos.x, pos.y, pos.z ?? 0));
       }

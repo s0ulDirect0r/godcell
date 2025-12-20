@@ -43,7 +43,7 @@ import type {
   EntropySerpentAttackMessage,
   EntropySerpentDamagedMessage,
   EntropySerpentKilledMessage,
-  EntropySerpentRespawnedMessage,
+  EntropySerpentSpawnedMessage,
   ProjectileSpawnedMessage,
   ProjectileHitMessage,
   ProjectileRetractedMessage,
@@ -640,7 +640,7 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
-    this.socket.on('entropySerpentSpawned', (data: EntropySerpentRespawnedMessage) => {
+    this.socket.on('entropySerpentSpawned', (data: EntropySerpentSpawnedMessage) => {
       // Emit event for visual effects (respawn animation)
       eventBus.emit(data);
     });

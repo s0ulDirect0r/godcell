@@ -87,6 +87,7 @@ function createCyberOrganism(
   // Add combat specialization
   world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
     specialization,
+    selectionPending: false,
   });
 
   // Set energy if specified

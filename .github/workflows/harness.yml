@@ -1,0 +1,30 @@
+# Harness CI - Type check, lint, and test
+# Runs on push to main/staging and on PRs
+
+name: Harness
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run harness (typecheck + lint + test)
+        run: npm run harness

@@ -5,7 +5,14 @@
 // ============================================
 
 import * as THREE from 'three';
-import { World, Tags, Components, GAME_CONFIG } from '../../ecs';
+import {
+  World,
+  Tags,
+  Components,
+  GAME_CONFIG,
+  type PositionComponent,
+  type VelocityComponent,
+} from '../../ecs';
 
 // ============================================
 // Configuration
@@ -114,8 +121,8 @@ export class WakeParticleSystem {
     world.forEachWithTag(Tags.Player, (entity) => {
       seenEntities.add(entity);
 
-      const pos = world.getComponent(entity, Components.Position);
-      const vel = world.getComponent(entity, Components.Velocity);
+      const pos = world.getComponent<PositionComponent>(entity, Components.Position);
+      const vel = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!pos || !vel) return;
 
       // Calculate speed

@@ -21,7 +21,8 @@ type ClientEvent =
   | { type: 'client:selectSpecialization'; specialization: CombatSpecialization }
   | { type: 'client:meleeAttack'; attackType: MeleeAttackType; targetX: number; targetY: number }
   | { type: 'client:placeTrap' }
-  | { type: 'client:projectileFire'; targetX: number; targetY: number };
+  | { type: 'client:projectileFire'; targetX: number; targetY: number }
+  | { type: 'client:toggleFullscreen' };
 
 // All possible events = server messages + client-only events
 export type GameEvent = ServerMessage | ClientEvent;

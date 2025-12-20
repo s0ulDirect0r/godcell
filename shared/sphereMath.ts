@@ -16,6 +16,14 @@ export interface Vec3 {
 }
 
 /**
+ * Convert a Position (with optional z) to Vec3 (with required z)
+ * Defaults z to 0 if not specified
+ */
+export function toVec3(pos: { x: number; y: number; z?: number }): Vec3 {
+  return { x: pos.x, y: pos.y, z: pos.z ?? 0 };
+}
+
+/**
  * Project a position to the sphere surface
  * Returns a new position on the sphere with the same direction from center
  */
