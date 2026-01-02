@@ -1,6 +1,6 @@
 # SYSTEM_DESIGN.md
 
-Technical architecture documentation for the GODCELL game. Last updated: Dec 18, 2025.
+Technical architecture documentation for the GODCELL game. Last updated: Jan 2, 2026.
 
 ---
 
@@ -151,7 +151,9 @@ All component interfaces defined in one place:
 | **Input**                | Movement intent          | `direction: {x, y, z?}`                                                     |
 | **Sprint**               | Sprint state             | `isSprinting`                                                               |
 | **Stunned**              | Stun effect              | `until` (timestamp)                                                         |
+| **SpawnImmunity**        | Post-respawn immunity    | `until` (timestamp)                                                         |
 | **Cooldowns**            | Ability cooldowns        | `lastEMPTime?, lastPseudopodTime?, lastMeleeSwipeTime?, lastTrapPlaceTime?` |
+| **CameraFacing**         | Stage 5 input transform  | `yaw, pitch` (radians)                                                      |
 | **DamageTracking**       | Damage sources           | `lastDamageSource?, activeDamage[]`                                         |
 | **DrainTarget**          | Being drained by         | `predatorId`                                                                |
 | **CombatSpecialization** | Stage 3 combat path      | `specialization: melee\|ranged\|traps, selectionPending`                    |
@@ -168,6 +170,15 @@ All component interfaces defined in one place:
 | **Projectile**           | Ranged spec attack       | `ownerId, damage, speed, maxDistance, state`                                |
 | **Trap**                 | Traps spec mine          | `ownerId, damage, stunDuration, triggerRadius, lifetime`                    |
 | **PendingRespawn**       | Deferred entity creation | `respawnAt, entityType, stage?, position?, metadata?`                       |
+| **AbilityIntent**        | Tick-based ability exec  | `abilityType, targetX?, targetY?, meleeAttackType?` (discriminated union)   |
+| **PendingExpiration**    | Deferred entity cleanup  | `expiresAt` (timestamp)                                                     |
+
+**Sphere Mode Components**:
+
+| Component         | Purpose                | Key Fields                               |
+| ----------------- | ---------------------- | ---------------------------------------- |
+| **SphereContext** | Sphere surface binding | `surfaceRadius` (number\|null), `isInnerSurface` (boolean) |
+| **Intangible**    | Phase shift marker     | (presence indicates phase shift active)  |
 
 **Ability Markers** (presence = ability unlocked):
 
@@ -625,6 +636,24 @@ At Stage 3, players choose one of three combat specializations (locked for that 
 - **Ranged**: LMB (fire at cursor)
 - **Traps**: RMB (place at cursor)
 
+### Stage 5 Godcell Flight
+
+At Stage 5, players gain true 3D flight capabilities:
+
+| Input     | Action                                      |
+| --------- | ------------------------------------------- |
+| WASD      | Movement relative to camera facing          |
+| Q         | Ascend (positive Z)                         |
+| E         | Descend (negative Z)                        |
+| Shift     | Phase shift (pass through sphere surfaces)  |
+| Mouse     | Camera look (yaw/pitch sent to server)      |
+
+**Flight Mechanics:**
+- Position is NOT projected to sphere surface (true 3D movement)
+- Camera facing determines input transform (server-side via `CameraFacingComponent`)
+- Phase shift toggles `IntangibleComponent` to pass through spheres
+- No energy decay (transcends thermodynamics)
+
 ---
 
 ## 7. World Layout (Sphere Architecture)
@@ -634,7 +663,7 @@ The game world consists of three concentric spheres. Players exist on the outer 
 ```
                     ┌─────────────────────────────┐
                    ╱                               ╲
-                  ╱   GOD SPHERE (r=14688)          ╲
+                  ╱   GOD SPHERE (r=29376)          ╲
                  ╱         Stage 5 flight           ╲
                 ╱                                    ╲
                │     ┌───────────────────┐           │
@@ -663,7 +692,7 @@ The game world consists of three concentric spheres. Players exist on the outer 
 | ------------ | ------ | --------------------------------------------------- |
 | **Soup**     | 2,448  | Stage 1-2: Nutrients, gravity wells, entropy swarms |
 | **Jungle**   | 9,792  | Stage 3+: Trees, data fruits, fauna, serpents       |
-| **God**      | 14,688 | Stage 5: 3D flight space                            |
+| **God**      | 29,376 | Stage 5: 3D flight space (12x soup radius)          |
 
 **Key Characteristics:**
 - All movement is tangent to the sphere surface (except Stage 5 flight)
@@ -746,6 +775,9 @@ Position changes broadcast to all clients
 | `projectileFire`       | Ranged spec: fire at target (Stage 3+)        |
 | `meleeAttack`          | Melee spec: swipe/thrust attack (Stage 3+)    |
 | `placeTrap`            | Traps spec: place mine at position (Stage 3+) |
+| `phaseShift`           | Toggle intangibility (Stage 5)                |
+| `cameraFacing`         | Camera yaw/pitch for 3D flight (Stage 5)      |
+| `clientLog`            | Forward client logs to server                 |
 | `devCommand`           | Dev panel commands                            |
 
 ### Server → Client
