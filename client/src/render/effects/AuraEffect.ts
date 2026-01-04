@@ -30,7 +30,7 @@ export function createCellAura(cellRadius: number): THREE.Group {
     opacity: 0.3, // Base visibility (will be animated by applyAuraIntensity)
     side: THREE.BackSide, // Render inside of outer sphere
     depthWrite: false,
-    depthTest: false,
+    depthTest: true, // Enable depth test so auras are occluded by closer geometry
   });
 
   const outerMesh = new THREE.Mesh(outerGeometry, outerMaterial);
@@ -46,7 +46,7 @@ export function createCellAura(cellRadius: number): THREE.Group {
     opacity: 0.3, // Base visibility (will be animated by applyAuraIntensity)
     side: THREE.FrontSide, // Render outside of inner sphere
     depthWrite: false,
-    depthTest: false,
+    depthTest: true, // Enable depth test so auras are occluded by closer geometry
   });
 
   const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
