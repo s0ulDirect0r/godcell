@@ -29,7 +29,7 @@ export function createGainAura(cellRadius: number, color: number = 0x00ffff): TH
     opacity: 0.0, // Starts invisible
     side: THREE.BackSide, // Render inside
     depthWrite: false,
-    depthTest: false,
+    depthTest: true, // Enable depth test so auras are occluded by closer geometry
   });
 
   const mesh = new THREE.Mesh(geometry, material);
