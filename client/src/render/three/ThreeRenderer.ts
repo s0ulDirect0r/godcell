@@ -42,10 +42,7 @@ import {
   type ObstacleComponent,
 } from '../../ecs';
 import { frameLerp } from '../../utils/math';
-import {
-  applySphereVisibilityCulling,
-  type SphereVisibilityCullingResult,
-} from '../utils/SphereRenderUtils';
+import { applySphereVisibilityCulling } from '../utils/SphereRenderUtils';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -972,16 +969,7 @@ export class ThreeRenderer implements Renderer {
     this.noBloomRenderPass.camera = camera;
 
     // Apply sphere-based visibility culling to hide entities on far side of sphere
-    // This significantly reduces draw calls and triangle count for better FPS
-    this._lastCullingResult = applySphereVisibilityCulling(this.scene, camera);
-
-    // Log culling startup once to confirm it's running
-    if (!this._cullingStartupLogged && this._lastCullingResult.totalChecked > 0) {
-      console.log(
-        `[Culling] Started: checked=${this._lastCullingResult.totalChecked} culled=${this._lastCullingResult.culled} visible=${this._lastCullingResult.visible}`
-      );
-      this._cullingStartupLogged = true;
-    }
+    applySphereVisibilityCulling(this.scene, camera);
 
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
@@ -1044,43 +1032,9 @@ export class ThreeRenderer implements Renderer {
       const vp = this.renderer.getSize(new THREE.Vector2());
       const pixels = vp.x * vp.y;
 
-      // Sphere culling stats
-      const cullStats = this._lastCullingResult;
-      const cullStr = cullStats
-        ? `culled=${cullStats.culled}/${cullStats.totalChecked}`
-        : 'culled=N/A';
-
       console.log(
-        `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | ${cullStr} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
+        `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
       );
-
-      // Detailed entity breakdown (every 5th perf log = ~5 seconds)
-      this._perfBreakdownCount = (this._perfBreakdownCount || 0) + 1;
-      if (this._perfBreakdownCount >= 5) {
-        this._perfBreakdownCount = 0;
-        const breakdown = {
-          players: this.playerRenderSystem.getMeshCount(),
-          nutrients: this.nutrientRenderSystem.getMeshCount(),
-          obstacles: this.obstacleRenderSystem.getMeshCount(),
-          swarms: this.swarmRenderSystem.getMeshCount(),
-          pseudopods: this.pseudopodRenderSystem.getMeshCount(),
-          trees: this.treeRenderSystem.getMeshCount(),
-          fruits: this.dataFruitRenderSystem.getMeshCount(),
-          bugs: this.cyberBugRenderSystem.getMeshCount(),
-          creatures: this.jungleCreatureRenderSystem.getMeshCount(),
-          serpents: this.entropySerpentRenderSystem.getMeshCount(),
-          projectiles: this.projectileRenderSystem.getMeshCount(),
-          traps: this.trapRenderSystem.getMeshCount(),
-        };
-        const entityTotal = Object.values(breakdown).reduce((a, b) => a + b, 0);
-        console.log(
-          `[PERF BREAKDOWN] entities=${entityTotal} vs meshes=${meshCount} | ` +
-            Object.entries(breakdown)
-              .filter(([_, v]) => v > 0)
-              .map(([k, v]) => `${k}=${v}`)
-              .join(' ')
-        );
-      }
 
       this._perfFrameCount = 0;
       this._perfRenderTimeSum = 0;
@@ -1092,10 +1046,7 @@ export class ThreeRenderer implements Renderer {
   private _perfFrameCount?: number;
   private _perfLastTime?: number;
   private _perfRenderTimeSum?: number;
-  private _perfBreakdownCount?: number;
   private _camDebugCount?: number;
-  private _lastCullingResult?: SphereVisibilityCullingResult;
-  private _cullingStartupLogged?: boolean;
 
   /**
    * Set the render mode (soup vs jungle world)
