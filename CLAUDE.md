@@ -292,10 +292,43 @@ Server uses Pino with 3 separate log files, each with rotation (10MB max, 5 old 
 | Logger         | File                   | Purpose                                              |
 | -------------- | ---------------------- | ---------------------------------------------------- |
 | `logger`       | `logs/server.log`      | Game events (deaths, evolutions, spawns, game state) |
-| `perfLogger`   | `logs/performance.log` | Performance metrics (FPS, draw calls, entity counts) |
+| `perfLogger`   | `logs/performance.log` | Performance metrics (server ticks AND client render) |
 | `clientLogger` | `logs/client.log`      | Forwarded client debug info (camera, errors)         |
 
 All loggers output to rotating JSON file. In development, also outputs to console via pino-pretty.
+
+**Client Log Forwarding:**
+
+Client `console.log/warn/error` calls are intercepted and forwarded to the server via socket (see `setupLogForwarding` in `main.ts`). The server routes logs based on content (see `clientLog` handler in `server/src/index.ts`):
+- `[PERF]` prefixed logs → `performance.log` (but check `client.log` too if not found)
+- Other client logs → `client.log`
+
+**Working with Logs (for Claude):**
+
+1. **Always check server logs first** - don't ask user to look at browser console. Logs are forwarded.
+2. **Logs rotate** - files use `.N.log` suffix (e.g., `client.1.log`, `client.2.log`). Always grep across `*.log` pattern.
+3. **To add client-side diagnostics**: Just use `console.log()` - it auto-forwards to server.
+4. **Logs are JSON** - use `jq -r '.msg'` to extract readable message, or `jq '.'` for full structured data.
+5. **Search all logs**: `grep -r "pattern" logs/` when unsure which file contains what you need.
+
+**Common log queries:**
+
+```bash
+# Client render performance (FPS, meshes, draw calls)
+grep -h "PERF" logs/performance.*.log logs/client.*.log | tail -20 | jq -r '.msg'
+
+# Server tick performance
+grep -h "Tick stats" logs/performance.*.log | tail -10 | jq -r '.msg'
+
+# Search all logs for a pattern
+grep -r "BREAKDOWN" logs/ | head -20
+
+# Game events (deaths, evolutions)
+grep -h "event" logs/server.*.log | tail -20 | jq -r '.msg'
+
+# Client errors
+grep -h "error" logs/client.*.log | tail -10 | jq -r '.msg'
+```
 
 **Usage:**
 

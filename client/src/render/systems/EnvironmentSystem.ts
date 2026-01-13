@@ -783,6 +783,8 @@ export class EnvironmentSystem {
   private createSphereEnvironment(): void {
     this.sphereBackgroundGroup = new THREE.Group();
     this.sphereBackgroundGroup.name = 'sphereBackground';
+    // Mark as environment so it's not affected by sphere visibility culling
+    this.sphereBackgroundGroup.userData.isEnvironment = true;
 
     const radius = GAME_CONFIG.SPHERE_RADIUS;
 
