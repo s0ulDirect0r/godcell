@@ -1009,6 +1009,18 @@ export class ThreeRenderer implements Renderer {
       const avgRenderMs = (this._perfRenderTimeSum / 60).toFixed(1);
 
       // Count scene objects
+      // Helper: check effective visibility (parent chain)
+      // Three.js doesn't render children of invisible parents, but their own
+      // `visible` property stays true - we need to check the whole chain
+      const isEffectivelyVisible = (obj: THREE.Object3D): boolean => {
+        let current: THREE.Object3D | null = obj;
+        while (current) {
+          if (!current.visible) return false;
+          current = current.parent;
+        }
+        return true;
+      };
+
       let lightCount = 0;
       let meshCount = 0;
       let visibleMeshes = 0;
@@ -1017,7 +1029,7 @@ export class ThreeRenderer implements Renderer {
         if (obj.type.includes('Light')) lightCount++;
         if (obj.type === 'Mesh') {
           meshCount++;
-          if (obj.visible) {
+          if (isEffectivelyVisible(obj)) {
             visibleMeshes++;
             const mesh = obj as THREE.Mesh;
             if (mesh.geometry) {
