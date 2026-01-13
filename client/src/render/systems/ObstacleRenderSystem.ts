@@ -90,6 +90,9 @@ export class ObstacleRenderSystem {
         // Cache radius for animation
         this.obstacleRadii.set(obstacleId, obstacle.radius);
 
+        // Mark for sphere-based visibility culling
+        group.userData.isSphere = true;
+
         this.scene.add(group);
         this.obstacleMeshes.set(obstacleId, group);
       }

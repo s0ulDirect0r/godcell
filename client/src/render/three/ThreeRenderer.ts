@@ -42,6 +42,7 @@ import {
   type ObstacleComponent,
 } from '../../ecs';
 import { frameLerp } from '../../utils/math';
+import { applySphereVisibilityCulling } from '../utils/SphereRenderUtils';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -844,7 +845,7 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.refreshGravityWellCache();
     }
 
-    this.treeRenderSystem.sync();
+    this.treeRenderSystem.sync(this.environmentSystem.getMode());
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -967,6 +968,9 @@ export class ThreeRenderer implements Renderer {
     this.renderPass.camera = camera;
     this.noBloomRenderPass.camera = camera;
 
+    // Apply sphere-based visibility culling to hide entities on far side of sphere
+    applySphereVisibilityCulling(this.scene, camera);
+
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
 
@@ -993,6 +997,18 @@ export class ThreeRenderer implements Renderer {
       const avgRenderMs = (this._perfRenderTimeSum / 60).toFixed(1);
 
       // Count scene objects
+      // Helper: check effective visibility (parent chain)
+      // Three.js doesn't render children of invisible parents, but their own
+      // `visible` property stays true - we need to check the whole chain
+      const isEffectivelyVisible = (obj: THREE.Object3D): boolean => {
+        let current: THREE.Object3D | null = obj;
+        while (current) {
+          if (!current.visible) return false;
+          current = current.parent;
+        }
+        return true;
+      };
+
       let lightCount = 0;
       let meshCount = 0;
       let visibleMeshes = 0;
@@ -1001,7 +1017,7 @@ export class ThreeRenderer implements Renderer {
         if (obj.type.includes('Light')) lightCount++;
         if (obj.type === 'Mesh') {
           meshCount++;
-          if (obj.visible) {
+          if (isEffectivelyVisible(obj)) {
             visibleMeshes++;
             const mesh = obj as THREE.Mesh;
             if (mesh.geometry) {
@@ -1019,6 +1035,7 @@ export class ThreeRenderer implements Renderer {
       console.log(
         `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
       );
+
       this._perfFrameCount = 0;
       this._perfRenderTimeSum = 0;
       this._perfLastTime = now;

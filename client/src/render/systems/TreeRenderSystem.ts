@@ -56,8 +56,11 @@ export class TreeRenderSystem {
    * Sync trees by querying ECS World directly
    * Creates new meshes for new trees, removes meshes for despawned trees
    * Trees don't move, so only create once
+   * @param renderMode - Current render mode (soup vs jungle)
    */
-  sync(): void {
+  sync(renderMode: 'soup' | 'jungle'): void {
+    // Only render in jungle mode - trees are Stage 3+ entities
+    if (renderMode !== 'jungle') return;
 
     // Track which trees exist in ECS
     const currentTreeIds = new Set<string>();

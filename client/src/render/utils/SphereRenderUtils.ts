@@ -9,6 +9,90 @@ import { GAME_CONFIG, getSurfaceNormal, toVec3, type Position } from '#shared';
 const PLANET_RADIUS = GAME_CONFIG.SPHERE_RADIUS;
 
 /**
+ * Sphere visibility culling result for performance tracking
+ */
+export interface SphereVisibilityCullingResult {
+  totalChecked: number;
+  culled: number;
+  visible: number;
+}
+
+/**
+ * Apply sphere-based visibility culling to scene objects.
+ * Objects on the far side of the sphere (from camera's perspective) are hidden.
+ *
+ * Uses dot product of normalized positions:
+ * - dot > threshold: visible (same side as camera)
+ * - dot <= threshold: culled (far side of sphere)
+ *
+ * @param scene - Three.js scene to cull
+ * @param camera - Active camera (position determines "near" side of sphere)
+ * @param cullThreshold - Dot product threshold for culling (0.2 gives ~78° visibility cone)
+ * @returns Culling statistics for debug logging
+ */
+export function applySphereVisibilityCulling(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  cullThreshold: number = 0.1
+): SphereVisibilityCullingResult {
+  const cameraPos = camera.position;
+  const cameraDirNormalized = cameraPos.clone().normalize();
+
+  let totalChecked = 0;
+  let culled = 0;
+  let visible = 0;
+
+  // Reusable vector for world position calculations
+  const worldPos = new THREE.Vector3();
+
+  // Traverse scene and cull objects on far side of sphere
+  scene.traverse((object) => {
+    // Skip objects that shouldn't be culled:
+    // - Lights (instanceof check)
+    // - Objects marked as environment (userData.isEnvironment)
+    // - Objects marked as noCull
+    // - The camera itself
+
+    if (object instanceof THREE.Light) return;
+    if (object instanceof THREE.Camera) return;
+    if (object.userData.isEnvironment) return;
+    if (object.userData.noCull) return;
+
+    // Only cull Groups that are direct entity containers (have isSphere marker)
+    // This avoids processing individual child meshes and respects group hierarchy
+    if (!(object instanceof THREE.Group)) return;
+    if (!object.userData.isSphere) return;
+
+    // Get world position (accounts for parent transforms)
+    object.getWorldPosition(worldPos);
+
+    // Skip objects at origin (not positioned on sphere)
+    const objDistFromOrigin = worldPos.length();
+    if (objDistFromOrigin < 100) return; // Too close to origin to be on any sphere
+
+    totalChecked++;
+
+    // Calculate dot product of normalized positions
+    const objDirNormalized = worldPos.clone().normalize();
+    const dot = cameraDirNormalized.dot(objDirNormalized);
+
+    // Cull if on far side of sphere (dot product below threshold)
+    if (dot < cullThreshold) {
+      object.visible = false;
+      culled++;
+    } else {
+      // On near side - restore visibility
+      // Render systems that have their own visibility logic (e.g., cross-stage)
+      // will override this in their sync() which runs before culling
+      object.visible = true;
+      visible++;
+    }
+  });
+
+  return { totalChecked, culled, visible };
+}
+
+/**
  * Set mesh position from game Position
  * Positions objects on sphere surface with optional height offset
  *
