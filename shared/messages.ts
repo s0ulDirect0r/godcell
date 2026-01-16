@@ -142,6 +142,7 @@ export interface PlayerMovedMessage {
   playerId: string;
   position: Position;
   velocity: Velocity;
+  serverTime?: number; // Server timestamp for jitter diagnostics
 }
 
 export interface NutrientSpawnedMessage {
