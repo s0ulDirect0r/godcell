@@ -21,6 +21,7 @@ import {
   updateCyberBugState,
   disposeCyberBug,
 } from '../meshes/CyberBugMesh';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 
 /**
  * CyberBugRenderSystem - Manages cyber bug rendering
@@ -42,6 +43,16 @@ export class CyberBugRenderSystem {
   // Animation data
   private animationPhase: Map<string, number> = new Map();
   private wingFlutter: Map<string, number> = new Map();
+
+  // Snapshot buffer for jitter-compensated interpolation (set externally)
+  private snapshotBuffer: SnapshotBuffer | null = null;
+
+  /**
+   * Set the snapshot buffer for jitter-compensated position interpolation.
+   */
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+  }
 
   /**
    * Initialize system with scene and world references
@@ -92,8 +103,22 @@ export class CyberBugRenderSystem {
       }
 
       // Update target position
-      const targetX = interp ? interp.targetX : pos.x;
-      const targetY = interp ? interp.targetY : pos.y;
+      // Priority: snapshot buffer (jitter-compensated) > interp component > raw position
+      let targetX = pos.x;
+      let targetY = pos.y;
+
+      if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(bugId)) {
+        const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+        const bufferedPos = this.snapshotBuffer.getInterpolated(bugId, playbackTime);
+        if (bufferedPos) {
+          targetX = bufferedPos.x;
+          targetY = bufferedPos.y;
+        }
+      } else if (interp) {
+        targetX = interp.targetX;
+        targetY = interp.targetY;
+      }
+
       this.bugTargets.set(bugId, { x: targetX, y: targetY });
 
       // Update state-based visuals (color changes when fleeing)

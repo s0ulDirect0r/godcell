@@ -249,6 +249,7 @@ export class NetworkBroadcastSystem implements System {
    * Sends position, state, and energy for interpolation and visual scaling
    */
   private broadcastSwarmPositionUpdates(world: World, io: Server): void {
+    const serverTime = Date.now();
     forEachSwarm(world, (_entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
       const moveMessage: SwarmMovedMessage = {
         type: 'swarmMoved',
@@ -257,6 +258,7 @@ export class NetworkBroadcastSystem implements System {
         state: swarmComp.state,
         disabledUntil: swarmComp.disabledUntil,
         energy: energyComp?.current,
+        serverTime,
       };
       io.emit('swarmMoved', moveMessage);
     });

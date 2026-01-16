@@ -17,6 +17,7 @@ import {
   type InterpolationTargetComponent,
   type ClientDamageInfoComponent,
 } from '../../ecs';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 import { createMultiCell, updateMultiCellEnergy } from '../meshes/MultiCellMesh';
 import { createSingleCell, updateSingleCellEnergy } from '../meshes/SingleCellMesh';
 import {
@@ -136,6 +137,17 @@ export class PlayerRenderSystem {
 
   // Delta time for frame-rate independent interpolation (ms)
   private dt: number = 16.67;
+
+  // Snapshot buffer for jitter compensation (set externally from SocketManager)
+  private snapshotBuffer: SnapshotBuffer | null = null;
+
+  /**
+   * Set the snapshot buffer for jitter-compensated position interpolation.
+   * Called from main.ts after both SocketManager and ThreeRenderer are created.
+   */
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+  }
 
   /**
    * Initialize player system with scene, world, and geometry cache
@@ -367,14 +379,35 @@ export class PlayerRenderSystem {
       }
 
       // Update position with client-side interpolation
-      if (interp) {
-        const target: InterpolationTarget = {
+      // If snapshot buffer is available, use it for jitter-compensated playback
+      // Otherwise fall back to direct ECS InterpolationTarget component
+      let target: InterpolationTarget | null = null;
+
+      if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(id)) {
+        // Query buffer for position at (now - bufferDelay)
+        const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+        const bufferedPos = this.snapshotBuffer.getInterpolated(id, playbackTime);
+        if (bufferedPos) {
+          target = {
+            x: bufferedPos.x,
+            y: bufferedPos.y,
+            z: bufferedPos.z,
+            timestamp: playbackTime,
+          };
+        }
+      }
+
+      // Fall back to ECS component if buffer unavailable
+      if (!target && interp) {
+        target = {
           x: interp.targetX,
           y: interp.targetY,
           z: interp.targetZ ?? player.position.z ?? 0,
           timestamp: interp.timestamp,
         };
+      }
 
+      if (target) {
         this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
       } else {
         // Fallback to direct position if no interpolation target

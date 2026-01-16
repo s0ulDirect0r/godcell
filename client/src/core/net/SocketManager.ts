@@ -3,6 +3,7 @@
 // ============================================
 
 import { io, Socket } from 'socket.io-client';
+import { SnapshotBuffer, type Snapshot } from './SnapshotBuffer';
 import type {
   WorldSnapshotMessage,
   PlayerJoinedMessage,
@@ -63,7 +64,6 @@ import {
   Tags,
   Components,
   upsertPlayer,
-  updatePlayerTarget,
   removePlayer,
   updatePlayerEnergy,
   setPlayerEvolving,
@@ -85,6 +85,7 @@ import {
   setLocalPlayer,
   clearLookups,
   getStringIdByEntity,
+  getEntityByStringId,
   // Stage 3+ macro-resource factories
   upsertDataFruit,
   removeDataFruit,
@@ -100,6 +101,7 @@ import {
   removeTrap,
   upsertEntropySerpent,
   updateEntropySerpentPosition,
+  type VelocityComponent,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -114,6 +116,9 @@ export class SocketManager {
 
   // Local player's combat specialization (Stage 3+)
   private _mySpecialization: CombatSpecialization = null;
+
+  // Snapshot buffer for jitter compensation
+  private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
 
   // Network timing diagnostics
   private lastMoveTime: Map<string, number> = new Map();
@@ -189,6 +194,14 @@ export class SocketManager {
    */
   getMySpecialization(): CombatSpecialization {
     return this._mySpecialization;
+  }
+
+  /**
+   * Get the snapshot buffer for position interpolation.
+   * PlayerRenderSystem uses this to query buffered positions.
+   */
+  getSnapshotBuffer(): SnapshotBuffer {
+    return this.snapshotBuffer;
   }
 
   /**
@@ -429,9 +442,37 @@ export class SocketManager {
     });
 
     this.socket.on('playerMoved', (data: PlayerMovedMessage) => {
+      const now = performance.now();
+
+      // Push snapshot to jitter buffer (delayed playback)
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z ?? 0,
+        vx: data.velocity?.x ?? 0,
+        vy: data.velocity?.y ?? 0,
+        vz: data.velocity?.z ?? 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.playerId, snapshot);
+
+      // Still update velocity directly for visual effects (trails, animations)
+      // Position comes from buffer, but velocity is used immediately
+      if (data.velocity) {
+        const entity = getEntityByStringId(data.playerId);
+        if (entity !== undefined) {
+          const vel = this.world.getComponent<VelocityComponent>(entity, Components.Velocity);
+          if (vel) {
+            vel.x = data.velocity.x;
+            vel.y = data.velocity.y;
+            vel.z = data.velocity.z ?? 0;
+          }
+        }
+      }
+
       // Network timing diagnostics - track time between updates for local player
       if (data.playerId === this._myPlayerId) {
-        const now = performance.now();
         const lastClientTime = this.lastMoveTime.get(data.playerId);
         const lastServerTime = this.lastServerTime.get(data.playerId);
 
@@ -461,15 +502,27 @@ export class SocketManager {
             const serverMax = sortedServer[sortedServer.length - 1];
             const serverP95 = sortedServer[Math.floor(sortedServer.length * 0.95)] || serverMax;
 
-            const clientGaps = this.moveDeltas.filter(d => d > 50).length;
-            const serverGaps = this.serverDeltas.filter(d => d > 25).length;
+            const clientGaps = this.moveDeltas.filter((d) => d > 50).length;
+            const serverGaps = this.serverDeltas.filter((d) => d > 25).length;
 
-            console.log(`[NETDIAG] Client: Avg=${clientAvg.toFixed(1)}ms Max=${clientMax.toFixed(0)}ms P95=${clientP95.toFixed(0)}ms Gaps=${clientGaps}`);
-            console.log(`[NETDIAG] Server: Avg=${serverAvg.toFixed(1)}ms Max=${serverMax.toFixed(0)}ms P95=${serverP95.toFixed(0)}ms Gaps=${serverGaps}`);
-            console.log(`[NETDIAG] Verdict: ${serverGaps > 0 ? 'SERVER sending late' : clientGaps > 0 ? 'NETWORK delivering late' : 'OK'}`);
+            // Include buffer stats in diagnostics
+            const bufferStats = this.snapshotBuffer.getStats();
+            console.log(
+              `[NETDIAG] Client: Avg=${clientAvg.toFixed(1)}ms Max=${clientMax.toFixed(0)}ms P95=${clientP95.toFixed(0)}ms Gaps=${clientGaps}`
+            );
+            console.log(
+              `[NETDIAG] Server: Avg=${serverAvg.toFixed(1)}ms Max=${serverMax.toFixed(0)}ms P95=${serverP95.toFixed(0)}ms Gaps=${serverGaps}`
+            );
+            console.log(
+              `[NETDIAG] Buffer: Delay=${bufferStats.currentDelay}ms Entities=${bufferStats.entityCount} AvgOccupancy=${bufferStats.avgOccupancy.toFixed(1)} Underruns=${bufferStats.underrunCount}`
+            );
+            console.log(
+              `[NETDIAG] Verdict: ${serverGaps > 0 ? 'SERVER sending late' : clientGaps > 0 ? 'NETWORK delivering late' : 'OK'}`
+            );
 
             this.moveDeltas = [];
             this.serverDeltas = [];
+            this.snapshotBuffer.resetUnderrunCount();
             this.lastDiagnosticLog = now;
           }
         }
@@ -479,14 +532,6 @@ export class SocketManager {
         }
       }
 
-      updatePlayerTarget(
-        this.world,
-        data.playerId,
-        data.position.x,
-        data.position.y,
-        data.position.z,
-        data.velocity
-      );
       eventBus.emit(data);
     });
 
@@ -551,6 +596,22 @@ export class SocketManager {
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z ?? 0,
+        vx: 0, // Swarms don't have velocity in message
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.swarmId, snapshot);
+
+      // Still update ECS for non-position data (state, energy, disabledUntil)
       updateSwarmTarget(
         this.world,
         data.swarmId,
@@ -646,6 +707,22 @@ export class SocketManager {
     });
 
     this.socket.on('cyberBugMoved', (data: CyberBugMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.bugId, snapshot);
+
+      // Still update ECS for state
       updateCyberBugPosition(this.world, data.bugId, data.position.x, data.position.y, data.state);
     });
 
@@ -661,6 +738,22 @@ export class SocketManager {
     });
 
     this.socket.on('jungleCreatureMoved', (data: JungleCreatureMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.creatureId, snapshot);
+
+      // Still update ECS for state
       updateJungleCreaturePosition(
         this.world,
         data.creatureId,
@@ -672,6 +765,22 @@ export class SocketManager {
 
     // EntropySerpent events (jungle apex predator)
     this.socket.on('entropySerpentMoved', (data: EntropySerpentMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.serpentId, snapshot);
+
+      // Still update ECS for state and heading
       updateEntropySerpentPosition(
         this.world,
         data.serpentId,
@@ -828,6 +937,9 @@ export class SocketManager {
 
     // Clear string ID lookups
     clearLookups();
+
+    // Clear snapshot buffer
+    this.snapshotBuffer.clear();
   }
 
   /**

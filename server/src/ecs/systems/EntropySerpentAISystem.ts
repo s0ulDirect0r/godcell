@@ -67,6 +67,7 @@ export class EntropySerpentAISystem implements System {
     }
 
     // Update living serpents
+    const serverTime = Date.now();
     forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
       // Find nearest Stage 3+ player (target)
       const target = this.findNearestTarget(world, pos.x, pos.y);
@@ -187,6 +188,7 @@ export class EntropySerpentAISystem implements System {
         state: serpent.state,
         heading: serpent.heading,
         targetPlayerId,
+        serverTime,
       };
       io.emit('entropySerpentMoved', movedMessage);
     });

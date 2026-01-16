@@ -205,6 +205,7 @@ export class CyberBugAISystem implements System {
     const jungleMinY = 0;
     const jungleMaxY = GAME_CONFIG.JUNGLE_HEIGHT;
 
+    const serverTime = Date.now();
     forEachCyberBug(world, (entity, bugId, posComp, bugComp) => {
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!velComp) return;
@@ -224,6 +225,7 @@ export class CyberBugAISystem implements System {
         bugId,
         position: { x: posComp.x, y: posComp.y },
         state: bugComp.state,
+        serverTime,
       };
       io.emit('cyberBugMoved', movedMessage);
     });

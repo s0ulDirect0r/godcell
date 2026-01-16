@@ -23,6 +23,7 @@ import {
   disposeEntropySerpent,
   triggerClawSwipe,
 } from '../meshes/EntropySerpentMesh';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 
 /**
  * EntropySerpentRenderSystem - Manages entropy serpent rendering
@@ -50,6 +51,16 @@ export class EntropySerpentRenderSystem {
   private debugMarkers: Map<string, THREE.Group> = new Map();
   private _lastDebugLog = 0;
   private _lastPosLogs: Map<string, number> = new Map();
+
+  // Snapshot buffer for jitter-compensated interpolation (set externally)
+  private snapshotBuffer: SnapshotBuffer | null = null;
+
+  /**
+   * Set the snapshot buffer for jitter-compensated position interpolation.
+   */
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+  }
 
   /**
    * Initialize system with scene and world references
@@ -104,8 +115,22 @@ export class EntropySerpentRenderSystem {
       }
 
       // Update target position
-      const targetX = interp ? interp.targetX : pos.x;
-      const targetY = interp ? interp.targetY : pos.y;
+      // Priority: snapshot buffer (jitter-compensated) > interp component > raw position
+      let targetX = pos.x;
+      let targetY = pos.y;
+
+      if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(serpentId)) {
+        const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+        const bufferedPos = this.snapshotBuffer.getInterpolated(serpentId, playbackTime);
+        if (bufferedPos) {
+          targetX = bufferedPos.x;
+          targetY = bufferedPos.y;
+        }
+      } else if (interp) {
+        targetX = interp.targetX;
+        targetY = interp.targetY;
+      }
+
       this.serpentTargets.set(serpentId, { x: targetX, y: targetY });
 
       // Update heading

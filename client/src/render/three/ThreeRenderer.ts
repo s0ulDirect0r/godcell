@@ -866,6 +866,9 @@ export class ThreeRenderer implements Renderer {
     // Interpolate swarm positions
     this.swarmRenderSystem.interpolate(dt);
 
+    // Sync aura positions to interpolated swarm positions (must be after interpolate)
+    this.swarmRenderSystem.syncAuraPositions();
+
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
 
@@ -1273,6 +1276,20 @@ export class ThreeRenderer implements Renderer {
    */
   getCameraSystem(): CameraSystem {
     return this.cameraSystem;
+  }
+
+  /**
+   * Set snapshot buffer for jitter-compensated position interpolation.
+   * Pass-through to all render systems that support jitter buffering.
+   */
+  setSnapshotBuffer(
+    buffer: import('../../core/net/SnapshotBuffer').SnapshotBuffer
+  ): void {
+    this.playerRenderSystem.setSnapshotBuffer(buffer);
+    this.swarmRenderSystem.setSnapshotBuffer(buffer);
+    this.cyberBugRenderSystem.setSnapshotBuffer(buffer);
+    this.jungleCreatureRenderSystem.setSnapshotBuffer(buffer);
+    this.entropySerpentRenderSystem.setSnapshotBuffer(buffer);
   }
 
   /**

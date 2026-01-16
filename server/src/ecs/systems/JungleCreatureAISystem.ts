@@ -442,6 +442,7 @@ export class JungleCreatureAISystem implements System {
     const jungleMinY = 0;
     const jungleMaxY = GAME_CONFIG.JUNGLE_HEIGHT;
 
+    const serverTime = Date.now();
     forEachJungleCreature(world, (entity, creatureId, posComp, creatureComp) => {
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!velComp) return;
@@ -462,6 +463,7 @@ export class JungleCreatureAISystem implements System {
         position: { x: posComp.x, y: posComp.y },
         state: creatureComp.state,
         variant: creatureComp.variant,
+        serverTime,
       };
       io.emit('jungleCreatureMoved', movedMessage);
     });
