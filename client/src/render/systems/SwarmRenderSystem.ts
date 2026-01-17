@@ -26,6 +26,7 @@ import {
   GAME_CONFIG,
 } from '../../ecs';
 import type { RenderMode } from './EnvironmentSystem';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 
 /**
  * SwarmRenderSystem - Manages entropy swarm rendering
@@ -83,6 +84,16 @@ export class SwarmRenderSystem {
 
   // Base energy (swarms start at 100)
   private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
+
+  // Snapshot buffer for jitter-compensated interpolation (set externally)
+  private snapshotBuffer: SnapshotBuffer | null = null;
+
+  /**
+   * Set the snapshot buffer for jitter-compensated position interpolation.
+   */
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+  }
 
   // Reusable Vector3 objects to avoid per-frame allocations
   private readonly _normal = new THREE.Vector3();
@@ -142,6 +153,10 @@ export class SwarmRenderSystem {
 
         // Sphere mode: use 3D coordinates directly
         group.position.set(pos.x, pos.y, pos.z ?? 0);
+        // Clear the flat-mode rotation that createSwarm() applies
+        // (Swarms are spherical so rotation doesn't affect appearance,
+        // but this keeps the coordinate system consistent)
+        group.rotation.set(0, 0, 0);
         group.userData.isSphere = true;
 
         this.scene.add(group);
@@ -149,10 +164,28 @@ export class SwarmRenderSystem {
         this.swarmTargets.set(swarmId, { x: pos.x, y: pos.y, z: pos.z ?? 0 });
       }
 
-      // Update target position for interpolation (use interp target if available)
-      const targetX = interp ? interp.targetX : pos.x;
-      const targetY = interp ? interp.targetY : pos.y;
-      const targetZ = pos.z ?? 0;
+      // Update target position for interpolation
+      // Use snapshot buffer for jitter-compensated playback when available
+      let targetX = pos.x;
+      let targetY = pos.y;
+      let targetZ = pos.z ?? 0;
+
+      if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(swarmId)) {
+        // Query buffer for position at (now - bufferDelay)
+        const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+        const bufferedPos = this.snapshotBuffer.getInterpolated(swarmId, playbackTime);
+        if (bufferedPos) {
+          targetX = bufferedPos.x;
+          targetY = bufferedPos.y;
+          targetZ = bufferedPos.z ?? targetZ;
+        }
+      } else if (interp) {
+        // Fall back to direct ECS InterpolationTarget component
+        targetX = interp.targetX;
+        targetY = interp.targetY;
+        // interp doesn't have targetZ, use pos.z
+      }
+
       this.swarmTargets.set(swarmId, { x: targetX, y: targetY, z: targetZ });
 
       // Cache state for animation
@@ -233,6 +266,8 @@ export class SwarmRenderSystem {
 
   /**
    * Interpolate swarm positions for smooth movement
+   * Uses SLERP (spherical linear interpolation) for sphere mode to prevent
+   * visual jumping caused by linear interpolation cutting through the sphere.
    * @param dt Delta time in milliseconds for frame-rate independent interpolation
    */
   interpolate(dt: number = 16.67): void {
@@ -240,11 +275,101 @@ export class SwarmRenderSystem {
 
     this.swarmMeshes.forEach((group, id) => {
       const target = this.swarmTargets.get(id);
-      if (target) {
-        // Sphere mode: interpolate in 3D space directly
+      if (!target) return;
+
+      if (group.userData.isSphere) {
+        // SLERP for sphere-surface movement (matches PlayerRenderSystem)
+        // Linear lerp takes shortcuts through 3D space, causing entities to
+        // appear to "pop" in/out of the sphere surface
+        const currentVec = new THREE.Vector3(
+          group.position.x,
+          group.position.y,
+          group.position.z
+        );
+        const targetVec = new THREE.Vector3(target.x, target.y, target.z ?? 0);
+
+        // Swarms are always on soup sphere
+        const sphereRadius = GAME_CONFIG.SOUP_SPHERE_RADIUS;
+
+        // Normalize to unit sphere for slerp
+        const currentDir = currentVec.clone().normalize();
+        const targetDir = targetVec.clone().normalize();
+
+        // Skip if vectors are too close (avoid NaN from setFromUnitVectors)
+        if (currentDir.distanceToSquared(targetDir) < 0.0001) return;
+
+        // Quaternion-based SLERP on unit sphere
+        const fullRotation = new THREE.Quaternion();
+        fullRotation.setFromUnitVectors(currentDir, targetDir);
+
+        // Partial rotation: interpolate from identity toward full rotation
+        const partialRotation = new THREE.Quaternion();
+        partialRotation.slerpQuaternions(new THREE.Quaternion(), fullRotation, lerpFactor);
+
+        // Apply partial rotation to current direction
+        currentDir.applyQuaternion(partialRotation);
+
+        // Scale back to sphere surface
+        currentVec.copy(currentDir).multiplyScalar(sphereRadius);
+
+        group.position.copy(currentVec);
+      } else {
+        // Linear lerp for flat/non-sphere modes
         group.position.x += (target.x - group.position.x) * lerpFactor;
         group.position.y += (target.y - group.position.y) * lerpFactor;
         group.position.z += ((target.z ?? 0) - group.position.z) * lerpFactor;
+      }
+    });
+  }
+
+  /**
+   * Sync aura positions to match interpolated swarm positions.
+   * Must be called AFTER interpolate() to avoid auras lagging one frame behind.
+   */
+  syncAuraPositions(): void {
+    const time = performance.now() * 0.001;
+
+    this.swarmMeshes.forEach((group, swarmId) => {
+      // Update aura ring position
+      const auraRing = this.swarmAuras.get(swarmId);
+      if (auraRing) {
+        this._normal.copy(group.position).normalize();
+        auraRing.position.copy(group.position).addScaledVector(this._normal, 0.5);
+        auraRing.quaternion.setFromUnitVectors(this._worldUp.set(0, 0, 1), this._normal);
+      }
+
+      // Update aura particles position
+      const auraParticles = this.swarmAuraParticles.get(swarmId);
+      if (auraParticles) {
+        const baseSize = this.swarmBaseSizes.get(swarmId) ?? 30;
+        const orbitRadius = baseSize * 1.1;
+
+        // Get particle count from draw range
+        const drawRange = auraParticles.geometry.drawRange;
+        const particleCount = drawRange.count;
+
+        // Recompute positions based on current (interpolated) group position
+        this._normal.copy(group.position).normalize();
+        this._tangent.crossVectors(this._worldUp.set(0, 1, 0), this._normal);
+        if (this._tangent.lengthSq() < 0.0001) {
+          this._tangent.set(1, 0, 0).crossVectors(this._tangent, this._normal);
+        }
+        this._tangent.normalize();
+        this._bitangent.crossVectors(this._normal, this._tangent).normalize();
+        this._liftedCenter.copy(group.position).addScaledVector(this._normal, 0.5);
+
+        const posAttr = auraParticles.geometry.attributes.position as THREE.BufferAttribute;
+        const positions = posAttr.array as Float32Array;
+
+        for (let i = 0; i < particleCount; i++) {
+          const angle = (i / particleCount) * Math.PI * 2 + time * 0.5;
+          const cosA = Math.cos(angle) * orbitRadius;
+          const sinA = Math.sin(angle) * orbitRadius;
+          positions[i * 3] = this._liftedCenter.x + cosA * this._tangent.x + sinA * this._bitangent.x;
+          positions[i * 3 + 1] = this._liftedCenter.y + cosA * this._tangent.y + sinA * this._bitangent.y;
+          positions[i * 3 + 2] = this._liftedCenter.z + cosA * this._tangent.z + sinA * this._bitangent.z;
+        }
+        posAttr.needsUpdate = true;
       }
     });
   }

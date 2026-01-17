@@ -96,9 +96,9 @@ export class JungleCreatureRenderSystem {
         this.animationPhase.set(creatureId, Math.random() * Math.PI * 2);
       }
 
-      // Update target position
-      const targetX = interp ? interp.targetX : pos.x;
-      const targetY = interp ? interp.targetY : pos.y;
+      // Update target position from InterpolationTarget (buffer updates this centrally)
+      const targetX = interp?.targetX ?? pos.x;
+      const targetY = interp?.targetY ?? pos.y;
       this.creatureTargets.set(creatureId, { x: targetX, y: targetY });
 
       // Update state-based visuals

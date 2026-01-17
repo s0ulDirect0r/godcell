@@ -3,6 +3,7 @@
 // ============================================
 
 import { io, Socket } from 'socket.io-client';
+import { SnapshotBuffer, type Snapshot } from './SnapshotBuffer';
 import type {
   WorldSnapshotMessage,
   PlayerJoinedMessage,
@@ -63,7 +64,6 @@ import {
   Tags,
   Components,
   upsertPlayer,
-  updatePlayerTarget,
   removePlayer,
   updatePlayerEnergy,
   setPlayerEvolving,
@@ -85,6 +85,7 @@ import {
   setLocalPlayer,
   clearLookups,
   getStringIdByEntity,
+  getEntityByStringId,
   // Stage 3+ macro-resource factories
   upsertDataFruit,
   removeDataFruit,
@@ -100,6 +101,7 @@ import {
   removeTrap,
   upsertEntropySerpent,
   updateEntropySerpentPosition,
+  type VelocityComponent,
 } from '../../ecs';
 import { eventBus } from '../events/EventBus';
 
@@ -114,6 +116,13 @@ export class SocketManager {
 
   // Local player's combat specialization (Stage 3+)
   private _mySpecialization: CombatSpecialization = null;
+
+  // Snapshot buffer for jitter compensation
+  private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
+
+  // Network timing tracking (for buffer population)
+  private lastMoveTime: Map<string, number> = new Map();
+  private lastServerTime: Map<string, number> = new Map();
 
   constructor(serverUrl: string, world: World, isPlaygroundParam = false, isSpectatorParam = false) {
     this.world = world;
@@ -182,6 +191,14 @@ export class SocketManager {
    */
   getMySpecialization(): CombatSpecialization {
     return this._mySpecialization;
+  }
+
+  /**
+   * Get the snapshot buffer for position interpolation.
+   * PlayerRenderSystem uses this to query buffered positions.
+   */
+  getSnapshotBuffer(): SnapshotBuffer {
+    return this.snapshotBuffer;
   }
 
   /**
@@ -422,14 +439,43 @@ export class SocketManager {
     });
 
     this.socket.on('playerMoved', (data: PlayerMovedMessage) => {
-      updatePlayerTarget(
-        this.world,
-        data.playerId,
-        data.position.x,
-        data.position.y,
-        data.position.z,
-        data.velocity
-      );
+      const now = performance.now();
+
+      // Push snapshot to jitter buffer (delayed playback)
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z ?? 0,
+        vx: data.velocity?.x ?? 0,
+        vy: data.velocity?.y ?? 0,
+        vz: data.velocity?.z ?? 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.playerId, snapshot);
+
+      // Still update velocity directly for visual effects (trails, animations)
+      // Position comes from buffer, but velocity is used immediately
+      if (data.velocity) {
+        const entity = getEntityByStringId(data.playerId);
+        if (entity !== undefined) {
+          const vel = this.world.getComponent<VelocityComponent>(entity, Components.Velocity);
+          if (vel) {
+            vel.x = data.velocity.x;
+            vel.y = data.velocity.y;
+            vel.z = data.velocity.z ?? 0;
+          }
+        }
+      }
+
+      // Track timing for local player (used by buffer)
+      if (data.playerId === this._myPlayerId) {
+        this.lastMoveTime.set(data.playerId, now);
+        if (data.serverTime) {
+          this.lastServerTime.set(data.playerId, data.serverTime);
+        }
+      }
+
       eventBus.emit(data);
     });
 
@@ -494,6 +540,22 @@ export class SocketManager {
     });
 
     this.socket.on('swarmMoved', (data: SwarmMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: data.position.z ?? 0,
+        vx: 0, // Swarms don't have velocity in message
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.swarmId, snapshot);
+
+      // Still update ECS for non-position data (state, energy, disabledUntil)
       updateSwarmTarget(
         this.world,
         data.swarmId,
@@ -589,6 +651,22 @@ export class SocketManager {
     });
 
     this.socket.on('cyberBugMoved', (data: CyberBugMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.bugId, snapshot);
+
+      // Still update ECS for state
       updateCyberBugPosition(this.world, data.bugId, data.position.x, data.position.y, data.state);
     });
 
@@ -604,6 +682,22 @@ export class SocketManager {
     });
 
     this.socket.on('jungleCreatureMoved', (data: JungleCreatureMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.creatureId, snapshot);
+
+      // Still update ECS for state
       updateJungleCreaturePosition(
         this.world,
         data.creatureId,
@@ -615,6 +709,22 @@ export class SocketManager {
 
     // EntropySerpent events (jungle apex predator)
     this.socket.on('entropySerpentMoved', (data: EntropySerpentMovedMessage) => {
+      const now = performance.now();
+
+      // Push to jitter buffer for smooth interpolation
+      const snapshot: Snapshot = {
+        x: data.position.x,
+        y: data.position.y,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        serverTime: data.serverTime ?? now,
+        clientTime: now,
+      };
+      this.snapshotBuffer.push(data.serpentId, snapshot);
+
+      // Still update ECS for state and heading
       updateEntropySerpentPosition(
         this.world,
         data.serpentId,
@@ -725,11 +835,7 @@ export class SocketManager {
     }
     // Stage 3+ macro-resources (optional in message)
     if (snapshot.dataFruits) {
-      const fruitCount = Object.keys(snapshot.dataFruits).length;
-      console.log('[DEBUG] applySnapshot: received dataFruits count:', fruitCount);
       Object.values(snapshot.dataFruits).forEach((f) => upsertDataFruit(this.world, f));
-    } else {
-      console.log('[DEBUG] applySnapshot: NO dataFruits in snapshot');
     }
     if (snapshot.cyberBugs) {
       Object.values(snapshot.cyberBugs).forEach((b) => upsertCyberBug(this.world, b));
@@ -771,6 +877,9 @@ export class SocketManager {
 
     // Clear string ID lookups
     clearLookups();
+
+    // Clear snapshot buffer
+    this.snapshotBuffer.clear();
   }
 
   /**

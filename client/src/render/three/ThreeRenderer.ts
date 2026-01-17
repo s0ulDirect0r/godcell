@@ -34,14 +34,18 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
+  getEntityByStringId,
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
   forEachPlayer,
   type PositionComponent,
   type ObstacleComponent,
+  type InterpolationTargetComponent,
 } from '../../ecs';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 import { frameLerp } from '../../utils/math';
+import { applySphereVisibilityCulling } from '../utils/SphereRenderUtils';
 
 /**
  * Three.js-based renderer with postprocessing effects
@@ -114,6 +118,9 @@ export class ThreeRenderer implements Renderer {
 
   // Wake particle system (liquid wake effect behind moving entities)
   private wakeParticleSystem!: WakeParticleSystem;
+
+  // Snapshot buffer for jitter-compensated position interpolation
+  private snapshotBuffer: SnapshotBuffer | null = null;
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
@@ -833,6 +840,10 @@ export class ThreeRenderer implements Renderer {
     // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
     const { spawnProgress } = this.effectsSystem.update(dt);
 
+    // Apply buffered positions to ECS InterpolationTarget components
+    // This centralizes jitter buffer queries - render systems just read ECS
+    this.applyBufferedPositions();
+
     // Sync all entities (systems query World directly)
     this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw(), dt);
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
@@ -844,7 +855,7 @@ export class ThreeRenderer implements Renderer {
       this.environmentSystem.refreshGravityWellCache();
     }
 
-    this.treeRenderSystem.sync();
+    this.treeRenderSystem.sync(this.environmentSystem.getMode());
     this.swarmRenderSystem.sync(this.environmentSystem.getMode());
     this.pseudopodRenderSystem.sync();
 
@@ -864,6 +875,9 @@ export class ThreeRenderer implements Renderer {
 
     // Interpolate swarm positions
     this.swarmRenderSystem.interpolate(dt);
+
+    // Sync aura positions to interpolated swarm positions (must be after interpolate)
+    this.swarmRenderSystem.syncAuraPositions();
 
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
@@ -967,6 +981,9 @@ export class ThreeRenderer implements Renderer {
     this.renderPass.camera = camera;
     this.noBloomRenderPass.camera = camera;
 
+    // Apply sphere-based visibility culling to hide entities on far side of sphere
+    applySphereVisibilityCulling(this.scene, camera);
+
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
 
@@ -993,6 +1010,18 @@ export class ThreeRenderer implements Renderer {
       const avgRenderMs = (this._perfRenderTimeSum / 60).toFixed(1);
 
       // Count scene objects
+      // Helper: check effective visibility (parent chain)
+      // Three.js doesn't render children of invisible parents, but their own
+      // `visible` property stays true - we need to check the whole chain
+      const isEffectivelyVisible = (obj: THREE.Object3D): boolean => {
+        let current: THREE.Object3D | null = obj;
+        while (current) {
+          if (!current.visible) return false;
+          current = current.parent;
+        }
+        return true;
+      };
+
       let lightCount = 0;
       let meshCount = 0;
       let visibleMeshes = 0;
@@ -1001,7 +1030,7 @@ export class ThreeRenderer implements Renderer {
         if (obj.type.includes('Light')) lightCount++;
         if (obj.type === 'Mesh') {
           meshCount++;
-          if (obj.visible) {
+          if (isEffectivelyVisible(obj)) {
             visibleMeshes++;
             const mesh = obj as THREE.Mesh;
             if (mesh.geometry) {
@@ -1019,6 +1048,7 @@ export class ThreeRenderer implements Renderer {
       console.log(
         `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
       );
+
       this._perfFrameCount = 0;
       this._perfRenderTimeSum = 0;
       this._perfLastTime = now;
@@ -1256,6 +1286,47 @@ export class ThreeRenderer implements Renderer {
    */
   getCameraSystem(): CameraSystem {
     return this.cameraSystem;
+  }
+
+  /**
+   * Set snapshot buffer for jitter-compensated position interpolation.
+   * Buffer is used centrally to update ECS InterpolationTarget components.
+   * PlayerRenderSystem still gets direct access for stage-specific handling.
+   */
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+    // PlayerRenderSystem has special stage-based handling, so it gets direct access
+    this.playerRenderSystem.setSnapshotBuffer(buffer);
+    // Swarm also gets direct access for its special SLERP handling
+    this.swarmRenderSystem.setSnapshotBuffer(buffer);
+  }
+
+  /**
+   * Apply buffered positions to ECS InterpolationTarget components.
+   * Called once per frame before render systems sync.
+   * This centralizes buffer queries instead of having each render system do it.
+   */
+  private applyBufferedPositions(): void {
+    if (!this.snapshotBuffer) return;
+
+    const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+
+    this.snapshotBuffer.forEachInterpolated(playbackTime, (entityId, interpolated) => {
+      const entity = getEntityByStringId(entityId);
+      if (!entity) return;
+
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
+      if (interp) {
+        interp.targetX = interpolated.x;
+        interp.targetY = interpolated.y;
+        if (interpolated.z !== undefined) {
+          interp.targetZ = interpolated.z;
+        }
+      }
+    });
   }
 
   /**

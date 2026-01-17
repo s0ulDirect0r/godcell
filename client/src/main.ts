@@ -165,6 +165,9 @@ function initializeGame(settings: PreGameSettings): void {
   const container = document.getElementById('game-container')!;
   renderer.init(container, GAME_CONFIG.VIEWPORT_WIDTH, GAME_CONFIG.VIEWPORT_HEIGHT, world);
 
+  // Wire snapshot buffer from SocketManager to renderer (for jitter-compensated interpolation)
+  renderer.setSnapshotBuffer(socketManager.getSnapshotBuffer());
+
   // Expose debug toggles to window for console access
   // Usage: window.debugSerpent() - toggles serpent head/body/attack visualization
   (window as unknown as { debugSerpent: () => boolean }).debugSerpent = () =>

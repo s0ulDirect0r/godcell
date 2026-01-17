@@ -255,6 +255,7 @@ export class MovementSystem implements System {
           y: velocityComponent.y,
           z: velocityComponent.z,
         },
+        serverTime: Date.now(),
       };
       io.emit('playerMoved', moveMessage);
     });
