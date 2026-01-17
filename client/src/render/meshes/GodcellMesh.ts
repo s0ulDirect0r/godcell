@@ -118,7 +118,7 @@ export const CONFIG = {
     pulseRange: 1.0,
     floatAmplitude: 0.03,
     floatSpeed: 1.0,
-    rotationSpeed: 0.2,
+    rotationSpeed: 0, // Disabled - was causing unwanted spin during flight
   },
 };
 

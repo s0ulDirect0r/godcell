@@ -383,6 +383,7 @@ export class PlayerRenderSystem {
       // Otherwise fall back to direct ECS InterpolationTarget component
       let target: InterpolationTarget | null = null;
       let fromBuffer = false;
+      let velocity: { x: number; y: number; z: number } | null = null;
 
       if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(id)) {
         // Query buffer for position at (now - bufferDelay)
@@ -395,6 +396,7 @@ export class PlayerRenderSystem {
             z: bufferedPos.z,
             timestamp: playbackTime,
           };
+          velocity = { x: bufferedPos.vx, y: bufferedPos.vy, z: bufferedPos.vz };
           fromBuffer = true;
         }
       }
@@ -410,7 +412,7 @@ export class PlayerRenderSystem {
       }
 
       if (target) {
-        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage, fromBuffer);
+        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage, fromBuffer, velocity);
       } else {
         // Fallback to direct position if no interpolation target
         if (cellGroup.userData.isSphere) {
@@ -1130,7 +1132,8 @@ export class PlayerRenderSystem {
     isMyPlayer: boolean,
     radius: number,
     stage: string,
-    fromBuffer: boolean = false
+    fromBuffer: boolean = false,
+    velocity: { x: number; y: number; z: number } | null = null
   ): void {
     // Use consistent lerp for all stages - the real fix is using authoritative sphere radius
     const baseLerp = 0.3;
@@ -1149,6 +1152,22 @@ export class PlayerRenderSystem {
           cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
           cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
           cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+        }
+
+        // Orient godcell to face velocity direction (wings trail behind like a jellyfish)
+        // lookAt() points -Z at target. We want wings (+Z) to trail behind,
+        // so we look OPPOSITE to velocity (making +Z point toward velocity's origin)
+        if (velocity) {
+          const speed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2);
+          if (speed > 10) {
+            // Only orient when moving (threshold avoids jitter when stationary)
+            const lookTarget = new THREE.Vector3(
+              cellGroup.position.x - velocity.x,
+              cellGroup.position.y - velocity.y,
+              cellGroup.position.z - velocity.z
+            );
+            cellGroup.lookAt(lookTarget);
+          }
         }
 
         const outline = this.playerOutlines.get(playerId);
