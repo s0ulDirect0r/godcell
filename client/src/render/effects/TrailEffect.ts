@@ -3,10 +3,12 @@
 // Creates and updates glowing ribbon trails behind players
 // Single-cells: 1 trail behind center
 // Multi-cells: 7 trails behind each nucleus (center + 6 ring)
+// Godcells: 4 trails from major wing tips
 // ============================================
 
 import * as THREE from 'three';
 import { EvolutionStage } from '#shared';
+import { getGodcellWingTipPositions } from '../meshes/GodcellMesh';
 
 // Reusable Vector3 objects to avoid per-frame allocations
 const _pos = new THREE.Vector3();
@@ -86,35 +88,56 @@ export function updateTrails(
     const cellGroup = playerMeshes.get(id);
     if (!cellGroup) return;
 
-    // Determine if multi-cell (needs 7 trails) or single-cell (1 trail)
+    // Determine trail configuration based on stage
     const isMultiCell = player.stage === EvolutionStage.MULTI_CELL;
-    const trailCount = isMultiCell ? MULTICELL_NUCLEUS_COUNT : 1;
-    // Multi-cell trails are 1/3 longer to match their larger visual footprint
-    const maxTrailLength = isMultiCell ? 67 : 50;
+    const isGodcell = player.stage === EvolutionStage.GODCELL;
+
+    // Trail count: godcell=4 major wing tips, multi-cell=7 nuclei, single-cell=1
+    const GODCELL_WINGTIP_COUNT = 4; // Only major wings, not tail blades
+    const trailCount = isGodcell ? GODCELL_WINGTIP_COUNT : (isMultiCell ? MULTICELL_NUCLEUS_COUNT : 1);
+
+    // Trail length: godcell trails are longer for dramatic effect in 3D space
+    const maxTrailLength = isGodcell ? 80 : (isMultiCell ? 67 : 50);
+
+    // Get wing tip positions for godcell (already in world space)
+    const wingTipPositions = isGodcell ? getGodcellWingTipPositions(cellGroup) : null;
 
     // Get nucleus offsets for multi-cells
     const nucleusOffsets = isMultiCell
       ? getMultiCellNucleusOffsets(player.radius)
       : [{ x: 0, y: 0 }];
 
-    // Calculate trail width based on nucleus size
+    // Calculate trail width based on stage
     const cellRadius = player.radius;
-    // Multi-cell: individual cell radius is smaller, nucleus is 30% of that
-    // Single-cell: nucleus is 30% of cell radius
-    const individualCellRadius = isMultiCell ? cellRadius * 0.35 : cellRadius;
-    const nucleusRadius = individualCellRadius * 0.3;
-    // Multi-cell trails: thinner, less taper (0.6x width, 0.3 min taper)
-    // Single-cell trails: full width, full taper
-    const maxWidth = isMultiCell ? nucleusRadius * 0.6 : nucleusRadius;
-    const minTaperRatio = isMultiCell ? 0.3 : 0; // Multi-cell trails don't taper to zero
+    let maxWidth: number;
+    let minTaperRatio: number;
+
+    if (isGodcell) {
+      // Godcell trails: thin, ethereal, full taper
+      maxWidth = cellRadius * 0.08;
+      minTaperRatio = 0;
+    } else if (isMultiCell) {
+      // Multi-cell trails: thinner, less taper
+      const individualCellRadius = cellRadius * 0.35;
+      const nucleusRadius = individualCellRadius * 0.3;
+      maxWidth = nucleusRadius * 0.6;
+      minTaperRatio = 0.3;
+    } else {
+      // Single-cell trails: full width, full taper
+      const nucleusRadius = cellRadius * 0.3;
+      maxWidth = nucleusRadius;
+      minTaperRatio = 0;
+    }
 
     // Get group rotation for transforming local offsets to world space
-    // The multi-cell group has rotation.z for the rocking animation
-    // and rotation.x = -PI/2 to lie flat on XZ plane
+    // (not needed for godcell - wing tips are already world space)
     const groupRotZ = cellGroup.rotation.z || 0;
 
     for (let t = 0; t < trailCount; t++) {
-      const trailKey = isMultiCell ? `${id}_nucleus_${t}` : id;
+      // Trail key includes stage type for proper cleanup
+      const trailKey = isGodcell
+        ? `${id}_wingtip_${t}`
+        : (isMultiCell ? `${id}_nucleus_${t}` : id);
       activeTrailKeys.add(trailKey);
 
       // Get or create trail points array
@@ -124,17 +147,25 @@ export function updateTrails(
         trailPoints.set(trailKey, points);
       }
 
-      // Calculate world position for this nucleus
-      const offset = nucleusOffsets[t];
-      // Apply group rotation to offset (rotation around Z in local space)
-      const rotatedOffsetX = offset.x * Math.cos(groupRotZ) - offset.y * Math.sin(groupRotZ);
-      const rotatedOffsetY = offset.x * Math.sin(groupRotZ) + offset.y * Math.cos(groupRotZ);
+      // Calculate world position based on stage
+      let worldX: number, worldY: number, worldZ: number;
 
-      // Store 3D position on sphere surface
-      // Note: offsets are small relative to sphere, just add to position
-      const worldX = cellGroup.position.x + rotatedOffsetX;
-      const worldY = cellGroup.position.y + rotatedOffsetY;
-      const worldZ = cellGroup.position.z;
+      if (isGodcell && wingTipPositions && wingTipPositions[t]) {
+        // Godcell: use pre-calculated wing tip world positions
+        const tipPos = wingTipPositions[t];
+        worldX = tipPos.x;
+        worldY = tipPos.y;
+        worldZ = tipPos.z;
+      } else {
+        // Multi-cell/Single-cell: calculate from nucleus offsets
+        const offset = nucleusOffsets[t] || { x: 0, y: 0 };
+        const rotatedOffsetX = offset.x * Math.cos(groupRotZ) - offset.y * Math.sin(groupRotZ);
+        const rotatedOffsetY = offset.x * Math.sin(groupRotZ) + offset.y * Math.cos(groupRotZ);
+        worldX = cellGroup.position.x + rotatedOffsetX;
+        worldY = cellGroup.position.y + rotatedOffsetY;
+        worldZ = cellGroup.position.z;
+      }
+
       points.push({ x: worldX, y: worldY, z: worldZ });
 
       // Keep only last N points

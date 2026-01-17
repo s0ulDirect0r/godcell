@@ -382,6 +382,8 @@ export class PlayerRenderSystem {
       // If snapshot buffer is available, use it for jitter-compensated playback
       // Otherwise fall back to direct ECS InterpolationTarget component
       let target: InterpolationTarget | null = null;
+      let fromBuffer = false;
+      let velocity: { x: number; y: number; z: number } | null = null;
 
       if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(id)) {
         // Query buffer for position at (now - bufferDelay)
@@ -394,6 +396,8 @@ export class PlayerRenderSystem {
             z: bufferedPos.z,
             timestamp: playbackTime,
           };
+          velocity = { x: bufferedPos.vx, y: bufferedPos.vy, z: bufferedPos.vz };
+          fromBuffer = true;
         }
       }
 
@@ -408,7 +412,7 @@ export class PlayerRenderSystem {
       }
 
       if (target) {
-        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
+        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage, fromBuffer, velocity);
       } else {
         // Fallback to direct position if no interpolation target
         if (cellGroup.userData.isSphere) {
@@ -1127,13 +1131,51 @@ export class PlayerRenderSystem {
     playerId: string,
     isMyPlayer: boolean,
     radius: number,
-    stage: string
+    stage: string,
+    fromBuffer: boolean = false,
+    velocity: { x: number; y: number; z: number } | null = null
   ): void {
     // Use consistent lerp for all stages - the real fix is using authoritative sphere radius
     const baseLerp = 0.3;
     const lerpFactor = frameLerp(baseLerp, this.dt);
 
     if (cellGroup.userData.isSphere) {
+      // Godcell uses true 3D flight - no sphere projection
+      // Must check before SLERP logic which forces positions onto sphere surface
+      if (stage === 'godcell') {
+        // If position came from snapshot buffer, use it directly (buffer already interpolated)
+        // This avoids double-interpolation which causes sluggish, "chasing" movement
+        if (fromBuffer) {
+          cellGroup.position.set(target.x, target.y, target.z ?? 0);
+        } else {
+          // Fallback lerp only when buffer unavailable (e.g., first few frames)
+          cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+          cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+          cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+        }
+
+        // Orient godcell to face velocity direction (wings trail behind like a jellyfish)
+        // lookAt() points -Z at target. We want wings (+Z) to trail behind,
+        // so we look OPPOSITE to velocity (making +Z point toward velocity's origin)
+        if (velocity) {
+          const speed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2);
+          if (speed > 10) { // world units/sec threshold to avoid jitter when stationary
+            const lookTarget = new THREE.Vector3(
+              cellGroup.position.x - velocity.x,
+              cellGroup.position.y - velocity.y,
+              cellGroup.position.z - velocity.z
+            );
+            cellGroup.lookAt(lookTarget);
+          }
+        }
+
+        const outline = this.playerOutlines.get(playerId);
+        if (outline) {
+          outline.position.copy(cellGroup.position);
+        }
+        return; // Skip SLERP/sphere projection for godcell
+      }
+
       // Sphere mode: use SLERP (spherical linear interpolation) for correct arc movement
       // Cartesian lerp + projection fails for large angular separations
       const currentVec = new THREE.Vector3(

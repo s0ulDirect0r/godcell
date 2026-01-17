@@ -410,6 +410,59 @@ class SocketManager {
 }
 ```
 
+### SnapshotBuffer (`core/net/SnapshotBuffer.ts`)
+
+Jitter buffer for smooth networked movement. Absorbs network timing variations by playing back positions with a small delay.
+
+**The Problem:**
+```
+Server sends at 60Hz:    ●────●────●────●────●  (consistent 16ms intervals)
+Network delivers:        ●──────●●────●●●────●  (bursty, variable timing)
+Without buffer:          Stutter! Positions arrive in bursts.
+```
+
+**The Solution:**
+```
+Buffer delays playback:  ────────●────●────●──  (smooth, 80ms behind)
+```
+
+**How it works:**
+
+1. **Server sends** position updates with `serverTime` (evenly spaced at 16ms)
+2. **Client receives** and stores in ring buffer with both `serverTime` and `clientTime`
+3. **Render queries** buffer at `now - bufferDelay` (default 80ms)
+4. **Buffer interpolates** between two snapshots bracketing the query time
+
+```typescript
+// SnapshotBuffer interpolation (based on SERVER timestamps, not arrival times)
+const alpha = (targetServerTime - before.serverTime) / (after.serverTime - before.serverTime);
+return {
+  x: before.x + (after.x - before.x) * alpha,
+  y: before.y + (after.y - before.y) * alpha,
+  z: before.z + (after.z - before.z) * alpha,
+};
+```
+
+**Critical insight:** Interpolate based on `serverTime` (evenly spaced) not `clientTime` (bursty).
+
+**Avoiding double-interpolation:**
+
+For entities using the buffer, the render system should use buffer positions **directly**, not lerp toward them. The buffer already provides smooth interpolation.
+
+```typescript
+// WRONG: Double interpolation causes sluggish "chasing" movement
+const buffered = snapshotBuffer.getInterpolated(id, playbackTime);
+mesh.position.lerp(buffered, 0.3); // Second lerp fights the buffer!
+
+// CORRECT: Use buffer position directly
+const buffered = snapshotBuffer.getInterpolated(id, playbackTime);
+mesh.position.set(buffered.x, buffered.y, buffered.z);
+```
+
+**Buffer parameters:**
+- `bufferDelay`: 80ms default (tradeoff: higher = smoother but more latency)
+- `maxSnapshots`: 30 (~500ms at 60Hz)
+
 ### InputManager (`core/input/InputManager.ts`)
 
 Captures keyboard/mouse input and emits events:
@@ -653,6 +706,12 @@ At Stage 5, players gain true 3D flight capabilities:
 - Camera facing determines input transform (server-side via `CameraFacingComponent`)
 - Phase shift toggles `IntangibleComponent` to pass through spheres
 - No energy decay (transcends thermodynamics)
+
+**Client Rendering:**
+- Godcell uses regular 3D lerp, NOT SLERP (sphere interpolation)
+- Position comes from SnapshotBuffer with `fromBuffer=true` flag
+- Buffer position is used directly (no second frame-lerp) to avoid sluggish "chasing" movement
+- See SnapshotBuffer section for why double-interpolation is bad
 
 ---
 
