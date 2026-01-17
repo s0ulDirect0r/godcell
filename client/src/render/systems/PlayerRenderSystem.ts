@@ -1159,8 +1159,7 @@ export class PlayerRenderSystem {
         // so we look OPPOSITE to velocity (making +Z point toward velocity's origin)
         if (velocity) {
           const speed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2);
-          if (speed > 10) {
-            // Only orient when moving (threshold avoids jitter when stationary)
+          if (speed > 10) { // world units/sec threshold to avoid jitter when stationary
             const lookTarget = new THREE.Vector3(
               cellGroup.position.x - velocity.x,
               cellGroup.position.y - velocity.y,
