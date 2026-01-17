@@ -42,6 +42,11 @@ import {
   updateEntropySerpentAnimation,
   updateEntropySerpentState,
 } from './render/meshes/EntropySerpentMesh';
+import {
+  createGodcell,
+  updateGodcellEnergy,
+  animateGodcell,
+} from './render/meshes/GodcellMesh';
 
 // Game's neon color palette (matches shared/index.ts CELL_COLORS)
 const CELL_COLORS = [
@@ -73,6 +78,7 @@ let currentEntityType:
   | 'single-cell'
   | 'multi-cell'
   | 'cyber-organism'
+  | 'godcell'
   | 'entropy-serpent'
   | 'tree'
   | 'data-fruit'
@@ -195,6 +201,7 @@ function initGUI() {
       'single-cell',
       'multi-cell',
       'cyber-organism',
+      'godcell',
       'entropy-serpent',
       'tree',
       'data-fruit',
@@ -606,6 +613,16 @@ function updateModels() {
       break;
     }
 
+    case 'godcell': {
+      // Stage 5 transcendent form - alien angel with eyes, wings, and spiral decorations
+      const godcell = createGodcell(100, currentColor);
+      godcell.position.set(0, 0, 0);
+      scene.add(godcell);
+      models.push(godcell);
+      camera.position.set(0, 0, 400);
+      break;
+    }
+
     case 'entropy-serpent': {
       // Jungle apex predator - serpentine body with clawed arms
       const serpent = createEntropySerpent(20);
@@ -814,6 +831,12 @@ function updateModels() {
       scene.add(cyberOrg);
       models.push(cyberOrg);
 
+      // Godcell (Stage 5 - scaled down for grid view)
+      const godcell = createGodcell(50, randomCellColor());
+      godcell.position.set(spacing * 2.5, spacing, 0);
+      scene.add(godcell);
+      models.push(godcell);
+
       // Row 2: Threats
       const { group: swarm } = createSwarm({ x: 0, y: 0 }, 40);
       swarm.position.set(-spacing, -spacing * 0.5, 0);
@@ -940,6 +963,10 @@ function animate(currentTime: number = 0) {
     } else if (model instanceof THREE.Group && model.name === 'entropySerpent') {
       // Entropy serpent - slither animation
       updateEntropySerpentAnimation(model, deltaTime, animState.autoAnimate);
+    } else if (model instanceof THREE.Group && model.name === 'godcell') {
+      // Godcell - pulsing aura, floating, rotation
+      updateGodcellEnergy(model, energy / 100);
+      animateGodcell(model, deltaTime);
     } else if (model instanceof THREE.Group && model.name === 'dataTree') {
       // Data tree - animate glow pulse and sway
       updateDataTreeAnimation(model, deltaTime * 1000); // Convert to ms
