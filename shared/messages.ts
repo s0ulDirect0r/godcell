@@ -212,6 +212,7 @@ export interface SwarmMovedMessage {
   state: 'patrol' | 'chase';
   disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
   energy?: number; // Current energy for visual scaling (swarms grow as they drain)
+  serverTime?: number; // Server timestamp for jitter buffer interpolation
 }
 
 export interface PseudopodSpawnedMessage {
@@ -352,6 +353,7 @@ export interface CyberBugMovedMessage {
   bugId: string;
   position: Position;
   state: string; // 'idle' | 'patrol' | 'flee'
+  serverTime?: number; // Server timestamp for jitter buffer interpolation
 }
 
 // JungleCreature spawn/kill messages
@@ -375,6 +377,7 @@ export interface JungleCreatureMovedMessage {
   position: Position;
   state: string; // 'idle' | 'patrol' | 'hunt' | 'flee'
   variant: string; // 'grazer' | 'stalker' | 'ambusher'
+  serverTime?: number; // Server timestamp for jitter buffer interpolation
 }
 
 // EntropySerpent spawn/move messages
@@ -390,6 +393,7 @@ export interface EntropySerpentMovedMessage {
   state: 'patrol' | 'chase' | 'attack';
   heading: number;
   targetPlayerId?: string;
+  serverTime?: number; // Server timestamp for jitter buffer interpolation
 }
 
 export interface EntropySerpentAttackMessage {

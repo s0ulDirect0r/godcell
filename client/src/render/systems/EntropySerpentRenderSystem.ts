@@ -103,9 +103,9 @@ export class EntropySerpentRenderSystem {
         this.serpentHeadings.set(serpentId, serpent.heading || 0);
       }
 
-      // Update target position
-      const targetX = interp ? interp.targetX : pos.x;
-      const targetY = interp ? interp.targetY : pos.y;
+      // Update target position from InterpolationTarget (buffer updates this centrally)
+      const targetX = interp?.targetX ?? pos.x;
+      const targetY = interp?.targetY ?? pos.y;
       this.serpentTargets.set(serpentId, { x: targetX, y: targetY });
 
       // Update heading
