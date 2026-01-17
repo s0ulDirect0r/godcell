@@ -382,6 +382,7 @@ export class PlayerRenderSystem {
       // If snapshot buffer is available, use it for jitter-compensated playback
       // Otherwise fall back to direct ECS InterpolationTarget component
       let target: InterpolationTarget | null = null;
+      let fromBuffer = false;
 
       if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(id)) {
         // Query buffer for position at (now - bufferDelay)
@@ -394,6 +395,7 @@ export class PlayerRenderSystem {
             z: bufferedPos.z,
             timestamp: playbackTime,
           };
+          fromBuffer = true;
         }
       }
 
@@ -408,7 +410,7 @@ export class PlayerRenderSystem {
       }
 
       if (target) {
-        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage);
+        this.interpolatePosition(cellGroup, target, id, isMyPlayer, radius, player.stage, fromBuffer);
       } else {
         // Fallback to direct position if no interpolation target
         if (cellGroup.userData.isSphere) {
@@ -1127,7 +1129,8 @@ export class PlayerRenderSystem {
     playerId: string,
     isMyPlayer: boolean,
     radius: number,
-    stage: string
+    stage: string,
+    fromBuffer: boolean = false
   ): void {
     // Use consistent lerp for all stages - the real fix is using authoritative sphere radius
     const baseLerp = 0.3;
@@ -1137,10 +1140,16 @@ export class PlayerRenderSystem {
       // Godcell uses true 3D flight - no sphere projection
       // Must check before SLERP logic which forces positions onto sphere surface
       if (stage === 'godcell') {
-        // Regular 3D lerp for free flight in space
-        cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
-        cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
-        cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+        // If position came from snapshot buffer, use it directly (buffer already interpolated)
+        // This avoids double-interpolation which causes sluggish, "chasing" movement
+        if (fromBuffer) {
+          cellGroup.position.set(target.x, target.y, target.z ?? 0);
+        } else {
+          // Fallback lerp only when buffer unavailable (e.g., first few frames)
+          cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+          cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+          cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+        }
 
         const outline = this.playerOutlines.get(playerId);
         if (outline) {

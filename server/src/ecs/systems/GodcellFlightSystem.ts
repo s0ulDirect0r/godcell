@@ -176,11 +176,13 @@ export class GodcellFlightSystem implements System {
       }
 
       // Broadcast position update to all clients
+      // Include serverTime for snapshot buffer interpolation (critical for smooth movement)
       const moveMessage = {
         type: 'playerMoved' as const,
         playerId,
         position: { x: pos.x, y: pos.y, z: pos.z },
         velocity: { x: vel.x, y: vel.y, z: vel.z },
+        serverTime: Date.now(),
       };
       _io.emit('playerMoved', moveMessage);
     });
