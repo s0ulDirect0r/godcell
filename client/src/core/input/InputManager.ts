@@ -247,10 +247,12 @@ export class InputManager {
 
     // Q/E for vertical movement (Stage 5 / Godcell 3D flight)
     // Q = ascend (positive Z), E = descend (negative Z)
-    if (this.inputState.isKeyDown('q')) {
+    const qDown = this.inputState.isKeyDown('q');
+    const eDown = this.inputState.isKeyDown('e');
+    if (qDown) {
       vz = 1; // Ascend
     }
-    if (this.inputState.isKeyDown('e')) {
+    if (eDown) {
       vz = -1; // Descend
     }
 

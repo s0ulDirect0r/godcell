@@ -1134,6 +1134,21 @@ export class PlayerRenderSystem {
     const lerpFactor = frameLerp(baseLerp, this.dt);
 
     if (cellGroup.userData.isSphere) {
+      // Godcell uses true 3D flight - no sphere projection
+      // Must check before SLERP logic which forces positions onto sphere surface
+      if (stage === 'godcell') {
+        // Regular 3D lerp for free flight in space
+        cellGroup.position.x += (target.x - cellGroup.position.x) * lerpFactor;
+        cellGroup.position.y += (target.y - cellGroup.position.y) * lerpFactor;
+        cellGroup.position.z += ((target.z ?? 0) - cellGroup.position.z) * lerpFactor;
+
+        const outline = this.playerOutlines.get(playerId);
+        if (outline) {
+          outline.position.copy(cellGroup.position);
+        }
+        return; // Skip SLERP/sphere projection for godcell
+      }
+
       // Sphere mode: use SLERP (spherical linear interpolation) for correct arc movement
       // Cartesian lerp + projection fails for large angular separations
       const currentVec = new THREE.Vector3(
