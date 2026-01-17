@@ -27,7 +27,7 @@ export const CONFIG = {
   // === FRESNEL AURA ===
   FRESNEL: {
     color: 0x00ff44,
-    intensity: 2.0,
+    intensity: 1.0, // Reduced 50% from 2.0
     shellOffset: 0.02,
     opacity: 0.3,
   },
@@ -40,7 +40,7 @@ export const CONFIG = {
     shellOpacity: 0.4,
     nucleusRadius: 0.075,
     nucleusColor: 0x00ff44,
-    nucleusEmissive: 3.0,
+    nucleusEmissive: 1.5, // Reduced 50% from 3.0
     surfaceOffset: 0.95, // How far out eyes sit (1.0 = on surface, <1 = embedded)
   },
 
@@ -51,7 +51,7 @@ export const CONFIG = {
     major: {
       count: 4,
       color: 0x00ff44,
-      emissiveIntensity: 2.5,
+      emissiveIntensity: 1.25, // Reduced 50% from 2.5
       // Blade dimensions (fractions of body radius)
       length: 2.0, // How far the blade extends backward
       baseWidth: 0.25, // Width at the base (near body)
@@ -81,13 +81,13 @@ export const CONFIG = {
         count: 5,
         radius: 0.06,
         color: 0x8833ff,
-        emissiveIntensity: 1.5,
+        emissiveIntensity: 0.75, // Reduced 50% from 1.5
       },
     },
     minor: {
       count: 3,
       color: 0x00ff44,
-      emissiveIntensity: 2.0,
+      emissiveIntensity: 1.0, // Reduced 50% from 2.0
       length: 1.2,
       baseWidth: 0.15,
       tipWidth: 0.02,
@@ -106,7 +106,7 @@ export const CONFIG = {
         count: 3,
         radius: 0.05,
         color: 0x8833ff,
-        emissiveIntensity: 1.5,
+        emissiveIntensity: 0.75, // Reduced 50% from 1.5
       },
     },
   },
@@ -594,6 +594,49 @@ export function disposeGodcellCache(): void {
 }
 
 /**
+ * Get world positions of all wing tips for trail rendering
+ * Returns 7 positions: 4 major wing tips + 3 tail blade tips
+ */
+export function getGodcellWingTipPositions(godcellGroup: THREE.Group): THREE.Vector3[] {
+  const positions: THREE.Vector3[] = [];
+  const worldPos = new THREE.Vector3();
+
+  // Major wings (4)
+  const wingsGroup = godcellGroup.getObjectByName('wings');
+  if (wingsGroup) {
+    for (let i = 0; i < 4; i++) {
+      const wing = wingsGroup.getObjectByName(`wing-major-${i}`);
+      if (wing) {
+        // Get last spot position (near tip of wing)
+        const lastSpot = wing.getObjectByName(`spot-${CONFIG.WINGS.major.spots.count - 1}`);
+        if (lastSpot) {
+          lastSpot.getWorldPosition(worldPos);
+          positions.push(worldPos.clone());
+        }
+      }
+    }
+  }
+
+  // Tail blades (3)
+  const tailGroup = godcellGroup.getObjectByName('tail');
+  if (tailGroup) {
+    for (let i = 0; i < 3; i++) {
+      const wing = tailGroup.getObjectByName(`wing-minor-${i}`);
+      if (wing) {
+        // Get last spot position (near tip of tail blade)
+        const lastSpot = wing.getObjectByName(`spot-${CONFIG.WINGS.minor.spots.count - 1}`);
+        if (lastSpot) {
+          lastSpot.getWorldPosition(worldPos);
+          positions.push(worldPos.clone());
+        }
+      }
+    }
+  }
+
+  return positions;
+}
+
+/**
  * Internal helper: create a spiral tube from an eye position (used during godcell creation)
  */
 function createEyeSpiralTubeInternal(s: number, eyeDir: THREE.Vector3, eyeIndex: number): THREE.Mesh | null {
@@ -794,7 +837,7 @@ function createEyeToSpiralTube(
   const material = new THREE.MeshStandardMaterial({
     color: CONFIG.FRESNEL.color,
     emissive: CONFIG.FRESNEL.color,
-    emissiveIntensity: 1.5,
+    emissiveIntensity: 0.75, // Reduced 50% from 1.5
   });
 
   const tube = new THREE.Mesh(geometry, material);

@@ -1,13 +1,14 @@
 // ============================================
 // TrailSystem - Manages player trail rendering
 // Owns trail point history and trail meshes
-// Stage-filtered: only renders in soup mode (Stage 1-2)
+// Soup mode (Stage 1-2): trails for single-cells and multi-cells
+// Jungle/God mode (Stage 3-5): trails only for godcells
 // ============================================
 
 import * as THREE from 'three';
 import { updateTrails, disposeAllTrails } from '../effects/TrailEffect';
 import type { RenderMode } from './EnvironmentSystem';
-import type { EvolutionStage } from '#shared';
+import { EvolutionStage } from '#shared';
 
 /**
  * Player data needed for trail rendering
@@ -54,15 +55,37 @@ export class TrailSystem {
     players: Map<string, TrailPlayerData>,
     renderMode: RenderMode
   ): void {
-    // Trails are soup-world effects - hide/clear in jungle mode
+    // In jungle mode, only render trails for godcells (3D flight trails)
     if (renderMode === 'jungle') {
-      // Clear all trails when entering jungle mode
-      if (this.trailMeshes.size > 0) {
-        this.clearAll();
+      // Filter to only godcell players
+      const godcellPlayers = new Map<string, TrailPlayerData>();
+      const godcellMeshes = new Map<string, THREE.Object3D>();
+
+      players.forEach((player, id) => {
+        if (player.stage === EvolutionStage.GODCELL) {
+          godcellPlayers.set(id, player);
+          const mesh = playerMeshes.get(id);
+          if (mesh) godcellMeshes.set(id, mesh);
+        }
+      });
+
+      // Clear non-godcell trails (e.g., when transitioning from soup to jungle)
+      this.clearNonGodcellTrails();
+
+      // Only update if there are godcells
+      if (godcellPlayers.size > 0) {
+        updateTrails(
+          this.scene,
+          this.trailPoints,
+          this.trailMeshes,
+          godcellMeshes as Map<string, THREE.Group>,
+          godcellPlayers
+        );
       }
       return;
     }
 
+    // Soup mode: render trails for single-cells and multi-cells (not godcells)
     updateTrails(
       this.scene,
       this.trailPoints,
@@ -70,6 +93,29 @@ export class TrailSystem {
       playerMeshes as Map<string, THREE.Group>,
       players
     );
+  }
+
+  /**
+   * Clear trails that don't belong to godcells
+   * Called when transitioning to jungle mode to clean up soup trails
+   */
+  private clearNonGodcellTrails(): void {
+    const keysToRemove: string[] = [];
+
+    this.trailMeshes.forEach((trail, key) => {
+      // Keep trails with "_wingtip_" in the key (godcell trails)
+      if (!key.includes('_wingtip_')) {
+        this.scene.remove(trail);
+        trail.geometry.dispose();
+        (trail.material as THREE.Material).dispose();
+        keysToRemove.push(key);
+      }
+    });
+
+    keysToRemove.forEach((key) => {
+      this.trailMeshes.delete(key);
+      this.trailPoints.delete(key);
+    });
   }
 
   /**
