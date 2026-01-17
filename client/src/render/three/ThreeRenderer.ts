@@ -34,13 +34,16 @@ import {
   Tags,
   Components,
   getStringIdByEntity,
+  getEntityByStringId,
   getLocalPlayerId,
   getLocalPlayer,
   getPlayer,
   forEachPlayer,
   type PositionComponent,
   type ObstacleComponent,
+  type InterpolationTargetComponent,
 } from '../../ecs';
+import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 import { frameLerp } from '../../utils/math';
 import { applySphereVisibilityCulling } from '../utils/SphereRenderUtils';
 
@@ -115,6 +118,9 @@ export class ThreeRenderer implements Renderer {
 
   // Wake particle system (liquid wake effect behind moving entities)
   private wakeParticleSystem!: WakeParticleSystem;
+
+  // Snapshot buffer for jitter-compensated position interpolation
+  private snapshotBuffer: SnapshotBuffer | null = null;
 
   // EventBus subscriptions for cleanup (prevents memory leaks)
   private eventSubscriptions: Array<() => void> = [];
@@ -834,6 +840,10 @@ export class ThreeRenderer implements Renderer {
     // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
     const { spawnProgress } = this.effectsSystem.update(dt);
 
+    // Apply buffered positions to ECS InterpolationTarget components
+    // This centralizes jitter buffer queries - render systems just read ECS
+    this.applyBufferedPositions();
+
     // Sync all entities (systems query World directly)
     this.playerRenderSystem.sync(this.environmentSystem.getMode(), this.cameraSystem.getYaw(), dt);
     this.nutrientRenderSystem.sync(this.environmentSystem.getMode());
@@ -1280,16 +1290,43 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * Set snapshot buffer for jitter-compensated position interpolation.
-   * Pass-through to all render systems that support jitter buffering.
+   * Buffer is used centrally to update ECS InterpolationTarget components.
+   * PlayerRenderSystem still gets direct access for stage-specific handling.
    */
-  setSnapshotBuffer(
-    buffer: import('../../core/net/SnapshotBuffer').SnapshotBuffer
-  ): void {
+  setSnapshotBuffer(buffer: SnapshotBuffer): void {
+    this.snapshotBuffer = buffer;
+    // PlayerRenderSystem has special stage-based handling, so it gets direct access
     this.playerRenderSystem.setSnapshotBuffer(buffer);
+    // Swarm also gets direct access for its special SLERP handling
     this.swarmRenderSystem.setSnapshotBuffer(buffer);
-    this.cyberBugRenderSystem.setSnapshotBuffer(buffer);
-    this.jungleCreatureRenderSystem.setSnapshotBuffer(buffer);
-    this.entropySerpentRenderSystem.setSnapshotBuffer(buffer);
+  }
+
+  /**
+   * Apply buffered positions to ECS InterpolationTarget components.
+   * Called once per frame before render systems sync.
+   * This centralizes buffer queries instead of having each render system do it.
+   */
+  private applyBufferedPositions(): void {
+    if (!this.snapshotBuffer) return;
+
+    const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
+
+    this.snapshotBuffer.forEachInterpolated(playbackTime, (entityId, interpolated) => {
+      const entity = getEntityByStringId(entityId);
+      if (!entity) return;
+
+      const interp = this.world.getComponent<InterpolationTargetComponent>(
+        entity,
+        Components.InterpolationTarget
+      );
+      if (interp) {
+        interp.targetX = interpolated.x;
+        interp.targetY = interpolated.y;
+        if (interpolated.z !== undefined) {
+          interp.targetZ = interpolated.z;
+        }
+      }
+    });
   }
 
   /**

@@ -55,21 +55,16 @@ export class SnapshotBuffer {
   private maxSnapshots = 30; // ~500ms at 60Hz server tick
   private bufferDelay = 80; // ms - tunable, balances smoothness vs latency
 
-  // Clock offset estimation (client time - server time)
-  // Updated on each received packet to track drift
-  private clockOffsets: Map<string, number> = new Map();
+  // Global clock offset estimation (client time - server time)
+  // Single value since all entities share the same network connection
+  private clockOffset = 0;
 
   // Statistics
   private underrunCount = 0;
 
-  // Debug logging throttle
-  private _lastCase2Log: Record<string, number> = {};
-  private _loggedPlayerInterp = false;
-
   /**
    * Push a new snapshot into the buffer for an entity.
    * Maintains chronological order and trims old snapshots.
-   * Also updates clock offset estimation for server-time interpolation.
    */
   push(entityId: string, snapshot: Snapshot): void {
     let buffer = this.buffers.get(entityId);
@@ -81,16 +76,10 @@ export class SnapshotBuffer {
     // Add snapshot (should already be in order from server)
     buffer.push(snapshot);
 
-    // Update clock offset (clientTime - serverTime)
+    // Update global clock offset (clientTime - serverTime)
     // Use exponential moving average to smooth out variations
     const newOffset = snapshot.clientTime - snapshot.serverTime;
-    const prevOffset = this.clockOffsets.get(entityId);
-    if (prevOffset !== undefined) {
-      // EMA with alpha=0.1 for smooth tracking
-      this.clockOffsets.set(entityId, prevOffset * 0.9 + newOffset * 0.1);
-    } else {
-      this.clockOffsets.set(entityId, newOffset);
-    }
+    this.clockOffset = this.clockOffset * 0.9 + newOffset * 0.1;
 
     // Trim old snapshots (keep buffer size bounded)
     if (buffer.length > this.maxSnapshots) {
@@ -105,9 +94,6 @@ export class SnapshotBuffer {
    * Server sends at consistent 16ms intervals, so serverTime is evenly spaced.
    * Client arrival times are bursty due to network jitter.
    *
-   * By interpolating on serverTime, we get smooth playback even when packets
-   * arrive in bursts.
-   *
    * @param entityId - The entity to query
    * @param playbackTime - The target time in client time (typically now - bufferDelay)
    */
@@ -119,11 +105,9 @@ export class SnapshotBuffer {
     }
 
     // Convert client playbackTime to equivalent server time
-    const clockOffset = this.clockOffsets.get(entityId) ?? 0;
-    const targetServerTime = playbackTime - clockOffset;
+    const targetServerTime = playbackTime - this.clockOffset;
 
     // Find two snapshots bracketing targetServerTime (using serverTime)
-    // Buffer is sorted by arrival order, which should match serverTime order
     let before: Snapshot | null = null;
     let after: Snapshot | null = null;
 
@@ -140,29 +124,19 @@ export class SnapshotBuffer {
     // Case 1: No data before targetServerTime - buffer underrun
     if (!before) {
       this.underrunCount++;
-      // Return oldest snapshot as fallback
       return buffer[0];
     }
 
     // Case 2: No data after targetServerTime - use most recent
-    // This happens when buffer is running low (need more delay)
     if (!after) {
       return before;
     }
 
-    // DEBUG: Log successful interpolation for first player (once)
-    if (entityId.startsWith('player') && !this._loggedPlayerInterp) {
-      console.log(`[BUFFER_DEBUG] ${entityId} INTERPOLATING: targetST=${targetServerTime.toFixed(0)} between ${before.serverTime.toFixed(0)} and ${after.serverTime.toFixed(0)}`);
-      this._loggedPlayerInterp = true;
-    }
-
     // Case 3: Interpolate between before and after based on serverTime
-    // ServerTime is evenly spaced (~16ms intervals), giving smooth interpolation
     const t1 = before.serverTime;
     const t2 = after.serverTime;
     const dt = t2 - t1;
 
-    // Avoid division by zero (shouldn't happen but be safe)
     if (dt <= 0) {
       return before;
     }
@@ -170,7 +144,6 @@ export class SnapshotBuffer {
     // Interpolation factor (0 = before, 1 = after)
     const alpha = Math.min(1, Math.max(0, (targetServerTime - t1) / dt));
 
-    // Linear interpolation
     return {
       x: before.x + (after.x - before.x) * alpha,
       y: before.y + (after.y - before.y) * alpha,
@@ -188,7 +161,6 @@ export class SnapshotBuffer {
    */
   remove(entityId: string): void {
     this.buffers.delete(entityId);
-    this.clockOffsets.delete(entityId);
   }
 
   /**
@@ -196,7 +168,7 @@ export class SnapshotBuffer {
    */
   clear(): void {
     this.buffers.clear();
-    this.clockOffsets.clear();
+    this.clockOffset = 0;
     this.underrunCount = 0;
   }
 
@@ -256,5 +228,21 @@ export class SnapshotBuffer {
   getBufferSize(entityId: string): number {
     const buffer = this.buffers.get(entityId);
     return buffer ? buffer.length : 0;
+  }
+
+  /**
+   * Iterate over all buffered entities with their interpolated positions.
+   * Used for centralized buffer-to-ECS updates.
+   */
+  forEachInterpolated(
+    playbackTime: number,
+    callback: (entityId: string, interpolated: Snapshot) => void
+  ): void {
+    this.buffers.forEach((_, entityId) => {
+      const interpolated = this.getInterpolated(entityId, playbackTime);
+      if (interpolated) {
+        callback(entityId, interpolated);
+      }
+    });
   }
 }

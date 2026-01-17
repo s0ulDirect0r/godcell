@@ -21,7 +21,6 @@ import {
   updateJungleCreatureState,
   disposeJungleCreature,
 } from '../meshes/JungleCreatureMesh';
-import type { SnapshotBuffer } from '../../core/net/SnapshotBuffer';
 
 /**
  * JungleCreatureRenderSystem - Manages jungle creature rendering
@@ -45,16 +44,6 @@ export class JungleCreatureRenderSystem {
 
   // Animation data
   private animationPhase: Map<string, number> = new Map();
-
-  // Snapshot buffer for jitter-compensated interpolation (set externally)
-  private snapshotBuffer: SnapshotBuffer | null = null;
-
-  /**
-   * Set the snapshot buffer for jitter-compensated position interpolation.
-   */
-  setSnapshotBuffer(buffer: SnapshotBuffer): void {
-    this.snapshotBuffer = buffer;
-  }
 
   /**
    * Initialize system with scene and world references
@@ -107,23 +96,9 @@ export class JungleCreatureRenderSystem {
         this.animationPhase.set(creatureId, Math.random() * Math.PI * 2);
       }
 
-      // Update target position
-      // Priority: snapshot buffer (jitter-compensated) > interp component > raw position
-      let targetX = pos.x;
-      let targetY = pos.y;
-
-      if (this.snapshotBuffer && this.snapshotBuffer.hasEntity(creatureId)) {
-        const playbackTime = performance.now() - this.snapshotBuffer.getBufferDelay();
-        const bufferedPos = this.snapshotBuffer.getInterpolated(creatureId, playbackTime);
-        if (bufferedPos) {
-          targetX = bufferedPos.x;
-          targetY = bufferedPos.y;
-        }
-      } else if (interp) {
-        targetX = interp.targetX;
-        targetY = interp.targetY;
-      }
-
+      // Update target position from InterpolationTarget (buffer updates this centrally)
+      const targetX = interp?.targetX ?? pos.x;
+      const targetY = interp?.targetY ?? pos.y;
       this.creatureTargets.set(creatureId, { x: targetX, y: targetY });
 
       // Update state-based visuals

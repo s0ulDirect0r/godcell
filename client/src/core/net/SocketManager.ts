@@ -120,12 +120,9 @@ export class SocketManager {
   // Snapshot buffer for jitter compensation
   private snapshotBuffer: SnapshotBuffer = new SnapshotBuffer();
 
-  // Network timing diagnostics
+  // Network timing tracking (for buffer population)
   private lastMoveTime: Map<string, number> = new Map();
   private lastServerTime: Map<string, number> = new Map();
-  private moveDeltas: number[] = [];
-  private serverDeltas: number[] = [];
-  private lastDiagnosticLog = 0;
 
   constructor(serverUrl: string, world: World, isPlaygroundParam = false, isSpectatorParam = false) {
     this.world = world;
@@ -471,61 +468,8 @@ export class SocketManager {
         }
       }
 
-      // Network timing diagnostics - track time between updates for local player
+      // Track timing for local player (used by buffer)
       if (data.playerId === this._myPlayerId) {
-        const lastClientTime = this.lastMoveTime.get(data.playerId);
-        const lastServerTime = this.lastServerTime.get(data.playerId);
-
-        if (lastClientTime && data.serverTime && lastServerTime) {
-          const clientDelta = now - lastClientTime;
-          const serverDelta = data.serverTime - lastServerTime;
-          this.moveDeltas.push(clientDelta);
-          this.serverDeltas.push(serverDelta);
-
-          // Log if gap is >50ms (3x expected 16.67ms tick)
-          if (clientDelta > 50) {
-            // Compare: did server send late, or did network deliver late?
-            const blame = serverDelta > 25 ? 'SERVER' : 'NETWORK';
-            console.warn(`[NETJITTER] Gap: ${clientDelta.toFixed(0)}ms (server delta: ${serverDelta.toFixed(0)}ms) → ${blame}`);
-          }
-
-          // Every 2 seconds, log stats and reset
-          if (now - this.lastDiagnosticLog > 2000) {
-            const sortedClient = [...this.moveDeltas].sort((a, b) => a - b);
-            const sortedServer = [...this.serverDeltas].sort((a, b) => a - b);
-
-            const clientAvg = sortedClient.reduce((a, b) => a + b, 0) / sortedClient.length;
-            const clientMax = sortedClient[sortedClient.length - 1];
-            const clientP95 = sortedClient[Math.floor(sortedClient.length * 0.95)] || clientMax;
-
-            const serverAvg = sortedServer.reduce((a, b) => a + b, 0) / sortedServer.length;
-            const serverMax = sortedServer[sortedServer.length - 1];
-            const serverP95 = sortedServer[Math.floor(sortedServer.length * 0.95)] || serverMax;
-
-            const clientGaps = this.moveDeltas.filter((d) => d > 50).length;
-            const serverGaps = this.serverDeltas.filter((d) => d > 25).length;
-
-            // Include buffer stats in diagnostics
-            const bufferStats = this.snapshotBuffer.getStats();
-            console.log(
-              `[NETDIAG] Client: Avg=${clientAvg.toFixed(1)}ms Max=${clientMax.toFixed(0)}ms P95=${clientP95.toFixed(0)}ms Gaps=${clientGaps}`
-            );
-            console.log(
-              `[NETDIAG] Server: Avg=${serverAvg.toFixed(1)}ms Max=${serverMax.toFixed(0)}ms P95=${serverP95.toFixed(0)}ms Gaps=${serverGaps}`
-            );
-            console.log(
-              `[NETDIAG] Buffer: Delay=${bufferStats.currentDelay}ms Entities=${bufferStats.entityCount} AvgOccupancy=${bufferStats.avgOccupancy.toFixed(1)} Underruns=${bufferStats.underrunCount}`
-            );
-            console.log(
-              `[NETDIAG] Verdict: ${serverGaps > 0 ? 'SERVER sending late' : clientGaps > 0 ? 'NETWORK delivering late' : 'OK'}`
-            );
-
-            this.moveDeltas = [];
-            this.serverDeltas = [];
-            this.snapshotBuffer.resetUnderrunCount();
-            this.lastDiagnosticLog = now;
-          }
-        }
         this.lastMoveTime.set(data.playerId, now);
         if (data.serverTime) {
           this.lastServerTime.set(data.playerId, data.serverTime);
@@ -891,11 +835,7 @@ export class SocketManager {
     }
     // Stage 3+ macro-resources (optional in message)
     if (snapshot.dataFruits) {
-      const fruitCount = Object.keys(snapshot.dataFruits).length;
-      console.log('[DEBUG] applySnapshot: received dataFruits count:', fruitCount);
       Object.values(snapshot.dataFruits).forEach((f) => upsertDataFruit(this.world, f));
-    } else {
-      console.log('[DEBUG] applySnapshot: NO dataFruits in snapshot');
     }
     if (snapshot.cyberBugs) {
       Object.values(snapshot.cyberBugs).forEach((b) => upsertCyberBug(this.world, b));
