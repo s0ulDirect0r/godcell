@@ -806,12 +806,12 @@ io.on('connection', (socket) => {
   socket.on(
     'devCommand',
     safeHandler('devCommand', (message: DevCommandMessage) => {
-      // Only allow dev commands in development mode
-      if (process.env.NODE_ENV === 'production') {
+      // Require explicit opt-in for dev commands
+      if (process.env.DEV_COMMANDS !== 'true') {
         logger.warn({
           event: 'dev_command_blocked',
           socketId: socket.id,
-          reason: 'production_mode',
+          reason: 'dev_commands_disabled',
         });
         return;
       }
