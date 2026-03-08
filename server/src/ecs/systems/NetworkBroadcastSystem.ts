@@ -150,6 +150,11 @@ export class NetworkBroadcastSystem implements System {
       }
     });
 
+    // Skip emit when no damage is happening (most common case)
+    if (Object.keys(damageInfo).length === 0 && Object.keys(swarmDamageInfo).length === 0) {
+      return;
+    }
+
     const drainStateMessage: PlayerDrainStateMessage = {
       type: 'playerDrainState',
       drainedPlayerIds: [], // deprecated
