@@ -333,8 +333,8 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
   if (entity === undefined) return;
 
   // Clamp to world bounds and update via entity-based setter
-  const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.WORLD_WIDTH));
-  const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.WORLD_HEIGHT));
+  const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.SOUP_WIDTH));
+  const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.SOUP_HEIGHT));
   setPosition(devContext.world, entity, clampedX, clampedY);
 
   io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });

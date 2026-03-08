@@ -133,8 +133,8 @@ function randomSpawnPosition(): Position {
   // Fallback if ECS world not injected
   logger.warn('Bot: ECS world not set, using map center fallback');
   return {
-    x: GAME_CONFIG.WORLD_WIDTH / 2,
-    y: GAME_CONFIG.WORLD_HEIGHT / 2,
+    x: GAME_CONFIG.SOUP_WIDTH / 2,
+    y: GAME_CONFIG.SOUP_HEIGHT / 2,
   };
 }
 
