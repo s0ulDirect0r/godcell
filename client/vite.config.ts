@@ -17,7 +17,7 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, '../dist/client'),
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: 'hidden',
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
