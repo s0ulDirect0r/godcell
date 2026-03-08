@@ -375,7 +375,7 @@ function respawnPlayer(playerId: string) {
 
 const io = new Server(PORT, {
   cors: {
-    origin: '*', // Allow all origins for development
+    origin: process.env.CORS_ORIGIN || '*',
   },
 });
 
