@@ -8,6 +8,7 @@ import type {
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
+  PlayerPositionsBatchMessage,
   PlayerRespawnedMessage,
   PlayerDiedMessage,
   PlayerEvolutionStartedMessage,
@@ -18,6 +19,7 @@ import type {
   EnergyUpdateMessage,
   SwarmSpawnedMessage,
   SwarmMovedMessage,
+  SwarmPositionsBatchMessage,
   PseudopodSpawnedMessage,
   PseudopodMovedMessage,
   PseudopodRetractedMessage,
@@ -401,6 +403,19 @@ export class SocketManager {
       eventBus.emit(data);
     });
 
+    // Batched player positions (single emit per tick)
+    this.socket.on('playerPositionsBatch', (data: PlayerPositionsBatchMessage) => {
+      for (const player of data.players) {
+        updatePlayerTarget(
+          this.world,
+          player.playerId,
+          player.position.x,
+          player.position.y,
+          player.position.z
+        );
+      }
+    });
+
     this.socket.on('playerRespawned', (data: PlayerRespawnedMessage) => {
       upsertPlayer(this.world, data.player);
       // Re-tag local player if this is us respawning
@@ -471,6 +486,20 @@ export class SocketManager {
         data.energy
       );
       eventBus.emit(data);
+    });
+
+    // Batched swarm positions (single emit per tick)
+    this.socket.on('swarmPositionsBatch', (data: SwarmPositionsBatchMessage) => {
+      for (const swarm of data.swarms) {
+        updateSwarmTarget(
+          this.world,
+          swarm.swarmId,
+          swarm.position.x,
+          swarm.position.y,
+          swarm.disabledUntil,
+          swarm.energy
+        );
+      }
     });
 
     // Pseudopod events

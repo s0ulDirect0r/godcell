@@ -8,7 +8,7 @@ import type {
   EnergyUpdateMessage,
   DetectionUpdateMessage,
   PlayerDrainStateMessage,
-  SwarmMovedMessage,
+  SwarmPositionsBatchMessage,
   DetectedEntity,
   DamageSource,
 } from '#shared';
@@ -150,6 +150,11 @@ export class NetworkBroadcastSystem implements System {
       }
     });
 
+    // Skip emit when no damage is happening (most common case)
+    if (Object.keys(damageInfo).length === 0 && Object.keys(swarmDamageInfo).length === 0) {
+      return;
+    }
+
     const drainStateMessage: PlayerDrainStateMessage = {
       type: 'playerDrainState',
       drainedPlayerIds: [], // deprecated
@@ -246,19 +251,27 @@ export class NetworkBroadcastSystem implements System {
 
   /**
    * Broadcast swarm position updates to clients (every tick for smooth movement)
-   * Sends position, state, and energy for interpolation and visual scaling
+   * Batches all swarms into a single emit to reduce Socket.io overhead
    */
   private broadcastSwarmPositionUpdates(world: World, io: Server): void {
+    const batch: SwarmPositionsBatchMessage['swarms'] = [];
+
     forEachSwarm(world, (_entity, swarmId, posComp, _velComp, swarmComp, energyComp) => {
-      const moveMessage: SwarmMovedMessage = {
-        type: 'swarmMoved',
+      batch.push({
         swarmId,
         position: { x: posComp.x, y: posComp.y },
         state: swarmComp.state,
         disabledUntil: swarmComp.disabledUntil,
         energy: energyComp?.current,
-      };
-      io.emit('swarmMoved', moveMessage);
+      });
     });
+
+    if (batch.length > 0) {
+      const message: SwarmPositionsBatchMessage = {
+        type: 'swarmPositionsBatch',
+        swarms: batch,
+      };
+      io.emit('swarmPositionsBatch', message);
+    }
   }
 }

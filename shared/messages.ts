@@ -129,6 +129,15 @@ export interface PlayerMovedMessage {
   position: Position;
 }
 
+/** Batched player positions — one emit per tick instead of per-player */
+export interface PlayerPositionsBatchMessage {
+  type: 'playerPositionsBatch';
+  players: Array<{
+    playerId: string;
+    position: Position;
+  }>;
+}
+
 export interface NutrientSpawnedMessage {
   type: 'nutrientSpawned';
   nutrient: Nutrient;
@@ -196,6 +205,18 @@ export interface SwarmMovedMessage {
   state: 'patrol' | 'chase';
   disabledUntil?: number; // Timestamp when EMP stun expires (if disabled)
   energy?: number; // Current energy for visual scaling (swarms grow as they drain)
+}
+
+/** Batched swarm positions — one emit per tick instead of per-swarm */
+export interface SwarmPositionsBatchMessage {
+  type: 'swarmPositionsBatch';
+  swarms: Array<{
+    swarmId: string;
+    position: Position;
+    state: 'patrol' | 'chase';
+    disabledUntil?: number;
+    energy?: number;
+  }>;
 }
 
 export interface PseudopodSpawnedMessage {
@@ -626,6 +647,7 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | PlayerMovedMessage
+  | PlayerPositionsBatchMessage
   | NutrientSpawnedMessage
   | NutrientCollectedMessage
   | NutrientMovedMessage
@@ -636,6 +658,7 @@ export type ServerMessage =
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
   | SwarmMovedMessage
+  | SwarmPositionsBatchMessage
   | PseudopodSpawnedMessage
   | PseudopodMovedMessage
   | PseudopodRetractedMessage
