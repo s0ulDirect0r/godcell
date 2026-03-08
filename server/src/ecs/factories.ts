@@ -97,7 +97,10 @@ export function createWorld(): World {
   // Server-only components (deferred actions, timers)
   world.registerStore<PendingRespawnComponent>(Components.PendingRespawn, new ComponentStore());
   world.registerStore<AbilityIntentComponent>(Components.AbilityIntent, new ComponentStore());
-  world.registerStore<PendingExpirationComponent>(Components.PendingExpiration, new ComponentStore());
+  world.registerStore<PendingExpirationComponent>(
+    Components.PendingExpiration,
+    new ComponentStore()
+  );
 
   return world;
 }
@@ -2196,7 +2199,6 @@ export function createProjectile(
     ownerId,
     ownerSocketId,
     damage,
-    capacitySteal: GAME_CONFIG.PROJECTILE_CAPACITY_STEAL,
     startX: startPos.x,
     startY: startPos.y,
     targetX: targetPos.x,

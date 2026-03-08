@@ -991,7 +991,6 @@ export function upsertProjectile(world: World, projectile: Projectile): EntityId
     ownerId: 0, // Not used on client
     ownerSocketId: projectile.ownerId,
     damage: GAME_CONFIG.PROJECTILE_DAMAGE,
-    capacitySteal: 0,
     startX: projectile.position.x,
     startY: projectile.position.y,
     targetX: projectile.targetPosition.x,

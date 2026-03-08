@@ -85,7 +85,6 @@ export interface StageComponent {
  */
 export interface InputComponent {
   direction: { x: number; y: number; z?: number }; // -1, 0, or 1 for each axis (z optional)
-  lastInputTimestamp?: number; // For debugging/anti-cheat
 }
 
 /**
@@ -370,7 +369,6 @@ export interface ProjectileComponent {
   ownerId: number; // EntityId of player who fired
   ownerSocketId: string; // For network attribution and rewards
   damage: number; // Energy drained from target on hit
-  capacitySteal: number; // maxEnergy stolen from target (0 for fauna)
   startX: number; // Starting position X
   startY: number; // Starting position Y
   targetX: number; // Target position X
