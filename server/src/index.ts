@@ -112,6 +112,7 @@ import {
   randomSpawnPosition,
   poissonDiscSampling,
 } from './helpers';
+import { clampDirection, isValidTarget, isValidMeleeAttackType } from './helpers/validation';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
 // ============================================
@@ -354,8 +355,11 @@ function respawnPlayer(playerId: string) {
 
 const io = new Server(PORT, {
   cors: {
-    origin: '*', // Allow all origins for development
+    origin: process.env.CORS_ORIGIN || '*',
   },
+  maxHttpBufferSize: 1e5, // 100KB - game messages are tiny
+  pingTimeout: 10000,
+  pingInterval: 5000,
 });
 
 logServerStarted(PORT);
@@ -451,6 +455,49 @@ logger.info({
 // Connection Handling
 // ============================================
 
+// ============================================
+// Per-Socket Rate Limiting
+// ============================================
+
+// Rate limits per event (max messages per second)
+const RATE_LIMITS: Record<string, number> = {
+  playerMove: 66, // Slightly above 60fps tick rate
+  pseudopodFire: 10,
+  projectileFire: 10,
+  meleeAttack: 10,
+  empActivate: 10,
+  playerSprint: 10,
+  placeTrap: 10,
+  clientLog: 5,
+  playerRespawnRequest: 2,
+};
+
+// Track per-socket message counts: socketId -> (eventName -> count)
+const rateLimitCounters = new Map<string, Map<string, number>>();
+
+// Reset all counters every second
+setInterval(() => {
+  for (const counters of rateLimitCounters.values()) {
+    counters.clear();
+  }
+}, 1000);
+
+/** Returns true if the message should be allowed, false if rate-limited. */
+function checkRateLimit(socketId: string, eventName: string): boolean {
+  const limit = RATE_LIMITS[eventName];
+  if (limit === undefined) return true; // No limit configured
+
+  let counters = rateLimitCounters.get(socketId);
+  if (!counters) {
+    counters = new Map();
+    rateLimitCounters.set(socketId, counters);
+  }
+
+  const count = (counters.get(eventName) ?? 0) + 1;
+  counters.set(eventName, count);
+  return count <= limit;
+}
+
 io.on('connection', (socket) => {
   // Store connect time for session duration tracking
   socket.data.connectTime = Date.now();
@@ -536,15 +583,13 @@ io.on('connection', (socket) => {
   socket.on(
     'playerMove',
     safeHandler('playerMove', (message: PlayerMoveMessage) => {
+      if (!checkRateLimit(socket.id, 'playerMove')) return;
+      // Validate and clamp direction to [-1, 1] per axis
+      const dir = clampDirection(message.direction?.x, message.direction?.y, message.direction?.z);
+      if (!dir) return;
+
       // Store player's input direction via ECS (will be combined with gravity in game loop)
-      // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
-      setInputBySocketId(
-        world,
-        socket.id,
-        message.direction.x,
-        message.direction.y,
-        message.direction.z ?? 0
-      );
+      setInputBySocketId(world, socket.id, dir.x, dir.y, dir.z);
     })
   );
 
@@ -555,6 +600,7 @@ io.on('connection', (socket) => {
   socket.on(
     'playerRespawnRequest',
     safeHandler('playerRespawnRequest', (_message: PlayerRespawnRequestMessage) => {
+      if (!checkRateLimit(socket.id, 'playerRespawnRequest')) return;
       // Check player exists and is dead using ECS
       const energyComp = getEnergyBySocketId(world, socket.id);
       if (!energyComp) return;
@@ -573,6 +619,8 @@ io.on('connection', (socket) => {
   socket.on(
     'pseudopodFire',
     safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
+      if (!checkRateLimit(socket.id, 'pseudopodFire')) return;
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
@@ -590,6 +638,8 @@ io.on('connection', (socket) => {
   socket.on(
     'projectileFire',
     safeHandler('projectileFire', (message: ProjectileFireMessage) => {
+      if (!checkRateLimit(socket.id, 'projectileFire')) return;
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
@@ -607,6 +657,7 @@ io.on('connection', (socket) => {
   socket.on(
     'empActivate',
     safeHandler('empActivate', (_message: EMPActivateMessage) => {
+      if (!checkRateLimit(socket.id, 'empActivate')) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, { abilityType: 'emp' });
@@ -620,6 +671,7 @@ io.on('connection', (socket) => {
   socket.on(
     'playerSprint',
     safeHandler('playerSprint', (message: PlayerSprintMessage) => {
+      if (!checkRateLimit(socket.id, 'playerSprint')) return;
       // Get player state from ECS
       const energyComp = getEnergyBySocketId(world, socket.id);
       const stageComp = getStageBySocketId(world, socket.id);
@@ -701,6 +753,9 @@ io.on('connection', (socket) => {
   socket.on(
     'meleeAttack',
     safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
+      if (!checkRateLimit(socket.id, 'meleeAttack')) return;
+      if (!isValidMeleeAttackType(message.attackType)) return;
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
@@ -715,6 +770,7 @@ io.on('connection', (socket) => {
   socket.on(
     'placeTrap',
     safeHandler('placeTrap', () => {
+      if (!checkRateLimit(socket.id, 'placeTrap')) return;
       logger.debug({ event: 'socket_place_trap', socketId: socket.id });
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
@@ -729,12 +785,12 @@ io.on('connection', (socket) => {
   socket.on(
     'devCommand',
     safeHandler('devCommand', (message: DevCommandMessage) => {
-      // Only allow dev commands in development mode
-      if (process.env.NODE_ENV === 'production') {
+      // Require explicit opt-in for dev commands
+      if (process.env.DEV_COMMANDS !== 'true') {
         logger.warn({
           event: 'dev_command_blocked',
           socketId: socket.id,
-          reason: 'production_mode',
+          reason: 'dev_commands_disabled',
         });
         return;
       }
@@ -749,6 +805,7 @@ io.on('connection', (socket) => {
   socket.on(
     'clientLog',
     safeHandler('clientLog', (message: { level: string; args: string[]; timestamp: number }) => {
+      if (!checkRateLimit(socket.id, 'clientLog')) return;
       const socketId = socket.id || 'unknown';
       const clientId = socketId.slice(0, 8);
       // Validate input: ensure args is an array and limit size
@@ -805,6 +862,9 @@ io.on('connection', (socket) => {
       });
 
       logPlayerDisconnected(socket.id);
+
+      // Clean up rate limit counters
+      rateLimitCounters.delete(socket.id);
 
       // Remove from ECS (source of truth)
       if (entity !== undefined) {
