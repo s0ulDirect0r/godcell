@@ -130,22 +130,6 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 // ECS is the sole source of truth for all player state.
 const world: World = createWorld();
 
-// NOTE: playerInputDirections and playerVelocities migrated to ECS InputComponent and VelocityComponent
-// NOTE: playerSprintState migrated to ECS SprintComponent
-
-// NOTE: playerLastDamageSource and playerLastBeamShooter migrated to ECS DamageTrackingComponent
-
-// NOTE: Pseudopods migrated to ECS PseudopodComponent - see PseudopodSystem
-
-// NOTE: playerEMPCooldowns and playerPseudopodCooldowns migrated to ECS CooldownsComponent
-
-// NOTE: activeDrains migrated to ECS DrainTargetComponent - see setDrainTarget/clearDrainTarget
-// NOTE: activeSwarmDrains migrated to ECS SwarmComponent.beingConsumedBy
-// NOTE: activeDamage migrated to ECS DamageTrackingComponent.activeDamage
-// NOTE: pseudopodHitDecays migrated to ECS DamageTrackingComponent
-
-// NOTE: obstacles migrated to ECS - use getAllObstacleSnapshots/getObstacleCount/buildObstaclesRecord
-
 /**
  * Initialize gravity obstacles using Bridson's Poisson Disc Sampling
  * Pure spatial distribution - no safe zones, obstacles fill the soup naturally
