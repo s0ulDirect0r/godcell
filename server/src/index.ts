@@ -377,6 +377,9 @@ const io = new Server(PORT, {
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
   },
+  maxHttpBufferSize: 1e5, // 100KB - game messages are tiny
+  pingTimeout: 10000,
+  pingInterval: 5000,
 });
 
 logServerStarted(PORT);
