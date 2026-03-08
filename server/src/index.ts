@@ -112,11 +112,7 @@ import {
   randomSpawnPosition,
   poissonDiscSampling,
 } from './helpers';
-import {
-  clampDirection,
-  isValidTarget,
-  isValidMeleeAttackType,
-} from './helpers/validation';
+import { clampDirection, isValidTarget, isValidMeleeAttackType } from './helpers/validation';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
 // ============================================
@@ -605,11 +601,7 @@ io.on('connection', (socket) => {
     safeHandler('playerMove', (message: PlayerMoveMessage) => {
       if (!checkRateLimit(socket.id, 'playerMove')) return;
       // Validate and clamp direction to [-1, 1] per axis
-      const dir = clampDirection(
-        message.direction?.x,
-        message.direction?.y,
-        message.direction?.z
-      );
+      const dir = clampDirection(message.direction?.x, message.direction?.y, message.direction?.z);
       if (!dir) return;
 
       // Store player's input direction via ECS (will be combined with gravity in game loop)

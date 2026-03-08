@@ -31,9 +31,7 @@ export function clampDirection(
 export function isValidTarget(x: unknown, y: unknown): boolean {
   if (!isFiniteNumber(x) || !isFiniteNumber(y)) return false;
   // Targets must be within the full jungle (largest play area)
-  return (
-    x >= 0 && x <= GAME_CONFIG.JUNGLE_WIDTH && y >= 0 && y <= GAME_CONFIG.JUNGLE_HEIGHT
-  );
+  return x >= 0 && x <= GAME_CONFIG.JUNGLE_WIDTH && y >= 0 && y <= GAME_CONFIG.JUNGLE_HEIGHT;
 }
 
 /** Returns true if the value is one of the allowed melee attack types. */
