@@ -112,6 +112,11 @@ import {
   randomSpawnPosition,
   poissonDiscSampling,
 } from './helpers';
+import {
+  clampDirection,
+  isValidTarget,
+  isValidMeleeAttackType,
+} from './helpers/validation';
 import { calculateAggregateStats, createWorldSnapshot } from './telemetry';
 
 // ============================================
@@ -552,15 +557,16 @@ io.on('connection', (socket) => {
   socket.on(
     'playerMove',
     safeHandler('playerMove', (message: PlayerMoveMessage) => {
-      // Store player's input direction via ECS (will be combined with gravity in game loop)
-      // Direction values are -1, 0, or 1 (z is for Stage 5 godcell 3D flight)
-      setInputBySocketId(
-        world,
-        socket.id,
-        message.direction.x,
-        message.direction.y,
-        message.direction.z ?? 0
+      // Validate and clamp direction to [-1, 1] per axis
+      const dir = clampDirection(
+        message.direction?.x,
+        message.direction?.y,
+        message.direction?.z
       );
+      if (!dir) return;
+
+      // Store player's input direction via ECS (will be combined with gravity in game loop)
+      setInputBySocketId(world, socket.id, dir.x, dir.y, dir.z);
     })
   );
 
@@ -589,6 +595,7 @@ io.on('connection', (socket) => {
   socket.on(
     'pseudopodFire',
     safeHandler('pseudopodFire', (message: PseudopodFireMessage) => {
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
@@ -606,6 +613,7 @@ io.on('connection', (socket) => {
   socket.on(
     'projectileFire',
     safeHandler('projectileFire', (message: ProjectileFireMessage) => {
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
@@ -717,6 +725,8 @@ io.on('connection', (socket) => {
   socket.on(
     'meleeAttack',
     safeHandler('meleeAttack', (message: MeleeAttackMessage) => {
+      if (!isValidMeleeAttackType(message.attackType)) return;
+      if (!isValidTarget(message.targetX, message.targetY)) return;
       const entity = getEntityBySocketId(socket.id);
       if (entity === undefined) return;
       tryAddAbilityIntent(world, entity, {
