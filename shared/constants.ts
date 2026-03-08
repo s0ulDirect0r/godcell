@@ -61,7 +61,6 @@ export const DEV_TUNABLE_CONFIGS = [
   'CONTACT_DRAIN_RATE',
   'PSEUDOPOD_RANGE',
   'PSEUDOPOD_AOE_RADIUS',
-  'PSEUDOPOD_PROJECTILE_SPEED',
   'PSEUDOPOD_DRAIN_RATE',
   'PSEUDOPOD_COOLDOWN',
   'PSEUDOPOD_ENERGY_COST',
@@ -109,9 +108,7 @@ export const GAME_CONFIG = {
   GODCELL_Z_MIN: 0, // Ground level (can't go below)
   GODCELL_Z_MAX: 2000, // Sky ceiling
 
-  // World dimensions - Soup (Stage 1-2 play area)
-  WORLD_WIDTH: 4800, // Soup width (backward compat alias)
-  WORLD_HEIGHT: 3200, // Soup height (backward compat alias)
+  // World dimensions
   VIEWPORT_WIDTH: 1200, // What you see on screen
   VIEWPORT_HEIGHT: 800,
 
@@ -123,8 +120,8 @@ export const GAME_CONFIG = {
   // Soup exists as a small region in the middle of the jungle
   SOUP_ORIGIN_X: 7200, // (19200 - 4800) / 2 = 7200
   SOUP_ORIGIN_Y: 4800, // (12800 - 3200) / 2 = 4800
-  SOUP_WIDTH: 4800, // Same as WORLD_WIDTH
-  SOUP_HEIGHT: 3200, // Same as WORLD_HEIGHT
+  SOUP_WIDTH: 4800, // Soup play area width
+  SOUP_HEIGHT: 3200, // Soup play area height
 
   // Visual theme - godcell: Digital Primordial Soup
   BACKGROUND_COLOR: 0x0a0a14, // Deep void
@@ -170,7 +167,6 @@ export const GAME_CONFIG = {
   OBSTACLE_SPARK_RADIUS: 18, // Lethal inner spark (instant death zone)
   OBSTACLE_GRAVITY_STRENGTH: 1.0, // Force multiplier for inverse-square gravity
   OBSTACLE_ENERGY_DRAIN_RATE: 7.5, // Energy/sec drain rate when inside gravity well (scaled by proximity)
-  OBSTACLE_DAMAGE_RATE: 10, // UNUSED - legacy field, energy drain now handled by OBSTACLE_ENERGY_DRAIN_RATE
   OBSTACLE_NUTRIENT_ATTRACTION_SPEED: 50, // Pixels per second that nutrients move toward obstacles
   OBSTACLE_MIN_SEPARATION: 900, // Minimum distance between obstacles (pixels)
 
@@ -230,11 +226,8 @@ export const GAME_CONFIG = {
   NUTRIENT_DROP_ON_DEATH: 0.5, // Victim drops 50% of collected nutrients (maxEnergy → nutrient count)
 
   // Pseudopod Strike (energy whip - medium range AoE attack)
-  PSEUDOPOD_MODE: 'strike' as 'hitscan' | 'projectile' | 'strike', // 'strike' = instant AoE at target location
   PSEUDOPOD_RANGE: 250, // Max range in pixels (close quarters energy whip)
   PSEUDOPOD_AOE_RADIUS: 50, // Impact zone radius for AoE damage
-  PSEUDOPOD_PROJECTILE_SPEED: 3600, // (legacy) Pixels per second beam travel speed
-  PSEUDOPOD_WIDTH: 20, // (legacy) Beam collision width in pixels
   PSEUDOPOD_ENERGY_COST: 30, // Energy cost per strike
   PSEUDOPOD_DRAIN_RATE: 200, // Energy drained per hit (attacker absorbs this)
   PSEUDOPOD_COOLDOWN: 1000, // Milliseconds between strikes
@@ -285,7 +278,6 @@ export const GAME_CONFIG = {
   DATAFRUIT_RIPENESS_TIME: 30000, // 30s to ripen on tree (ms)
   DATAFRUIT_GROUND_LIFETIME: 60000, // 60s before fallen fruit despawns (ms)
   DATAFRUIT_COLLISION_RADIUS: 40, // Collection/visual radius (2x for visibility)
-  DATAFRUIT_SPAWN_OFFSET: 60, // Random offset from tree center (legacy, not used)
   DATAFRUIT_TREE_SPAWN_INTERVAL: 45000, // 45s between tree fruit spawns (ms)
 
   // CyberBug - skittish prey in swarms (5% of 30,000 = 1,500)
@@ -334,7 +326,6 @@ export const GAME_CONFIG = {
   PROJECTILE_MAX_DISTANCE: 10800, // ~10,800px range (1.5s * 7200 px/s)
   PROJECTILE_COOLDOWN: 333, // ms between shots (3 shots/sec)
   PROJECTILE_DAMAGE: 150, // 5% of Stage 3 maxEnergy
-  PROJECTILE_CAPACITY_STEAL: 0, // No capacity steal from fauna (for now)
   PROJECTILE_COLLISION_RADIUS: 21, // Hit detection radius (30% smaller)
   PROJECTILE_ENERGY_COST: 30, // 1% of Stage 3 maxEnergy
   PROJECTILE_LIFETIME: 1500, // ms before despawn

@@ -141,12 +141,6 @@ const CONFIG_RANGES: Partial<Record<TunableConfigKey, ConfigValue>> = {
 
   // Combat
   CONTACT_DRAIN_RATE: { value: GAME_CONFIG.CONTACT_DRAIN_RATE, min: 50, max: 500, step: 10 },
-  PSEUDOPOD_PROJECTILE_SPEED: {
-    value: GAME_CONFIG.PSEUDOPOD_PROJECTILE_SPEED,
-    min: 1000,
-    max: 8000,
-    step: 100,
-  },
   PSEUDOPOD_DRAIN_RATE: { value: GAME_CONFIG.PSEUDOPOD_DRAIN_RATE, min: 20, max: 300, step: 10 },
   PSEUDOPOD_COOLDOWN: { value: GAME_CONFIG.PSEUDOPOD_COOLDOWN, min: 200, max: 3000, step: 100 },
   PSEUDOPOD_ENERGY_COST: { value: GAME_CONFIG.PSEUDOPOD_ENERGY_COST, min: 5, max: 100, step: 5 },
@@ -309,7 +303,6 @@ export class DevPanel {
     // Combat subfolder
     const combatFolder = configFolder.addFolder('Combat');
     this.addConfigControl(combatFolder, 'CONTACT_DRAIN_RATE');
-    this.addConfigControl(combatFolder, 'PSEUDOPOD_PROJECTILE_SPEED');
     this.addConfigControl(combatFolder, 'PSEUDOPOD_DRAIN_RATE');
     this.addConfigControl(combatFolder, 'PSEUDOPOD_COOLDOWN');
     this.addConfigControl(combatFolder, 'PSEUDOPOD_ENERGY_COST');
@@ -516,8 +509,8 @@ export class DevPanel {
 
   private spawnAtCenter(): void {
     const position: Position = {
-      x: GAME_CONFIG.WORLD_WIDTH / 2,
-      y: GAME_CONFIG.WORLD_HEIGHT / 2,
+      x: GAME_CONFIG.SOUP_WIDTH / 2,
+      y: GAME_CONFIG.SOUP_HEIGHT / 2,
     };
     this.spawnEntity(position);
   }
@@ -541,8 +534,8 @@ export class DevPanel {
   private spawnMultiple(count: number): void {
     for (let i = 0; i < count; i++) {
       const position: Position = {
-        x: Math.random() * GAME_CONFIG.WORLD_WIDTH,
-        y: Math.random() * GAME_CONFIG.WORLD_HEIGHT,
+        x: Math.random() * GAME_CONFIG.SOUP_WIDTH,
+        y: Math.random() * GAME_CONFIG.SOUP_HEIGHT,
       };
       this.spawnEntity(position);
     }

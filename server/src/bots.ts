@@ -133,8 +133,8 @@ function randomSpawnPosition(): Position {
   // Fallback if ECS world not injected
   logger.warn('Bot: ECS world not set, using map center fallback');
   return {
-    x: GAME_CONFIG.WORLD_WIDTH / 2,
-    y: GAME_CONFIG.WORLD_HEIGHT / 2,
+    x: GAME_CONFIG.SOUP_WIDTH / 2,
+    y: GAME_CONFIG.SOUP_HEIGHT / 2,
   };
 }
 
@@ -1105,7 +1105,8 @@ function updateMultiCellBotAI(
   const AVOIDANCE_THRESHOLD = 0.1;
 
   // Track action for telemetry
-  let action: 'escape' | 'hunt_disabled_swarm' | 'hunt_prey' | 'seek_nutrient' | 'wander' = 'wander';
+  let action: 'escape' | 'hunt_disabled_swarm' | 'hunt_prey' | 'seek_nutrient' | 'wander' =
+    'wander';
   let targetType: 'swarm' | 'single_cell' | 'nutrient' | null = null;
   let targetDist: number | null = null;
 
@@ -1252,11 +1253,13 @@ function updateCyberOrganismBotAI(
     if (nearestTarget) {
       // Fire if in range and off cooldown
       if (nearestDist < projectileRange * 0.8 && canFireProjectile(world, botEntity)) {
-        if (tryAddAbilityIntent(world, botEntity, {
-          abilityType: 'projectile',
-          targetX: nearestTarget.x,
-          targetY: nearestTarget.y,
-        })) {
+        if (
+          tryAddAbilityIntent(world, botEntity, {
+            abilityType: 'projectile',
+            targetX: nearestTarget.x,
+            targetY: nearestTarget.y,
+          })
+        ) {
           logger.info({
             event: 'bot_projectile_decision',
             botId: player.id,
@@ -1312,12 +1315,14 @@ function updateCyberOrganismBotAI(
       // Attack if in melee range and can fire
       if (nearestDist < meleeRange && canFireMeleeAttack(world, botEntity)) {
         const attackType: MeleeAttackType = Math.random() < 0.6 ? 'swipe' : 'thrust';
-        if (tryAddAbilityIntent(world, botEntity, {
-          abilityType: 'melee',
-          meleeAttackType: attackType,
-          targetX: nearestTarget.x,
-          targetY: nearestTarget.y,
-        })) {
+        if (
+          tryAddAbilityIntent(world, botEntity, {
+            abilityType: 'melee',
+            meleeAttackType: attackType,
+            targetX: nearestTarget.x,
+            targetY: nearestTarget.y,
+          })
+        ) {
           logger.info({
             event: 'bot_melee_decision',
             botId: player.id,
