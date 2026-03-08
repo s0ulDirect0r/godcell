@@ -34,7 +34,13 @@ const COMPONENT_FORMATTERS: Partial<Record<string, ComponentFormatter>> = {
   },
   [Components.Stage]: (c) => {
     const s = c as StageComponent;
-    const stageNames = ['', 'Single-Cell', 'Multi-Cell', 'Cyber-Organism', 'Humanoid', 'Godcell'];
+    const stageNames: Record<string, string> = {
+      single_cell: 'Single-Cell',
+      multi_cell: 'Multi-Cell',
+      cyber_organism: 'Cyber-Organism',
+      humanoid: 'Humanoid',
+      godcell: 'Godcell',
+    };
     return [`${s.stage} (${stageNames[s.stage] || '?'})`, `radius: ${s.radius.toFixed(0)}`];
   },
   [Components.Swarm]: (c) => {
@@ -317,7 +323,7 @@ export class ECSXRayPanel {
       const dist = Math.hypot(pos.x - playerPos!.x, pos.y - playerPos!.y);
       if (!nearest || dist < nearest.dist) nearest = { entity, dist };
     });
-    if (nearest) this.selectEntity(nearest.entity);
+    if (nearest) this.selectEntity((nearest as { entity: EntityId; dist: number }).entity);
   }
 
   private toggleTheme(): void {

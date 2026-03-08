@@ -285,6 +285,18 @@ function createEyeOrb(s: number, nx: number, ny: number, nz: number): THREE.Grou
   return eyeGroup;
 }
 
+/** Shared properties used by createWingBlade (subset of major/minor wing config) */
+interface WingBladeConfig {
+  color: number;
+  emissiveIntensity: number;
+  length: number;
+  baseWidth: number;
+  tipWidth: number;
+  thickness: number;
+  curve: number[][];
+  spots: { count: number; radius: number; color: number; emissiveIntensity: number };
+}
+
 /**
  * Create a flat, tapered wing-blade that follows a curve
  *
@@ -292,14 +304,14 @@ function createEyeOrb(s: number, nx: number, ny: number, nz: number): THREE.Grou
  * @param cfg - Wing configuration
  * @param theta - Spherical theta (angle around Y axis)
  * @param phi - Spherical phi (angle from top)
- * @param side - 1 for right side (blade extends +Z), -1 for left side (blade mirrors)
+ * @param _side - 1 for right side, -1 for left (mirroring is handled by outward.x)
  */
 function createWingBlade(
   s: number,
-  cfg: typeof CONFIG.WINGS.major,
+  cfg: WingBladeConfig,
   theta: number,
   phi: number,
-  side: number
+  _side: number
 ): THREE.Group {
   const wingGroup = new THREE.Group();
   const bodyRadius = CONFIG.BODY.radius * s;
@@ -596,7 +608,11 @@ export function disposeGodcellCache(): void {
 /**
  * Internal helper: create a spiral tube from an eye position (used during godcell creation)
  */
-function createEyeSpiralTubeInternal(s: number, eyeDir: THREE.Vector3, eyeIndex: number): THREE.Mesh | null {
+function createEyeSpiralTubeInternal(
+  s: number,
+  eyeDir: THREE.Vector3,
+  eyeIndex: number
+): THREE.Mesh | null {
   const bodyRadius = CONFIG.BODY.radius * s;
   const eyeRadius = CONFIG.EYES.shellRadius * s;
 
@@ -635,13 +651,19 @@ function createEyeSpiralTubeInternal(s: number, eyeDir: THREE.Vector3, eyeIndex:
     .addScaledVector(tangent, Math.sin(arcLength))
     .normalize();
 
-  return createEyeToSpiralTube(new THREE.Vector3(0, 0, 0), bodyRadius, normalizedEyeDir, spiralCenterDir, {
-    spiralTurns,
-    spiralRadius,
-    tubeRadius,
-    arcSegments: 12,
-    spiralSegments: 32,
-  });
+  return createEyeToSpiralTube(
+    new THREE.Vector3(0, 0, 0),
+    bodyRadius,
+    normalizedEyeDir,
+    spiralCenterDir,
+    {
+      spiralTurns,
+      spiralRadius,
+      tubeRadius,
+      arcSegments: 12,
+      spiralSegments: 32,
+    }
+  );
 }
 
 /**
@@ -704,13 +726,19 @@ export function addEyeSpiralTube(
     .normalize();
 
   // Build the tube
-  const tube = createEyeToSpiralTube(new THREE.Vector3(0, 0, 0), bodyRadius, eyeDir, spiralCenterDir, {
-    spiralTurns,
-    spiralRadius,
-    tubeRadius: eyeRadius * tubeRadius,
-    arcSegments: 12,
-    spiralSegments: 32,
-  });
+  const tube = createEyeToSpiralTube(
+    new THREE.Vector3(0, 0, 0),
+    bodyRadius,
+    eyeDir,
+    spiralCenterDir,
+    {
+      spiralTurns,
+      spiralRadius,
+      tubeRadius: eyeRadius * tubeRadius,
+      arcSegments: 12,
+      spiralSegments: 32,
+    }
+  );
 
   tube.name = `eyeSpiral-${eyeIndex}`;
   body.add(tube);
@@ -760,7 +788,7 @@ function createEyeToSpiralTube(
 
   // Create one unified spiral from eye to center
   // Stop before radius gets too small (prevents degenerate geometry)
-  const minRadius = tubeRadius * 1.5 / sphereRadius; // Stop at 1.5x tube radius
+  const minRadius = (tubeRadius * 1.5) / sphereRadius; // Stop at 1.5x tube radius
 
   // Use more segments for smoother curves
   const smoothSegments = totalSegments * 5;

@@ -49,6 +49,8 @@ export type {
   // Client-only components
   InterpolationTargetComponent,
   ClientDamageInfoComponent,
+  // Entropy serpent components
+  EntropySerpentComponent,
   // Deferred action components
   PendingRespawnComponent,
   AbilityIntentComponent,

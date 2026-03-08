@@ -77,9 +77,6 @@ export class SwarmRenderSystem {
   // Cache energy ratio (0-1) for animation intensity
   private swarmEnergyRatios: Map<string, number> = new Map();
 
-  // Delta time for frame-rate independent interpolation (ms)
-  private dt: number = 16.67;
-
   // Base energy (swarms start at 100)
   private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
 

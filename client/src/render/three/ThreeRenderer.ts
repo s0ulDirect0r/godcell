@@ -611,7 +611,7 @@ export class ThreeRenderer implements Renderer {
 
           // Camera shake if it's the local player being attacked
           if (event.targetId === this.myPlayerId) {
-            this.cameraSystem.triggerShake(0.3);
+            this.cameraSystem.addShake(0.3);
           }
         })
       );
@@ -1165,7 +1165,7 @@ export class ThreeRenderer implements Renderer {
   private buildPlayersForTrail(): Map<
     string,
     {
-      stage: string;
+      stage: EvolutionStage;
       color: string;
       energy: number;
       maxEnergy: number;
@@ -1175,7 +1175,7 @@ export class ThreeRenderer implements Renderer {
     const result = new Map<
       string,
       {
-        stage: string;
+        stage: EvolutionStage;
         color: string;
         energy: number;
         maxEnergy: number;
