@@ -74,13 +74,16 @@ describe('MovementSystem', () => {
 
       system.update(world, 0.016, mockIO);
 
-      // Should have emitted a playerMoved message
-      const moveEvents = mockIO.emittedEvents.filter((e) => e.event === 'playerMoved');
-      expect(moveEvents.length).toBe(1);
-      expect(moveEvents[0].data).toMatchObject({
-        type: 'playerMoved',
-        playerId: 'player-1',
-      });
+      // Should have emitted a batched playerPositionsBatch message
+      const batchEvents = mockIO.emittedEvents.filter(
+        (e) => e.event === 'playerPositionsBatch'
+      );
+      expect(batchEvents.length).toBe(1);
+      expect(batchEvents[0].data.players).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ playerId: 'player-1' }),
+        ])
+      );
     });
   });
 

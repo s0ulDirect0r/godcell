@@ -129,6 +129,15 @@ export interface PlayerMovedMessage {
   position: Position;
 }
 
+/** Batched player positions — one emit per tick instead of per-player */
+export interface PlayerPositionsBatchMessage {
+  type: 'playerPositionsBatch';
+  players: Array<{
+    playerId: string;
+    position: Position;
+  }>;
+}
+
 export interface NutrientSpawnedMessage {
   type: 'nutrientSpawned';
   nutrient: Nutrient;
@@ -638,6 +647,7 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | PlayerMovedMessage
+  | PlayerPositionsBatchMessage
   | NutrientSpawnedMessage
   | NutrientCollectedMessage
   | NutrientMovedMessage

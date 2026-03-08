@@ -8,6 +8,7 @@ import type {
   PlayerJoinedMessage,
   PlayerLeftMessage,
   PlayerMovedMessage,
+  PlayerPositionsBatchMessage,
   PlayerRespawnedMessage,
   PlayerDiedMessage,
   PlayerEvolutionStartedMessage,
@@ -400,6 +401,19 @@ export class SocketManager {
         data.position.z
       );
       eventBus.emit(data);
+    });
+
+    // Batched player positions (single emit per tick)
+    this.socket.on('playerPositionsBatch', (data: PlayerPositionsBatchMessage) => {
+      for (const player of data.players) {
+        updatePlayerTarget(
+          this.world,
+          player.playerId,
+          player.position.x,
+          player.position.y,
+          player.position.z
+        );
+      }
     });
 
     this.socket.on('playerRespawned', (data: PlayerRespawnedMessage) => {

@@ -6,7 +6,7 @@
 import type { Server } from 'socket.io';
 import { EvolutionStage, Tags, Components, type World } from '#shared';
 import type {
-  PlayerMovedMessage,
+  PlayerPositionsBatchMessage,
   StunnedComponent,
   SprintComponent,
   KnockbackComponent,
@@ -44,6 +44,9 @@ export class MovementSystem implements System {
   readonly name = 'MovementSystem';
 
   update(world: World, deltaTime: number, io: Server): void {
+    // Collect position updates for batch broadcast at end of tick
+    const positionBatch: PlayerPositionsBatchMessage['players'] = [];
+
     // Iterate over all player entities in ECS
     world.forEachWithTag(Tags.Player, (entity) => {
       const playerId = getSocketIdByEntity(entity);
@@ -291,9 +294,8 @@ export class MovementSystem implements System {
         positionComponent.z = Math.max(zMin, Math.min(zMax, positionComponent.z));
       }
 
-      // Broadcast position update
-      const moveMessage: PlayerMovedMessage = {
-        type: 'playerMoved',
+      // Collect position for batch broadcast
+      positionBatch.push({
         playerId,
         position: {
           x: positionComponent.x,
@@ -302,8 +304,16 @@ export class MovementSystem implements System {
             ? { z: positionComponent.z }
             : {}),
         },
-      };
-      io.emit('playerMoved', moveMessage);
+      });
     });
+
+    // Batch broadcast all player positions in a single emit
+    if (positionBatch.length > 0) {
+      const message: PlayerPositionsBatchMessage = {
+        type: 'playerPositionsBatch',
+        players: positionBatch,
+      };
+      io.emit('playerPositionsBatch', message);
+    }
   }
 }
