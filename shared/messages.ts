@@ -198,6 +198,18 @@ export interface SwarmMovedMessage {
   energy?: number; // Current energy for visual scaling (swarms grow as they drain)
 }
 
+/** Batched swarm positions — one emit per tick instead of per-swarm */
+export interface SwarmPositionsBatchMessage {
+  type: 'swarmPositionsBatch';
+  swarms: Array<{
+    swarmId: string;
+    position: Position;
+    state: 'patrol' | 'chase';
+    disabledUntil?: number;
+    energy?: number;
+  }>;
+}
+
 export interface PseudopodSpawnedMessage {
   type: 'pseudopodSpawned';
   pseudopod: Pseudopod;
@@ -636,6 +648,7 @@ export type ServerMessage =
   | PlayerEvolvedMessage
   | SwarmSpawnedMessage
   | SwarmMovedMessage
+  | SwarmPositionsBatchMessage
   | PseudopodSpawnedMessage
   | PseudopodMovedMessage
   | PseudopodRetractedMessage

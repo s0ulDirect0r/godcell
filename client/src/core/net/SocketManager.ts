@@ -18,6 +18,7 @@ import type {
   EnergyUpdateMessage,
   SwarmSpawnedMessage,
   SwarmMovedMessage,
+  SwarmPositionsBatchMessage,
   PseudopodSpawnedMessage,
   PseudopodMovedMessage,
   PseudopodRetractedMessage,
@@ -471,6 +472,20 @@ export class SocketManager {
         data.energy
       );
       eventBus.emit(data);
+    });
+
+    // Batched swarm positions (single emit per tick)
+    this.socket.on('swarmPositionsBatch', (data: SwarmPositionsBatchMessage) => {
+      for (const swarm of data.swarms) {
+        updateSwarmTarget(
+          this.world,
+          swarm.swarmId,
+          swarm.position.x,
+          swarm.position.y,
+          swarm.disabledUntil,
+          swarm.energy
+        );
+      }
     });
 
     // Pseudopod events
