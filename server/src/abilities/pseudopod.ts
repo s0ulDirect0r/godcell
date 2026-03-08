@@ -1,21 +1,16 @@
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, EvolutionStage, Components } from '#shared';
+import { EvolutionStage, Components } from '#shared';
 import type {
-  Pseudopod,
-  PseudopodSpawnedMessage,
   PseudopodStrikeMessage,
   StageComponent,
   EnergyComponent,
   DamageTrackingComponent,
   EntityId,
-  PendingExpirationComponent,
   World,
-  Position,
 } from '#shared';
 import { getConfig } from '../dev';
 import { logger } from '../logger';
 import {
-  createPseudopod as ecsCreatePseudopod,
   getPlayerBySocketId,
   getEnergy,
   getStage,
@@ -29,15 +24,12 @@ import {
   recordDamage,
 } from '../ecs/factories';
 
-// Type for hitscan collision check function (used in hitscan mode only)
-type CheckBeamHitscan = (start: Position, end: Position, shooterId: string) => string | null;
-
-// Duration pseudopod visual effects persist (beam entity lifetime, hit flash duration)
+// Duration pseudopod visual effects persist (hit flash duration)
 const PSEUDOPOD_VISUAL_DURATION_MS = 500;
 
 /**
- * Fire pseudopod beam (Stage 2 Multi-Cell only)
- * Fires a damaging beam toward the target position
+ * Fire pseudopod strike (Stage 2 Multi-Cell only)
+ * Fires an instant AoE energy whip at the target position
  * @returns true if pseudopod was fired successfully
  */
 export function firePseudopod(
@@ -46,10 +38,8 @@ export function firePseudopod(
   entity: EntityId,
   playerId: string,
   targetX: number,
-  targetY: number,
-  checkBeamHitscan: CheckBeamHitscan = () => null
+  targetY: number
 ): boolean {
-
   const energyComp = getEnergy(world, entity);
   const stageComp = getStage(world, entity);
   const posComp = getPosition(world, entity);
@@ -80,18 +70,11 @@ export function firePseudopod(
 
   if (targetDist < 1) return false;
 
-  const dirX = dx / targetDist;
-  const dirY = dy / targetDist;
-
-  // Calculate max range
-  const playerRadius = stageComp.radius;
-  const maxRange =
-    GAME_CONFIG.PSEUDOPOD_MODE === 'strike'
-      ? getConfig('PSEUDOPOD_RANGE')
-      : playerRadius * getConfig('PSEUDOPOD_RANGE');
-
-  // For strike mode, clamp target to max range
-  if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike' && targetDist > maxRange) {
+  // Clamp target to max range
+  const maxRange = getConfig('PSEUDOPOD_RANGE');
+  if (targetDist > maxRange) {
+    const dirX = dx / targetDist;
+    const dirY = dy / targetDist;
     targetX = playerPosition.x + dirX * maxRange;
     targetY = playerPosition.y + dirY * maxRange;
   }
@@ -99,37 +82,7 @@ export function firePseudopod(
   // Deduct energy
   energyComp.current -= getConfig('PSEUDOPOD_ENERGY_COST');
 
-  if (GAME_CONFIG.PSEUDOPOD_MODE === 'strike') {
-    handleStrikeMode(world, io, entity, playerId, playerPosition, targetX, targetY, player.color);
-  } else if (GAME_CONFIG.PSEUDOPOD_MODE === 'hitscan') {
-    handleHitscanMode(
-      world,
-      io,
-      checkBeamHitscan,
-      entity,
-      playerId,
-      playerPosition,
-      dirX,
-      dirY,
-      targetDist,
-      maxRange,
-      player.color,
-      now
-    );
-  } else {
-    handleProjectileMode(
-      world,
-      io,
-      entity,
-      playerId,
-      playerPosition,
-      dirX,
-      dirY,
-      maxRange,
-      player.color,
-      now
-    );
-  }
+  handleStrikeMode(world, io, entity, playerId, playerPosition, targetX, targetY, player.color);
 
   // Update cooldown
   cooldowns.lastPseudopodTime = now;
@@ -262,125 +215,6 @@ function handleStrikeMode(
     targetPosition: { x: targetX.toFixed(0), y: targetY.toFixed(0) },
     targetsHit: hitTargetIds.length,
     totalDrained,
-    isBot: playerId.startsWith('bot-'),
-  });
-}
-
-function handleHitscanMode(
-  world: World,
-  io: Server,
-  checkBeamHitscan: CheckBeamHitscan,
-  entity: EntityId,
-  playerId: string,
-  playerPosition: { x: number; y: number },
-  dirX: number,
-  dirY: number,
-  targetDist: number,
-  maxRange: number,
-  color: string,
-  now: number
-): void {
-  const actualDist = Math.min(targetDist, maxRange);
-  const endX = playerPosition.x + dirX * actualDist;
-  const endY = playerPosition.y + dirY * actualDist;
-
-  const hitTargetId = checkBeamHitscan(playerPosition, { x: endX, y: endY }, playerId);
-
-  const pseudopod: Pseudopod = {
-    id: `beam-${playerId}-${now}`,
-    ownerId: playerId,
-    position: { x: playerPosition.x, y: playerPosition.y },
-    velocity: { x: endX, y: endY },
-    width: GAME_CONFIG.PSEUDOPOD_WIDTH,
-    maxDistance: actualDist,
-    distanceTraveled: 0,
-    createdAt: now,
-    color,
-  };
-
-  const beamEntity = ecsCreatePseudopod(
-    world,
-    pseudopod.id,
-    entity,
-    playerId,
-    pseudopod.position,
-    pseudopod.velocity,
-    pseudopod.width,
-    pseudopod.maxDistance,
-    pseudopod.color
-  );
-
-  // Add expiration - AbilityIntentSystem will destroy entity when time's up
-  // Client handles entity disappearance via normal state updates (no event needed)
-  world.addComponent<PendingExpirationComponent>(beamEntity, Components.PendingExpiration, {
-    expiresAt: now + PSEUDOPOD_VISUAL_DURATION_MS,
-  });
-
-  io.emit('pseudopodSpawned', {
-    type: 'pseudopodSpawned',
-    pseudopod,
-  } as PseudopodSpawnedMessage);
-
-  logger.info({
-    event: 'pseudopod_fired',
-    mode: 'hitscan',
-    playerId,
-    targetId: hitTargetId || 'miss',
-    range: actualDist.toFixed(0),
-    isBot: playerId.startsWith('bot-'),
-  });
-}
-
-function handleProjectileMode(
-  world: World,
-  io: Server,
-  entity: EntityId,
-  playerId: string,
-  playerPosition: { x: number; y: number },
-  dirX: number,
-  dirY: number,
-  maxRange: number,
-  color: string,
-  now: number
-): void {
-
-  const pseudopod: Pseudopod = {
-    id: `beam-${playerId}-${now}`,
-    ownerId: playerId,
-    position: { x: playerPosition.x, y: playerPosition.y },
-    velocity: {
-      x: dirX * getConfig('PSEUDOPOD_PROJECTILE_SPEED'),
-      y: dirY * getConfig('PSEUDOPOD_PROJECTILE_SPEED'),
-    },
-    width: GAME_CONFIG.PSEUDOPOD_WIDTH,
-    maxDistance: maxRange,
-    distanceTraveled: 0,
-    createdAt: now,
-    color,
-  };
-
-  ecsCreatePseudopod(
-    world,
-    pseudopod.id,
-    entity,
-    playerId,
-    pseudopod.position,
-    pseudopod.velocity,
-    pseudopod.width,
-    pseudopod.maxDistance,
-    pseudopod.color
-  );
-
-  io.emit('pseudopodSpawned', {
-    type: 'pseudopodSpawned',
-    pseudopod,
-  } as PseudopodSpawnedMessage);
-
-  logger.info({
-    event: 'pseudopod_fired',
-    mode: 'projectile',
-    playerId,
-    direction: { x: dirX.toFixed(2), y: dirY.toFixed(2) },
     isBot: playerId.startsWith('bot-'),
   });
 }
