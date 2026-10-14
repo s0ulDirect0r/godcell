@@ -52,7 +52,7 @@ import {
   removeEvolutionEffects,
   applyEvolutionEffects,
 } from './render/three/EvolutionVisuals';
-import { createDataTree, updateDataTreeAnimation } from './render/meshes/DataTreeMesh';
+import { DataTreeForest } from './render/meshes/DataTreeForest';
 import { createDataFruit } from './render/meshes/DataFruitMesh';
 import { createCyberBug } from './render/meshes/CyberBugMesh';
 import { createJungleCreature } from './render/meshes/JungleCreatureMesh';
@@ -764,23 +764,13 @@ function updateModels() {
       // TREE_MIN_HEIGHT: 100, TREE_MAX_HEIGHT: 400
       const spacing = 300;
 
-      // Small tree
-      const smallTree = createDataTree(40, 100, 0.2);
-      smallTree.position.set(-spacing, 0, 0);
-      scene.add(smallTree);
-      models.push(smallTree);
-
-      // Medium tree
-      const medTree = createDataTree(80, 250, 0.5);
-      medTree.position.set(0, 0, 0);
-      scene.add(medTree);
-      models.push(medTree);
-
-      // Large tree
-      const largeTree = createDataTree(120, 400, 0.8);
-      largeTree.position.set(spacing, 0, 0);
-      scene.add(largeTree);
-      models.push(largeTree);
+      const trees = new DataTreeForest([
+        { x: -spacing, y: 0, radius: 40, height: 100, variant: 0.2 }, // Small
+        { x: 0, y: 0, radius: 80, height: 250, variant: 0.5 }, // Medium
+        { x: spacing, y: 0, radius: 120, height: 400, variant: 0.8 }, // Large
+      ]);
+      scene.add(trees.group);
+      models.push(trees.group);
 
       camera.position.set(0, 200, 800);
       break;
@@ -810,10 +800,11 @@ function updateModels() {
       models.push(ripe);
 
       // Show scale: tree with fruit nearby (fruit spawns further out now)
-      const scaleTree = createDataTree(60, 200, 0.5);
-      scaleTree.position.set(250, 0, 0);
-      scene.add(scaleTree);
-      models.push(scaleTree);
+      const scaleTree = new DataTreeForest([
+        { x: 250, y: 0, radius: 60, height: 200, variant: 0.5 },
+      ]);
+      scene.add(scaleTree.group);
+      models.push(scaleTree.group);
 
       const { group: scaleFruit } = createDataFruit(1.0, 40);
       scaleFruit.position.set(320, 10, 0); // Further from tree (2.25x radius)
@@ -1102,9 +1093,6 @@ function animate(currentTime: number = 0) {
       // Godcell - pulsing aura, floating, rotation
       updateGodcellEnergy(model, energy / 100);
       animateGodcell(model, deltaTime);
-    } else if (model instanceof THREE.Group && model.name === 'dataTree') {
-      // Data tree - animate glow pulse and sway
-      updateDataTreeAnimation(model, deltaTime * 1000); // Convert to ms
     } else if (model instanceof THREE.Group && model.userData.crystalSize) {
       // It's a 3D nutrient crystal - animate rotation and inner core pulsing
       const { rotationSpeed, bobPhase } = model.userData;

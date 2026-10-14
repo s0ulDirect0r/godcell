@@ -5,13 +5,15 @@ import { createGroveEnvironment } from '../meshes/GroveEnvironment';
 // ============================================
 
 import * as THREE from 'three';
-import { MeshBasicNodeMaterial, PointsNodeMaterial } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, PointsNodeMaterial } from 'three/webgpu';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Node as TSLNode } from 'three/webgpu';
 import {
   Fn,
   abs,
   attribute,
   clamp,
+  color,
   dot,
   float,
   floor,
@@ -22,6 +24,7 @@ import {
   select,
   sin,
   smoothstep,
+  time,
   uniform,
   uv,
   varying,
@@ -913,16 +916,32 @@ export function createRootNetworkFromTrees(
   const height = JUNGLE_CONFIG.ROOT_NETWORK_HEIGHT;
   const rootRadius = 9; // Thicc root tubes
 
-  // Use MeshStandardMaterial for emissive glow
-  const material = new THREE.MeshStandardMaterial({
+  // All tubes merge into one mesh; `rootIndex` staggers each tube's pulse (traveling wave)
+  const material = new MeshStandardNodeMaterial({
     color: JUNGLE_CONFIG.ROOT_NETWORK_COLOR,
-    emissive: JUNGLE_CONFIG.ROOT_NETWORK_COLOR,
-    emissiveIntensity: 0.6,
     transparent: true,
     opacity: JUNGLE_CONFIG.ROOT_NETWORK_OPACITY,
     roughness: 0.3,
     metalness: 0.2,
   });
+  const pulseSpeed = 0.8; // Hz - how fast the pulse travels
+  const pulseRange = 0.4; // Intensity variation (±40%)
+  const baseIntensity = 0.6;
+  const tubePhase = attribute('rootIndex', 'float').mul(0.3);
+  material.emissiveNode = color(JUNGLE_CONFIG.ROOT_NETWORK_COLOR).mul(
+    sin(time.mul(pulseSpeed * Math.PI * 2).add(tubePhase))
+      .mul(pulseRange)
+      .add(baseIntensity)
+  );
+  const tubes: THREE.BufferGeometry[] = [];
+  const addTube = (geo: THREE.BufferGeometry) => {
+    const count = geo.getAttribute('position').count;
+    geo.setAttribute(
+      'rootIndex',
+      new THREE.Float32BufferAttribute(new Array(count).fill(tubes.length), 1)
+    );
+    tubes.push(geo);
+  };
 
   // Config for root connections
   const maxConnectionDist = 1500; // Max distance to connect trees
@@ -1005,8 +1024,7 @@ export function createRootNetworkFromTrees(
           6, // radial segments
           false // closed
         );
-        const tube = new THREE.Mesh(tubeGeo, material);
-        group.add(tube);
+        addTube(tubeGeo);
       }
     }
 
@@ -1029,44 +1047,16 @@ export function createRootNetworkFromTrees(
 
         const curve = new THREE.CatmullRomCurve3(points);
         const tubeGeo = new THREE.TubeGeometry(curve, 8, rootRadius * 0.7, 6, false);
-        const tube = new THREE.Mesh(tubeGeo, material);
-        group.add(tube);
+        addTube(tubeGeo);
       }
     }
   }
 
+  if (tubes.length > 0) {
+    group.add(new THREE.Mesh(mergeGeometries(tubes)!, material));
+    for (const geo of tubes) geo.dispose();
+  }
   return group;
-}
-
-/**
- * Update root network animation - pulsing glow effect
- * Call this each frame to animate the roots
- *
- * @param rootNetwork - The root network group from createRootNetworkFromTrees
- * @param dt - Delta time in seconds
- */
-export function updateRootNetworkAnimation(rootNetwork: THREE.Group, _dt: number): void {
-  const time = performance.now() / 1000;
-
-  // Pulse parameters
-  const pulseSpeed = 0.8; // Hz - how fast the pulse travels
-  const pulseRange = 0.4; // Intensity variation (±40%)
-  const baseIntensity = 0.6;
-
-  // Update each root tube's emissive intensity
-  let meshIndex = 0;
-  rootNetwork.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      const mat = obj.material as THREE.MeshStandardMaterial;
-      if (mat.emissiveIntensity !== undefined) {
-        // Each root pulses with a phase offset for traveling wave effect
-        const phase = time * pulseSpeed * Math.PI * 2 + meshIndex * 0.3;
-        const pulse = Math.sin(phase) * pulseRange;
-        mat.emissiveIntensity = baseIntensity + pulse;
-      }
-      meshIndex++;
-    }
-  });
 }
 
 /**
