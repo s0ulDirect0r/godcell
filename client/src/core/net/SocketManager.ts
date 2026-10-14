@@ -1,3 +1,4 @@
+import { setPlayerSpecialization, removeEntropySerpent } from '../../ecs/factories';
 // ============================================
 // Socket Manager - Network Connection & Message Handling
 // ============================================
@@ -421,6 +422,15 @@ export class SocketManager {
       // Re-tag local player if this is us respawning
       if (data.player.id === this._myPlayerId) {
         setLocalPlayer(this.world, this._myPlayerId);
+        if (new URLSearchParams(window.location.search).has('grove'))
+          this.socket.emit('devCommand', {
+            type: 'devCommand',
+            command: {
+              action: 'enterGrove',
+              playerId: this._myPlayerId,
+              specialization: this._mySpecialization ?? 'ranged',
+            },
+          });
       }
       eventBus.emit(data);
     });
@@ -466,7 +476,7 @@ export class SocketManager {
 
     // Energy updates (energy is the sole life resource)
     this.socket.on('energyUpdate', (data: EnergyUpdateMessage) => {
-      updatePlayerEnergy(this.world, data.playerId, data.energy);
+      updatePlayerEnergy(this.world, data.playerId, data.energy, data.maxEnergy);
       eventBus.emit(data);
     });
 
@@ -605,7 +615,9 @@ export class SocketManager {
         data.creatureId,
         data.position.x,
         data.position.y,
-        data.state
+        data.state,
+        data.health,
+        data.maxHealth
       );
     });
 
@@ -632,11 +644,13 @@ export class SocketManager {
     });
 
     this.socket.on('entropySerpentKilled', (data: EntropySerpentKilledMessage) => {
+      removeEntropySerpent(this.world, data.serpentId);
       // Emit event for visual effects (death animation)
       eventBus.emit(data);
     });
 
     this.socket.on('entropySerpentSpawned', (data: EntropySerpentSpawnedMessage) => {
+      upsertEntropySerpent(this.world, data.serpent);
       // Emit event for visual effects (respawn animation)
       eventBus.emit(data);
     });
@@ -670,6 +684,7 @@ export class SocketManager {
     });
 
     this.socket.on('specializationSelected', (data: SpecializationSelectedMessage) => {
+      setPlayerSpecialization(this.world, data.playerId, data.specialization);
       // Track local player's specialization
       if (data.playerId === this._myPlayerId) {
         this._mySpecialization = data.specialization;

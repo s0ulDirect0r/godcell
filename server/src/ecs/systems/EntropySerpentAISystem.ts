@@ -1,3 +1,4 @@
+import { blockedByTree } from '../../abilities/fauna';
 // ============================================
 // Entropy Serpent AI System
 // SUPER AGGRESSIVE apex predator that hunts Stage 3+ players
@@ -68,101 +69,64 @@ export class EntropySerpentAISystem implements System {
 
     // Update living serpents
     forEachEntropySerpent(world, (entity, id, pos, vel, serpent) => {
-      // Find nearest Stage 3+ player (target)
-      const target = this.findNearestTarget(world, pos.x, pos.y);
-
-      if (target) {
-        // Distance from BODY CENTER to target (for reachability check)
-        const dx = target.x - pos.x;
-        const dy = target.y - pos.y;
-        const bodyToTargetDist = Math.sqrt(dx * dx + dy * dy);
-
-        // Guard against division by zero (target exactly on serpent)
-        if (bodyToTargetDist === 0) {
-          vel.x = 0;
-          vel.y = 0;
-          return; // Skip this tick, let next tick reposition
-        }
-
-        // Turn gradually toward target (not instant snap)
-        const targetHeading = Math.atan2(dy, dx);
-        const headingDiff = Math.atan2(
-          Math.sin(targetHeading - serpent.heading),
-          Math.cos(targetHeading - serpent.heading)
-        );
-        // Turn rate: ~180° per second
-        const maxTurn = Math.PI * deltaTime;
-        if (Math.abs(headingDiff) <= maxTurn) {
-          serpent.heading = targetHeading;
-        } else {
-          serpent.heading += Math.sign(headingDiff) * maxTurn;
-        }
-
-        // Attack mode entry: target is REACHABLE if body is close enough
-        // that the head CAN reach (body distance <= attack range + head offset)
-        // Head offset matches mesh geometry (precomputed constant)
-        const headOffset = GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET;
-        const attackReachDist = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE + headOffset;
-
-        if (bodyToTargetDist <= attackReachDist) {
-          // ATTACK MODE - target is reachable, try to strike!
+      // Telegraph and recovery are committed: neither position nor aim tracks the player.
+      const phase = serpent.state;
+      if (phase === 'windup') {
+        vel.x = vel.y = 0;
+        if (now >= (serpent.phaseUntil ?? 0)) {
+          this.performAttack(world, io, entity, id, serpent, now);
           serpent.state = 'attack';
-          serpent.targetEntityId = target.entity;
-
-          // Check attack cooldown
-          const canAttack =
-            !serpent.lastAttackTime ||
-            now - serpent.lastAttackTime >= GAME_CONFIG.ENTROPY_SERPENT_ATTACK_COOLDOWN;
-
-          // Recalculate facing after heading update
-          const currentHeadingDiff = Math.atan2(
-            Math.sin(targetHeading - serpent.heading),
-            Math.cos(targetHeading - serpent.heading)
-          );
-
-          // Only attack if facing the target (within 30° of target direction)
-          const facingThreshold = Math.PI / 6; // 30°
-          const isFacingTarget = Math.abs(currentHeadingDiff) <= facingThreshold;
-
-          if (canAttack && isFacingTarget) {
-            // Facing target - strike!
-            this.performAttack(world, io, entity, id, serpent, now);
-            serpent.lastAttackTime = now;
-          }
-
-          // Maintain attack distance - stop when in good position
-          // Ideal distance: attack range from head (which is headOffset from body)
-          const idealDist = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE + headOffset * 0.5;
-          const attackSpeed = GAME_CONFIG.ENTROPY_SERPENT_ATTACK_SPEED;
-
-          if (bodyToTargetDist < idealDist * 0.7) {
-            // Too close - back away slightly
-            vel.x = -(dx / bodyToTargetDist) * attackSpeed * 0.3;
-            vel.y = -(dy / bodyToTargetDist) * attackSpeed * 0.3;
-          } else if (bodyToTargetDist > idealDist) {
-            // Too far - close in slowly
-            vel.x = (dx / bodyToTargetDist) * attackSpeed * 0.5;
-            vel.y = (dy / bodyToTargetDist) * attackSpeed * 0.5;
-          } else {
-            // Good distance - stop moving, just attack
-            vel.x = 0;
-            vel.y = 0;
-          }
-        } else {
-          // CHASE MODE - pursue relentlessly
-          serpent.state = 'chase';
-          serpent.targetEntityId = target.entity;
-
-          const chaseSpeed = GAME_CONFIG.ENTROPY_SERPENT_CHASE_SPEED;
-          vel.x = (dx / bodyToTargetDist) * chaseSpeed;
-          vel.y = (dy / bodyToTargetDist) * chaseSpeed;
+          serpent.phaseUntil = now + 180;
+        }
+      } else if (phase === 'attack' || phase === 'recover') {
+        vel.x = vel.y = 0;
+        if (now >= (serpent.phaseUntil ?? 0)) {
+          serpent.state = phase === 'attack' ? 'recover' : 'patrol';
+          serpent.phaseUntil = now + 1200;
         }
       } else {
-        // PATROL MODE - wander around home
-        serpent.state = 'patrol';
-        serpent.targetEntityId = undefined;
-
-        this.updatePatrol(pos, vel, serpent, deltaTime);
+        const target = this.findNearestTarget(world, pos.x, pos.y);
+        const homeDistance = Math.hypot(
+          pos.x - serpent.homePosition.x,
+          pos.y - serpent.homePosition.y
+        );
+        const targetAtHome =
+          target &&
+          Math.hypot(target.x - serpent.homePosition.x, target.y - serpent.homePosition.y) < 2100;
+        if (target && targetAtHome && homeDistance < 2400) {
+          const dx = target.x - pos.x,
+            dy = target.y - pos.y,
+            dist = Math.hypot(dx, dy);
+          const angle = Math.atan2(dy, dx);
+          const turn = Math.atan2(
+            Math.sin(angle - serpent.heading),
+            Math.cos(angle - serpent.heading)
+          );
+          serpent.heading += Math.max(-Math.PI * deltaTime, Math.min(Math.PI * deltaTime, turn));
+          serpent.targetEntityId = target.entity;
+          const reach =
+            GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET + GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE;
+          if (
+            dist < reach - 60 &&
+            dist > GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET &&
+            Math.abs(turn) < 0.2
+          ) {
+            serpent.state = 'windup';
+            serpent.phaseUntil = now + 900;
+            vel.x = vel.y = 0;
+          } else {
+            serpent.state = 'chase';
+            const direction = dist < GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET + 100 ? -0.6 : 1;
+            const speed = GAME_CONFIG.ENTROPY_SERPENT_CHASE_SPEED * direction;
+            vel.x = dist > 0 ? (dx / dist) * speed : 0;
+            vel.y = dist > 0 ? (dy / dist) * speed : 0;
+          }
+        } else {
+          serpent.state = 'patrol';
+          serpent.targetEntityId = undefined;
+          if (homeDistance > 1000) serpent.patrolTarget = { ...serpent.homePosition };
+          this.updatePatrol(pos, vel, serpent, deltaTime);
+        }
       }
 
       // Apply velocity to position
@@ -276,6 +240,11 @@ export class EntropySerpentAISystem implements System {
       const playerStage = world.getComponent<StageComponent>(playerEntity, Components.Stage);
 
       if (!playerPos || !playerEnergy || !playerStage) return;
+      if (
+        playerStage.stage === EvolutionStage.SINGLE_CELL ||
+        playerStage.stage === EvolutionStage.MULTI_CELL
+      )
+        return;
       if (playerEnergy.current <= 0) return;
       if (playerStage.isEvolving) return;
 
@@ -285,7 +254,7 @@ export class EntropySerpentAISystem implements System {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Must be within attack range of HEAD
-      if (dist > attackRange) return;
+      if (dist > attackRange || blockedByTree(world, headPos, playerPos)) return;
 
       // Must be within 120° frontal arc
       const angleToPlayer = Math.atan2(dy, dx);
@@ -362,7 +331,7 @@ export class EntropySerpentAISystem implements System {
     serpent: EntropySerpentComponent,
     _deltaTime: number
   ): void {
-    const patrolRadius = GAME_CONFIG.ENTROPY_SERPENT_PATROL_RADIUS;
+    const patrolRadius = 350;
     const patrolSpeed = GAME_CONFIG.ENTROPY_SERPENT_SPEED;
 
     // Generate new patrol target if needed
@@ -383,6 +352,7 @@ export class EntropySerpentAISystem implements System {
     if (dist < 50) {
       // Reached patrol target, pick new one
       serpent.patrolTarget = undefined;
+      vel.x = vel.y = 0;
     } else {
       // Move toward patrol target
       vel.x = (dx / dist) * patrolSpeed;
@@ -446,8 +416,7 @@ export class EntropySerpentAISystem implements System {
         // Emit respawn event
         io.emit('entropySerpentSpawned', {
           type: 'entropySerpentSpawned',
-          serpentId,
-          position: respawn.homePosition,
+          serpent: { id: serpentId, position: respawn.homePosition, state: 'patrol', heading: 0 },
         });
 
         logger.info(

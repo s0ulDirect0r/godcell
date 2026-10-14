@@ -703,6 +703,10 @@ export function entityToLegacyPlayer(world: World, entity: EntityId): Player | n
 
   return {
     id: socketId,
+    specialization: world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    )?.specialization,
     position: { x: pos.x, y: pos.y, z: pos.z },
     color: player.color,
     energy: energy.current,
@@ -2134,7 +2138,12 @@ export function createJungleCreature(
   });
   world.addComponent<JungleCreatureComponent>(entity, Components.JungleCreature, {
     variant,
-    size: GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS,
+    health: variant === 'grazer' ? 600 : 450,
+    maxHealth: variant === 'grazer' ? 600 : 450,
+    size:
+      variant === 'grazer'
+        ? GAME_CONFIG.GRAZER_RADIUS
+        : GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS,
     state: variant === 'ambusher' ? 'idle' : 'patrol',
     targetEntityId: undefined,
     homePosition: { x: homePosition.x, y: homePosition.y },
@@ -2833,7 +2842,7 @@ export interface EntropySerpentSnapshot {
   position: Position;
   velocity: { x: number; y: number };
   size: number;
-  state: 'patrol' | 'chase' | 'attack';
+  state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
   targetEntityId?: number;
   homePosition: Position;
   patrolTarget?: Position;
@@ -2928,7 +2937,7 @@ export function buildEntropySerpentsRecord(world: World): Record<
   {
     id: string;
     position: Position;
-    state: 'patrol' | 'chase' | 'attack';
+    state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
     heading: number;
     targetPlayerId?: string;
     energy: number;
@@ -2940,7 +2949,7 @@ export function buildEntropySerpentsRecord(world: World): Record<
     {
       id: string;
       position: Position;
-      state: 'patrol' | 'chase' | 'attack';
+      state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
       heading: number;
       targetPlayerId?: string;
       energy: number;

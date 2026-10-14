@@ -1,3 +1,4 @@
+import { HUNTING_GROVE } from '../../../shared/grove';
 // ============================================
 // Dev Panel - Unified Development Tools UI
 // Live config tweaking, entity spawning, debug viz
@@ -426,6 +427,36 @@ export class DevPanel {
         }
       });
 
+    for (const specialization of ['melee', 'ranged', 'traps'] as const) {
+      playerFolder
+        .add(
+          {
+            enter: () => {
+              const playerId = getLocalPlayerId(this.world);
+              if (playerId) this.sendDevCommand({ action: 'enterGrove', playerId, specialization });
+            },
+          },
+          'enter'
+        )
+        .name(`Grove: ${specialization}`);
+    }
+
+    for (const [name, position] of [
+      ['Feeding ground', HUNTING_GROVE.feeding],
+      ['Serpent approach', { x: HUNTING_GROVE.den.x - 1700, y: HUNTING_GROVE.den.y }],
+    ] as const) {
+      playerFolder
+        .add(
+          {
+            visit: () => {
+              const playerId = getLocalPlayerId(this.world);
+              if (playerId) this.sendDevCommand({ action: 'teleportPlayer', playerId, position });
+            },
+          },
+          'visit'
+        )
+        .name(name);
+    }
     // Refill energy button
     playerFolder.add({ refill: () => this.refillEnergy() }, 'refill').name('Refill Energy');
 

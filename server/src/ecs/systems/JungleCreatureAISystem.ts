@@ -14,10 +14,12 @@ import type {
   EnergyComponent,
   EntityId,
   JungleCreatureMovedMessage,
+  StunnedComponent,
 } from '#shared';
 import type { System } from './types';
 import {
   forEachJungleCreature,
+  forEachTree,
   forEachPlayer,
   addEnergy,
   getDamageTracking,
@@ -99,6 +101,11 @@ export class JungleCreatureAISystem implements System {
       const velComp = world.getComponent<VelocityComponent>(entity, Components.Velocity);
       if (!velComp) return;
 
+      const stun = world.getComponent<StunnedComponent>(entity, Components.Stunned);
+      if (stun && Date.now() < stun.until) {
+        velComp.x = velComp.y = 0;
+        return;
+      }
       // Dispatch to variant-specific behavior
       switch (creatureComp.variant) {
         case 'grazer':
@@ -132,52 +139,43 @@ export class JungleCreatureAISystem implements System {
     velComp: VelocityComponent,
     creatureComp: JungleCreatureComponent
   ): void {
-    const creaturePosition = { x: posComp.x, y: posComp.y };
-
-    if (creatureComp.state === 'idle') {
-      // Random chance to start patrolling
-      if (Math.random() < 0.01) {
-        creatureComp.state = 'patrol';
-        creatureComp.targetEntityId = undefined;
+    const now = Date.now();
+    const threat =
+      creatureComp.targetEntityId !== undefined
+        ? world.getComponent<PositionComponent>(creatureComp.targetEntityId, Components.Position)
+        : undefined;
+    let tx: number, ty: number;
+    if (threat && now < (creatureComp.hurtUntil ?? 0)) {
+      creatureComp.state = 'flee';
+      const dx = posComp.x - threat.x,
+        dy = posComp.y - threat.y,
+        dist = Math.hypot(dx, dy) || 1;
+      tx = posComp.x + (dx / dist) * 400;
+      ty = posComp.y + (dy / dist) * 400;
+      // A wounded grazer circles its feeding ground instead of fleeing forever.
+      if (
+        Math.hypot(
+          posComp.x - creatureComp.homePosition.x,
+          posComp.y - creatureComp.homePosition.y
+        ) > 700
+      ) {
+        tx = creatureComp.homePosition.x;
+        ty = creatureComp.homePosition.y;
       }
+    } else {
+      creatureComp.state = 'patrol';
+      if (!creatureComp.patrolTarget || distance(posComp, creatureComp.patrolTarget) < 40)
+        creatureComp.patrolTarget = generatePatrolTarget(creatureComp.homePosition, 300);
+      tx = creatureComp.patrolTarget.x;
+      ty = creatureComp.patrolTarget.y;
     }
-
-    if (creatureComp.state === 'patrol' || creatureComp.state === 'idle') {
-      // Ensure we have a patrol target
-      if (!creatureComp.targetEntityId) {
-        const target = generatePatrolTarget(
-          creatureComp.homePosition,
-          creatureComp.territoryRadius
-        );
-        // Store target in a way we can retrieve - use homePosition as base
-        // Note: JungleCreatureComponent doesn't have patrolTarget, so we calculate inline
-        const dx = target.x - creaturePosition.x;
-        const dy = target.y - creaturePosition.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (dist > 50) {
-          // Move toward random patrol target
-          const acceleration = GAME_CONFIG.JUNGLE_CREATURE_SPEED * 4;
-          velComp.x += (dx / dist) * acceleration * deltaTime;
-          velComp.y += (dy / dist) * acceleration * deltaTime;
-        } else if (Math.random() < 0.02) {
-          // Reached area, maybe go idle
-          creatureComp.state = 'idle';
-        }
-      }
-    }
-
-    // Clamp speed (grazers are slow)
-    const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-    const maxSpeed = GAME_CONFIG.JUNGLE_CREATURE_SPEED * 0.4;
-    if (velocityMagnitude > maxSpeed) {
-      velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
-      velComp.y = (velComp.y / velocityMagnitude) * maxSpeed;
-    }
-
-    // Apply friction
-    velComp.x *= 0.95;
-    velComp.y *= 0.95;
+    const dx = tx - posComp.x,
+      dy = ty - posComp.y,
+      dist = Math.hypot(dx, dy) || 1;
+    const speed = creatureComp.state === 'flee' ? 230 : 65;
+    const blend = 1 - Math.exp(-deltaTime * 5);
+    velComp.x += ((dx / dist) * speed - velComp.x) * blend;
+    velComp.y += ((dy / dist) * speed - velComp.y) * blend;
   }
 
   /**
@@ -450,6 +448,18 @@ export class JungleCreatureAISystem implements System {
       posComp.x += velComp.x * deltaTime;
       posComp.y += velComp.y * deltaTime;
 
+      forEachTree(world, (_entity, _id, treePos, tree) => {
+        const dx = posComp.x - treePos.x,
+          dy = posComp.y - treePos.y,
+          d = Math.hypot(dx, dy);
+        const radius = tree.radius + creatureComp.size;
+        if (d < radius) {
+          posComp.x = treePos.x + (d > 0 ? dx / d : 1) * radius;
+          posComp.y = treePos.y + (d > 0 ? dy / d : 0) * radius;
+          velComp.x = velComp.y = 0;
+          creatureComp.patrolTarget = undefined;
+        }
+      });
       // Keep creatures within jungle bounds
       const padding = creatureComp.size;
       posComp.x = Math.max(jungleMinX + padding, Math.min(jungleMaxX - padding, posComp.x));
@@ -462,6 +472,8 @@ export class JungleCreatureAISystem implements System {
         position: { x: posComp.x, y: posComp.y },
         state: creatureComp.state,
         variant: creatureComp.variant,
+        health: creatureComp.health,
+        maxHealth: creatureComp.maxHealth,
       };
       io.emit('jungleCreatureMoved', movedMessage);
     });

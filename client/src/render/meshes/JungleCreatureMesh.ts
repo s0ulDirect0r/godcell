@@ -1,3 +1,4 @@
+import { attachAuthoredCreature, animateAuthoredCreature } from './AuthoredCreature';
 // ============================================
 // Jungle Creature Mesh - Single source of truth for jungle creature visuals
 // Three variants: grazer (passive), stalker (aggressive), ambusher (sneaky)
@@ -172,7 +173,11 @@ export function createJungleCreature(
   group.name = 'jungleCreature';
   group.userData.variant = variant;
 
-  const creatureSize = size ?? GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS;
+  const creatureSize =
+    size ??
+    (variant === 'grazer'
+      ? GAME_CONFIG.GRAZER_RADIUS
+      : GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS);
   const colors = VARIANT_COLORS[variant as keyof typeof VARIANT_COLORS] ?? VARIANT_COLORS.grazer;
 
   if (variant === 'grazer') {
@@ -186,6 +191,7 @@ export function createJungleCreature(
     createGrazerMesh(group, colors, creatureSize);
   }
 
+  if (variant === 'grazer') attachAuthoredCreature(group, 'grazer', creatureSize);
   return { group };
 }
 
@@ -201,6 +207,8 @@ export function updateJungleCreatureAnimation(
   _dt: number,
   phase: number = 0
 ): void {
+  if (animateAuthoredCreature(group, true, group.userData.state === 'flee' ? 230 : 65, _dt / 1000))
+    return;
   const time = performance.now() / 1000;
   const variant = (group.userData.variant as CreatureVariant) ?? 'grazer';
 
@@ -242,7 +250,7 @@ export function updateJungleCreatureState(group: THREE.Group, state: string): vo
  * @param group - The creature THREE.Group to dispose
  */
 export function disposeJungleCreature(group: THREE.Group): void {
-  group.children.forEach((child) => {
+  group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {

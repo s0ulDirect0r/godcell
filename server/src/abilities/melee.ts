@@ -1,3 +1,4 @@
+import { faunaTargets, damageFauna, blockedByTree } from './fauna';
 import type { Server } from 'socket.io';
 import { GAME_CONFIG, Components } from '#shared';
 import type {
@@ -16,13 +17,8 @@ import {
   getPosition,
   getStunned,
   getCooldowns,
-  addEnergy,
-  setMaxEnergy,
   subtractEnergy,
   forEachPlayer,
-  forEachCyberBug,
-  forEachJungleCreature,
-  destroyEntity,
 } from '../ecs/factories';
 import { distance } from '../helpers/math';
 
@@ -84,9 +80,7 @@ export function fireMeleeAttack(
   // Cooldown check
   const cooldowns = getCooldowns(world, entity);
   if (!cooldowns) return false;
-  const lastUse = isSwipe
-    ? cooldowns.lastMeleeSwipeTime || 0
-    : cooldowns.lastMeleeThrustTime || 0;
+  const lastUse = isSwipe ? cooldowns.lastMeleeSwipeTime || 0 : cooldowns.lastMeleeThrustTime || 0;
   if (now - lastUse < cooldown) return false;
 
   // Deduct energy (subtractEnergy clamps to 0)
@@ -126,7 +120,7 @@ export function fireMeleeAttack(
     const targetRadius = targetStage.radius;
 
     // Check if within range
-    if (dist > range + targetRadius) return;
+    if (dist > range + targetRadius || blockedByTree(world, playerPosition, targetPosition)) return;
 
     // Check if within arc
     const toTargetAngle = Math.atan2(
@@ -174,128 +168,22 @@ export function fireMeleeAttack(
     }
   });
 
-  // Check CyberBugs (one-shot kills, award energy)
-  const bugsToKill: {
-    entity: number;
-    id: string;
-    pos: { x: number; y: number };
-    value: number;
-    capacityIncrease: number;
-  }[] = [];
-  forEachCyberBug(world, (bugEntity, bugId, bugPos, bugComp) => {
-    const bugPosition = { x: bugPos.x, y: bugPos.y };
-    const dist = distance(playerPosition, bugPosition);
-
-    if (dist > range + bugComp.size) return;
-
-    const toTargetAngle = Math.atan2(bugPos.y - playerPosition.y, bugPos.x - playerPosition.x);
-    let angleDiff = Math.abs(toTargetAngle - attackAngle);
-    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-
-    if (angleDiff <= halfArcRad) {
-      bugsToKill.push({
-        entity: bugEntity,
-        id: bugId,
-        pos: bugPosition,
-        value: bugComp.value,
-        capacityIncrease: bugComp.capacityIncrease,
-      });
-    }
-  });
-
-  // Process bug kills
-  for (const bug of bugsToKill) {
-    addEnergy(world, entity, bug.value);
-    const attackerEnergy = getEnergy(world, entity);
-    if (attackerEnergy) {
-      setMaxEnergy(world, entity, attackerEnergy.max + bug.capacityIncrease);
-    }
-
-    io.emit('cyberBugKilled', {
-      type: 'cyberBugKilled',
-      bugId: bug.id,
-      killerId: playerId,
-      position: bug.pos,
-      energyGained: bug.value,
-      capacityGained: bug.capacityIncrease,
-    });
-
-    killedBugIds.push(bug.id);
-    destroyEntity(world, bug.entity);
-
-    logger.info({
-      event: 'melee_kill_bug',
-      attacker: playerId,
-      bugId: bug.id,
-      attackType,
-      energyGained: bug.value,
-      capacityGained: bug.capacityIncrease,
-    });
-  }
-
-  // Check JungleCreatures (one-shot kills, award energy)
-  const creaturesToKill: {
-    entity: number;
-    id: string;
-    pos: { x: number; y: number };
-    value: number;
-    capacityIncrease: number;
-    variant: string;
-  }[] = [];
-  forEachJungleCreature(world, (creatureEntity, creatureId, creaturePos, creatureComp) => {
-    const creaturePosition = { x: creaturePos.x, y: creaturePos.y };
-    const dist = distance(playerPosition, creaturePosition);
-
-    if (dist > range + creatureComp.size) return;
-
-    const toTargetAngle = Math.atan2(
-      creaturePos.y - playerPosition.y,
-      creaturePos.x - playerPosition.x
+  const struck = new Set<number>();
+  for (const target of faunaTargets(world)) {
+    if (struck.has(target.entity) || blockedByTree(world, playerPosition, target.position))
+      continue;
+    const dx = target.position.x - posComp.x;
+    const dy = target.position.y - posComp.y;
+    if (Math.hypot(dx, dy) > range + target.radius) continue;
+    const diff = Math.atan2(
+      Math.sin(Math.atan2(dy, dx) - attackAngle),
+      Math.cos(Math.atan2(dy, dx) - attackAngle)
     );
-    let angleDiff = Math.abs(toTargetAngle - attackAngle);
-    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-
-    if (angleDiff <= halfArcRad) {
-      creaturesToKill.push({
-        entity: creatureEntity,
-        id: creatureId,
-        pos: creaturePosition,
-        value: creatureComp.value,
-        capacityIncrease: creatureComp.capacityIncrease,
-        variant: creatureComp.variant,
-      });
-    }
-  });
-
-  // Process creature kills
-  for (const creature of creaturesToKill) {
-    addEnergy(world, entity, creature.value);
-    const attackerEnergy2 = getEnergy(world, entity);
-    if (attackerEnergy2) {
-      setMaxEnergy(world, entity, attackerEnergy2.max + creature.capacityIncrease);
-    }
-
-    io.emit('jungleCreatureKilled', {
-      type: 'jungleCreatureKilled',
-      creatureId: creature.id,
-      killerId: playerId,
-      position: creature.pos,
-      energyGained: creature.value,
-      capacityGained: creature.capacityIncrease,
-    });
-
-    killedCreatureIds.push(creature.id);
-    destroyEntity(world, creature.entity);
-
-    logger.info({
-      event: 'melee_kill_creature',
-      attacker: playerId,
-      creatureId: creature.id,
-      variant: creature.variant,
-      attackType,
-      energyGained: creature.value,
-      capacityGained: creature.capacityIncrease,
-    });
+    if (Math.abs(diff) > halfArcRad) continue;
+    struck.add(target.entity);
+    const killed = damageFauna(world, io, target.entity, playerId, damage);
+    if (killed && target.type === 'cyberbug') killedBugIds.push(target.id);
+    if (killed && target.type === 'creature') killedCreatureIds.push(target.id);
   }
 
   // Update cooldown

@@ -490,7 +490,7 @@ export function updateEntropySerpentAnimation(
  */
 export function updateEntropySerpentState(
   group: THREE.Group,
-  state: 'patrol' | 'chase' | 'attack'
+  state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover'
 ): void {
   group.userData.state = state;
 

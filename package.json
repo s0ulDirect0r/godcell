@@ -13,6 +13,7 @@
   },
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "grove": "concurrently -n server,client -c blue,green \"DEV_COMMANDS=true GROVE=true tsx watch server/src/index.ts\" \"vite client\"",
     "dev:server": "tsx watch server/src/index.ts",
     "dev:client": "vite client",
     "playground": "concurrently -n server,client -c blue,green \"PORT=3001 PLAYGROUND=true tsx watch server/src/index.ts\" \"npm run dev:client\"",

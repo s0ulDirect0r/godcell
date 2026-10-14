@@ -102,7 +102,23 @@ export class JungleCreatureRenderSystem {
       this.creatureTargets.set(creatureId, { x: targetX, y: targetY });
 
       // Update state-based visuals
-      updateJungleCreatureState(group, creature.state);
+      if (group.userData.state !== creature.state) updateJungleCreatureState(group, creature.state);
+      const health = creature.health ?? creature.maxHealth ?? 600;
+      const max = creature.maxHealth ?? 600;
+      let bar = group.getObjectByName('vitality') as THREE.Mesh | undefined;
+      if (!bar) {
+        bar = new THREE.Mesh(
+          new THREE.PlaneGeometry(140, 9),
+          new THREE.MeshBasicMaterial({ color: 0xe1b768, depthTest: false })
+        );
+        bar.name = 'vitality';
+        bar.rotation.x = -Math.PI / 2;
+        bar.position.y = 140;
+        bar.renderOrder = 10;
+        group.add(bar);
+      }
+      bar.visible = health < max;
+      bar.scale.x = Math.max(0, health / max);
     });
 
     // Remove creatures that no longer exist in ECS

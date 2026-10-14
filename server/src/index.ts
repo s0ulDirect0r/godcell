@@ -1,3 +1,5 @@
+import { inGrove } from '../../shared/grove';
+import { initializeHuntingGrove } from './huntingGrove';
 import { Server } from 'socket.io';
 import { GAME_CONFIG, EvolutionStage } from '#shared';
 import type {
@@ -243,6 +245,7 @@ function initializeTrees() {
 
   // Create trees from generated positions
   for (const position of treePositions) {
+    if (inGrove(position.x, position.y, 450)) continue;
     const treeId = `tree-${treeIdCounter++}`;
 
     // Randomize tree size within configured bounds
@@ -370,12 +373,15 @@ initNutrientModule(world, io);
 // Playground mode - empty world for testing (set by PLAYGROUND env var)
 const isPlayground = process.env.PLAYGROUND === 'true';
 
-if (isPlayground) {
+if (process.env.GROVE === 'true') {
+  initializeHuntingGrove(world);
+} else if (isPlayground) {
   logger.info({ event: 'playground_mode', port: PORT });
 } else {
   // Initialize game world (normal mode)
   // Pure Bridson's distribution - obstacles and swarms fill map naturally
   initializeObstacles();
+  initializeHuntingGrove(world);
   initializeTrees(); // Digital jungle trees (Stage 3+ obstacles)
   initializeJungleFauna(world, io); // Stage 3+ fauna: DataFruits, CyberBugs, JungleCreatures
   initializeEntropySerpents(); // APEX PREDATORS - hunt Stage 3+ players relentlessly

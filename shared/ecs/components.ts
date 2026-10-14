@@ -334,6 +334,10 @@ export interface CyberBugComponent {
  * Stage 3 equivalent of soup's entropy swarms but huntable.
  */
 export interface JungleCreatureComponent {
+  health?: number;
+  maxHealth?: number;
+  hurtUntil?: number;
+  patrolTarget?: Position;
   variant: 'grazer' | 'stalker' | 'ambusher'; // Behavior archetype
   size: number; // Collision radius (larger than bugs)
   state: 'idle' | 'patrol' | 'hunt' | 'flee';
@@ -353,7 +357,8 @@ export interface JungleCreatureComponent {
  */
 export interface EntropySerpentComponent {
   size: number; // Collision radius (body segments)
-  state: 'patrol' | 'chase' | 'attack'; // AI state
+  state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover'; // AI state
+  phaseUntil?: number;
   targetEntityId?: number; // EntityId being hunted
   homePosition: Position; // Spawn territory center
   patrolTarget?: Position; // Current patrol destination

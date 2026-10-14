@@ -19,12 +19,16 @@ export class SpecializationModal {
   private container: HTMLDivElement;
   private countdownInterval: number | null = null;
   private deadline: number;
+  private unsubscribeSelection?: () => void;
 
   constructor(options: SpecializationModalOptions) {
     this.deadline = options.deadline;
     this.container = this.createUI();
     document.body.appendChild(this.container);
     this.startCountdown();
+    this.unsubscribeSelection = eventBus.on('specializationSelected', (event) => {
+      if (event.playerId === options.playerId) this.hide();
+    });
   }
 
   private createUI(): HTMLDivElement {
@@ -282,6 +286,8 @@ export class SpecializationModal {
   }
 
   hide(): void {
+    this.unsubscribeSelection?.();
+    this.unsubscribeSelection = undefined;
     if (this.countdownInterval) {
       clearInterval(this.countdownInterval);
       this.countdownInterval = null;

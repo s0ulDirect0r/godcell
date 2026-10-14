@@ -380,7 +380,7 @@ export function scheduleCreatureRespawn(
 /**
  * Process pending creature respawns
  */
-export function processCreatureRespawns(world: World, _io: Server): void {
+export function processCreatureRespawns(world: World, io: Server): void {
   const now = Date.now();
 
   while (creatureRespawnQueue.length > 0 && creatureRespawnQueue[0].respawnTime <= now) {
@@ -396,6 +396,18 @@ export function processCreatureRespawns(world: World, _io: Server): void {
       GAME_CONFIG.JUNGLE_CREATURE_VALUE,
       GAME_CONFIG.JUNGLE_CREATURE_CAPACITY
     );
+
+    io.emit('jungleCreatureSpawned', {
+      type: 'jungleCreatureSpawned',
+      jungleCreature: {
+        id: creatureId,
+        position: respawn.homePosition,
+        variant: respawn.variant,
+        state: 'patrol',
+        value: GAME_CONFIG.JUNGLE_CREATURE_VALUE,
+        capacityIncrease: GAME_CONFIG.JUNGLE_CREATURE_CAPACITY,
+      },
+    });
 
     logger.info({
       event: 'creature_respawned',

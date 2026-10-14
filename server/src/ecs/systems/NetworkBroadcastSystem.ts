@@ -73,6 +73,7 @@ export class NetworkBroadcastSystem implements System {
           type: 'energyUpdate',
           playerId,
           energy: energyComp.current,
+          maxEnergy: energyComp.max,
         };
         io.emit('energyUpdate', updateMessage);
       });

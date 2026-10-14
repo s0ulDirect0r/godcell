@@ -9,6 +9,7 @@ import { createDataTree, updateDataTreeAnimation, disposeDataTree } from '../mes
 import { createRootNetworkFromTrees, updateRootNetworkAnimation } from '../three/JungleBackground';
 import {
   World,
+  getLocalPlayer,
   Tags,
   Components,
   getStringIdByEntity,
@@ -133,9 +134,25 @@ export class TreeRenderSystem {
    * @param dt - Delta time in milliseconds
    */
   updateAnimations(dt: number): void {
+    const player = getLocalPlayer(this.world);
     // Update tree animations
     this.treeMeshes.forEach((group) => {
       updateDataTreeAnimation(group, dt);
+      const distance = player
+        ? Math.hypot(group.position.x - player.position.x, -group.position.z - player.position.y)
+        : Infinity;
+      const fade = THREE.MathUtils.smoothstep(
+        distance,
+        group.userData.radius * 2 + 250,
+        group.userData.radius * 2 + 700
+      );
+      for (const canopy of (group.userData.canopyLayers ?? []) as THREE.Mesh[]) {
+        const mat = canopy.material as THREE.MeshStandardMaterial;
+        mat.userData.baseOpacity ??= mat.opacity;
+        const target = mat.userData.baseOpacity * (0.12 + 0.6 * fade);
+        mat.opacity += (target - mat.opacity) * (1 - Math.exp(-dt / 120));
+        mat.depthWrite = false;
+      }
     });
 
     // Update root network pulse animation

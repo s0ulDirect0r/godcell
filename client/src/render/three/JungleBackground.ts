@@ -1,3 +1,5 @@
+import { inGrove } from '../../../../shared/grove';
+import { createGroveEnvironment } from '../meshes/GroveEnvironment';
 // ============================================
 // Jungle Background - Digital jungle environment for Stage 3+
 // ============================================
@@ -121,7 +123,7 @@ const JUNGLE_CONFIG = {
   ],
 
   // === DIGITAL GRASS FLOOR PATTERN ===
-  GRASS_BLADE_COUNT: 120000, // Dense ground cover (halved)
+  GRASS_BLADE_COUNT: 60000, // Dense ground cover (halved)
   GRASS_MIN_HEIGHT: 100, // Min blade height (2x for first-person visibility)
   GRASS_MAX_HEIGHT: 240, // Max blade height (2x for first-person visibility)
   GRASS_WIDTH: 24, // Doubled blade width
@@ -227,6 +229,7 @@ export function createJungleBackground(scene: THREE.Scene): {
   const { fireflyPoints, fireflyData } = createFireflies();
   group.add(fireflyPoints);
 
+  group.add(createGroveEnvironment());
   scene.add(group);
 
   return {
@@ -617,6 +620,8 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
     // Random position within jungle bounds (using Poisson-like random spread)
     const baseX = Math.random() * GAME_CONFIG.JUNGLE_WIDTH;
     const baseY = Math.random() * GAME_CONFIG.JUNGLE_HEIGHT;
+
+    if (inGrove(baseX, baseY)) continue;
 
     // Random blade properties
     const height =

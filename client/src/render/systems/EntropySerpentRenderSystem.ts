@@ -45,6 +45,8 @@ export class EntropySerpentRenderSystem {
   // Current heading for smooth rotation
   private serpentHeadings: Map<string, number> = new Map();
 
+  private warnings = new Map<string, THREE.Group>();
+
   // Debug visualization
   private debugMode = false;
   private debugMarkers: Map<string, THREE.Group> = new Map();
@@ -111,6 +113,68 @@ export class EntropySerpentRenderSystem {
       // Update heading
       this.serpentHeadings.set(serpentId, serpent.heading || 0);
 
+      let warning = this.warnings.get(serpentId);
+      if (!warning) {
+        warning = new THREE.Group();
+        const fill = new THREE.Mesh(
+          new THREE.CircleGeometry(
+            GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE,
+            40,
+            -Math.PI / 3,
+            (Math.PI * 2) / 3
+          ),
+          new THREE.MeshBasicMaterial({
+            color: 0xffb755,
+            transparent: true,
+            opacity: 0.24,
+            depthWrite: false,
+            depthTest: false,
+            side: THREE.DoubleSide,
+          })
+        );
+        fill.rotation.x = -Math.PI / 2;
+        fill.renderOrder = 15;
+        warning.add(fill);
+        const edge = new THREE.Mesh(
+          new THREE.RingGeometry(
+            GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE - 5,
+            GAME_CONFIG.ENTROPY_SERPENT_ATTACK_RANGE,
+            40,
+            1,
+            -Math.PI / 3,
+            (Math.PI * 2) / 3
+          ),
+          new THREE.MeshBasicMaterial({
+            color: 0xffd28a,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+            depthTest: false,
+            side: THREE.DoubleSide,
+          })
+        );
+        edge.rotation.x = -Math.PI / 2;
+        edge.renderOrder = 16;
+        warning.add(edge);
+        this.scene.add(warning);
+        this.warnings.set(serpentId, warning);
+      }
+      warning.visible =
+        serpent.state === 'windup' || serpent.state === 'attack' || serpent.state === 'recover';
+      warning.position.set(
+        targetX + Math.cos(serpent.heading) * GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET,
+        3,
+        -targetY - Math.sin(serpent.heading) * GAME_CONFIG.ENTROPY_SERPENT_HEAD_OFFSET
+      );
+      warning.rotation.y = serpent.heading;
+      const warningColor =
+        serpent.state === 'recover' ? 0x55bbaa : serpent.state === 'attack' ? 0xff5533 : 0xffbb55;
+      warning.children.forEach((child, i) => {
+        const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+        mat.color.setHex(warningColor);
+        mat.opacity = i === 0 ? (serpent.state === 'recover' ? 0.055 : 0.22) : 0.8;
+      });
+
       // Update state-based visuals only when state changes (avoid expensive traverse every frame)
       if (group.userData.state !== serpent.state) {
         updateEntropySerpentState(group, serpent.state);
@@ -123,6 +187,7 @@ export class EntropySerpentRenderSystem {
         this.scene.remove(group);
         disposeEntropySerpent(group);
         this.serpentMeshes.delete(id);
+        this.removeWarning(id);
         this.serpentTargets.delete(id);
         this.serpentHeadings.delete(id);
         this._lastPosLogs.delete(id);
@@ -200,9 +265,24 @@ export class EntropySerpentRenderSystem {
       disposeEntropySerpent(group);
     });
     this.serpentMeshes.clear();
+    for (const id of this.warnings.keys()) this.removeWarning(id);
     this.serpentTargets.clear();
     this.serpentHeadings.clear();
     this._lastPosLogs.clear();
+  }
+
+  private removeWarning(id: string): void {
+    const warning = this.warnings.get(id);
+    if (warning) {
+      this.scene.remove(warning);
+      warning.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          (obj.material as THREE.Material).dispose();
+        }
+      });
+    }
+    this.warnings.delete(id);
   }
 
   /**

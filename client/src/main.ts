@@ -1,3 +1,4 @@
+import { GroveOverlay } from './ui/GroveOverlay';
 // ============================================
 // Main Entry Point - Bootstrap & Update Loop
 // ============================================
@@ -22,7 +23,7 @@ import { SpecializationModal } from './ui/SpecializationModal';
 // ============================================
 
 const urlParams = new URLSearchParams(window.location.search);
-const devMode = urlParams.has('dev');
+const devMode = urlParams.has('dev') || urlParams.has('grove');
 const debugMode = urlParams.has('debug');
 
 // ============================================
@@ -34,6 +35,7 @@ let socketManager: SocketManager;
 let inputManager: InputManager;
 let renderer: ThreeRenderer;
 let hudOverlay: HUDOverlay;
+let groveOverlay: GroveOverlay | undefined;
 let devPanel: DevPanel | null = null;
 let debugOverlay: DebugOverlay | null = null;
 let ecsXRayPanel: ECSXRayPanel | null = null;
@@ -87,6 +89,7 @@ export function cleanupGame(): void {
   inputManager?.dispose();
   renderer?.dispose();
   hudOverlay?.dispose();
+  groveOverlay?.dispose();
   devPanel?.dispose();
   ecsXRayPanel?.dispose();
   entitySelector?.dispose();
@@ -144,6 +147,16 @@ function initializeGame(settings: PreGameSettings): void {
   // Setup console log forwarding to server (for debugging)
   setupLogForwarding(socketManager);
 
+  if (urlParams.has('grove')) {
+    eventBus.once('client:socketConnected', () => {
+      const playerId = socketManager.getSocketId();
+      if (playerId)
+        socketManager
+          .getSocket()
+          .emit('devCommand', { type: 'devCommand', command: { action: 'enterGrove', playerId } });
+    });
+  }
+
   // Pause server on connect if requested (wait for connection first)
   if (settings.pauseOnStart) {
     eventBus.once('client:socketConnected', () => {
@@ -173,6 +186,15 @@ function initializeGame(settings: PreGameSettings): void {
 
   // Initialize HUD
   hudOverlay = new HUDOverlay();
+  if (urlParams.has('grove'))
+    groveOverlay = new GroveOverlay(world, (specialization) => {
+      const playerId = socketManager.getSocketId();
+      if (playerId)
+        socketManager.getSocket().emit('devCommand', {
+          type: 'devCommand',
+          command: { action: 'enterGrove', playerId, specialization },
+        });
+    });
 
   // Initialize Dev Panel if dev mode
   if (devMode) {
@@ -215,7 +237,7 @@ function initializeGame(settings: PreGameSettings): void {
         ecsXRayPanel?.selectEntity(entityId);
       },
     });
-    entitySelector.enable();
+    if (!urlParams.has('grove')) entitySelector.enable();
 
     // X-Ray panel toggle (X key) - tracked for cleanup
     addTrackedListener(window, 'keydown', (e) => {
@@ -356,6 +378,7 @@ function update(): void {
 
   // Update HUD
   hudOverlay.update(world);
+  groveOverlay?.update();
 
   // Debug overlay
   if (debugOverlay) {

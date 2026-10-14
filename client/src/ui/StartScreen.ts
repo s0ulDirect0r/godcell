@@ -30,22 +30,23 @@ export class StartScreen {
     const container = document.createElement('div');
     container.id = 'start-screen';
     const showAlphaWarning = true;
+    const grove = new URLSearchParams(window.location.search).has('grove');
 
     container.innerHTML = `
       <div class="start-content">
-        <h1 class="start-title">GODCELL</h1>
-        <p class="start-subtitle">"To become a god is to realize you're still just a cell in a vaster ocean."</p>
+        <h1 class="start-title">${grove ? 'LANTERN GROVE' : 'GODCELL'}</h1>
+        <p class="start-subtitle">${grove ? 'A Stage 3 hunting trial. Forage, stalk, and face the serpent.' : '"To become a god is to realize you are still just a cell in a vaster ocean."'}</p>
 
         <div class="controls-info">
           <div class="controls-title">CONTROLS</div>
           <div class="controls-row"><span class="key">WASD</span> Move</div>
-          <div class="controls-row"><span class="key">SPACE</span> EMP Pulse (Stage 2+)</div>
-          <div class="controls-row"><span class="key">CLICK</span> Pseudopod Attack (Stage 2+)</div>
+          ${grove ? '<div class="controls-row"><span class="key">MOUSE</span> Aim and attack — choose your combat form on entry</div>' : '<div class="controls-row"><span class="key">SPACE</span> EMP Pulse (Stage 2+)</div>'}
+          ${grove ? '' : '<div class="controls-row"><span class="key">CLICK</span> Pseudopod Attack (Stage 2+)</div>'}
           <div class="controls-row"><span class="key">SHIFT</span> Sprint (Stage 3+)</div>
         </div>
 
         ${
-          this.options.devMode
+          this.options.devMode && !grove
             ? `
           <div class="dev-settings">
             <label class="dev-toggle">

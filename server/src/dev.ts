@@ -1,3 +1,5 @@
+import { getWorldBoundsForStage } from './helpers/stages';
+import { HUNTING_GROVE } from '../../shared/grove';
 // ============================================
 // Dev Panel Server Handler
 // Handles dev commands for live game tuning
@@ -139,6 +141,32 @@ export function handleDevCommand(socket: Socket, io: Server, command: DevCommand
   logger.info({ event: 'dev_command', action: command.action, socketId: socket.id });
 
   switch (command.action) {
+    case 'enterGrove': {
+      handleSetPlayerStage(io, command.playerId, EvolutionStage.CYBER_ORGANISM);
+      const entity = getEntityBySocketId(command.playerId);
+      if (entity !== undefined && devContext) {
+        setPosition(devContext.world, entity, HUNTING_GROVE.entrance.x, HUNTING_GROVE.entrance.y);
+        const spec = devContext.world.getComponent<CombatSpecializationComponent>(
+          entity,
+          Components.CombatSpecialization
+        )!;
+        if (command.specialization) {
+          spec.specialization = command.specialization;
+          spec.selectionPending = false;
+          io.emit('specializationSelected', {
+            type: 'specializationSelected',
+            playerId: command.playerId,
+            specialization: command.specialization,
+          });
+        }
+        io.emit('playerMoved', {
+          type: 'playerMoved',
+          playerId: command.playerId,
+          position: HUNTING_GROVE.entrance,
+        });
+      }
+      break;
+    }
     case 'updateConfig':
       handleUpdateConfig(io, command.key, command.value);
       break;
@@ -333,8 +361,11 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
   if (entity === undefined) return;
 
   // Clamp to world bounds and update via entity-based setter
-  const clampedX = Math.max(0, Math.min(position.x, GAME_CONFIG.SOUP_WIDTH));
-  const clampedY = Math.max(0, Math.min(position.y, GAME_CONFIG.SOUP_HEIGHT));
+  const stage = getStage(devContext.world, entity);
+  if (!stage || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
+  const bounds = getWorldBoundsForStage(stage.stage);
+  const clampedX = Math.max(bounds.minX, Math.min(position.x, bounds.maxX));
+  const clampedY = Math.max(bounds.minY, Math.min(position.y, bounds.maxY));
   setPosition(devContext.world, entity, clampedX, clampedY);
 
   io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });

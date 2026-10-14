@@ -296,6 +296,7 @@ export const GAME_CONFIG = {
   // JungleCreature - larger NPC fauna (10% of 30,000 = 3,000)
   JUNGLE_CREATURE_VALUE: 3000, // Energy on kill
   JUNGLE_CREATURE_CAPACITY: 3000, // maxEnergy increase on kill
+  GRAZER_RADIUS: 110, // Broad armored prey, readable at the jungle camera
   JUNGLE_CREATURE_COUNT: 8, // Number of creatures to spawn
   JUNGLE_CREATURE_PATROL_RADIUS: 500, // How far creatures wander from home
   JUNGLE_CREATURE_AGGRO_RADIUS: 250, // Distance at which stalker/ambusher attacks
@@ -336,7 +337,7 @@ export const GAME_CONFIG = {
   // ============================================
 
   // Specialization selection
-  SPECIALIZATION_SELECTION_DURATION: 5000, // 5 seconds to choose before auto-assign
+  SPECIALIZATION_SELECTION_DURATION: 20000, // 20 seconds to choose before auto-assign
 
   // Melee Pathway - close-range swipe and thrust attacks
   // Energy costs: 0.5% of 3000 = 15

@@ -152,6 +152,7 @@ export interface NutrientCollectedMessage {
 }
 
 export interface EnergyUpdateMessage {
+  maxEnergy?: number;
   type: 'energyUpdate';
   playerId: string;
   energy: number;
@@ -380,6 +381,8 @@ export interface JungleCreatureMovedMessage {
   position: Position;
   state: string; // 'idle' | 'patrol' | 'hunt' | 'flee'
   variant: string; // 'grazer' | 'stalker' | 'ambusher'
+  health?: number;
+  maxHealth?: number;
 }
 
 // EntropySerpent spawn/move messages
@@ -392,7 +395,7 @@ export interface EntropySerpentMovedMessage {
   type: 'entropySerpentMoved';
   serpentId: string;
   position: Position;
-  state: 'patrol' | 'chase' | 'attack';
+  state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
   heading: number;
   targetPlayerId?: string;
 }
@@ -517,6 +520,7 @@ export interface DevCommandMessage {
 
 // All possible dev commands
 export type DevCommand =
+  | { action: 'enterGrove'; playerId: string; specialization?: 'melee' | 'ranged' | 'traps' }
   | DevUpdateConfigCommand
   | DevSpawnEntityCommand
   | DevDeleteEntityCommand

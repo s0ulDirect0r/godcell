@@ -80,6 +80,7 @@ export function getEntityScale(stage: EvolutionStage): EntityScale {
 
 // A player in the game
 export interface Player {
+  specialization?: CombatSpecialization;
   id: string;
   position: Position;
   color: string; // Hex color like "#FF5733"
@@ -193,7 +194,7 @@ export interface JungleCreature {
 export interface EntropySerpent {
   id: string;
   position: Position;
-  state: 'patrol' | 'chase' | 'attack';
+  state: 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
   heading: number; // Facing direction in radians
   targetPlayerId?: string; // Player being hunted (if chasing/attacking)
 }

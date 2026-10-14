@@ -1,3 +1,4 @@
+import { faunaTargets, damageFauna } from '../../abilities/fauna';
 // ============================================
 // Trap System
 // Handles Stage 3 traps specialization trap detection, damage, and lifetime
@@ -5,16 +6,9 @@
 
 import type { Server } from 'socket.io';
 import { Tags, type World, Components } from '#shared';
-import type {
-  PositionComponent,
-  StunnedComponent,
-  EntropySerpentComponent,
-  EnergyComponent,
-  EntityId,
-} from '#shared';
+import type { StunnedComponent, EntityId } from '#shared';
 import type { System } from './types';
 import {
-  getStringIdByEntity,
   destroyEntity,
   forEachTrap,
   forEachPlayer,
@@ -74,7 +68,13 @@ export class TrapSystem implements System {
 
         // Only trigger on jungle-scale players (Stage 3+) - entity-based
         const stage = getStage(world, playerEntity);
-        if (!stage || !isJungleStage(stage.stage)) return;
+        if (
+          !stage ||
+          !isJungleStage(stage.stage) ||
+          stage.isEvolving ||
+          (getEnergy(world, playerEntity)?.current ?? 0) <= 0
+        )
+          return;
 
         // Get player position (entity-based)
         const playerPos = getPosition(world, playerEntity);
@@ -83,7 +83,7 @@ export class TrapSystem implements System {
         const playerPosition = { x: playerPos.x, y: playerPos.y };
         const dist = distance(trapPos, playerPosition);
 
-        if (dist < trapComp.triggerRadius) {
+        if (dist < trapComp.triggerRadius + stage.radius) {
           // Trap triggered!
           triggeredTraps.push({
             entity,
@@ -98,36 +98,19 @@ export class TrapSystem implements System {
         }
       });
 
-      // Check collision with EntropySerpents
-      const serpentEntities = world.getEntitiesWithTag(Tags.EntropySerpent);
-      for (const serpentEntity of serpentEntities) {
-        const serpentPos = world.getComponent<PositionComponent>(
-          serpentEntity,
-          Components.Position
-        );
-        const serpentComp = world.getComponent<EntropySerpentComponent>(
-          serpentEntity,
-          Components.EntropySerpent
-        );
-        const serpentId = getStringIdByEntity(serpentEntity);
-        if (!serpentPos || !serpentComp || !serpentId) continue;
-
-        const serpentPosition = { x: serpentPos.x, y: serpentPos.y };
-        const dist = distance(trapPos, serpentPosition);
-
-        if (dist < trapComp.triggerRadius) {
-          // Trap triggered by serpent!
+      for (const target of faunaTargets(world)) {
+        if (distance(trapPos, target.position) < trapComp.triggerRadius + target.radius) {
           triggeredTraps.push({
             entity,
             id: trapId,
-            victimSocketId: serpentId, // Use serpent ID as victim ID
-            victimEntity: serpentEntity,
+            victimSocketId: target.id,
+            victimEntity: target.entity,
             pos: trapPos,
             damage: trapComp.damage,
             stunDuration: trapComp.stunDuration,
             ownerSocketId: trapComp.ownerSocketId,
           });
-          break; // Only one trigger per trap
+          break;
         }
       }
     });
@@ -139,49 +122,31 @@ export class TrapSystem implements System {
       if (processedTrapIds.has(trap.id)) continue;
       processedTrapIds.add(trap.id);
 
-      // Check if victim is a serpent or player
-      const isSerpent = world.hasTag(trap.victimEntity, Tags.EntropySerpent);
-
-      if (isSerpent) {
-        // Serpent victim - damage only, no stun
-        const serpentEnergy = world.getComponent<EnergyComponent>(
+      const isFauna = !world.hasTag(trap.victimEntity, Tags.Player);
+      if (isFauna) {
+        const victimType = world.hasTag(trap.victimEntity, Tags.EntropySerpent)
+          ? 'serpent'
+          : world.hasTag(trap.victimEntity, Tags.CyberBug)
+            ? 'cyberbug'
+            : 'creature';
+        const killed = damageFauna(
+          world,
+          io,
           trap.victimEntity,
-          Components.Energy
+          trap.ownerSocketId,
+          trap.damage,
+          trap.stunDuration
         );
-        if (serpentEnergy) {
-          serpentEnergy.current = Math.max(0, serpentEnergy.current - trap.damage);
-
-          const killed = serpentEnergy.current <= 0;
-
-          io.emit('entropySerpentDamaged', {
-            type: 'entropySerpentDamaged',
-            serpentId: trap.victimSocketId,
-            damage: trap.damage,
-            currentEnergy: serpentEnergy.current,
-            attackerId: trap.ownerSocketId,
-          });
-
-          io.emit('trapTriggered', {
-            type: 'trapTriggered',
-            trapId: trap.id,
-            victimId: trap.victimSocketId,
-            victimType: 'serpent',
-            position: trap.pos,
-            damage: trap.damage,
-            stunDuration: 0, // Serpents don't get stunned
-            killed,
-          });
-
-          logger.info({
-            event: 'trap_triggered_serpent',
-            trapId: trap.id,
-            owner: trap.ownerSocketId,
-            serpentId: trap.victimSocketId,
-            damage: trap.damage,
-            serpentEnergyRemaining: serpentEnergy.current,
-            position: { x: trap.pos.x.toFixed(0), y: trap.pos.y.toFixed(0) },
-          });
-        }
+        io.emit('trapTriggered', {
+          type: 'trapTriggered',
+          trapId: trap.id,
+          victimId: trap.victimSocketId,
+          victimType,
+          position: trap.pos,
+          damage: trap.damage,
+          stunDuration: trap.stunDuration,
+          killed,
+        });
       } else {
         // Player victim - damage and stun
         subtractEnergy(world, trap.victimEntity, trap.damage);

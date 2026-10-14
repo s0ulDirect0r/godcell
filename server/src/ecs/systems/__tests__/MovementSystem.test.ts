@@ -77,9 +77,9 @@ describe('MovementSystem', () => {
       // Should have emitted a batched playerPositionsBatch message
       const batchEvents = mockIO.emittedEvents.filter((e) => e.event === 'playerPositionsBatch');
       expect(batchEvents.length).toBe(1);
-      expect(batchEvents[0].data.players).toEqual(
-        expect.arrayContaining([expect.objectContaining({ playerId: 'player-1' })])
-      );
+      expect(batchEvents[0].data).toMatchObject({
+        players: expect.arrayContaining([expect.objectContaining({ playerId: 'player-1' })]),
+      });
     });
   });
 

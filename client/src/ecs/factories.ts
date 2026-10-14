@@ -1,3 +1,4 @@
+import type { CombatSpecializationComponent, CombatSpecialization } from '#shared';
 // ============================================
 // Client ECS Entity Factories
 // Functions to create/update entities from network messages
@@ -59,6 +60,11 @@ export function createClientWorld(): World {
   world.registerStore<PositionComponent>(Components.Position, new ComponentStore());
   world.registerStore<VelocityComponent>(Components.Velocity, new ComponentStore());
   world.registerStore<EnergyComponent>(Components.Energy, new ComponentStore());
+
+  world.registerStore<CombatSpecializationComponent>(
+    Components.CombatSpecialization,
+    new ComponentStore()
+  );
 
   // Player components
   world.registerStore<PlayerComponent>(Components.Player, new ComponentStore());
@@ -155,6 +161,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
 
   if (entity !== undefined) {
     // Update existing entity
+    setPlayerSpecialization(world, player.id, player.specialization ?? null);
     const pos = world.getComponent<PositionComponent>(entity, Components.Position);
     if (pos) {
       pos.x = player.position.x;
@@ -221,6 +228,7 @@ export function upsertPlayer(world: World, player: Player): EntityId {
 
   world.addTag(entity, Tags.Player);
   registerMapping(entity, player.id);
+  setPlayerSpecialization(world, player.id, player.specialization ?? null);
 
   return entity;
 }
@@ -877,7 +885,10 @@ export function upsertJungleCreature(world: World, creature: JungleCreature): En
   // Client uses defaults for server-side AI fields
   world.addComponent<JungleCreatureComponent>(entity, Components.JungleCreature, {
     variant: creature.variant,
-    size: GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS, // Default size for rendering
+    size:
+      creature.variant === 'grazer'
+        ? GAME_CONFIG.GRAZER_RADIUS
+        : GAME_CONFIG.JUNGLE_CREATURE_COLLISION_RADIUS, // Default size for rendering
     state: creature.state,
     homePosition: { x: creature.position.x, y: creature.position.y }, // Not tracked on client
     territoryRadius: GAME_CONFIG.JUNGLE_CREATURE_PATROL_RADIUS, // Default
@@ -917,7 +928,9 @@ export function updateJungleCreaturePosition(
   creatureId: string,
   x: number,
   y: number,
-  state: string
+  state: string,
+  health?: number,
+  maxHealth?: number
 ): void {
   const entity = stringIdToEntity.get(creatureId);
   if (entity === undefined) return;
@@ -939,6 +952,8 @@ export function updateJungleCreaturePosition(
     Components.JungleCreature
   );
   if (creatureComp) {
+    creatureComp.health = health;
+    creatureComp.maxHealth = maxHealth;
     creatureComp.state = state as 'idle' | 'patrol' | 'hunt' | 'flee';
   }
 }
@@ -1181,7 +1196,7 @@ export function updateEntropySerpentPosition(
     Components.EntropySerpent
   );
   if (serpentComp) {
-    serpentComp.state = state as 'patrol' | 'chase' | 'attack';
+    serpentComp.state = state as 'patrol' | 'chase' | 'attack' | 'windup' | 'recover';
     serpentComp.heading = heading;
   }
 }
@@ -1329,6 +1344,10 @@ export function getPlayer(world: World, playerId: string): Player | null {
 
   return {
     id: playerId,
+    specialization: world.getComponent<CombatSpecializationComponent>(
+      entity,
+      Components.CombatSpecialization
+    )?.specialization,
     position: { x: pos.x, y: pos.y, z: pos.z },
     color: player.color,
     energy: energy.current,
@@ -1529,4 +1548,18 @@ export function getEvolutionAura(
   const entity = stringIdToEntity.get(entityId);
   if (entity === undefined) return undefined;
   return world.getComponent<EvolutionAuraComponent>(entity, ClientComponents.EvolutionAura);
+}
+
+export function setPlayerSpecialization(
+  world: World,
+  playerId: string,
+  specialization: CombatSpecialization
+): void {
+  const entity = stringIdToEntity.get(playerId);
+  if (entity !== undefined)
+    world.addComponent<CombatSpecializationComponent>(entity, Components.CombatSpecialization, {
+      specialization,
+      selectionPending: false,
+      selectionDeadline: 0,
+    });
 }
