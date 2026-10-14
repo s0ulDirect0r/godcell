@@ -28,4 +28,8 @@ vi.mock('../../../logger', () => ({
   clientLogger: { info: vi.fn() },
   recordEvolution: vi.fn(),
   recordNutrientCollection: vi.fn(),
+  recordLifetimeDeath: vi.fn(),
+  logPlayerDeath: vi.fn(),
+  logSingularityCrush: vi.fn(),
+  logGravityDebug: vi.fn(),
 }));

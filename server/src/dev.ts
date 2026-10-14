@@ -11,6 +11,7 @@ import {
   GAME_CONFIG,
   EvolutionStage,
   DEV_TUNABLE_CONFIGS,
+  Tags,
   type DevCommand,
   type DevConfigUpdatedMessage,
   type DevStateMessage,
@@ -185,6 +186,10 @@ export function handleDevCommand(socket: Socket, io: Server, command: DevCommand
 
     case 'teleportPlayer':
       handleTeleportPlayer(io, command.playerId, command.position);
+      break;
+
+    case 'setGodMode':
+      handleSetGodMode(command.playerId, command.enabled);
       break;
 
     case 'setPlayerEnergy':
@@ -370,6 +375,16 @@ function handleTeleportPlayer(io: Server, playerId: string, position: Position):
 
   io.emit('playerMoved', { type: 'playerMoved', playerId, position: { x: clampedX, y: clampedY } });
   logger.info({ event: 'dev_teleport', playerId, position: { x: clampedX, y: clampedY } });
+}
+
+function handleSetGodMode(playerId: string, enabled: boolean): void {
+  if (!devContext) return;
+  const entity = getEntityBySocketId(playerId);
+  if (entity === undefined) return;
+
+  if (enabled) devContext.world.addTag(entity, Tags.GodMode);
+  else devContext.world.removeTag(entity, Tags.GodMode);
+  logger.info({ event: 'dev_god_mode', playerId, enabled });
 }
 
 function handleSetPlayerEnergy(

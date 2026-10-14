@@ -91,6 +91,9 @@ export const Tags = {
   Projectile: 'projectile',
   Trap: 'trap',
 
+  // Server-only dev tags
+  GodMode: 'god_mode', // Dev cheat: player can't die and ignores gravity wells
+
   // Client-only tags
   LocalPlayer: 'local_player', // The player controlled by this client
 

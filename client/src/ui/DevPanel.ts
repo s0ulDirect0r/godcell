@@ -211,6 +211,7 @@ export class DevPanel {
     selectedPlayerId: '',
     targetEnergy: 100,
     targetStage: EvolutionStage.SINGLE_CELL,
+    godMode: new URLSearchParams(location.search).has('god'),
   };
 
   // Click spawn handlers (stored for cleanup)
@@ -390,6 +391,12 @@ export class DevPanel {
 
   private buildPlayerFolder(): void {
     const playerFolder = this.gui.addFolder('Player Controls');
+
+    // God mode: can't die, ignores gravity wells (?god enables it on join)
+    playerFolder
+      .add(this.playerControls, 'godMode')
+      .name('God Mode')
+      .onChange(() => this.sendGodMode());
 
     // Energy slider
     playerFolder
@@ -653,6 +660,16 @@ export class DevPanel {
     });
   }
 
+  // Player IDs are socket IDs, so this works before the local player entity exists
+  private sendGodMode(): void {
+    if (!this.socket.id) return;
+    this.sendDevCommand({
+      action: 'setGodMode',
+      playerId: this.socket.id,
+      enabled: this.playerControls.godMode,
+    });
+  }
+
   // ============================================
   // Click-to-Spawn Mode
   // ============================================
@@ -718,6 +735,11 @@ export class DevPanel {
   }
 
   private setupSocketListeners(): void {
+    // Re-apply god mode on each join (the server player is created per connection)
+    this.socket.on('worldSnapshot', () => {
+      if (this.playerControls.godMode) this.sendGodMode();
+    });
+
     // Listen for config updates from server
     this.socket.on('devConfigUpdated', (message: DevConfigUpdatedMessage) => {
       if (message.key in this.configValues) {

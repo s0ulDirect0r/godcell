@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { EnergyUpdateMessage, PlayerDiedMessage, DeathCause } from '#shared';
-import { EvolutionStage, GAME_CONFIG, type World } from '#shared';
+import { EvolutionStage, GAME_CONFIG, Tags, type World } from '#shared';
 import type { System } from './types';
 import {
   Components,
@@ -53,6 +53,13 @@ export class DeathSystem implements System {
       // 1. Energy is at or below 0
       // 2. We have a damage source tracked (meaning this is a fresh death, not already processed)
       if (energyComp.current <= 0 && damageTracking?.lastDamageSource) {
+        // Dev cheat: god-mode players refill instead of dying
+        if (world.hasTag(entity, Tags.GodMode)) {
+          energyComp.current = energyComp.max;
+          damageTracking.lastDamageSource = undefined;
+          return;
+        }
+
         const cause = damageTracking.lastDamageSource;
 
         // Get Player object for death handling (legacy format for network messages)

@@ -4,7 +4,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { type World } from '#shared';
+import { Tags, type World } from '#shared';
 import type { System } from './types';
 import {
   forEachObstacle,
@@ -51,6 +51,7 @@ export class GravitySystem implements System {
         Components.SpawnImmunity
       );
       if (spawnImmunity && Date.now() < spawnImmunity.until) return;
+      if (world.hasTag(entity, Tags.GodMode)) return;
 
       // NOTE: Friction is handled in MovementSystem for all stages
 
