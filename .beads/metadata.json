@@ -1,5 +1,7 @@
 {
-  "database": "beads.db",
-  "jsonl_export": "beads.jsonl",
-  "last_bd_version": "0.24.3"
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "godcell",
+  "project_id": "b879a2ac-4e19-49a9-83d0-90baa3531891"
 }
