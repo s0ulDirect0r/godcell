@@ -7,6 +7,13 @@ import { WebGPURenderer, type RenderPipeline } from 'three/webgpu';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import { GAME_CONFIG, EvolutionStage, getEntityScale } from '#shared';
 import { createPipeline, type PipelineResult } from './postprocessing/pipeline';
+import {
+  checkSoupCurrentsParity,
+  summarizeCurrents,
+  type ParityResult,
+  type SoupCurrentStats,
+} from '../effects/SoupCurrentsDiagnostics';
+import { getGravityWellCache } from '../utils/GravityDistortionUtils';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { TrailSystem } from '../systems/TrailSystem';
@@ -846,6 +853,8 @@ export class ThreeRenderer implements Renderer {
 
     // Update environment particles (soup or jungle based on mode)
     this.environmentSystem.update(dt);
+    const compute = this.environmentSystem.getActiveCompute();
+    if (compute && this.rendererReady) this.renderer.compute(compute);
 
     // Update all particle effects (death, evolution, EMP, spawn, energy transfer)
     const { spawnProgress } = this.effectsSystem.update(dt);
@@ -1084,6 +1093,29 @@ export class ThreeRenderer implements Renderer {
    */
   toggleSerpentDebug(): boolean {
     return this.entropySerpentRenderSystem.toggleDebug();
+  }
+
+  /**
+   * Read the soup current particles back from the GPU and summarize them
+   * (NaNs, out-of-bounds, speeds, density and glow per gravity well)
+   */
+  async inspectSoupCurrents(): Promise<SoupCurrentStats> {
+    const { positions, flows } = this.environmentSystem.getSoupCurrents().buffers;
+    const [positionData, flowData] = await Promise.all([
+      this.renderer.getArrayBufferAsync(positions),
+      this.renderer.getArrayBufferAsync(flows),
+    ]);
+    const flow = new Float32Array(flowData);
+    const speeds = new Float32Array(flow.length / 2);
+    for (let i = 0; i < speeds.length; i++) speeds[i] = Math.hypot(flow[i * 2], flow[i * 2 + 1]);
+    return summarizeCurrents(new Float32Array(positionData), speeds, getGravityWellCache());
+  }
+
+  /** Compare the soup current compute shader against its CPU reference (see SoupCurrentsDiagnostics) */
+  checkSoupCurrentsParity(
+    options?: Parameters<typeof checkSoupCurrentsParity>[1]
+  ): Promise<ParityResult> {
+    return checkSoupCurrentsParity(this.renderer, options);
   }
 
   getCameraProjection() {

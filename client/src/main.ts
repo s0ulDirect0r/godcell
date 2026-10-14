@@ -174,6 +174,17 @@ function initializeGame(settings: PreGameSettings): void {
   // Usage: window.debugSerpent() - toggles serpent head/body/attack visualization
   (window as unknown as { debugSerpent: () => boolean }).debugSerpent = () =>
     renderer!.toggleSerpentDebug();
+  // Usage: await window.inspectSoupCurrents() - GPU readback stats for the soup particle current
+  (window as unknown as { inspectSoupCurrents: () => Promise<unknown> }).inspectSoupCurrents = () =>
+    renderer!.inspectSoupCurrents();
+  // Usage: await window.checkSoupCurrentsParity() - GPU compute vs CPU reference, seeded
+  (
+    window as unknown as {
+      checkSoupCurrentsParity: (
+        o?: Parameters<ThreeRenderer['checkSoupCurrentsParity']>[0]
+      ) => Promise<unknown>;
+    }
+  ).checkSoupCurrentsParity = (options) => renderer!.checkSoupCurrentsParity(options);
 
   // Wire input manager with renderer's camera projection
   inputManager.setCameraProjection(renderer.getCameraProjection());

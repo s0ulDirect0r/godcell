@@ -4,8 +4,9 @@
 // ============================================
 
 import * as THREE from 'three';
-import { PointsNodeMaterial } from 'three/webgpu';
+import type { ComputeNode } from 'three/webgpu';
 import { PointCloud } from '../three/PointCloud';
+import { SoupCurrents } from '../effects/SoupCurrents';
 import { GAME_CONFIG } from '#shared';
 import {
   createJungleBackground,
@@ -48,8 +49,7 @@ export class EnvironmentSystem {
 
   // Soup background (Stage 1-2)
   private soupBackgroundGroup!: THREE.Group;
-  private dataParticles!: PointCloud;
-  private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
+  private soupCurrents!: SoupCurrents; // GPU compute background particles
 
   // Grid distortion data
   // Each entry: { geometry, originalPositions } for a grid line
@@ -107,7 +107,8 @@ export class EnvironmentSystem {
 
     // Create soup grid and particles
     this.createGrid();
-    this.createDataParticles();
+    this.soupCurrents = new SoupCurrents();
+    this.soupBackgroundGroup.add(this.soupCurrents.object);
 
     // Create jungle background (uses JungleBackground helper)
     const jungleResult = createJungleBackground(scene);
@@ -139,6 +140,15 @@ export class EnvironmentSystem {
    */
   getMode(): RenderMode {
     return this.mode;
+  }
+
+  getSoupCurrents(): SoupCurrents {
+    return this.soupCurrents;
+  }
+
+  /** Compute pass to dispatch this frame (soup currents only run in soup mode) */
+  getActiveCompute(): ComputeNode | null {
+    return this.mode === 'soup' ? this.soupCurrents.computeNode : null;
   }
 
   /**
@@ -220,7 +230,7 @@ export class EnvironmentSystem {
    */
   update(dt: number): void {
     if (this.mode === 'soup') {
-      this.updateSoupParticles(dt);
+      this.soupCurrents.update(dt / 1000, getGravityWellCache());
       this.updateGridDistortion();
     } else {
       // Jungle mode: update all jungle particles and ambient effects
@@ -317,120 +327,5 @@ export class EnvironmentSystem {
       this.soupBackgroundGroup.add(line);
       this.gridLines.push({ geometry, originalPositions });
     }
-  }
-
-  private createDataParticles(): void {
-    const particleCount = GAME_CONFIG.MAX_PARTICLES;
-
-    // Create positions and sizes arrays
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-
-    // Soup particles spawn within soup region
-    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
-    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
-
-    for (let i = 0; i < particleCount; i++) {
-      const x = soupMinX + Math.random() * GAME_CONFIG.SOUP_WIDTH;
-      const y = soupMinY + Math.random() * GAME_CONFIG.SOUP_HEIGHT;
-      const size =
-        GAME_CONFIG.PARTICLE_MIN_SIZE +
-        Math.random() * (GAME_CONFIG.PARTICLE_MAX_SIZE - GAME_CONFIG.PARTICLE_MIN_SIZE);
-
-      // Position (XZ plane: X=game X, Y=height, Z=-game Y)
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = -0.8; // Height (below entities)
-      positions[i * 3 + 2] = -y;
-
-      // Size
-      sizes[i] = size;
-
-      // Calculate velocity (diagonal flow)
-      const baseAngle = Math.PI / 4; // 45 degrees
-      const variance = ((Math.random() - 0.5) * Math.PI) / 2;
-      const angle = baseAngle + variance;
-      const speed =
-        GAME_CONFIG.PARTICLE_SPEED_MIN +
-        Math.random() * (GAME_CONFIG.PARTICLE_SPEED_MAX - GAME_CONFIG.PARTICLE_SPEED_MIN);
-
-      const vx = Math.cos(angle) * speed;
-      const vy = Math.sin(angle) * speed;
-
-      // Store particle data for updates
-      this.particleData.push({ x, y, vx, vy, size });
-    }
-
-    // Create BufferGeometry with position and size attributes
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-    // Create PointsMaterial with transparent circles
-    const material = new PointsNodeMaterial({
-      color: GAME_CONFIG.PARTICLE_COLOR,
-      size: 5, // Base size (will be multiplied by size attribute)
-      transparent: true,
-      opacity: 0.6,
-      sizeAttenuation: false, // Keep consistent size regardless of camera distance
-      map: this.createCircleTexture(),
-      alphaTest: 0.5,
-    });
-
-    // Create Points mesh
-    this.dataParticles = new PointCloud(geometry, material);
-    this.soupBackgroundGroup.add(this.dataParticles);
-  }
-
-  private createCircleTexture(): THREE.Texture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 32;
-    canvas.height = 32;
-    const ctx = canvas.getContext('2d')!;
-
-    // Draw circle with soft edges
-    const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 32, 32);
-
-    const texture = new THREE.Texture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  }
-
-  private updateSoupParticles(dt: number): void {
-    const deltaSeconds = dt / 1000;
-    const positions = this.dataParticles.pointGeometry.attributes.position.array as Float32Array;
-
-    // Soup region bounds for wrapping
-    const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
-    const soupMaxX = GAME_CONFIG.SOUP_ORIGIN_X + GAME_CONFIG.SOUP_WIDTH;
-    const soupMinY = GAME_CONFIG.SOUP_ORIGIN_Y;
-    const soupMaxY = GAME_CONFIG.SOUP_ORIGIN_Y + GAME_CONFIG.SOUP_HEIGHT;
-
-    for (let i = 0; i < this.particleData.length; i++) {
-      const particle = this.particleData[i];
-
-      // Update particle position
-      particle.x += particle.vx * deltaSeconds;
-      particle.y += particle.vy * deltaSeconds;
-
-      // Wrap around soup bounds
-      if (particle.x > soupMaxX + 10) particle.x = soupMinX - 10;
-      if (particle.y > soupMaxY + 10) particle.y = soupMinY - 10;
-      if (particle.x < soupMinX - 10) particle.x = soupMaxX + 10;
-      if (particle.y < soupMinY - 10) particle.y = soupMaxY + 10;
-
-      // Update BufferGeometry positions (XZ plane: X=game X, Y=height, Z=-game Y)
-      positions[i * 3] = particle.x;
-      // positions[i * 3 + 1] stays at height (-0.8)
-      positions[i * 3 + 2] = -particle.y;
-    }
-
-    // Mark positions as needing update
-    this.dataParticles.pointGeometry.attributes.position.needsUpdate = true;
   }
 }
