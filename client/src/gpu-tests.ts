@@ -7,11 +7,16 @@ import {
   checkSoupCurrentsParity,
   type ParityResult,
 } from './render/effects/SoupCurrentsDiagnostics';
+import {
+  checkCoronaParity,
+  type CoronaParityResult,
+} from './render/meshes/swarm/coronaDiagnostics';
 
 export interface GpuTestResults {
   backend: 'webgpu' | 'webgl';
   short?: ParityResult; // 4k particles x 120 steps
   long?: ParityResult; // 8k particles x 1200 steps (exercises core respawns)
+  corona?: CoronaParityResult; // Swarm corona: idle, moving arc, chase scenarios
   error?: string;
 }
 
@@ -30,7 +35,8 @@ async function run(): Promise<GpuTestResults> {
   try {
     const short = await checkSoupCurrentsParity(renderer);
     const long = await checkSoupCurrentsParity(renderer, { particles: 8192, steps: 1200 });
-    return { backend, short, long };
+    const corona = await checkCoronaParity(renderer);
+    return { backend, short, long, corona };
   } finally {
     renderer.dispose();
   }

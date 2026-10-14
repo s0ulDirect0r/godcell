@@ -12,14 +12,8 @@ import {
   updateSwarmState,
   updateSwarmAnimation,
   disposeSwarm,
-  type SwarmInternalParticle,
-  type SwarmOrbitingParticle,
 } from '../meshes/SwarmMesh';
-import {
-  parseSwarmStyle,
-  type ComputeSwarmFX,
-  type SwarmStyle,
-} from '../meshes/swarm/ComputeSwarm';
+import type { CoronaSwarm } from '../meshes/swarm/CoronaSwarm';
 import type { ComputeNode } from 'three/webgpu';
 import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
@@ -49,14 +43,11 @@ export class SwarmRenderSystem {
   private scene!: THREE.Scene;
   private world!: World;
 
-  // Swarm meshes (Groups containing sphere + particles)
+  // Swarm meshes (Groups containing shell sphere + corona particles)
   private swarmMeshes: Map<string, THREE.Group> = new Map();
 
-  // Orbiting particle animation data
-  private swarmParticleData: Map<string, SwarmOrbitingParticle[]> = new Map();
-
-  // Internal storm particle animation data
-  private swarmInternalParticles: Map<string, SwarmInternalParticle[]> = new Map();
+  // GPU corona particles per swarm (compute passes dispatched by the renderer)
+  private swarmFX: Map<string, CoronaSwarm> = new Map();
 
   // Phase offset for pulsing animation (so swarms don't pulse in sync)
   private swarmPulsePhase: Map<string, number> = new Map();
@@ -84,11 +75,6 @@ export class SwarmRenderSystem {
 
   // Cache energy ratio (0-1) for animation intensity
   private swarmEnergyRatios: Map<string, number> = new Map();
-  // GPU particle style (?swarm=maelstrom|glitch|corona); classic uses the CPU storm
-  private swarmStyle: SwarmStyle = parseSwarmStyle(
-    new URLSearchParams(window.location.search).get('swarm')
-  );
-  private swarmFX: Map<string, ComputeSwarmFX> = new Map();
 
   // Base energy (swarms start at 100)
   private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
@@ -132,13 +118,9 @@ export class SwarmRenderSystem {
 
       if (!group) {
         // Create swarm visual using helper
-        const result = createSwarm({ x: pos.x, y: pos.y }, swarm.size, this.swarmStyle);
+        const result = createSwarm({ x: pos.x, y: pos.y }, swarm.size);
         group = result.group;
-        if (result.fx) this.swarmFX.set(swarmId, result.fx);
-
-        // Store particle animation data
-        this.swarmInternalParticles.set(swarmId, result.internalParticles);
-        this.swarmParticleData.set(swarmId, result.orbitingParticles);
+        this.swarmFX.set(swarmId, result.fx);
 
         // Random phase offset for pulsing (so swarms don't pulse in sync)
         this.swarmPulsePhase.set(swarmId, Math.random() * Math.PI * 2);
@@ -160,7 +142,7 @@ export class SwarmRenderSystem {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       this.swarmDisabled.set(swarmId, isDisabled); // Cache for animation freeze
-      updateSwarmState(group, swarm.state, isDisabled, this.swarmFX.get(swarmId));
+      updateSwarmState(group, swarm.state, isDisabled, this.swarmFX.get(swarmId)!);
 
       // === Energy-based effects (size stays constant) ===
       // Swarms no longer grow in size when absorbing energy
@@ -183,15 +165,6 @@ export class SwarmRenderSystem {
         this.swarmBaseSizes.set(swarmId, swarm.size);
       }
 
-      // Update internal particle count based on energy
-      // Base: 200 particles, grows by 1 particle per 2 energy absorbed
-      const baseParticleCount = 200;
-      const absorbedEnergy = Math.max(0, energy - this.BASE_ENERGY);
-      const targetParticleCount = baseParticleCount + Math.floor(absorbedEnergy / 2);
-      if (!this.swarmFX.has(swarmId)) {
-        this.updateInternalParticleCount(swarmId, group, swarm.size, targetParticleCount);
-      }
-
       // Update aura visuals (ring + orbiting particles)
       this.updateSwarmAura(swarmId, group, energy, energyScale);
     });
@@ -200,12 +173,10 @@ export class SwarmRenderSystem {
     this.swarmMeshes.forEach((group, id) => {
       if (!currentSwarmIds.has(id)) {
         this.scene.remove(group);
-        disposeSwarm(group, this.swarmFX.get(id));
+        disposeSwarm(group, this.swarmFX.get(id)!);
         this.swarmFX.delete(id);
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
-        this.swarmParticleData.delete(id);
-        this.swarmInternalParticles.delete(id);
         this.swarmPulsePhase.delete(id);
         this.swarmStates.delete(id);
         this.swarmDisabled.delete(id);
@@ -265,31 +236,22 @@ export class SwarmRenderSystem {
   }
 
   /**
-   * Update swarm particle animations (pulsing, internal storm, orbiting)
+   * Update swarm animations (shell pulse, corona uniforms)
    * @param dt - Delta time in milliseconds
    */
   updateAnimations(dt: number): void {
     this.swarmMeshes.forEach((group, id) => {
-      const swarmState = this.swarmStates.get(id) || 'patrol';
-      const pulsePhase = this.swarmPulsePhase.get(id) || 0;
-      const internalParticles = this.swarmInternalParticles.get(id);
-      const orbitingParticles = this.swarmParticleData.get(id);
-      const energyRatio = this.swarmEnergyRatios.get(id) ?? 0;
-      const isDisabled = this.swarmDisabled.get(id) ?? false;
-
-      if (internalParticles && orbitingParticles) {
-        updateSwarmAnimation(
-          group,
-          internalParticles,
-          orbitingParticles,
-          swarmState,
-          pulsePhase,
-          dt,
-          energyRatio,
-          isDisabled,
-          this.swarmFX.get(id)
-        );
-      }
+      const fx = this.swarmFX.get(id);
+      if (!fx) return;
+      updateSwarmAnimation(
+        group,
+        this.swarmStates.get(id) || 'patrol',
+        this.swarmPulsePhase.get(id) || 0,
+        dt,
+        this.swarmEnergyRatios.get(id) ?? 0,
+        this.swarmDisabled.get(id) ?? false,
+        fx
+      );
     });
   }
 
@@ -346,13 +308,11 @@ export class SwarmRenderSystem {
   clearAll(): void {
     this.swarmMeshes.forEach((group, id) => {
       this.scene.remove(group);
-      disposeSwarm(group, this.swarmFX.get(id));
+      disposeSwarm(group, this.swarmFX.get(id)!);
     });
     this.swarmFX.clear();
     this.swarmMeshes.clear();
     this.swarmTargets.clear();
-    this.swarmParticleData.clear();
-    this.swarmInternalParticles.clear();
     this.swarmPulsePhase.clear();
     this.swarmStates.clear();
     this.swarmDisabled.clear();
@@ -395,90 +355,6 @@ export class SwarmRenderSystem {
         }
       }
     });
-  }
-
-  /**
-   * Update aura visuals (ring + orbiting particles) based on swarm energy
-   * Aura only appears when swarm has absorbed energy (energy > BASE_ENERGY)
-   *
-   * @param swarmId - Swarm entity ID
-   * @param group - Swarm mesh group (for position syncing)
-   * @param energy - Current energy (100 = base, grows as swarm drains players)
-   * @param energyScale - Scale factor (energy / 100)
-   */
-  private updateInternalParticleCount(
-    swarmId: string,
-    group: THREE.Group,
-    swarmSize: number,
-    targetCount: number
-  ): void {
-    const currentParticles = this.swarmInternalParticles.get(swarmId);
-    if (!currentParticles) return;
-
-    const currentCount = currentParticles.length;
-    // Only update if count changed significantly (by 20+ particles)
-    if (Math.abs(targetCount - currentCount) < 20) return;
-
-    // Get the internal storm mesh (second child of group)
-    const internalStorm = group.children[1] as PointCloud;
-    if (!internalStorm) return;
-
-    // Create new particle data
-    const newParticles: SwarmInternalParticle[] = [];
-    const positions = new Float32Array(targetCount * 3);
-    const sizes = new Float32Array(targetCount);
-
-    // Copy existing particles up to the target count
-    const copyCount = Math.min(currentCount, targetCount);
-    for (let i = 0; i < copyCount; i++) {
-      const p = currentParticles[i];
-      newParticles.push({ ...p });
-      positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
-      positions[i * 3 + 2] = p.z;
-      sizes[i] = 1 + Math.random() * 1.5;
-    }
-
-    // Add new particles if growing
-    for (let i = copyCount; i < targetCount; i++) {
-      // Random point inside sphere (uniform distribution)
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * Math.PI;
-      const r = Math.cbrt(Math.random()) * swarmSize * 0.9;
-
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta);
-      const z = r * Math.cos(phi);
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
-      sizes[i] = 1 + Math.random() * 1.5;
-
-      // Random velocity
-      const speed = 60 + Math.random() * 80;
-      const vTheta = Math.random() * Math.PI * 2;
-      const vPhi = Math.random() * Math.PI;
-
-      newParticles.push({
-        x,
-        y,
-        z,
-        vx: speed * Math.sin(vPhi) * Math.cos(vTheta),
-        vy: speed * Math.sin(vPhi) * Math.sin(vTheta),
-        vz: speed * Math.cos(vPhi),
-      });
-    }
-
-    // Update geometry
-    internalStorm.pointGeometry.dispose();
-    const newGeometry = new THREE.BufferGeometry();
-    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    newGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    internalStorm.pointGeometry = newGeometry;
-
-    // Update particle data
-    this.swarmInternalParticles.set(swarmId, newParticles);
   }
 
   /**

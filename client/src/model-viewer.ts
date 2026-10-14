@@ -34,15 +34,8 @@ import {
   disposeSwarm,
   updateSwarmAnimation,
   updateSwarmState,
-  type SwarmInternalParticle,
-  type SwarmOrbitingParticle,
 } from './render/meshes/SwarmMesh';
-import {
-  COMPUTE_SWARM_STYLES,
-  parseSwarmStyle,
-  type ComputeSwarmFX,
-  type SwarmStyle,
-} from './render/meshes/swarm/ComputeSwarm';
+import type { CoronaSwarm } from './render/meshes/swarm/CoronaSwarm';
 import { createNutrient } from './render/meshes/NutrientMesh';
 import { createGravityDistortion } from './render/meshes/GravityDistortionMesh';
 import { createSingleCell, updateSingleCellEnergy } from './render/meshes/SingleCellMesh';
@@ -113,18 +106,15 @@ let currentEntityType:
   | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let currentSerpentState: 'patrol' | 'chase' | 'attack' = 'patrol';
-let currentSwarmStyle: SwarmStyle = parseSwarmStyle(
-  new URLSearchParams(location.search).get('swarm')
-);
 let currentSwarmState: 'patrol' | 'chase' | 'disabled' = 'patrol';
-// Animated swarm preview (the 'swarm' entity type); circles when Walk is on to show tails
+// Animated swarm preview. In the 'swarm' view it circles when Walk is on (to show the tail);
+// in 'all' it stays put but still needs its corona simulated.
 let swarmPreview:
   | {
       group: THREE.Group;
-      internal: SwarmInternalParticle[];
-      orbiting: SwarmOrbitingParticle[];
-      fx?: ComputeSwarmFX;
+      fx: CoronaSwarm;
       angle: number;
+      movable: boolean;
     }
   | undefined;
 const SWARM_PREVIEW = { RADIUS: 47, CIRCLE: 70, SPEED: 120 }; // Game swarm size; preview path px, px/s
@@ -313,14 +303,6 @@ function initGUI() {
     .onChange((value: MultiCellStyle) => {
       currentStyle = value;
       if (currentEntityType === 'multi-cell') updateModels();
-    });
-
-  entityFolder
-    .add({ swarmStyle: currentSwarmStyle }, 'swarmStyle', ['classic', ...COMPUTE_SWARM_STYLES])
-    .name('Swarm Style')
-    .onChange((value: SwarmStyle) => {
-      currentSwarmStyle = value;
-      if (currentEntityType === 'swarm') updateModels();
     });
 
   entityFolder
@@ -907,14 +889,8 @@ function updateModels() {
 
     case 'swarm': {
       // Game placement and orientation (local XY = ground), viewed top-down like the game
-      const result = createSwarm({ x: 0, y: 0 }, SWARM_PREVIEW.RADIUS, currentSwarmStyle);
-      swarmPreview = {
-        group: result.group,
-        internal: result.internalParticles,
-        orbiting: result.orbitingParticles,
-        fx: result.fx,
-        angle: 0,
-      };
+      const result = createSwarm({ x: 0, y: 0 }, SWARM_PREVIEW.RADIUS);
+      swarmPreview = { group: result.group, fx: result.fx, angle: 0, movable: true };
       scene.add(result.group);
       models.push(result.group);
       camera.position.set(0, 260, 0.01);
@@ -986,9 +962,10 @@ function updateModels() {
       models.push(godcell);
 
       // Row 2: Threats
-      const { group: swarm } = createSwarm({ x: 0, y: 0 }, 40);
+      const { group: swarm, fx: swarmFX } = createSwarm({ x: 0, y: 0 }, 40);
       swarm.position.set(-spacing, -spacing * 0.5, 0);
       swarm.rotation.set(0, 0, 0);
+      swarmPreview = { group: swarm, fx: swarmFX, angle: 0, movable: false };
       scene.add(swarm);
       models.push(swarm);
 
@@ -1148,28 +1125,21 @@ function animate(currentTime: number = 0) {
     }
   });
 
-  if (swarmPreview && currentEntityType === 'swarm') {
-    const { group, internal, orbiting, fx } = swarmPreview;
+  if (swarmPreview) {
+    const { group, fx } = swarmPreview;
     const disabled = currentSwarmState === 'disabled';
-    if (movementPreview.walking && !disabled) {
-      swarmPreview.angle += (SWARM_PREVIEW.SPEED / SWARM_PREVIEW.CIRCLE) * Math.min(deltaTime, 0.1);
+    if (swarmPreview.movable) {
+      if (movementPreview.walking && !disabled) {
+        swarmPreview.angle +=
+          (SWARM_PREVIEW.SPEED / SWARM_PREVIEW.CIRCLE) * Math.min(deltaTime, 0.1);
+      }
+      const r = movementPreview.walking ? SWARM_PREVIEW.CIRCLE : 0;
+      // Game (x, y) -> world (x, 0.2, -y)
+      group.position.set(Math.cos(swarmPreview.angle) * r, 0.2, -Math.sin(swarmPreview.angle) * r);
     }
-    const r = movementPreview.walking ? SWARM_PREVIEW.CIRCLE : 0;
-    // Game (x, y) -> world (x, 0.2, -y)
-    group.position.set(Math.cos(swarmPreview.angle) * r, 0.2, -Math.sin(swarmPreview.angle) * r);
     updateSwarmState(group, currentSwarmState, disabled, fx);
-    updateSwarmAnimation(
-      group,
-      internal,
-      orbiting,
-      currentSwarmState,
-      0,
-      deltaTime * 1000,
-      0,
-      disabled,
-      fx
-    );
-    if (fx && rendererReady) renderer.compute(fx.computeNode);
+    updateSwarmAnimation(group, currentSwarmState, 0, deltaTime * 1000, 0, disabled, fx);
+    if (rendererReady) renderer.compute(fx.computeNode);
   }
 
   if (rendererReady) pipeline.render();
