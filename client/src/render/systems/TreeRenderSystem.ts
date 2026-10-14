@@ -86,8 +86,8 @@ export class TreeRenderSystem {
   updateAnimations(_dt: number): void {
     if (!this.forest) return;
     const player = getLocalPlayer(this.world);
-    if (player) this.forest.setViewer(player.position.x, player.position.y);
-    else this.forest.clearViewer();
+    if (player) DataTreeForest.setViewer(player.position.x, player.position.y);
+    else DataTreeForest.clearViewer();
   }
 
   /**

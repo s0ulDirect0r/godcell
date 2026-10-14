@@ -53,6 +53,8 @@ import {
   applyEvolutionEffects,
 } from './render/three/EvolutionVisuals';
 import { DataTreeForest } from './render/meshes/DataTreeForest';
+import { createEdgeForest } from './render/meshes/EdgeForest';
+import { GAME_CONFIG } from '#shared';
 import { createDataFruit } from './render/meshes/DataFruitMesh';
 import { createCyberBug } from './render/meshes/CyberBugMesh';
 import { createJungleCreature } from './render/meshes/JungleCreatureMesh';
@@ -97,6 +99,7 @@ let currentEntityType:
   | 'godcell'
   | 'entropy-serpent'
   | 'tree'
+  | 'edge-forest'
   | 'data-fruit'
   | 'cyber-bug'
   | 'jungle-creature'
@@ -283,6 +286,7 @@ function initGUI() {
       'godcell',
       'entropy-serpent',
       'tree',
+      'edge-forest',
       'data-fruit',
       'cyber-bug',
       'jungle-creature',
@@ -773,6 +777,25 @@ function updateModels() {
       models.push(trees.group);
 
       camera.position.set(0, 200, 800);
+      break;
+    }
+
+    case 'edge-forest': {
+      // The real edge-forest layout around the jungle's far corner, top-down like Stage 3.
+      // Shifted so that corner sits at the origin: the play area is x < 0, z > 0.
+      const { JUNGLE_WIDTH: W, JUNGLE_HEIGHT: H } = GAME_CONFIG;
+      const edge = createEdgeForest(W, H, 0x000808);
+      edge.position.set(-W, 0, H);
+      const playArea = new THREE.Mesh(
+        new THREE.PlaneGeometry(6000, 6000),
+        new THREE.MeshBasicMaterial({ color: 0x0b1f12 })
+      );
+      playArea.rotation.x = -Math.PI / 2;
+      playArea.position.set(-3000, -6, 3000);
+      scene.add(edge, playArea);
+      models.push(edge, playArea);
+      controls.target.set(-900, 0, 900);
+      camera.position.set(-900, 6500, 900.01);
       break;
     }
 

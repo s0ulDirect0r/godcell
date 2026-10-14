@@ -1,5 +1,6 @@
 import { inGrove } from '../../../../shared/grove';
 import { createGroveEnvironment } from '../meshes/GroveEnvironment';
+import { createEdgeForest } from '../meshes/EdgeForest';
 // ============================================
 // Jungle Background - Digital jungle environment for Stage 3+
 // ============================================
@@ -325,6 +326,15 @@ export function createJungleBackground(scene: THREE.Scene): {
 
   // Create terrain patches (below everything else)
   createTerrainPatches(group);
+
+  // Decorative forest wall outside the play area, so the world ends in trees, not void
+  group.add(
+    createEdgeForest(
+      GAME_CONFIG.JUNGLE_WIDTH,
+      GAME_CONFIG.JUNGLE_HEIGHT,
+      JUNGLE_CONFIG.BACKGROUND_COLOR
+    )
+  );
 
   // Root network is now created by TreeRenderSystem using actual ECS tree positions
   // Grid disabled for cleaner visual - uncomment to re-enable

@@ -451,6 +451,7 @@ export class DevPanel {
     for (const [name, position] of [
       ['Feeding ground', HUNTING_GROVE.feeding],
       ['Serpent approach', { x: HUNTING_GROVE.den.x - 1700, y: HUNTING_GROVE.den.y }],
+      ['Map corner', { x: GAME_CONFIG.JUNGLE_WIDTH - 600, y: GAME_CONFIG.JUNGLE_HEIGHT - 600 }],
     ] as const) {
       playerFolder
         .add(

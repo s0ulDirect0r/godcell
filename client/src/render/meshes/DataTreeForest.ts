@@ -6,7 +6,8 @@
 // Every tree in the forest shares six InstancedMeshes (trunk, fibers, three canopy
 // layers, roots), so the draw-call count stays at 6 however many trees there are.
 // All animation (glow pulse, fiber wave, canopy sway, fade near the viewer) runs in
-// TSL off the renderer's `time` and one per-tree vec4: (game x, game y, radius, variant).
+// TSL off the renderer's `time` and per-tree instanced attributes. Every forest shares
+// one material set, so splitting trees into several forests adds no shader builds.
 //
 // Tree-local units: trunk parts are modeled for radius 1 and trunk height 1, then
 // scaled per instance by (radius, trunkHeight, radius); roots scale by radius;
@@ -18,7 +19,6 @@ import {
   attribute,
   color,
   hue,
-  instancedBufferAttribute,
   length,
   positionLocal,
   sin,
@@ -39,6 +39,7 @@ export interface TreeInstance {
   radius: number; // Trunk collision radius (sets overall size)
   height: number; // Visual height
   variant: number; // 0-1 seed for color and animation phase
+  glow?: number; // Brightness multiplier for colors and glow (default 1; < 1 recedes into the dark)
 }
 
 const CONFIG = {
@@ -132,10 +133,112 @@ function rootGeometry(): THREE.BufferGeometry {
   return mergeGeometries(parts)!;
 }
 
+/** Game position canopies fade around (usually the local player); shared by every forest */
+const uViewer = uniform(new THREE.Vector2(1e9, 1e9));
+
+interface TreeMaterials {
+  trunk: THREE.Material;
+  fibers: THREE.Material;
+  canopies: THREE.Material[];
+  roots: THREE.Material;
+}
+
+let sharedMaterials: TreeMaterials | null = null;
+
+/**
+ * One material set for every forest, so extra forests (e.g. edge-forest chunks) add no
+ * shader builds. Per-tree data comes from instanced geometry attributes: `treeData`
+ * (game x, game y, radius, variant) and `treeGlow`.
+ */
+function treeMaterials(): TreeMaterials {
+  if (sharedMaterials) return sharedMaterials;
+  const aTree = attribute<'vec4'>('treeData', 'vec4');
+  const glow = attribute<'float'>('treeGlow', 'float');
+  const radius = aTree.z;
+  const variant = aTree.w;
+  const pulsePhase = time.mul(CONFIG.GLOW_PULSE_SPEED * TAU).add(variant.mul(TAU));
+  const pulse = (offset: Node<'float'> | number, range: number) =>
+    sin(pulsePhase.add(offset)).mul(range).add(1);
+  const tint = (hex: number) =>
+    hue(color(hex), variant.sub(0.5).mul(CONFIG.HUE_SHIFT * 2 * TAU)).mul(glow);
+
+  // --- Trunk ---
+  const trunk = new THREE.MeshStandardNodeMaterial({
+    color: CONFIG.TRUNK_BASE_COLOR,
+    roughness: 0.7,
+    metalness: 0.3,
+    side: THREE.DoubleSide,
+  });
+  trunk.emissiveNode = tint(CONFIG.TRUNK_GLOW_COLOR).mul(
+    pulse(0, CONFIG.GLOW_PULSE_RANGE).mul(CONFIG.TRUNK_GLOW_INTENSITY)
+  );
+
+  // --- Fibers ---
+  const fibers = new THREE.MeshStandardNodeMaterial({
+    roughness: 0.2,
+    metalness: 0.5,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const fiberColor = tint(CONFIG.FIBER_LINE_COLOR);
+  fibers.colorNode = fiberColor;
+  fibers.emissiveNode = fiberColor.mul(
+    pulse(
+      attribute('fiberIndex', 'float').mul(CONFIG.FIBER_PULSE_OFFSET),
+      CONFIG.FIBER_PULSE_RANGE
+    ).mul(CONFIG.FIBER_LINE_INTENSITY)
+  );
+
+  // --- Canopy layers ---
+  const viewerDistance = length(vec2(aTree.x, aTree.y).sub(uViewer));
+  const fadeStart = radius.mul(2);
+  const fade = smoothstep(
+    fadeStart.add(CONFIG.CANOPY_FADE_NEAR),
+    fadeStart.add(CONFIG.CANOPY_FADE_FAR),
+    viewerDistance
+  );
+  const fadeOpacity = fade.mul(CONFIG.CANOPY_FADE_GAIN).add(CONFIG.CANOPY_FADE_MIN);
+  const swayPhase = time.mul(CONFIG.SWAY_SPEED * TAU).add(variant.mul(TAU));
+  // positionNode runs after instancing, so this offset is in world units
+  const sway = vec3(sin(swayPhase).mul(radius).mul(CONFIG.SWAY_AMPLITUDE), 0, 0);
+  const canopies = CONFIG.CANOPY_LAYER_SCALE.map((_scale, layer) => {
+    const isOuter = layer === CONFIG.CANOPY_LAYER_SCALE.length - 1;
+    const mat = new THREE.MeshStandardNodeMaterial({
+      roughness: 0.2,
+      metalness: 0.1,
+      transparent: true,
+      side: isOuter ? THREE.DoubleSide : THREE.FrontSide,
+      depthWrite: false,
+    });
+    const layerColor = tint(layer === 0 ? CONFIG.CANOPY_CORE_COLOR : CONFIG.CANOPY_OUTER_COLOR);
+    mat.colorNode = layerColor;
+    mat.emissiveNode = layerColor.mul(
+      pulse(layer * CONFIG.CANOPY_LAYER_PHASE, CONFIG.GLOW_PULSE_RANGE).mul(
+        CONFIG.CANOPY_GLOW_INTENSITY * (1 - layer * 0.2)
+      )
+    );
+    mat.opacityNode = fadeOpacity.mul(CONFIG.CANOPY_LAYER_OPACITY[layer]);
+    mat.positionNode = positionLocal.add(sway);
+    return mat;
+  });
+
+  // --- Roots ---
+  const roots = new THREE.MeshStandardNodeMaterial({
+    roughness: 0.3,
+    metalness: 0.4,
+    transparent: true,
+    opacity: 0.7,
+  });
+  const rootColor = tint(CONFIG.ROOT_COLOR);
+  roots.colorNode = rootColor;
+  roots.emissiveNode = rootColor.mul(CONFIG.ROOT_INTENSITY);
+
+  sharedMaterials = { trunk, fibers, canopies, roots };
+  return sharedMaterials;
+}
+
 export class DataTreeForest {
   readonly group = new THREE.Group();
-  /** Game position the canopy fades around (usually the local player) */
-  private readonly uViewer = uniform(new THREE.Vector2(1e9, 1e9));
   private readonly meshes: THREE.InstancedMesh[] = [];
 
   constructor(trees: readonly TreeInstance[]) {
@@ -143,93 +246,32 @@ export class DataTreeForest {
     const count = trees.length;
     const data = new Float32Array(count * 4);
     trees.forEach((t, i) => data.set([t.x, t.y, t.radius, t.variant], i * 4));
-    const aTree = instancedBufferAttribute(
-      new THREE.InstancedInterleavedBuffer(data, 4),
-      'vec4',
-      4,
-      0
-    ) as Node<'vec4'>;
-    const radius = aTree.z;
-    const variant = aTree.w;
-    const pulsePhase = time.mul(CONFIG.GLOW_PULSE_SPEED * TAU).add(variant.mul(TAU));
-    const pulse = (offset: Node<'float'> | number, range: number) =>
-      sin(pulsePhase.add(offset)).mul(range).add(1);
-    const tint = (hex: number) => hue(color(hex), variant.sub(0.5).mul(CONFIG.HUE_SHIFT * 2 * TAU));
-
-    // --- Trunk ---
-    const trunkMat = new THREE.MeshStandardNodeMaterial({
-      color: CONFIG.TRUNK_BASE_COLOR,
-      roughness: 0.7,
-      metalness: 0.3,
-      side: THREE.DoubleSide,
-    });
-    trunkMat.emissiveNode = tint(CONFIG.TRUNK_GLOW_COLOR).mul(
-      pulse(0, CONFIG.GLOW_PULSE_RANGE).mul(CONFIG.TRUNK_GLOW_INTENSITY)
+    const treeData = new THREE.InstancedBufferAttribute(data, 4);
+    const treeGlow = new THREE.InstancedBufferAttribute(
+      new Float32Array(trees.map((t) => t.glow ?? 1)),
+      1
     );
-    const trunk = this.addMesh('trunk', trunkGeometry(), trunkMat, count);
+    const materials = treeMaterials();
+    const add = (name: string, geometry: THREE.BufferGeometry, material: THREE.Material) => {
+      geometry.setAttribute('treeData', treeData);
+      geometry.setAttribute('treeGlow', treeGlow);
+      const mesh = new THREE.InstancedMesh(geometry, material, count);
+      mesh.name = name;
+      this.meshes.push(mesh);
+      this.group.add(mesh);
+      return mesh;
+    };
 
-    // --- Fibers ---
-    const fiberMat = new THREE.MeshStandardNodeMaterial({
-      roughness: 0.2,
-      metalness: 0.5,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const fiberColor = tint(CONFIG.FIBER_LINE_COLOR);
-    fiberMat.colorNode = fiberColor;
-    fiberMat.emissiveNode = fiberColor.mul(
-      pulse(
-        attribute('fiberIndex', 'float').mul(CONFIG.FIBER_PULSE_OFFSET),
-        CONFIG.FIBER_PULSE_RANGE
-      ).mul(CONFIG.FIBER_LINE_INTENSITY)
+    const trunk = add('trunk', trunkGeometry(), materials.trunk);
+    const fibers = add('fibers', fiberGeometry(), materials.fibers);
+    const canopies = CONFIG.CANOPY_LAYER_SCALE.map((scale, layer) =>
+      add(
+        `canopy_${layer}`,
+        new THREE.IcosahedronGeometry(scale, CONFIG.CANOPY_LAYER_DETAIL[layer]),
+        materials.canopies[layer]
+      )
     );
-    const fibers = this.addMesh('fibers', fiberGeometry(), fiberMat, count);
-
-    // --- Canopy layers ---
-    const viewerDistance = length(vec2(aTree.x, aTree.y).sub(this.uViewer));
-    const fadeStart = radius.mul(2);
-    const fade = smoothstep(
-      fadeStart.add(CONFIG.CANOPY_FADE_NEAR),
-      fadeStart.add(CONFIG.CANOPY_FADE_FAR),
-      viewerDistance
-    );
-    const fadeOpacity = fade.mul(CONFIG.CANOPY_FADE_GAIN).add(CONFIG.CANOPY_FADE_MIN);
-    const swayPhase = time.mul(CONFIG.SWAY_SPEED * TAU).add(variant.mul(TAU));
-    // positionNode runs after instancing, so this offset is in world units
-    const sway = vec3(sin(swayPhase).mul(radius).mul(CONFIG.SWAY_AMPLITUDE), 0, 0);
-    const canopies = CONFIG.CANOPY_LAYER_SCALE.map((scale, layer) => {
-      const isOuter = layer === CONFIG.CANOPY_LAYER_SCALE.length - 1;
-      const mat = new THREE.MeshStandardNodeMaterial({
-        roughness: 0.2,
-        metalness: 0.1,
-        transparent: true,
-        side: isOuter ? THREE.DoubleSide : THREE.FrontSide,
-        depthWrite: false,
-      });
-      const layerColor = tint(layer === 0 ? CONFIG.CANOPY_CORE_COLOR : CONFIG.CANOPY_OUTER_COLOR);
-      mat.colorNode = layerColor;
-      mat.emissiveNode = layerColor.mul(
-        pulse(layer * CONFIG.CANOPY_LAYER_PHASE, CONFIG.GLOW_PULSE_RANGE).mul(
-          CONFIG.CANOPY_GLOW_INTENSITY * (1 - layer * 0.2)
-        )
-      );
-      mat.opacityNode = fadeOpacity.mul(CONFIG.CANOPY_LAYER_OPACITY[layer]);
-      mat.positionNode = positionLocal.add(sway);
-      const geo = new THREE.IcosahedronGeometry(scale, CONFIG.CANOPY_LAYER_DETAIL[layer]);
-      return this.addMesh(`canopy_${layer}`, geo, mat, count);
-    });
-
-    // --- Roots ---
-    const rootMat = new THREE.MeshStandardNodeMaterial({
-      roughness: 0.3,
-      metalness: 0.4,
-      transparent: true,
-      opacity: 0.7,
-    });
-    const rootColor = tint(CONFIG.ROOT_COLOR);
-    rootMat.colorNode = rootColor;
-    rootMat.emissiveNode = rootColor.mul(CONFIG.ROOT_INTENSITY);
-    const roots = this.addMesh('roots', rootGeometry(), rootMat, count);
+    const roots = add('roots', rootGeometry(), materials.roots);
 
     // --- Instance transforms ---
     const m = new THREE.Matrix4();
@@ -271,26 +313,13 @@ export class DataTreeForest {
     for (const mesh of this.meshes) mesh.computeBoundingSphere();
   }
 
-  private addMesh(
-    name: string,
-    geometry: THREE.BufferGeometry,
-    material: THREE.Material,
-    count: number
-  ): THREE.InstancedMesh {
-    const mesh = new THREE.InstancedMesh(geometry, material, count);
-    mesh.name = name;
-    this.meshes.push(mesh);
-    this.group.add(mesh);
-    return mesh;
+  /** Canopies near this game position fade out (applies to every forest) */
+  static setViewer(x: number, y: number): void {
+    uViewer.value.set(x, y);
   }
 
-  /** Canopies near this game position fade out */
-  setViewer(x: number, y: number): void {
-    this.uViewer.value.set(x, y);
-  }
-
-  clearViewer(): void {
-    this.uViewer.value.set(1e9, 1e9);
+  static clearViewer(): void {
+    uViewer.value.set(1e9, 1e9);
   }
 
   /** Total draw calls for the whole forest */
@@ -300,8 +329,7 @@ export class DataTreeForest {
 
   dispose(): void {
     for (const mesh of this.meshes) {
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
+      mesh.geometry.dispose(); // Materials are shared by every forest and live for the app
       mesh.dispose();
     }
     this.group.clear();

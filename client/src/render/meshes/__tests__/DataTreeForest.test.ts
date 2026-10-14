@@ -32,6 +32,15 @@ describe('DataTreeForest', () => {
     many.dispose();
   });
 
+  it('shares one material set across forests (no extra shader builds per forest)', () => {
+    const a = new DataTreeForest([tree(0, 0)]);
+    const b = new DataTreeForest([tree(100, 100)]);
+    for (const name of ['trunk', 'fibers', 'canopy_0', 'canopy_1', 'canopy_2', 'roots'])
+      expect(mesh(a, name).material).toBe(mesh(b, name).material);
+    a.dispose();
+    b.dispose();
+  });
+
   it('places trees at game coordinates (Three Z = -game Y) with the canopy above the trunk', () => {
     const forest = new DataTreeForest([tree(500, 300, 100, 1000)]);
     expect(instancePosition(mesh(forest, 'trunk'), 0).toArray()).toEqual([500, 0, -300]);
