@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GODCELL GPU Tests</title>
+    <style>
+      body {
+        background: #0a0a0a;
+        color: #00ff88;
+        font: 13px/1.4 monospace;
+        padding: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>GPU tests</h1>
+    <p>
+      Runs GPU compute checks and exposes results on <code>window.__gpuTests</code> (read by
+      e2e/gpu.spec.ts).
+    </p>
+    <pre id="results">Running...</pre>
+    <script type="module" src="/src/gpu-tests.ts"></script>
+  </body>
+</html>

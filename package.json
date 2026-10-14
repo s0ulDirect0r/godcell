@@ -23,6 +23,7 @@
     "start": "node dist/server/index.js",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:gpu": "playwright test",
     "clean": "rm -rf dist node_modules",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{ts,tsx}\" --fix",
@@ -42,7 +43,7 @@
   "devDependencies": {
     "@beads/bd": "^0.24.3",
     "@eslint/js": "^9.39.2",
-    "@playwright/test": "^1.56.1",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^20.10.6",
     "@types/three": "^0.186.0",
     "@typescript-eslint/eslint-plugin": "^8.49.0",

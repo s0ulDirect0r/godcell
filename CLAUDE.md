@@ -358,6 +358,7 @@ Write tests. Run tests. Keep them passing.
 
 ```bash
 npm test              # Run all unit tests (vitest)
+npm run test:gpu      # GPU tests in headless Chromium/WebGPU (Playwright): compute shader vs CPU reference
 npm run lint          # Run ESLint on all code
 npm run format        # Run Prettier to fix formatting
 npm run format:check  # Check formatting without changing files
