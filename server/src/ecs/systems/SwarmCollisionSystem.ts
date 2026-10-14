@@ -69,7 +69,7 @@ export class SwarmCollisionSystem implements System {
     // Now check swarms only against soup players
     forEachSwarm(
       world,
-      (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp, swarmEnergyComp) => {
+      (_swarmEntity, _swarmId, swarmPos, _swarmVel, swarmComp, _swarmEnergyComp) => {
         // Skip disabled swarms (hit by EMP)
         if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) return;
 
@@ -77,15 +77,6 @@ export class SwarmCollisionSystem implements System {
         const swarmY = swarmPos.y;
 
         for (const { entity, energyComp, posComp, radius } of soupPlayers) {
-          // Collision distance = swarm size + player radius (no energy-based scaling)
-          const BASE_ENERGY = 100;
-          const MAX_ENERGY = 500;
-          const MAX_SCALE = 1.5;
-          const energyRatio = Math.min(
-            (swarmEnergyComp.current - BASE_ENERGY) / (MAX_ENERGY - BASE_ENERGY),
-            1
-          );
-          const energyScale = 1 + energyRatio * (MAX_SCALE - 1); // Used for damage scaling only
           const collisionDist = swarmComp.size + radius;
           const collisionDistSq = collisionDist * collisionDist;
 
@@ -95,16 +86,9 @@ export class SwarmCollisionSystem implements System {
           const distSq = dx * dx + dy * dy;
 
           if (distSq < collisionDistSq) {
-            // Damage scales with swarm energy: bigger swarms drain faster
-            // Base 100 energy = 1x, 500 energy = 5x rate
-            const baseDamage = getConfig('SWARM_DAMAGE_RATE');
-            const damage = baseDamage * energyScale * deltaTime;
+            // Flat damage rate - swarms no longer absorb drained energy or scale by it
+            const damage = getConfig('SWARM_DAMAGE_RATE') * deltaTime;
             energyComp.current -= damage;
-
-            // Swarm absorbs drained energy (capped at 500)
-            const MAX_SWARM_ENERGY = 500;
-            swarmEnergyComp.current = Math.min(swarmEnergyComp.current + damage, MAX_SWARM_ENERGY);
-            swarmEnergyComp.max = Math.max(swarmEnergyComp.max, swarmEnergyComp.current); // Track peak for kill rewards
 
             damagedEntities.add(entity);
 

@@ -289,7 +289,7 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
   const now = Date.now();
 
   // Iterate all swarms via ECS
-  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, energyComp) => {
+  forEachSwarm(world, (entity, swarmId, posComp, velComp, swarmComp, _energyComp) => {
     // Skip disabled swarms (hit by EMP)
     if (swarmComp.disabledUntil && now < swarmComp.disabledUntil) {
       velComp.x = 0; // Zero velocity while disabled
@@ -298,13 +298,6 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
     }
 
     const swarmPosition = { x: posComp.x, y: posComp.y };
-
-    // Fat swarms are slightly faster - very gentle scaling
-    // At 500 energy = 1.1x speed (10% faster), at 100 = 1x
-    const MAX_SPEED_BONUS = 0.1; // 10% faster at max energy
-    const MAX_ENERGY = 500;
-    const energyRatio = Math.min(energyComp.current / MAX_ENERGY, 1); // 0-1 range, capped at 500
-    const energySpeedScale = 1 + energyRatio * MAX_SPEED_BONUS;
 
     // Check for nearby players
     const nearestPlayer = findNearestPlayer(swarmPosition, world);
@@ -324,8 +317,7 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
 
       if (dist > 0) {
         // Add AI movement as acceleration (like player input)
-        // Acceleration scales with energy - fat swarms accelerate faster
-        const acceleration = getConfig('SWARM_SPEED') * 8 * energySpeedScale;
+        const acceleration = getConfig('SWARM_SPEED') * 8;
         velComp.x += (dx / dist) * acceleration * deltaTime;
         velComp.y += (dy / dist) * acceleration * deltaTime;
       }
@@ -352,8 +344,8 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0) {
-          // Slower acceleration while patrolling (60% of chase speed), still scales with energy
-          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6 * energySpeedScale;
+          // Slower acceleration while patrolling (60% of chase speed)
+          const patrolAcceleration = getConfig('SWARM_SPEED') * 8 * 0.6;
           velComp.x += (dx / dist) * patrolAcceleration * deltaTime;
           velComp.y += (dy / dist) * patrolAcceleration * deltaTime;
         }
@@ -370,9 +362,9 @@ export function updateSwarms(currentTime: number, world: World, deltaTime: numbe
     velComp.x += repulsion.x * deltaTime;
     velComp.y += repulsion.y * deltaTime;
 
-    // Clamp to max speed - scales with energy so fat swarms are faster
+    // Clamp to max speed
     const velocityMagnitude = Math.sqrt(velComp.x * velComp.x + velComp.y * velComp.y);
-    const maxSpeed = getConfig('SWARM_SPEED') * 1.2 * energySpeedScale;
+    const maxSpeed = getConfig('SWARM_SPEED') * 1.2;
     if (velocityMagnitude > maxSpeed) {
       velComp.x = (velComp.x / velocityMagnitude) * maxSpeed;
       velComp.y = (velComp.y / velocityMagnitude) * maxSpeed;
