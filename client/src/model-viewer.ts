@@ -29,7 +29,20 @@ import {
   updateMultiCellEnergy,
   type MultiCellStyle,
 } from './render/meshes/MultiCellMesh';
-import { createSwarm } from './render/meshes/SwarmMesh';
+import {
+  createSwarm,
+  disposeSwarm,
+  updateSwarmAnimation,
+  updateSwarmState,
+  type SwarmInternalParticle,
+  type SwarmOrbitingParticle,
+} from './render/meshes/SwarmMesh';
+import {
+  COMPUTE_SWARM_STYLES,
+  parseSwarmStyle,
+  type ComputeSwarmFX,
+  type SwarmStyle,
+} from './render/meshes/swarm/ComputeSwarm';
 import { createNutrient } from './render/meshes/NutrientMesh';
 import { createGravityDistortion } from './render/meshes/GravityDistortionMesh';
 import { createSingleCell, updateSingleCellEnergy } from './render/meshes/SingleCellMesh';
@@ -100,6 +113,21 @@ let currentEntityType:
   | 'all' = 'multi-cell';
 let currentStyle: MultiCellStyle = 'colonial';
 let currentSerpentState: 'patrol' | 'chase' | 'attack' = 'patrol';
+let currentSwarmStyle: SwarmStyle = parseSwarmStyle(
+  new URLSearchParams(location.search).get('swarm')
+);
+let currentSwarmState: 'patrol' | 'chase' | 'disabled' = 'patrol';
+// Animated swarm preview (the 'swarm' entity type); circles when Walk is on to show tails
+let swarmPreview:
+  | {
+      group: THREE.Group;
+      internal: SwarmInternalParticle[];
+      orbiting: SwarmOrbitingParticle[];
+      fx?: ComputeSwarmFX;
+      angle: number;
+    }
+  | undefined;
+const SWARM_PREVIEW = { RADIUS: 47, CIRCLE: 70, SPEED: 120 }; // Game swarm size; preview path px, px/s
 let lastTime = 0;
 let energyDirection = -1; // -1 = draining, 1 = filling
 
@@ -285,6 +313,21 @@ function initGUI() {
     .onChange((value: MultiCellStyle) => {
       currentStyle = value;
       if (currentEntityType === 'multi-cell') updateModels();
+    });
+
+  entityFolder
+    .add({ swarmStyle: currentSwarmStyle }, 'swarmStyle', ['classic', ...COMPUTE_SWARM_STYLES])
+    .name('Swarm Style')
+    .onChange((value: SwarmStyle) => {
+      currentSwarmStyle = value;
+      if (currentEntityType === 'swarm') updateModels();
+    });
+
+  entityFolder
+    .add({ swarmState: currentSwarmState }, 'swarmState', ['patrol', 'chase', 'disabled'])
+    .name('Swarm State')
+    .onChange((value: typeof currentSwarmState) => {
+      currentSwarmState = value;
     });
 
   entityFolder
@@ -642,13 +685,19 @@ function updateModels() {
   }
   const grid = scene.getObjectByName('viewerGrid');
   if (grid) {
-    grid.rotation.x = currentEntityType === 'cyber-organism' ? 0 : Math.PI / 2;
+    // Top-down entities (cyber-organism, swarm) use a ground grid; others face the camera
+    const topDown = currentEntityType === 'cyber-organism' || currentEntityType === 'swarm';
+    grid.rotation.x = topDown ? 0 : Math.PI / 2;
     grid.position.y = -0.3;
   }
   if (previewEffect) disposeMeleeArc(previewEffect);
   previewEffect = undefined;
   controls.target.set(0, 0, 0);
   // Clear existing models
+  if (swarmPreview) {
+    disposeSwarm(swarmPreview.group, swarmPreview.fx);
+    swarmPreview = undefined;
+  }
   models.forEach((model) => {
     scene.remove(model);
     if (model instanceof THREE.Group && model.name === 'cyberOrganism') disposeCyberOrganism(model);
@@ -857,13 +906,18 @@ function updateModels() {
     }
 
     case 'swarm': {
-      const { group: swarm } = createSwarm({ x: 0, y: 0 }, 40);
-      // Reset position/rotation for model viewer (game sets these for world placement)
-      swarm.position.set(0, 0, 0);
-      swarm.rotation.set(0, 0, 0);
-      scene.add(swarm);
-      models.push(swarm);
-      camera.position.set(0, 0, 200);
+      // Game placement and orientation (local XY = ground), viewed top-down like the game
+      const result = createSwarm({ x: 0, y: 0 }, SWARM_PREVIEW.RADIUS, currentSwarmStyle);
+      swarmPreview = {
+        group: result.group,
+        internal: result.internalParticles,
+        orbiting: result.orbitingParticles,
+        fx: result.fx,
+        angle: 0,
+      };
+      scene.add(result.group);
+      models.push(result.group);
+      camera.position.set(0, 260, 0.01);
       break;
     }
 
@@ -1093,6 +1147,30 @@ function animate(currentTime: number = 0) {
       }
     }
   });
+
+  if (swarmPreview && currentEntityType === 'swarm') {
+    const { group, internal, orbiting, fx } = swarmPreview;
+    const disabled = currentSwarmState === 'disabled';
+    if (movementPreview.walking && !disabled) {
+      swarmPreview.angle += (SWARM_PREVIEW.SPEED / SWARM_PREVIEW.CIRCLE) * Math.min(deltaTime, 0.1);
+    }
+    const r = movementPreview.walking ? SWARM_PREVIEW.CIRCLE : 0;
+    // Game (x, y) -> world (x, 0.2, -y)
+    group.position.set(Math.cos(swarmPreview.angle) * r, 0.2, -Math.sin(swarmPreview.angle) * r);
+    updateSwarmState(group, currentSwarmState, disabled, fx);
+    updateSwarmAnimation(
+      group,
+      internal,
+      orbiting,
+      currentSwarmState,
+      0,
+      deltaTime * 1000,
+      0,
+      disabled,
+      fx
+    );
+    if (fx && rendererReady) renderer.compute(fx.computeNode);
+  }
 
   if (rendererReady) pipeline.render();
 }

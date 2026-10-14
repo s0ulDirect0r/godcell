@@ -893,6 +893,9 @@ export class ThreeRenderer implements Renderer {
 
     // Animate swarm particles
     this.swarmRenderSystem.updateAnimations(dt);
+    if (this.rendererReady) {
+      for (const node of this.swarmRenderSystem.getComputeNodes()) this.renderer.compute(node);
+    }
 
     // Stage 3+ interpolation and animations
     this.dataFruitRenderSystem.interpolate(dt);

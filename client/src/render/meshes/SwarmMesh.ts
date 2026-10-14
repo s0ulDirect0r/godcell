@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { PointsNodeMaterial } from 'three/webgpu';
 import { PointCloud } from '../three/PointCloud';
+import { createComputeSwarmFX, type ComputeSwarmFX, type SwarmStyle } from './swarm/ComputeSwarm';
 
 // ============================================
 // VISUAL PARAMETERS
@@ -48,15 +49,19 @@ export interface SwarmOrbitingParticle {
  *
  * @param position - Swarm position {x, y}
  * @param size - Swarm radius
- * @returns Object containing the group and particle data for animation
+ * @param style - 'classic' (CPU storm + orbiting squares) or a GPU compute style
+ * @returns Object containing the group, particle data for animation, and the
+ *   compute effect (`fx`) for GPU styles
  */
 export function createSwarm(
   position: { x: number; y: number },
-  size: number
+  size: number,
+  style: SwarmStyle = 'classic'
 ): {
   group: THREE.Group;
   internalParticles: SwarmInternalParticle[];
   orbitingParticles: SwarmOrbitingParticle[];
+  fx?: ComputeSwarmFX;
 } {
   const group = new THREE.Group();
 
@@ -75,6 +80,14 @@ export function createSwarm(
   });
   const outerSphere = new THREE.Mesh(outerGeometry, outerMaterial);
   group.add(outerSphere);
+
+  if (style !== 'classic') {
+    // GPU styles replace the internal storm and orbiting squares
+    const fx = createComputeSwarmFX(style, size);
+    group.add(fx.object);
+    placeSwarmGroup(group, position);
+    return { group, internalParticles: [], orbitingParticles: [], fx };
+  }
 
   // === INTERNAL PARTICLE STORM ===
   const internalParticleCount = 200; // 200 particles per swarm
@@ -167,12 +180,7 @@ export function createSwarm(
   const orbitingParticles = new PointCloud(orbitingGeometry, orbitingMaterial);
   group.add(orbitingParticles);
 
-  // XZ plane: X=game X, Y=height, Z=-game Y
-  group.position.set(position.x, 0.2, -position.y);
-
-  // Rotate group so orbiting particles orbit in XZ plane when viewed from above
-  // Camera looks down Y axis, so rotate -90° around X to flip local XY to world XZ
-  group.rotation.x = -Math.PI / 2;
+  placeSwarmGroup(group, position);
 
   return {
     group,
@@ -181,16 +189,64 @@ export function createSwarm(
   };
 }
 
+function placeSwarmGroup(group: THREE.Group, position: { x: number; y: number }): void {
+  // XZ plane: X=game X, Y=height, Z=-game Y
+  group.position.set(position.x, 0.2, -position.y);
+
+  // Rotate group so orbiting particles orbit in XZ plane when viewed from above
+  // Camera looks down Y axis, so rotate -90° around X to flip local XY to world XZ
+  group.rotation.x = -Math.PI / 2;
+}
+
+/**
+ * Shell (outer sphere) colors for a behavior state.
+ * @param opacityScale - Style multiplier so GPU styles can recede the shell
+ */
+function updateShellState(
+  group: THREE.Group,
+  state: string,
+  isDisabled: boolean,
+  opacityScale = 1
+): void {
+  const outerMaterial = (group.children[0] as THREE.Mesh).material as THREE.MeshPhysicalMaterial;
+  if (isDisabled) {
+    outerMaterial.color.setHex(0x444444); // Dark gray
+    outerMaterial.emissive.setHex(0x666666); // Dim gray emissive
+    outerMaterial.emissiveIntensity = 0.2;
+    outerMaterial.opacity = 0.2 * opacityScale;
+  } else if (state === 'chase') {
+    outerMaterial.color.setHex(0xff0044); // Hot red
+    outerMaterial.emissive.setHex(0xff4400);
+    outerMaterial.emissiveIntensity = 1.2;
+    outerMaterial.opacity = 0.45 * opacityScale;
+  } else {
+    outerMaterial.color.setHex(0xff4400); // Red-orange
+    outerMaterial.emissive.setHex(0xff4400);
+    outerMaterial.emissiveIntensity = 0.8;
+    outerMaterial.opacity = 0.3 * opacityScale;
+  }
+}
+
 /**
  * Update swarm visual state based on swarm behavior state
  *
  * @param group - The swarm THREE.Group
  * @param state - 'patrol' | 'chase' | 'disabled'
  * @param isDisabled - Whether swarm is disabled (hit by EMP)
+ * @param fx - Compute effect for GPU styles (omit for classic)
  */
-export function updateSwarmState(group: THREE.Group, state: string, isDisabled: boolean): void {
-  const outerSphere = group.children[0] as THREE.Mesh;
-  const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
+export function updateSwarmState(
+  group: THREE.Group,
+  state: string,
+  isDisabled: boolean,
+  fx?: ComputeSwarmFX
+): void {
+  if (fx) {
+    updateShellState(group, state, isDisabled, fx.shellOpacity);
+    fx.setState(state, isDisabled);
+    return;
+  }
+  updateShellState(group, state, isDisabled);
   const internalStorm = group.children[1] as PointCloud;
   const internalMaterial = internalStorm.material as PointsNodeMaterial;
   const orbitingParticles = group.children[2] as PointCloud;
@@ -198,30 +254,18 @@ export function updateSwarmState(group: THREE.Group, state: string, isDisabled: 
 
   if (isDisabled) {
     // Disabled: gray/static appearance (paralyzed)
-    outerMaterial.color.setHex(0x444444); // Dark gray
-    outerMaterial.emissive.setHex(0x666666); // Dim gray emissive
-    outerMaterial.emissiveIntensity = 0.2;
-    outerMaterial.opacity = 0.2;
     internalMaterial.color.setHex(0x888888); // Mid gray
     internalMaterial.opacity = 0.3; // Very dim
     orbitingMaterial.color.setHex(0x555555); // Dark gray
     orbitingMaterial.opacity = 0.4;
   } else if (state === 'chase') {
     // Chase mode: brighter, more aggressive
-    outerMaterial.color.setHex(0xff0044); // Hot red
-    outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
-    outerMaterial.emissiveIntensity = 1.2;
-    outerMaterial.opacity = 0.45;
     internalMaterial.color.setHex(0xff6600); // Bright orange-red
     internalMaterial.opacity = 0.8; // Full opacity
     orbitingMaterial.color.setHex(0xff0044);
     orbitingMaterial.opacity = 0.9; // Full opacity
   } else {
     // Patrol mode: dimmer, calmer
-    outerMaterial.color.setHex(0xff4400); // Red-orange
-    outerMaterial.emissive.setHex(0xff4400); // Reset emissive color
-    outerMaterial.emissiveIntensity = 0.8;
-    outerMaterial.opacity = 0.3;
     internalMaterial.color.setHex(0xffaa00); // Orange-yellow
     internalMaterial.opacity = 0.8; // Full opacity
     orbitingMaterial.color.setHex(0xff0088);
@@ -240,6 +284,8 @@ export function updateSwarmState(group: THREE.Group, state: string, isDisabled: 
  * @param dt - Delta time in milliseconds
  * @param energyRatio - 0-1 ratio of absorbed energy (0 = base, 1 = max 500)
  * @param isDisabled - Whether swarm is disabled (hit by EMP) - freezes all animations
+ * @param fx - Compute effect for GPU styles (omit for classic). Its compute pass
+ *   still needs dispatching by the renderer.
  */
 export function updateSwarmAnimation(
   group: THREE.Group,
@@ -249,8 +295,12 @@ export function updateSwarmAnimation(
   pulsePhase: number,
   dt: number,
   energyRatio: number = 0,
-  isDisabled: boolean = false
+  isDisabled: boolean = false,
+  fx?: ComputeSwarmFX
 ): void {
+  // GPU styles keep advancing (their clocks stop internally while frozen)
+  fx?.update(dt / 1000, group.getWorldPosition(new THREE.Vector3()));
+
   // === DISABLED STATE: FREEZE ALL ANIMATIONS ===
   // When hit by EMP, swarm becomes completely frozen (gray colors set by updateSwarmState)
   if (isDisabled) {
@@ -296,6 +346,8 @@ export function updateSwarmAnimation(
     baseIntensity +
     intensityBoost +
     Math.sin(time * 4 * (1 + energyRatio * 0.5) + pulsePhase) * flickerAmount;
+
+  if (fx) return; // GPU styles have no CPU storm or orbiting squares
 
   // === INTERNAL PARTICLE STORM ===
   const internalStorm = group.children[1] as PointCloud;
@@ -397,8 +449,10 @@ export function updateSwarmAnimation(
  *
  * @param group - The swarm THREE.Group to dispose
  */
-export function disposeSwarm(group: THREE.Group): void {
+export function disposeSwarm(group: THREE.Group, fx?: ComputeSwarmFX): void {
+  fx?.dispose();
   group.children.forEach((child) => {
+    if (fx && child === fx.object) return;
     if (child instanceof THREE.Mesh || child instanceof PointCloud) {
       (child instanceof PointCloud ? child.pointGeometry : child.geometry).dispose();
       (child.material as THREE.Material).dispose();

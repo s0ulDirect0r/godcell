@@ -15,6 +15,12 @@ import {
   type SwarmInternalParticle,
   type SwarmOrbitingParticle,
 } from '../meshes/SwarmMesh';
+import {
+  parseSwarmStyle,
+  type ComputeSwarmFX,
+  type SwarmStyle,
+} from '../meshes/swarm/ComputeSwarm';
+import type { ComputeNode } from 'three/webgpu';
 import { calculateEntityWarp, applyEntityWarp } from '../utils/GravityDistortionUtils';
 import { frameLerp } from '../../utils/math';
 import {
@@ -78,6 +84,11 @@ export class SwarmRenderSystem {
 
   // Cache energy ratio (0-1) for animation intensity
   private swarmEnergyRatios: Map<string, number> = new Map();
+  // GPU particle style (?swarm=maelstrom|glitch|corona); classic uses the CPU storm
+  private swarmStyle: SwarmStyle = parseSwarmStyle(
+    new URLSearchParams(window.location.search).get('swarm')
+  );
+  private swarmFX: Map<string, ComputeSwarmFX> = new Map();
 
   // Base energy (swarms start at 100)
   private readonly BASE_ENERGY = GAME_CONFIG.SWARM_ENERGY;
@@ -121,8 +132,9 @@ export class SwarmRenderSystem {
 
       if (!group) {
         // Create swarm visual using helper
-        const result = createSwarm({ x: pos.x, y: pos.y }, swarm.size);
+        const result = createSwarm({ x: pos.x, y: pos.y }, swarm.size, this.swarmStyle);
         group = result.group;
+        if (result.fx) this.swarmFX.set(swarmId, result.fx);
 
         // Store particle animation data
         this.swarmInternalParticles.set(swarmId, result.internalParticles);
@@ -148,7 +160,7 @@ export class SwarmRenderSystem {
       const now = Date.now();
       const isDisabled = !!(swarm.disabledUntil && now < swarm.disabledUntil);
       this.swarmDisabled.set(swarmId, isDisabled); // Cache for animation freeze
-      updateSwarmState(group, swarm.state, isDisabled);
+      updateSwarmState(group, swarm.state, isDisabled, this.swarmFX.get(swarmId));
 
       // === Energy-based effects (size stays constant) ===
       // Swarms no longer grow in size when absorbing energy
@@ -176,7 +188,9 @@ export class SwarmRenderSystem {
       const baseParticleCount = 200;
       const absorbedEnergy = Math.max(0, energy - this.BASE_ENERGY);
       const targetParticleCount = baseParticleCount + Math.floor(absorbedEnergy / 2);
-      this.updateInternalParticleCount(swarmId, group, swarm.size, targetParticleCount);
+      if (!this.swarmFX.has(swarmId)) {
+        this.updateInternalParticleCount(swarmId, group, swarm.size, targetParticleCount);
+      }
 
       // Update aura visuals (ring + orbiting particles)
       this.updateSwarmAura(swarmId, group, energy, energyScale);
@@ -186,7 +200,8 @@ export class SwarmRenderSystem {
     this.swarmMeshes.forEach((group, id) => {
       if (!currentSwarmIds.has(id)) {
         this.scene.remove(group);
-        disposeSwarm(group);
+        disposeSwarm(group, this.swarmFX.get(id));
+        this.swarmFX.delete(id);
         this.swarmMeshes.delete(id);
         this.swarmTargets.delete(id);
         this.swarmParticleData.delete(id);
@@ -244,6 +259,11 @@ export class SwarmRenderSystem {
     });
   }
 
+  /** Compute passes for GPU swarm styles; dispatch after updateAnimations() */
+  getComputeNodes(): ComputeNode[] {
+    return Array.from(this.swarmFX.values(), (fx) => fx.computeNode);
+  }
+
   /**
    * Update swarm particle animations (pulsing, internal storm, orbiting)
    * @param dt - Delta time in milliseconds
@@ -266,7 +286,8 @@ export class SwarmRenderSystem {
           pulsePhase,
           dt,
           energyRatio,
-          isDisabled
+          isDisabled,
+          this.swarmFX.get(id)
         );
       }
     });
@@ -323,10 +344,11 @@ export class SwarmRenderSystem {
    * Called when transitioning from soup to jungle mode
    */
   clearAll(): void {
-    this.swarmMeshes.forEach((group) => {
+    this.swarmMeshes.forEach((group, id) => {
       this.scene.remove(group);
-      disposeSwarm(group);
+      disposeSwarm(group, this.swarmFX.get(id));
     });
+    this.swarmFX.clear();
     this.swarmMeshes.clear();
     this.swarmTargets.clear();
     this.swarmParticleData.clear();
