@@ -510,9 +510,27 @@ export class ThreeRenderer implements Renderer {
         })
       );
 
+      this.eventSubscriptions.push(
+        eventBus.on('projectileSpawned', (event) => {
+          const p = event.projectile;
+          this.playerRenderSystem.faceAttack(
+            p.ownerId,
+            p.targetPosition.x - p.position.x,
+            p.targetPosition.y - p.position.y,
+            'fire'
+          );
+        })
+      );
+
       // === Melee attack visual feedback (jungle-scale) ===
       this.eventSubscriptions.push(
         eventBus.on('meleeAttackExecuted', (event) => {
+          this.playerRenderSystem.faceAttack(
+            event.playerId,
+            event.direction.x,
+            event.direction.y,
+            event.attackType
+          );
           // Only show effects in jungle mode (Stage 3+ melee attacks)
           if (this.environmentSystem.getMode() !== 'jungle') return;
 

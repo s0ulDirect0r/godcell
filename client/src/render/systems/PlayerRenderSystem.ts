@@ -1,3 +1,5 @@
+import { triggerCyberOrganismAttack, type CyberAttack } from '../meshes/CyberAttackMotion';
+import { setCreatureSpecialization } from '../meshes/AuthoredCreature';
 // ============================================
 // PlayerRenderSystem - Manages all player entity rendering
 // Owns player meshes (all stages), outlines, evolution state, humanoid models
@@ -134,6 +136,15 @@ export class PlayerRenderSystem {
   /**
    * Initialize player system with scene, world, and geometry cache
    */
+  faceAttack(playerId: string, dx: number, dy: number, attack: CyberAttack): void {
+    const group = this.playerMeshes.get(playerId);
+    if (!group || group.userData.stage !== 'cyber_organism') return;
+    triggerCyberOrganismAttack(group, attack);
+    group.userData.attackUntil = performance.now() + 200;
+    group.userData.heading = Math.atan2(dy, dx) + Math.PI;
+    group.rotation.z = group.userData.heading;
+  }
+
   init(scene: THREE.Scene, world: World, geometryCache: Map<string, THREE.BufferGeometry>): void {
     this.scene = scene;
     this.world = world;
@@ -319,6 +330,11 @@ export class PlayerRenderSystem {
         }
       }
 
+      if (
+        player.stage === 'cyber_organism' &&
+        cellGroup.userData.specialization !== player.specialization
+      )
+        setCreatureSpecialization(cellGroup, player.specialization ?? 'ranged');
       // Update cell visuals based on stage and energy
       this.updatePlayerVisuals(cellGroup, player, isMyPlayer, cameraYaw);
 
@@ -383,6 +399,48 @@ export class PlayerRenderSystem {
             this.compassIndicators = null;
           }
         }
+      }
+
+      if (player.stage === 'cyber_organism') {
+        // Stage 3: Cyber-organism
+        const energyRatio = player.energy / player.maxEnergy;
+        updateCyberOrganismEnergy(cellGroup, energyRatio);
+
+        const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
+        const currPos = { x: cellGroup.position.x, y: -cellGroup.position.z };
+        const isMoving = prevPos
+          ? Math.abs(currPos.x - prevPos.x) > 0.05 || Math.abs(currPos.y - prevPos.y) > 0.05
+          : false;
+        cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
+
+        // Calculate movement speed (distance / dt = units per second)
+        const speed = prevPos
+          ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) /
+            (this.dt / 1000)
+          : 0;
+
+        // Update heading
+        if (prevPos && isMoving && performance.now() > (cellGroup.userData.attackUntil ?? 0)) {
+          const dx = currPos.x - prevPos.x;
+          const dy = currPos.y - prevPos.y;
+          const targetHeading = Math.atan2(dy, dx) + Math.PI;
+
+          if (cellGroup.userData.heading === undefined) {
+            cellGroup.userData.heading = targetHeading;
+          }
+
+          let currentHeading = cellGroup.userData.heading as number;
+          let delta = targetHeading - currentHeading;
+
+          while (delta > Math.PI) delta -= Math.PI * 2;
+          while (delta < -Math.PI) delta += Math.PI * 2;
+
+          currentHeading += delta * (1 - Math.exp((-8 * this.dt) / 1000));
+          cellGroup.userData.heading = currentHeading;
+          cellGroup.rotation.z = currentHeading;
+        }
+
+        updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
       }
 
       // Apply gravity well distortion to soup-stage players
@@ -872,44 +930,7 @@ export class PlayerRenderSystem {
       // Convert game coordinates to Three.js: game Y → -Z, game Z → Y
       cellGroup.position.set(player.position.x, posZ, -player.position.y);
     } else if (player.stage === 'cyber_organism') {
-      // Stage 3: Cyber-organism
-      const energyRatio = player.energy / player.maxEnergy;
-      updateCyberOrganismEnergy(cellGroup, energyRatio);
-
-      const prevPos = cellGroup.userData.lastPosition as { x: number; y: number } | undefined;
-      const currPos = player.position;
-      const isMoving = prevPos
-        ? Math.abs(currPos.x - prevPos.x) > 1 || Math.abs(currPos.y - prevPos.y) > 1
-        : false;
-      cellGroup.userData.lastPosition = { x: currPos.x, y: currPos.y };
-
-      // Calculate movement speed (distance / dt = units per second)
-      const speed = prevPos
-        ? Math.sqrt((currPos.x - prevPos.x) ** 2 + (currPos.y - prevPos.y) ** 2) / (this.dt / 1000)
-        : 0;
-
-      // Update heading
-      if (prevPos && isMoving) {
-        const dx = currPos.x - prevPos.x;
-        const dy = currPos.y - prevPos.y;
-        const targetHeading = Math.atan2(dy, dx) + Math.PI;
-
-        if (cellGroup.userData.heading === undefined) {
-          cellGroup.userData.heading = targetHeading;
-        }
-
-        let currentHeading = cellGroup.userData.heading as number;
-        let delta = targetHeading - currentHeading;
-
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-
-        currentHeading += delta * 0.15;
-        cellGroup.userData.heading = currentHeading;
-        cellGroup.rotation.z = currentHeading;
-      }
-
-      updateCyberOrganismAnimation(cellGroup, isMoving, speed, this.dt / 1000);
+      updateCyberOrganismEnergy(cellGroup, player.energy / player.maxEnergy);
     } else if (player.stage === 'multi_cell') {
       updateMultiCellEnergy(cellGroup, this.multiCellStyle, player.energy, player.maxEnergy);
     } else {

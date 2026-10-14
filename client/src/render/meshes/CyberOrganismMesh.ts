@@ -1,3 +1,5 @@
+import { updateGroundedCyberGait } from './GroundedCyberGait';
+import { restoreCyberAttackPose, updateCyberAttackMotion } from './CyberAttackMotion';
 // ============================================
 // Cyber-Organism Renderer (Stage 3)
 // Segmented creature with head, body pods, spiked tail, and 6 legs
@@ -138,7 +140,7 @@ export const CONFIG = {
 // Enable gait debug in dev mode, or via ?gaitDebug URL param
 if (typeof window !== 'undefined') {
   const params = new URLSearchParams(window.location.search);
-  CONFIG.DEBUG.gait = import.meta.env.DEV || params.has('gaitDebug');
+  CONFIG.DEBUG.gait = params.has('gaitDebug');
 }
 
 /**
@@ -202,7 +204,11 @@ function calculateLegGait(
  * - Dorsal (top) faces local +Z (becomes world +Y after rotation, toward camera)
  * - Legs extend in local ±Y (becomes world ±Z after rotation, on ground plane)
  */
-export function createCyberOrganism(radius: number, colorHex: number): THREE.Group {
+export function createCyberOrganism(
+  radius: number,
+  colorHex: number,
+  original = false
+): THREE.Group {
   const group = new THREE.Group();
   group.name = 'cyberOrganism';
 
@@ -211,26 +217,27 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
 
   group.userData.baseRadius = radius * CONFIG.SCALE;
   group.userData.colorHex = colorHex;
+  group.userData.original = original;
 
   // Inner body group - offset to center visual mass at origin
   const bodyGroup = new THREE.Group();
   bodyGroup.name = 'bodyGroup';
-  bodyGroup.position.x = -CONFIG.BODY.centerOffset * s;
+  bodyGroup.position.x = -(CONFIG.BODY.centerOffset + (original ? 0 : 0.5)) * s;
   group.add(bodyGroup);
   group.userData.bodyGroup = bodyGroup;
 
   // Materials
   const bodyMat = new THREE.MeshStandardMaterial({
     color: CONFIG.MATERIALS.body.color,
-    roughness: CONFIG.MATERIALS.body.roughness,
-    metalness: CONFIG.MATERIALS.body.metalness,
+    roughness: original ? CONFIG.MATERIALS.body.roughness : 0.48,
+    metalness: original ? CONFIG.MATERIALS.body.metalness : 0.08,
     side: THREE.DoubleSide,
   });
 
   const glowMat = new THREE.MeshStandardMaterial({
     color: colorHex,
     emissive: colorHex,
-    emissiveIntensity: CONFIG.MATERIALS.glow.emissiveIntensity,
+    emissiveIntensity: original ? CONFIG.MATERIALS.glow.emissiveIntensity : 1.8,
     roughness: CONFIG.MATERIALS.glow.roughness,
     metalness: CONFIG.MATERIALS.glow.metalness,
     side: THREE.DoubleSide,
@@ -258,10 +265,10 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     const scaleFactor = 1 - i * CONFIG.BODY.taper;
 
     const segGeo = new THREE.SphereGeometry(CONFIG.BODY.baseRadius * s * scaleFactor, 24, 24);
-    segGeo.scale(1, 1, CONFIG.BODY.squash);
+    segGeo.scale(original ? 1 : 1.12, 1, CONFIG.BODY.squash);
 
     const seg = new THREE.Mesh(segGeo, bodyMat);
-    seg.position.x = (CONFIG.BODY.startX + i * CONFIG.BODY.spacing) * s;
+    seg.position.x = (CONFIG.BODY.startX + i * CONFIG.BODY.spacing * (original ? 1 : 1.25)) * s;
     seg.name = `bodySegment-${i}`;
     bodyGroup.add(seg);
 
@@ -277,7 +284,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   }
 
   // === TAIL ===
-  let tailPosX = CONFIG.TAIL.startX * s;
+  let tailPosX = (CONFIG.TAIL.startX + (original ? 0 : 1)) * s;
   let tailPosZ = CONFIG.TAIL.startZ * s;
   let tailSize = CONFIG.TAIL.initialSize * s;
   const tailSegments: THREE.Mesh[] = [];
@@ -291,11 +298,13 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     tailSegments.push(tailSeg);
 
     // Spike
-    const spikeGeo = new THREE.ConeGeometry(
-      tailSize * CONFIG.TAIL.spike.radiusRatio,
-      tailSize * CONFIG.TAIL.spike.heightRatio,
-      8
-    );
+    const spikeGeo = original
+      ? new THREE.ConeGeometry(
+          tailSize * CONFIG.TAIL.spike.radiusRatio,
+          tailSize * CONFIG.TAIL.spike.heightRatio,
+          8
+        )
+      : new THREE.SphereGeometry(tailSize * 0.24, 12, 12);
     const spike = new THREE.Mesh(spikeGeo, bodyMat);
     spike.position.z = tailSize * CONFIG.TAIL.spike.zOffset;
     spike.rotation.x = Math.PI / 2;
@@ -327,10 +336,13 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   // === LEGS ===
   CONFIG.LEGS.positions.forEach((posX, i) => {
     const midIndex = Math.floor(CONFIG.LEGS.positions.length / 2);
+    const hipX = original ? posX : -1 + (posX + 1) * 1.25;
+    const fan = original ? 0 : (i - midIndex) * 0.9 * s;
+    const spread = !original && i === midIndex ? 1.12 : 1;
 
     // Left leg
-    const left = createLeg(s, 1, bodyMat);
-    left.position.set(posX * s, CONFIG.LEGS.attachmentY * s, 0);
+    const left = createLeg(s, 1, bodyMat, fan, spread);
+    left.position.set(hipX * s, CONFIG.LEGS.attachmentY * s, 0);
     left.rotation.z = (i - midIndex) * CONFIG.LEGS.angleSpread;
     left.name = `leg-L-${i}`;
     left.userData.side = 'left';
@@ -338,8 +350,8 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
     bodyGroup.add(left);
 
     // Right leg
-    const right = createLeg(s, -1, bodyMat);
-    right.position.set(posX * s, -CONFIG.LEGS.attachmentY * s, 0);
+    const right = createLeg(s, -1, bodyMat, fan, spread);
+    right.position.set(hipX * s, -CONFIG.LEGS.attachmentY * s, 0);
     right.rotation.z = (i - midIndex) * -CONFIG.LEGS.angleSpread;
     right.name = `leg-R-${i}`;
     right.userData.side = 'right';
@@ -351,6 +363,9 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
   group.rotation.order = 'XZY';
   group.rotation.x = -Math.PI / 2;
 
+  group.userData.motionScale = s;
+  group.userData.bodyRestX = bodyGroup.position.x;
+  group.userData.headRestX = head.position.x;
   return group;
 }
 
@@ -359,7 +374,7 @@ export function createCyberOrganism(radius: number, colorHex: number): THREE.Gro
  * @param s - scale factor
  * @param side - 1 for left (+Y), -1 for right (-Y)
  */
-function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
+function createLeg(s: number, side: number, mat: THREE.Material, fan = 0, spread = 1): THREE.Group {
   const leg = new THREE.Group();
   const jointSize = CONFIG.LEGS.joint.radius * s;
 
@@ -375,7 +390,12 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
 
   // Build curve from config control points
   const curvePoints = CONFIG.LEGS.tube.curve.map(
-    ([yMult, zMult]) => new THREE.Vector3(0, side * yMult * tubeLength, zMult * tubeLength)
+    ([yMult, zMult], i) =>
+      new THREE.Vector3(
+        (fan * i) / (CONFIG.LEGS.tube.curve.length - 1),
+        side * yMult * tubeLength * spread,
+        zMult * tubeLength
+      )
   );
   const curve = new THREE.CatmullRomCurve3(curvePoints);
 
@@ -388,7 +408,7 @@ function createLeg(s: number, side: number, mat: THREE.Material): THREE.Group {
   const lastPoint = CONFIG.LEGS.tube.curve[CONFIG.LEGS.tube.curve.length - 1];
   const footGeo = new THREE.SphereGeometry(tubeRadius * CONFIG.LEGS.foot.radiusRatio, 12, 12);
   const foot = new THREE.Mesh(footGeo, mat);
-  foot.position.set(0, side * lastPoint[0] * tubeLength, lastPoint[1] * tubeLength);
+  foot.position.set(fan, side * lastPoint[0] * tubeLength * spread, lastPoint[1] * tubeLength);
   foot.name = 'legFoot';
 
   // Debug marker for gait visualization (green = stance, red = swing)
@@ -422,6 +442,12 @@ export function updateCyberOrganismAnimation(
   speed: number,
   dt: number
 ): void {
+  restoreCyberAttackPose(group);
+  if (!group.userData.original) {
+    updateGroundedCyberGait(group, isMoving, speed, dt);
+    updateCyberAttackMotion(group, dt);
+    return;
+  }
   const time = performance.now() * 0.001;
   const radius = group.userData.baseRadius || 1;
 
@@ -528,6 +554,8 @@ export function updateCyberOrganismAnimation(
     }
   }
 
+  updateCyberAttackMotion(group, dt);
+
   // Glow pulse (always active)
   const intensity =
     CONFIG.ANIMATION.glowPulseMin + Math.sin(time * 2) * CONFIG.ANIMATION.glowPulseRange;
@@ -543,12 +571,13 @@ export function updateCyberOrganismAnimation(
  */
 export function updateCyberOrganismEnergy(group: THREE.Group, energyRatio: number): void {
   const ratio = Math.max(0, Math.min(1, energyRatio));
+  group.userData.energyRatio = ratio;
 
   group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       const mat = child.material as THREE.MeshStandardMaterial;
-      if (mat.emissiveIntensity > 1) {
-        mat.emissiveIntensity = 1 + 4 * ratio;
+      if (['eye', 'tailTip'].includes(child.name) || child.name.startsWith('bodyOrb-')) {
+        mat.emissiveIntensity = group.userData.original ? 1 + 4 * ratio : 0.7 + 1.3 * ratio;
       }
     }
     if (child instanceof THREE.PointLight) {

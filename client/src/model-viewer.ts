@@ -1,3 +1,15 @@
+import {
+  applyCyberAttackPose,
+  CYBER_ATTACK_DURATION,
+  type CyberAttack,
+} from './render/meshes/CyberAttackMotion';
+import {
+  spawnMeleeArc,
+  poseMeleeArc,
+  disposeMeleeArc,
+  type MeleeArcAnimation,
+} from './render/effects/SharpMeleeEffect';
+import { setCreatureSpecialization } from './render/meshes/AuthoredCreature';
 // ============================================
 // GODCELL Model Viewer
 // Standalone viewer for testing 3D models
@@ -42,11 +54,7 @@ import {
   updateEntropySerpentAnimation,
   updateEntropySerpentState,
 } from './render/meshes/EntropySerpentMesh';
-import {
-  createGodcell,
-  updateGodcellEnergy,
-  animateGodcell,
-} from './render/meshes/GodcellMesh';
+import { createGodcell, updateGodcellEnergy, animateGodcell } from './render/meshes/GodcellMesh';
 
 // Game's neon color palette (matches shared/index.ts CELL_COLORS)
 const CELL_COLORS = [
@@ -131,6 +139,24 @@ const vfxParams = {
   cellSpacing: 1.0,
 };
 
+let previewSpecialization: 'melee' | 'ranged' | 'traps' = 'ranged';
+let originalCyberOrganism = new URLSearchParams(location.search).get('cyber') === 'original';
+const attackPreview = {
+  action: 'idle' as CyberAttack | 'idle',
+  slowMotion: false,
+  freeze: false,
+  frame: 0.32,
+};
+const movementPreview = { walking: true, speed: 380 };
+let previewElapsed = 0;
+let previewEffect: MeleeArcAnimation | undefined;
+let previewFloor: THREE.Mesh | undefined;
+if (new URLSearchParams(location.search).has('cyber')) {
+  currentEntityType = 'cyber-organism';
+  animState.autoAnimate = false;
+  animState.energyLevel = 75;
+}
+
 init();
 animate();
 
@@ -140,7 +166,7 @@ function init() {
   scene.background = new THREE.Color(0x0a0a0a);
 
   // Camera
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
   camera.position.set(0, 0, 200);
 
   // Renderer
@@ -178,6 +204,7 @@ function init() {
 
   // Grid helper for spatial reference
   const gridHelper = new THREE.GridHelper(400, 20, 0x00ff88, 0x004422);
+  gridHelper.name = 'viewerGrid';
   gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane
   scene.add(gridHelper);
 
@@ -193,7 +220,36 @@ function init() {
 
 function initGUI() {
   gui = new GUI({ title: 'Model Viewer Controls', width: 300 });
+  gui
+    .add({ original: originalCyberOrganism }, 'original')
+    .name('Original Stage 3')
+    .onChange((value: boolean) => {
+      originalCyberOrganism = value;
+      updateModels();
+    });
 
+  gui
+    .add({ specialization: previewSpecialization }, 'specialization', ['melee', 'ranged', 'traps'])
+    .name('Combat Form')
+    .onChange((value: 'melee' | 'ranged' | 'traps') => {
+      previewSpecialization = value;
+      updateModels();
+    });
+  if (window.innerWidth < 600) gui.close();
+  const attacks = gui.addFolder('Attack Preview');
+  attacks
+    .add(attackPreview, 'action', ['idle', 'swipe', 'thrust', 'fire'])
+    .name('Motion')
+    .onChange(() => {
+      previewElapsed = 0;
+      updateModels();
+    });
+  attacks.add(attackPreview, 'slowMotion').name('Slow Motion');
+  attacks.add(attackPreview, 'freeze').name('Freeze Pose');
+  attacks.add(attackPreview, 'frame', 0, 1, 0.01).name('Attack Frame');
+  const movement = gui.addFolder('Movement Preview');
+  movement.add(movementPreview, 'walking').name('Walk');
+  movement.add(movementPreview, 'speed', 80, 1000, 10).name('Travel Speed');
   // Entity selection folder
   const entityFolder = gui.addFolder('Entity Selection');
   entityFolder
@@ -573,10 +629,24 @@ function initGUI() {
 }
 
 function updateModels() {
+  if (previewFloor) {
+    previewFloor.removeFromParent();
+    previewFloor.geometry.dispose();
+    (previewFloor.material as THREE.Material).dispose();
+    previewFloor = undefined;
+  }
+  const grid = scene.getObjectByName('viewerGrid');
+  if (grid) {
+    grid.rotation.x = currentEntityType === 'cyber-organism' ? 0 : Math.PI / 2;
+    grid.position.y = -0.3;
+  }
+  if (previewEffect) disposeMeleeArc(previewEffect);
+  previewEffect = undefined;
+  controls.target.set(0, 0, 0);
   // Clear existing models
   models.forEach((model) => {
     scene.remove(model);
-    // TODO: proper cleanup of geometries/materials
+    if (model instanceof THREE.Group && model.name === 'cyberOrganism') disposeCyberOrganism(model);
   });
   models = [];
 
@@ -605,11 +675,30 @@ function updateModels() {
 
     case 'cyber-organism': {
       // Stage 3 hexapod - use larger radius for model viewer (game uses CYBER_ORGANISM_RADIUS = 101px)
-      const cyberOrg = createCyberOrganism(144, currentColor);
+      const cyberOrg = createCyberOrganism(144, currentColor, originalCyberOrganism);
+      setCreatureSpecialization(cyberOrg, previewSpecialization);
       cyberOrg.position.set(0, 0, 0);
+      cyberOrg.userData.gaitPreview = true;
+      if (!originalCyberOrganism) {
+        previewFloor = new THREE.Mesh(
+          new THREE.CircleGeometry(650, 64),
+          new THREE.MeshStandardMaterial({ color: 0x1b2527, roughness: 1 })
+        );
+        previewFloor.rotation.x = -Math.PI / 2;
+        previewFloor.position.y = -1;
+        scene.add(previewFloor);
+      }
       scene.add(cyberOrg);
       models.push(cyberOrg);
-      camera.position.set(0, 0, 400); // Further out for larger model
+      camera.position.set(0, 500, 550);
+      if (attackPreview.action !== 'idle') {
+        camera.position.set(-100, 650, 700);
+        controls.target.set(-100, 0, 0);
+        if (attackPreview.action !== 'fire')
+          previewEffect = spawnMeleeArc(scene, 0, 0, attackPreview.action, -1, 0, currentColor);
+      }
+      const fit = Math.max(1, 0.72 / camera.aspect);
+      camera.position.sub(controls.target).multiplyScalar(fit).add(controls.target);
       break;
     }
 
@@ -875,6 +964,7 @@ function animate(currentTime: number = 0) {
   lastTime = currentTime;
 
   controls.update();
+  previewElapsed += Math.min(deltaTime, 0.1) * (attackPreview.slowMotion ? 0.2 : 1);
 
   // Auto-cycle energy for preview
   if (animState.autoAnimate) {
@@ -958,8 +1048,17 @@ function animate(currentTime: number = 0) {
       // Cyber-organism - animate legs and energy glow
       updateCyberOrganismEnergy(model, energy / 100);
       // Pass simulated speed (100 units/sec) when auto-animating to show gait
-      const simulatedSpeed = animState.autoAnimate ? 100 : 0;
-      updateCyberOrganismAnimation(model, animState.autoAnimate, simulatedSpeed, deltaTime);
+      const walking = movementPreview.walking && !attackPreview.freeze;
+      const simulatedSpeed = walking ? movementPreview.speed : 0;
+      updateCyberOrganismAnimation(model, walking, simulatedSpeed, deltaTime);
+      if (attackPreview.action !== 'idle') {
+        const duration = CYBER_ATTACK_DURATION[attackPreview.action] / 1000;
+        const progress = attackPreview.freeze
+          ? attackPreview.frame
+          : Math.min(1, (previewElapsed % 0.9) / duration);
+        applyCyberAttackPose(model, attackPreview.action, progress);
+        if (previewEffect) poseMeleeArc(previewEffect, progress);
+      }
     } else if (model instanceof THREE.Group && model.name === 'entropySerpent') {
       // Entropy serpent - slither animation
       updateEntropySerpentAnimation(model, deltaTime, animState.autoAnimate);

@@ -1,3 +1,4 @@
+import { poseMeleeArc, disposeMeleeArc } from '../effects/SharpMeleeEffect';
 // ============================================
 // Animation Updater
 // Updates and cleans up particle animations
@@ -482,139 +483,17 @@ export function updateEnergyTransferAnimations(
  * @param dt - Delta time in milliseconds
  */
 export function updateMeleeArcAnimations(
-  scene: THREE.Scene,
+  _scene: THREE.Scene,
   animations: MeleeArcAnimation[],
-  dt: number
+  _dt: number
 ): void {
-  const deltaSeconds = dt / 1000;
-  const now = Date.now();
-  const finishedAnimations: number[] = [];
-
-  animations.forEach((anim, index) => {
-    const elapsed = now - anim.startTime;
-    const progress = Math.min(elapsed / anim.duration, 1);
-
+  for (let i = animations.length - 1; i >= 0; i--) {
+    const anim = animations[i];
+    const progress = (Date.now() - anim.startTime) / anim.duration;
     if (progress >= 1) {
-      // Animation finished - mark for removal
-      finishedAnimations.push(index);
-      return;
-    }
-
-    // ============================================
-    // Update main particles (expand outward)
-    // ============================================
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
-
-    for (let i = 0; i < anim.particleData.length; i++) {
-      const p = anim.particleData[i];
-      p.radius += p.radiusSpeed * deltaSeconds;
-
-      const newX = anim.centerX + Math.cos(p.angle) * p.radius;
-      const newY = anim.centerY + Math.sin(p.angle) * p.radius;
-
-      positions[i * 3] = newX;
-      positions[i * 3 + 1] = 0.5 + Math.random() * 0.5; // Slight height variation
-      positions[i * 3 + 2] = -newY;
-    }
-    anim.particles.geometry.attributes.position.needsUpdate = true;
-
-    // ============================================
-    // Update trail particles
-    // ============================================
-    const trailPositions = anim.trailParticles.geometry.attributes.position.array as Float32Array;
-
-    for (let i = 0; i < anim.trailData.length; i++) {
-      const t = anim.trailData[i];
-      t.radius += t.radiusSpeed * deltaSeconds;
-
-      const newX = anim.centerX + Math.cos(t.angle) * t.radius;
-      const newY = anim.centerY + Math.sin(t.angle) * t.radius;
-
-      trailPositions[i * 3] = newX;
-      trailPositions[i * 3 + 1] = 0.3;
-      trailPositions[i * 3 + 2] = -newY;
-    }
-    anim.trailParticles.geometry.attributes.position.needsUpdate = true;
-
-    // ============================================
-    // Update spark particles (fly outward with velocity)
-    // ============================================
-    const sparkPositions = anim.sparkParticles.geometry.attributes.position.array as Float32Array;
-
-    for (let i = 0; i < anim.sparkData.length; i++) {
-      const s = anim.sparkData[i];
-      s.x += s.vx * deltaSeconds;
-      s.y += s.vy * deltaSeconds;
-      s.life -= deltaSeconds * 3; // Sparks fade faster
-
-      sparkPositions[i * 3] = s.x;
-      sparkPositions[i * 3 + 1] = 1 + Math.random() * 2;
-      sparkPositions[i * 3 + 2] = -s.y;
-    }
-    anim.sparkParticles.geometry.attributes.position.needsUpdate = true;
-
-    // ============================================
-    // Fade out all elements near end
-    // ============================================
-    const fadeStart = 0.4;
-    const opacity = progress < fadeStart ? 1.0 : 1.0 - (progress - fadeStart) / (1 - fadeStart);
-
-    // Main particles
-    const material = anim.particles.material as THREE.PointsMaterial;
-    material.opacity = opacity;
-
-    // Trail particles (fade slightly faster)
-    const trailMaterial = anim.trailParticles.material as THREE.PointsMaterial;
-    trailMaterial.opacity = opacity * 0.6;
-
-    // Spark particles
-    const sparkMaterial = anim.sparkParticles.material as THREE.PointsMaterial;
-    sparkMaterial.opacity = opacity;
-
-    // Arc mesh
-    const arcMaterial = anim.arcMesh.material as THREE.MeshBasicMaterial;
-    arcMaterial.opacity = opacity * 0.7;
-
-    // Hitbox debug mesh
-    if (anim.hitboxMesh) {
-      const hitboxMaterial = anim.hitboxMesh.material as THREE.LineBasicMaterial;
-      hitboxMaterial.opacity = opacity * 0.8;
-    }
-  });
-
-  // Clean up finished animations (reverse order to avoid index shifting)
-  for (let i = finishedAnimations.length - 1; i >= 0; i--) {
-    const index = finishedAnimations[i];
-    const anim = animations[index];
-
-    // Clean up main particles
-    scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
-    (anim.particles.material as THREE.Material).dispose();
-
-    // Clean up trail particles
-    scene.remove(anim.trailParticles);
-    anim.trailParticles.geometry.dispose();
-    (anim.trailParticles.material as THREE.Material).dispose();
-
-    // Clean up spark particles
-    scene.remove(anim.sparkParticles);
-    anim.sparkParticles.geometry.dispose();
-    (anim.sparkParticles.material as THREE.Material).dispose();
-
-    // Clean up arc mesh
-    scene.remove(anim.arcMesh);
-    anim.arcMesh.geometry.dispose();
-    (anim.arcMesh.material as THREE.Material).dispose();
-
-    // Clean up hitbox debug mesh if present
-    if (anim.hitboxMesh) {
-      scene.remove(anim.hitboxMesh);
-      anim.hitboxMesh.geometry.dispose();
-      (anim.hitboxMesh.material as THREE.Material).dispose();
-    }
-
-    animations.splice(index, 1);
+      disposeMeleeArc(anim);
+      animations.splice(i, 1);
+    } else poseMeleeArc(anim, progress);
   }
 }
 

@@ -37,10 +37,6 @@ export class InputManager {
   // Track previous movement direction to avoid redundant network updates
   private lastMoveDirection = { x: 0, y: 0, z: 0 };
 
-  // Track previous mouse state (LMB and RMB)
-  private wasLMBDown = false;
-  private wasRMBDown = false;
-
   // Cooldowns for combat abilities (Stage 3+)
   private lastMeleeTime = 0;
   private meleeClientCooldown = 200; // Local anti-spam cooldown (matches server 200ms)
@@ -289,14 +285,10 @@ export class InputManager {
    * Stage 1-2: LMB = pseudopod beam
    * Stage 3+ Melee: LMB = swipe, RMB = thrust
    * Stage 3+ Ranged: LMB = projectile
-   * Stage 3+ Traps: LMB = projectile, RMB = place trap
+   * Stage 3+ Traps: LMB or RMB = place trap
    */
   private updateCombatInput(): void {
     const now = Date.now();
-
-    // Get current mouse button states
-    const isLMBDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 0;
-    const isRMBDown = this.inputState.pointer.isDown && this.inputState.pointer.button === 2;
 
     // Get player stage and specialization
     const stage = this.playerStateProvider?.getStage() ?? null;
@@ -305,19 +297,12 @@ export class InputManager {
     // Determine if we're Stage 3+ (jungle scale - can use specializations)
     const isJungleStage = stage === 'cyber_organism' || stage === 'humanoid' || stage === 'godcell';
 
-    // Handle LMB (rising edge)
-    if (isLMBDown && !this.wasLMBDown) {
-      this.handleLMB(now, isJungleStage, specialization);
+    for (const press of this.inputState.consumePointerPresses()) {
+      if (press.button === 0)
+        this.handleLMB(now, isJungleStage, specialization, press.screenX, press.screenY);
+      if (press.button === 2)
+        this.handleRMB(now, isJungleStage, specialization, press.screenX, press.screenY);
     }
-
-    // Handle RMB (rising edge)
-    if (isRMBDown && !this.wasRMBDown) {
-      this.handleRMB(now, isJungleStage, specialization);
-    }
-
-    // Update previous state
-    this.wasLMBDown = isLMBDown;
-    this.wasRMBDown = isRMBDown;
   }
 
   /**
@@ -326,17 +311,20 @@ export class InputManager {
   private handleLMB(
     now: number,
     isJungleStage: boolean,
-    specialization: CombatSpecialization
+    specialization: CombatSpecialization,
+    screenX: number,
+    screenY: number
   ): void {
     if (!this.cameraProjection) return;
 
-    const worldPos = this.cameraProjection.screenToWorld(
-      this.inputState.pointer.screenX,
-      this.inputState.pointer.screenY
-    );
+    const worldPos = this.cameraProjection.screenToWorld(screenX, screenY);
 
-    if (isJungleStage && specialization === 'melee') {
-      // Melee: LMB = Swipe (180° arc attack)
+    if (isJungleStage && specialization === 'traps') {
+      if (now - this.lastTrapTime < this.trapClientCooldown) return;
+      eventBus.emit({ type: 'client:placeTrap' });
+      this.lastTrapTime = now;
+    } else if (isJungleStage && specialization === 'melee') {
+      // Melee: LMB = Swipe (90° arc attack)
       if (now - this.lastMeleeTime < this.meleeClientCooldown) return;
 
       eventBus.emit({
@@ -375,15 +363,14 @@ export class InputManager {
   private handleRMB(
     now: number,
     isJungleStage: boolean,
-    specialization: CombatSpecialization
+    specialization: CombatSpecialization,
+    screenX: number,
+    screenY: number
   ): void {
     if (!this.cameraProjection) return;
     if (!isJungleStage) return; // RMB only used in Stage 3+
 
-    const worldPos = this.cameraProjection.screenToWorld(
-      this.inputState.pointer.screenX,
-      this.inputState.pointer.screenY
-    );
+    const worldPos = this.cameraProjection.screenToWorld(screenX, screenY);
 
     if (specialization === 'melee') {
       // Melee: RMB = Thrust (30° cone attack)

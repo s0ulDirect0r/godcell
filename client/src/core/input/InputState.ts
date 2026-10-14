@@ -16,6 +16,13 @@ export class InputState {
     button: -1,
   };
 
+  private pointerPresses: Array<{ button: number; screenX: number; screenY: number }> = [];
+
+  /** Preserve clicks that begin and end between two animation frames. */
+  consumePointerPresses() {
+    return this.pointerPresses.splice(0);
+  }
+
   // Pointer lock state (for first-person mouse look)
   pointerLock = {
     isLocked: false,
@@ -55,6 +62,16 @@ export class InputState {
     };
 
     this.mousedownHandler = (e: MouseEvent) => {
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        target.closest('button, input, select, textarea, a, .lil-gui, #specialization-modal')
+      )
+        return;
+      this.pointer.screenX = e.clientX;
+      this.pointer.screenY = e.clientY;
+      if (this.pointerPresses.length < 8)
+        this.pointerPresses.push({ button: e.button, screenX: e.clientX, screenY: e.clientY });
       this.pointer.isDown = true;
       this.pointer.button = e.button;
     };

@@ -1,3 +1,4 @@
+import { disposeMeleeArc } from '../effects/SharpMeleeEffect';
 // ============================================
 // EffectsSystem - Manages all particle effects and animations
 // Owns death bursts, evolution particles, EMP pulses, spawn animations, etc.
@@ -413,11 +414,7 @@ export class EffectsSystem {
     this.energyTransferAnimations = [];
 
     // Clean up melee arc animations
-    this.meleeArcAnimations.forEach((anim) => {
-      this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
-      (anim.particles.material as THREE.Material).dispose();
-    });
+    this.meleeArcAnimations.forEach(disposeMeleeArc);
     this.meleeArcAnimations = [];
 
     // Clean up energy whip animations
