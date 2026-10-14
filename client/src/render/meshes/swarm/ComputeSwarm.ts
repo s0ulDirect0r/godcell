@@ -15,18 +15,20 @@
 // ?swarm=<style> or in the model viewer's Swarm Style dropdown.
 
 import * as THREE from 'three/webgpu';
-import type { ComputeNode, Node, StorageBufferNode } from 'three/webgpu';
+import type { ComputeNode, Node, StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import {
   Fn,
   clamp,
   cos,
   cross,
+  dot,
   float,
   floor,
   fract,
   hash,
   instanceIndex,
   instancedArray,
+  int,
   length,
   max,
   mix,
@@ -38,6 +40,7 @@ import {
   smoothstep,
   step,
   uniform,
+  uniformArray,
   uv,
   vec2,
   vec3,
@@ -392,8 +395,27 @@ const CORONA = {
   FLARE_HEIGHT: [0.3, 0.7], // Loop height as a fraction of the radius [patrol, chase]
   FLARE_PERIOD: [2.6, 1.4], // Seconds per flare loop [patrol, chase]
   TAIL_CHANCE: 0.35, // Fraction of particles that stream into the comet tail
-  TAIL_SECONDS: [0.5, 0.9], // Tail length = swarm speed * this * per-particle lag [patrol, chase]
+  TAIL_SECONDS: [0.5, 0.9], // Tail length = swarm speed * this * per-particle lag [patrol, chase] (glitch-corona)
   GLOW_ALTITUDE: [0.05, 0.5], // Altitude range over which color shifts gold -> pink
+};
+
+/** Corona's comet tail: particles stream along the swarm's recent path */
+const CORONA_TRAIL = {
+  CHANCE: 0.6, // Fraction of particles that can join the tail (only trailing-side ones do)
+  HISTORY: 64, // Path samples sent to the shader
+  SAMPLE_INTERVAL: 0.025, // Seconds between samples (64 x 0.025 = 1.6s of path)
+  SECONDS: [1.0, 1.4], // How far back along the path the tail reaches [patrol, chase] (<= 1.6)
+  FLOW_RATE: [0.5, 0.85], // Tail cycles/s: how fast particles stream from surface to tail end
+  TAPER: 0.55, // Tail particles keep their offset from the swarm center, scaled to this at the tail end
+  BACK_FACING: [-0.1, 0.5], // Only particles on the trailing side shed (dot with the backward direction)
+  SPREAD: [2, 16], // Px extra sideways scatter at the tail's head and end (widens like smoke)
+  WAVE_AMP: 7, // Px of traveling sideways wave at the tail end
+  WAVE_FREQ: 9, // Wave cycles along the tail (radians per unit tail length)
+  WAVE_SPEED: 6, // Rad/s the wave travels down the tail
+  FADE_START: 0.7, // Fraction of the trip where tail particles start fading out
+  OPACITY: 0.6, // Tail particle opacity (surface plasma is 0.35-0.4)
+  MOVE_SPEED: [6, 45], // Swarm px/s over which the tail grows from none to full
+  JUMP_RESET: 300, // Px; a bigger single-frame jump (respawn/teleport) clears the path
 };
 
 /**
@@ -437,37 +459,106 @@ function coronaTailLag(n: Node<'float'>) {
 class CoronaSwarm extends ComputeSwarmFX {
   readonly shellOpacity = 0.45;
 
+  // Recent path, game coords, newest last
+  private readonly path: { t: number; x: number; y: number }[] = [];
+  // Offsets (xy) from the current position to where the swarm was k * SAMPLE_INTERVAL ago.
+  // vec4 rather than vec2: uniform arrays pad elements to 16 bytes
+  private readonly trailValues = Array.from(
+    { length: CORONA_TRAIL.HISTORY },
+    () => new THREE.Vector4()
+  );
+  private readonly uTrail: UniformArrayNode<'vec4'>;
+
   constructor(radius: number) {
     super(CORONA.COUNT, radius);
-    const { positions, velocities, uTime, uDt, uChase, uMove } = this;
+    this.uTrail = uniformArray(this.trailValues, 'vec4');
+    const { positions, velocities, uTime, uDt, uChase, uMove, uTrail } = this;
+    const T = CORONA_TRAIL;
 
-    const positionAt = (n: Node<'float'>, time: Node<'float'>) =>
-      coronaSurface(n, time, radius, uChase);
-    const tailLag = coronaTailLag;
+    // Path offset `back` seconds ago, interpolated between samples
+    const trailAt = (back: Node<'float'>) => {
+      const idx = clamp(back.div(T.SAMPLE_INTERVAL), 0, T.HISTORY - 1.001);
+      const i0 = floor(idx);
+      return mix(uTrail.element(int(i0)).xy, uTrail.element(int(i0).add(1)).xy, idx.sub(i0));
+    };
+
+    // Trip progress along the tail (0 = on the surface, 1 = tail end) and tail weight.
+    // Only particles on the swarm's trailing side shed, and only while it's moving.
+    const tailState = (n: Node<'float'>, time: Node<'float'>, surface: Node<'vec3'>) => {
+      const isTail = step(hash(n.add(31.4)), T.CHANCE);
+      const rate = mix(float(T.FLOW_RATE[0]), float(T.FLOW_RATE[1]), uChase).mul(
+        hash(n.add(2.2)).mul(0.6).add(0.7)
+      );
+      const trip = fract(hash(n.add(8.8)).add(time.mul(rate)));
+      const moving = smoothstep(T.MOVE_SPEED[0], T.MOVE_SPEED[1], length(uMove));
+      const backward = normalize(uMove.negate().add(vec2(0.0001, 0)));
+      const facing = dot(normalize(surface.xy.add(vec2(0.0001, 0))), backward);
+      const trailing = smoothstep(T.BACK_FACING[0], T.BACK_FACING[1], facing);
+      return { trip, weight: isTail.mul(moving).mul(trailing) };
+    };
+
+    const positionAt = (n: Node<'float'>, time: Node<'float'>) => {
+      const surface = coronaSurface(n, time, radius, uChase);
+      const { trip, weight } = tailState(n, time, surface);
+      const back = trip.mul(mix(float(T.SECONDS[0]), float(T.SECONDS[1]), uChase));
+      const center = trailAt(back);
+      // Local direction of the path, for spreading sideways
+      const along = normalize(trailAt(back.add(0.03)).sub(center).add(vec2(0.0001, 0)));
+      const side = vec2(along.y.negate(), along.x);
+      const spread = hash(n.add(5.1))
+        .sub(0.5)
+        .mul(2)
+        .mul(mix(float(T.SPREAD[0]), float(T.SPREAD[1]), trip));
+      const wave = sin(
+        trip
+          .mul(T.WAVE_FREQ)
+          .sub(time.mul(T.WAVE_SPEED))
+          .add(hash(n.add(6.6)).mul(6.283))
+      )
+        .mul(T.WAVE_AMP)
+        .mul(trip);
+      // Keep the particle's offset from the swarm center (tapering), so the tail starts as
+      // the sphere's silhouette and stretches back along the path with no jump at the surface
+      const offset = surface.xy.mul(mix(float(1), float(T.TAPER), trip));
+      const trailPoint = vec3(
+        center.add(offset).add(side.mul(spread.add(wave))),
+        surface.z.mul(float(1).sub(trip))
+      );
+      return mix(surface, trailPoint, weight);
+    };
 
     const compute = Fn(() => {
       const n = float(instanceIndex);
-      const lag = tailLag(n);
-      const tailSeconds = mix(float(CORONA.TAIL_SECONDS[0]), float(CORONA.TAIL_SECONDS[1]), uChase);
-      const tail = vec3(uMove.mul(lag).mul(tailSeconds).negate(), 0);
-      const p = positionAt(n, uTime).add(tail);
-      // Finite-difference surface velocity (fixed small step when frozen), plus the tail's
-      // apparent backward drift so tail streaks point along the tail
+      const p = positionAt(n, uTime);
+      // Finite-difference velocity (fixed small step when frozen). When a tail particle
+      // wraps from the tail end back to the surface, use the surface flow instead of the jump.
       const h = max(uDt, 1 / 120);
-      const surfaceVel = positionAt(n, uTime)
-        .sub(positionAt(n, uTime.sub(h)))
-        .div(h);
-      const v = surfaceVel.add(vec3(uMove.mul(lag).negate(), 0));
+      const fullVel = p.sub(positionAt(n, uTime.sub(h))).div(h);
+      const surfaceNow = coronaSurface(n, uTime, radius, uChase);
+      const surfaceThen = coronaSurface(n, uTime.sub(h), radius, uChase);
+      const surfaceVel = surfaceNow.sub(surfaceThen).div(h);
+      const wrapped = tailState(n, uTime, surfaceNow).trip.lessThan(
+        tailState(n, uTime.sub(h), surfaceThen).trip
+      );
+      const v = select(wrapped, surfaceVel, fullVel);
       positions.element(instanceIndex).assign(p);
       velocities.element(instanceIndex).assign(v);
     })().compute(CORONA.COUNT);
 
+    const n = float(instanceIndex);
     const p = positions.element(instanceIndex);
+    const { trip, weight } = tailState(n, uTime, coronaSurface(n, uTime, radius, uChase));
     const altitude = length(p).div(radius).sub(CORONA.SURFACE);
-    const lift = smoothstep(CORONA.GLOW_ALTITUDE[0], CORONA.GLOW_ALTITUDE[1], altitude);
+    const lift = max(
+      smoothstep(CORONA.GLOW_ALTITUDE[0], CORONA.GLOW_ALTITUDE[1], altitude),
+      trip.mul(weight)
+    );
     const base = mix(rgb(PALETTE.AMBER), rgb(PALETTE.RED), uChase.mul(0.6));
     const color = mix(base, rgb(PALETTE.PINK), lift);
-    const opacity = mix(float(0.4), float(0.35), lift); // Additive: surface stays translucent
+    // Additive: surface stays translucent; tail particles fade out toward the end
+    const fade = float(1).sub(smoothstep(T.FADE_START, 1, trip).mul(weight));
+    const surfaceOpacity = mix(float(0.4), float(0.35), lift);
+    const opacity = mix(surfaceOpacity, float(T.OPACITY), weight).mul(fade);
 
     this.finish(compute, color, opacity, {
       minLength: 1.5,
@@ -477,6 +568,38 @@ class CoronaSwarm extends ComputeSwarmFX {
       fadeTail: true,
       blending: THREE.AdditiveBlending,
     });
+  }
+
+  update(dtSeconds: number, worldPosition?: THREE.Vector3): void {
+    super.update(dtSeconds, worldPosition);
+    if (!worldPosition) return;
+    const T = CORONA_TRAIL;
+    const now = this.uClock.value;
+    const x = worldPosition.x;
+    const y = -worldPosition.z; // World Z = -game Y
+    const last = this.path[this.path.length - 1];
+    if (last && Math.hypot(x - last.x, y - last.y) > T.JUMP_RESET) this.path.length = 0;
+    this.path.push({ t: now, x, y });
+    // Keep a little more than the sampled window
+    const keep = T.HISTORY * T.SAMPLE_INTERVAL + 0.2;
+    while (this.path.length > 2 && this.path[0].t < now - keep) this.path.shift();
+
+    // Sample the path at fixed time steps back from now (frame-rate independent)
+    let j = this.path.length - 1;
+    for (let k = 0; k < T.HISTORY; k++) {
+      const target = now - k * T.SAMPLE_INTERVAL;
+      while (j > 0 && this.path[j - 1].t >= target) j--;
+      const a = this.path[Math.max(j - 1, 0)];
+      const b = this.path[j];
+      let px = b.x;
+      let py = b.y;
+      if (a !== b && b.t > a.t && target < b.t) {
+        const f = Math.min(Math.max((target - a.t) / (b.t - a.t), 0), 1);
+        px = a.x + (b.x - a.x) * f;
+        py = a.y + (b.y - a.y) * f;
+      }
+      this.trailValues[k].set(px - x, py - y, 0, 0);
+    }
   }
 }
 
