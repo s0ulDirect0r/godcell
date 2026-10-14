@@ -304,6 +304,8 @@ export function updateSwarmAnimation(
   // === DISABLED STATE: FREEZE ALL ANIMATIONS ===
   // When hit by EMP, swarm becomes completely frozen (gray colors set by updateSwarmState)
   if (isDisabled) {
+    // GPU styles may animate the shell while disabled (e.g. glitch-corona's CRT collapse)
+    if (fx) (group.children[0] as THREE.Mesh).scale.copy(fx.shellScale);
     return; // Skip all animation updates - particles stay where they are
   }
 
@@ -331,6 +333,7 @@ export function updateSwarmAnimation(
   const pulseAmount = 0.05 + energyRatio * 0.02; // 0.05 to 0.07 (was 0.08)
   const scale = 1.0 + Math.sin(time * pulseSpeed + pulsePhase) * pulseAmount;
   outerSphere.scale.set(scale, scale, scale);
+  if (fx) outerSphere.scale.multiply(fx.shellScale);
 
   // Apply color shift (only when not disabled)
   if (swarmState !== 'disabled') {

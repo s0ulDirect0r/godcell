@@ -9,6 +9,7 @@
 //   maelstrom - churning vortex of streaks rolling inside the shell
 //   glitch    - corrupted voxels snapping between grid cells
 //   corona    - plasma flowing over the shell, flares + comet tail when moving
+//   glitch-corona - corona built from glitch voxels, with a CRT-shutdown EMP state
 //
 // The outer shell sphere stays (see SwarmMesh). Pick a style in game with
 // ?swarm=<style> or in the model viewer's Swarm Style dropdown.
@@ -42,7 +43,7 @@ import {
   vec3,
 } from 'three/tsl';
 
-export const COMPUTE_SWARM_STYLES = ['maelstrom', 'glitch', 'corona'] as const;
+export const COMPUTE_SWARM_STYLES = ['glitch-corona', 'maelstrom', 'glitch', 'corona'] as const;
 export type ComputeSwarmStyle = (typeof COMPUTE_SWARM_STYLES)[number];
 export type SwarmStyle = 'classic' | ComputeSwarmStyle;
 
@@ -62,6 +63,7 @@ const PALETTE = {
   PINK: 0xff0088, // Classic orbiting squares
   WHITE_HOT: 0xfff0d0, // Fastest/hottest particles
   FROZEN: 0x777777, // EMP-disabled gray
+  DEAD_CYAN: 0x33ffdd, // EMP afterglow (glitch-corona's crashed state)
 };
 
 const CHASE_BLEND_RATE = 3; // Per second: how fast visuals ramp into/out of chase
@@ -93,6 +95,7 @@ interface StreakOptions {
   width: number; // Px
   fadeTail: boolean; // Fade opacity from head to tail
   blending: THREE.Blending;
+  customInert?: boolean; // Style handles EMP visuals itself (skip the default gray-out)
 }
 
 /**
@@ -105,6 +108,8 @@ export abstract class ComputeSwarmFX {
   computeNode!: ComputeNode;
   /** Multiplier the shell uses for its opacity, so a style can recede the sphere */
   abstract readonly shellOpacity: number;
+  /** Scale the shell follows on top of its pulse (styles can squash it, e.g. on EMP) */
+  readonly shellScale = new THREE.Vector3(1, 1, 1);
 
   protected readonly positions: StorageBufferNode<'vec3'>;
   protected readonly velocities: StorageBufferNode<'vec3'>;
@@ -113,9 +118,10 @@ export abstract class ComputeSwarmFX {
   protected readonly uChase = uniform(0); // 0 patrol .. 1 chase (eased)
   protected readonly uFrozen = uniform(0); // 0 active .. 1 EMP-disabled (eased)
   protected readonly uMove = uniform(new THREE.Vector2()); // Swarm velocity, game px/s (local XY)
+  protected readonly uClock = uniform(0); // Seconds; always advances (for inert-state animation)
 
   private chaseTarget = 0;
-  private frozen = false;
+  protected frozen = false;
   private lastPosition: THREE.Vector3 | null = null;
 
   constructor(
@@ -161,9 +167,9 @@ export abstract class ComputeSwarmFX {
     const offset = dir.mul(along).add(perp.mul(across));
     material.positionNode = center.add(vec3(offset, 0));
 
-    const frozenColor = mix(color, rgb(PALETTE.FROZEN), this.uFrozen);
+    const frozenColor = o.customInert ? color : mix(color, rgb(PALETTE.FROZEN), this.uFrozen);
     material.colorNode = frozenColor;
-    const frozenOpacity = mix(opacity, opacity.mul(0.35), this.uFrozen);
+    const frozenOpacity = o.customInert ? opacity : mix(opacity, opacity.mul(0.35), this.uFrozen);
     material.opacityNode = o.fadeTail ? frozenOpacity.mul(uv().x) : frozenOpacity;
 
     const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, this.count);
@@ -189,6 +195,7 @@ export abstract class ComputeSwarmFX {
     this.uFrozen.value += ((this.frozen ? 1 : 0) - this.uFrozen.value) * ease(FROZEN_BLEND_RATE);
     this.uDt.value = this.frozen ? 0 : dt;
     if (!this.frozen) this.uTime.value += dt;
+    this.uClock.value += dt;
 
     if (worldPosition && dt > 0) {
       if (this.lastPosition) {
@@ -389,6 +396,44 @@ const CORONA = {
   GLOW_ALTITUDE: [0.05, 0.5], // Altitude range over which color shifts gold -> pink
 };
 
+/**
+ * Point on (or arcing off) the corona shell for particle n at `time`. Stateless,
+ * so freezing is just stopping the clock. Shared by corona and glitch-corona.
+ */
+function coronaSurface(
+  n: Node<'float'>,
+  time: Node<'float'>,
+  radius: number,
+  chase: Node<'float'>
+) {
+  const r = hash3(n);
+  // Each particle flows around its own tilted axis (field lines in many orientations)
+  const axis = normalize(
+    hash3(n.add(77.7))
+      .sub(0.5)
+      .add(vec3(0, 0, 0.0001))
+  );
+  const start = normalize(r.sub(0.5).add(vec3(0.0001, 0, 0)));
+  const side = normalize(cross(axis, start).add(vec3(0, 0.0001, 0)));
+  const flow = mix(float(CORONA.FLOW_SPEED[0]), float(CORONA.FLOW_SPEED[1]), chase);
+  const angle = time.mul(flow).mul(r.z.mul(0.8).add(0.6)).add(r.x.mul(6.283));
+  const onSphere = start.mul(cos(angle)).add(side.mul(sin(angle)));
+
+  // Flares: a subset arcs out and back in a loop
+  const isFlare = step(hash(n.add(12.9)), CORONA.FLARE_CHANCE);
+  const flarePeriod = mix(float(CORONA.FLARE_PERIOD[0]), float(CORONA.FLARE_PERIOD[1]), chase);
+  const flarePhase = fract(time.div(flarePeriod).add(hash(n.add(4.2))));
+  const flareHeight = mix(float(CORONA.FLARE_HEIGHT[0]), float(CORONA.FLARE_HEIGHT[1]), chase);
+  const altitude = sin(flarePhase.mul(Math.PI)).mul(flareHeight).mul(isFlare);
+
+  return onSphere.mul(altitude.add(CORONA.SURFACE).mul(radius));
+}
+
+/** Comet tail lag for particle n: 0 = attached, 1 = farthest back */
+function coronaTailLag(n: Node<'float'>) {
+  return hash(n.add(8.8)).mul(step(hash(n.add(31.4)), CORONA.TAIL_CHANCE));
+}
+
 class CoronaSwarm extends ComputeSwarmFX {
   readonly shellOpacity = 0.45;
 
@@ -396,36 +441,9 @@ class CoronaSwarm extends ComputeSwarmFX {
     super(CORONA.COUNT, radius);
     const { positions, velocities, uTime, uDt, uChase, uMove } = this;
 
-    // Position of particle n at time `time` (stateless, so freezing is just stopping the clock)
-    const positionAt = (n: Node<'float'>, time: Node<'float'>) => {
-      const r = hash3(n);
-      // Each particle flows around its own tilted axis (field lines in many orientations)
-      const axis = normalize(
-        hash3(n.add(77.7))
-          .sub(0.5)
-          .add(vec3(0, 0, 0.0001))
-      );
-      const start = normalize(r.sub(0.5).add(vec3(0.0001, 0, 0)));
-      const side = normalize(cross(axis, start).add(vec3(0, 0.0001, 0)));
-      const flow = mix(float(CORONA.FLOW_SPEED[0]), float(CORONA.FLOW_SPEED[1]), uChase);
-      const angle = time.mul(flow).mul(r.z.mul(0.8).add(0.6)).add(r.x.mul(6.283));
-      const onSphere = start.mul(cos(angle)).add(side.mul(sin(angle)));
-
-      // Flares: a subset arcs out and back in a loop
-      const isFlare = step(hash(n.add(12.9)), CORONA.FLARE_CHANCE);
-      const flarePeriod = mix(float(CORONA.FLARE_PERIOD[0]), float(CORONA.FLARE_PERIOD[1]), uChase);
-      const flarePhase = fract(time.div(flarePeriod).add(hash(n.add(4.2))));
-      const flareHeight = mix(float(CORONA.FLARE_HEIGHT[0]), float(CORONA.FLARE_HEIGHT[1]), uChase);
-      const altitude = sin(flarePhase.mul(Math.PI)).mul(flareHeight).mul(isFlare);
-
-      const surface = onSphere.mul(altitude.add(CORONA.SURFACE).mul(radius));
-
-      return surface;
-    };
-
-    // Comet tail: some particles lag behind the swarm's motion (0 = attached, 1 = farthest back)
-    const tailLag = (n: Node<'float'>) =>
-      hash(n.add(8.8)).mul(step(hash(n.add(31.4)), CORONA.TAIL_CHANCE));
+    const positionAt = (n: Node<'float'>, time: Node<'float'>) =>
+      coronaSurface(n, time, radius, uChase);
+    const tailLag = coronaTailLag;
 
     const compute = Fn(() => {
       const n = float(instanceIndex);
@@ -462,6 +480,195 @@ class CoronaSwarm extends ComputeSwarmFX {
   }
 }
 
+// ============================================
+// Glitch-corona: corona made of corrupted voxels, CRT-shutdown inert state
+// ============================================
+
+const GLITCH_CORONA = {
+  COUNT: 3200, // Fewer than corona: opaque voxels fill the surface faster than additive streaks
+  GRID: 3.5, // Px voxel size; everything snaps to this lattice
+  STEP_RATE: [7, 15], // Stutter steps/s along the flow [patrol, chase] (per particle, x0.6-1.4)
+  SMEAR_FRACTION: 0.3, // Portion of each step spent smearing to the next position
+  BLINK_RATE: 14, // Hz at which corrupted voxels drop out
+  BLINK_CHANCE: [0.08, 0.2], // Fraction of voxels dark at any instant [patrol, chase]
+  SCANLINE_SPEED: 1.7, // Rad/s of the sweeping scanline
+  SCANLINE_WIDTH: 2.5, // Px half-width of the scanline band
+  // EMP "system crash"
+  SHOCK_SECONDS: 0.35, // Impact: voxels blast outward and flash white/cyan
+  SHOCK_DISTANCE: 30, // Px of outward blast at the moment of impact
+  COLLAPSE_SECONDS: 0.9, // CRT power-off: squash to a horizontal line, then to a dot
+  REBOOT_SECONDS: 0.5, // Power-on when the EMP wears off (reverse collapse + flash)
+  RETRY_PERIOD: 1.3, // Seconds between failed reboot attempts while disabled
+  RETRY_CHANCE: 0.55, // Chance a given period attempts a reboot
+  RETRY_SECONDS: 0.14, // How long an attempt flickers back open
+};
+
+class GlitchCoronaSwarm extends ComputeSwarmFX {
+  readonly shellOpacity = 0.45;
+
+  private readonly uShock = uniform(0); // 1 at EMP impact, decaying to 0
+  private readonly uCollapse = uniform(0); // 0 normal .. 1 collapsed to a dot (before retries)
+  private readonly uPowerOn = uniform(0); // Flash while rebooting after the EMP ends
+  private inertTime = 0; // Seconds since the EMP hit (0 when active)
+  private rebootTime = -1; // Seconds into power-on (-1 when not rebooting)
+
+  constructor(radius: number) {
+    super(GLITCH_CORONA.COUNT, radius);
+    const { positions, velocities, uTime, uClock, uChase, uMove, uShock, uCollapse } = this;
+    const grid = GLITCH_CORONA.GRID;
+    const snap = (p: Node<'vec3'>) => floor(p.div(grid)).add(0.5).mul(grid);
+
+    // Collapse with failed reboot attempts: while fully collapsed, some periods briefly reopen
+    const retrySlot = floor(uClock.div(GLITCH_CORONA.RETRY_PERIOD));
+    const retrying = step(hash(retrySlot.add(5.1)), GLITCH_CORONA.RETRY_CHANCE).mul(
+      step(
+        fract(uClock.div(GLITCH_CORONA.RETRY_PERIOD)),
+        GLITCH_CORONA.RETRY_SECONDS / GLITCH_CORONA.RETRY_PERIOD
+      )
+    );
+    const collapse = uCollapse.sub(retrying.mul(step(0.99, uCollapse)).mul(0.45));
+
+    const compute = Fn(() => {
+      const n = float(instanceIndex);
+      const rate = mix(
+        float(GLITCH_CORONA.STEP_RATE[0]),
+        float(GLITCH_CORONA.STEP_RATE[1]),
+        uChase
+      ).mul(hash(n.add(2.7)).mul(0.8).add(0.6));
+      const clock = uTime.mul(rate).add(hash(n.add(9.1)).mul(10));
+      const stepIndex = floor(clock);
+      const t = smoothstep(0, GLITCH_CORONA.SMEAR_FRACTION, fract(clock));
+      // Stutter along the corona flow: hold, then smear to the next step
+      const from = coronaSurface(n, stepIndex.sub(1).div(rate), radius, uChase);
+      const to = coronaSurface(n, stepIndex.div(rate), radius, uChase);
+
+      // Comet tail of corrupted pixels (lag behind the swarm's motion)
+      const lag = coronaTailLag(n);
+      const tailSeconds = mix(float(CORONA.TAIL_SECONDS[0]), float(CORONA.TAIL_SECONDS[1]), uChase);
+      const tail = vec3(uMove.mul(lag).mul(tailSeconds).negate(), 0);
+      const p = snap(mix(from, to, t).add(tail)).toVar();
+
+      // Smear velocity encodes distance traveled this step (see glitch)
+      const hopping = step(t, 0.999).mul(step(0.001, t));
+      const travel = to.sub(from);
+      const v = normalize(travel.add(vec3(0.0001, 0, 0)))
+        .mul(length(travel).mul(t).div(GLITCH_SMEAR_PER_SPEED))
+        .mul(hopping)
+        .toVar();
+
+      // EMP impact: blast outward with per-frame jitter
+      const outward = normalize(p.add(vec3(0.0001, 0, 0)));
+      const jitter = hash3(n.add(floor(uClock.mul(30)).mul(13.7))).sub(0.5);
+      p.addAssign(
+        outward.mul(uShock.mul(GLITCH_CORONA.SHOCK_DISTANCE)).add(jitter.mul(uShock.mul(12)))
+      );
+
+      // CRT power-off: squash Y (screen vertical) to a line, then X to a dot
+      const squashY = float(1).sub(smoothstep(0, 0.5, collapse).mul(0.97));
+      const squashX = float(1).sub(smoothstep(0.5, 1, collapse).mul(0.97));
+      p.assign(vec3(p.x.mul(squashX), p.y.mul(squashY), p.z.mul(squashY)));
+      v.mulAssign(float(1).sub(step(0.01, collapse))); // No smears while crashed
+
+      positions.element(instanceIndex).assign(p);
+      velocities.element(instanceIndex).assign(v);
+    })().compute(GLITCH_CORONA.COUNT);
+
+    // --- Color: glitch palette, pinker with altitude/tail, scanline, dropouts ---
+    const n = float(instanceIndex);
+    const pick = hash(n.add(5.5));
+    const palette = select(
+      pick.lessThan(0.55),
+      rgb(PALETTE.PINK),
+      select(pick.lessThan(0.92), rgb(PALETTE.AMBER), rgb(PALETTE.WHITE_HOT))
+    );
+    const p = positions.element(instanceIndex);
+    const altitude = length(p).div(radius).sub(CORONA.SURFACE);
+    const lift = smoothstep(CORONA.GLOW_ALTITUDE[0], CORONA.GLOW_ALTITUDE[1], altitude);
+    const tinted = mix(
+      mix(palette, rgb(PALETTE.PINK), lift.mul(0.6)),
+      rgb(PALETTE.RED),
+      uChase.mul(0.3)
+    );
+    const scanY = sin(uTime.mul(GLITCH_CORONA.SCANLINE_SPEED)).mul(radius);
+    const onScan = float(1).sub(smoothstep(0, GLITCH_CORONA.SCANLINE_WIDTH, p.y.sub(scanY).abs()));
+    const active = mix(tinted, rgb(0xffffff), onScan);
+
+    // --- Inert: white/cyan flash on impact, dead-pixel cyan afterglow, power-on flash ---
+    // Partial flash so the scattering voxels stay readable instead of a solid white blob
+    const crashed = mix(rgb(PALETTE.DEAD_CYAN), rgb(0xffffff), uShock.mul(0.55));
+    const inertMix = max(this.uFrozen, uShock);
+    const color = mix(mix(active, crashed, inertMix), rgb(0xffffff), this.uPowerOn);
+
+    const blinkChance = mix(
+      float(GLITCH_CORONA.BLINK_CHANCE[0]),
+      float(GLITCH_CORONA.BLINK_CHANCE[1]),
+      uChase
+    );
+    const blink = step(
+      blinkChance,
+      hash(n.add(floor(uTime.mul(GLITCH_CORONA.BLINK_RATE)).mul(97.1)))
+    );
+    // Crashed: a flickering dot, mostly dim with occasional surges
+    const flicker = hash(floor(uClock.mul(18)).add(3.3))
+      .mul(0.6)
+      .add(0.25);
+    const opacity = mix(blink.mul(0.9), flicker, this.uFrozen.mul(step(0.99, uCollapse)));
+
+    this.finish(compute, color, opacity, {
+      minLength: grid * 0.6,
+      maxLength: 22,
+      lengthPerSpeed: GLITCH_SMEAR_PER_SPEED,
+      width: grid * 0.6,
+      fadeTail: false,
+      blending: THREE.NormalBlending,
+      customInert: true,
+    });
+  }
+
+  update(dtSeconds: number, worldPosition?: THREE.Vector3): void {
+    super.update(dtSeconds, worldPosition);
+    const dt = Math.min(dtSeconds, 0.1);
+    const G = GLITCH_CORONA;
+
+    if (this.frozen) {
+      this.inertTime += dt;
+      this.rebootTime = -1;
+    } else if (this.inertTime > 0) {
+      // EMP just wore off: run power-on, then return to normal
+      if (this.rebootTime < 0) this.rebootTime = 0;
+      this.rebootTime += dt;
+      if (this.rebootTime >= G.REBOOT_SECONDS) {
+        this.inertTime = 0;
+        this.rebootTime = -1;
+      }
+    }
+
+    const smooth = (x: number) => x * x * (3 - 2 * x);
+    const clamp01 = (x: number) => Math.min(Math.max(x, 0), 1);
+    this.uShock.value = this.frozen ? clamp01(1 - this.inertTime / G.SHOCK_SECONDS) : 0;
+    if (this.frozen) {
+      // Collapse starts as the shock fades
+      this.uCollapse.value = smooth(
+        clamp01((this.inertTime - G.SHOCK_SECONDS * 0.5) / G.COLLAPSE_SECONDS)
+      );
+      this.uPowerOn.value = 0;
+    } else if (this.rebootTime >= 0) {
+      const k = clamp01(this.rebootTime / G.REBOOT_SECONDS);
+      this.uCollapse.value = 1 - smooth(k);
+      this.uPowerOn.value = 1 - k;
+    } else {
+      this.uCollapse.value = 0;
+      this.uPowerOn.value = 0;
+    }
+
+    // Shell follows the CRT collapse (Y first, then X)
+    const c = this.uCollapse.value;
+    const sy = 1 - smooth(clamp01(c / 0.5)) * 0.97;
+    const sx = 1 - smooth(clamp01((c - 0.5) / 0.5)) * 0.97;
+    this.shellScale.set(sx, sy, sy);
+  }
+}
+
 /** Create the compute particle effect for a swarm of the given radius */
 export function createComputeSwarmFX(style: ComputeSwarmStyle, radius: number): ComputeSwarmFX {
   switch (style) {
@@ -471,5 +678,7 @@ export function createComputeSwarmFX(style: ComputeSwarmStyle, radius: number): 
       return new GlitchSwarm(radius);
     case 'corona':
       return new CoronaSwarm(radius);
+    case 'glitch-corona':
+      return new GlitchCoronaSwarm(radius);
   }
 }
