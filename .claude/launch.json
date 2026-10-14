@@ -4,7 +4,7 @@
     {
       "name": "dev",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["PORT=3000", "npm", "run", "dev"],
+      "runtimeArgs": ["PORT=3000", "DEV_COMMANDS=true", "npm", "run", "dev"],
       "port": 5173
     },
     {

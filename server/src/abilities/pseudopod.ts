@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { EvolutionStage, Components } from '#shared';
+import { EvolutionStage, Components, Tags } from '#shared';
 import type {
   PseudopodStrikeMessage,
   StageComponent,
@@ -122,6 +122,7 @@ function handleStrikeMode(
       return;
     if (targetEnergy.current <= 0) return;
     if (targetStage.isEvolving) return;
+    if (world.hasTag(targetEntity, Tags.GodMode)) return; // Dev cheat: untouchable
 
     const dx = targetPos.x - targetX;
     const dy = targetPos.y - targetY;

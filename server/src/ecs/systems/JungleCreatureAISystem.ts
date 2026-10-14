@@ -5,7 +5,7 @@
 // ============================================
 
 import type { Server } from 'socket.io';
-import { GAME_CONFIG, Components, distance, type World } from '#shared';
+import { GAME_CONFIG, Components, Tags, distance, type World } from '#shared';
 import type {
   PositionComponent,
   VelocityComponent,
@@ -403,6 +403,8 @@ export class JungleCreatureAISystem implements System {
     creatureComp: JungleCreatureComponent,
     deltaTime: number
   ): void {
+    if (world.hasTag(targetEntity, Tags.GodMode)) return; // Dev cheat: untouchable
+
     // Drain energy over time (per-second rate scaled by deltaTime)
     const damagePerSecond = GAME_CONFIG.JUNGLE_CREATURE_DAMAGE_RATE;
     const damage = damagePerSecond * deltaTime;

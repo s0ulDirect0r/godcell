@@ -3,9 +3,11 @@
 // ============================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Tags, Components } from '#shared';
+import { Tags, Components, EvolutionStage } from '#shared';
 import { DeathSystem } from '../DeathSystem';
 import { GravitySystem } from '../GravitySystem';
+import { PredationSystem } from '../PredationSystem';
+import { SwarmCollisionSystem } from '../SwarmCollisionSystem';
 import {
   createTestWorld,
   createTestPlayer,
@@ -13,7 +15,7 @@ import {
   clearLookups,
   SOUP_CENTER,
 } from './testUtils';
-import { requireEnergy, getDamageTracking, createObstacle } from '../../factories';
+import { requireEnergy, getDamageTracking, createObstacle, createSwarm } from '../../factories';
 
 describe('God mode', () => {
   let world: ReturnType<typeof createTestWorld>;
@@ -57,6 +59,30 @@ describe('God mode', () => {
       new DeathSystem().update(world, 1 / 60, io);
 
       expect(io.emittedEvents.some((e) => e.event === 'playerDied')).toBe(true);
+    });
+  });
+
+  describe('damage immunity', () => {
+    it('is not drained by a touching multi-cell predator', () => {
+      const prey = createGodPlayer();
+      createTestPlayer(world, { stage: EvolutionStage.MULTI_CELL, x: SOUP_CENTER.x + 10 });
+      const energy = requireEnergy(world, prey);
+      const energyBefore = energy.current;
+
+      new PredationSystem().update(world, 1 / 60, createMockIO());
+
+      expect(energy.current).toBe(energyBefore);
+    });
+
+    it('is not damaged by an overlapping swarm', () => {
+      const entity = createGodPlayer();
+      createSwarm(world, 'swarm-1', { x: SOUP_CENTER.x, y: SOUP_CENTER.y }, 47, 100);
+      const energy = requireEnergy(world, entity);
+      const energyBefore = energy.current;
+
+      new SwarmCollisionSystem().update(world, 1 / 60, createMockIO());
+
+      expect(energy.current).toBe(energyBefore);
     });
   });
 

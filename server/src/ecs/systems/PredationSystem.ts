@@ -5,7 +5,7 @@
 
 import type { Server } from 'socket.io';
 import type { Position, PlayerEngulfedMessage } from '#shared';
-import { EvolutionStage, GAME_CONFIG, type World } from '#shared';
+import { EvolutionStage, GAME_CONFIG, Tags, type World } from '#shared';
 import type { System } from './types';
 import {
   forEachPlayer,
@@ -72,6 +72,7 @@ export class PredationSystem implements System {
         if (preyStage.stage !== EvolutionStage.SINGLE_CELL) return; // Only drain Stage 1
         if (preyEnergy.current <= 0) return; // Skip dead prey
         if (preyStage.isEvolving) return; // Skip evolving prey
+        if (world.hasTag(preyEntity, Tags.GodMode)) return; // Dev cheat: untouchable
 
         const preyRadius = preyStage.radius;
         const preyPosition = { x: preyPos.x, y: preyPos.y };

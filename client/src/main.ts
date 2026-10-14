@@ -23,7 +23,7 @@ import { SpecializationModal } from './ui/SpecializationModal';
 // ============================================
 
 const urlParams = new URLSearchParams(window.location.search);
-const devMode = urlParams.has('dev') || urlParams.has('grove');
+const devMode = urlParams.has('dev') || urlParams.has('grove') || urlParams.has('god');
 const debugMode = urlParams.has('debug');
 
 // ============================================

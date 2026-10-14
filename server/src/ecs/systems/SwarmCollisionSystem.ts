@@ -63,6 +63,7 @@ export class SwarmCollisionSystem implements System {
       const stageComp = requireStage(world, entity);
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
       if (!isSoupStage(stageComp.stage)) return;
+      if (world.hasTag(entity, Tags.GodMode)) return; // Dev cheat: untouchable
       soupPlayers.push({ entity, playerId, energyComp, posComp, radius: stageComp.radius });
     });
 

@@ -72,6 +72,7 @@ export class PseudopodSystem implements System {
       const stunnedComp = world.getComponent<StunnedComponent>(entity, Components.Stunned);
       if (!isSoupStage(stageComp.stage)) return;
       if (energyComp.current <= 0 || stageComp.isEvolving) return;
+      if (world.hasTag(entity, Tags.GodMode)) return; // Dev cheat: untouchable
       playerTargets.push({
         entity,
         playerId,
