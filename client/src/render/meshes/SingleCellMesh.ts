@@ -4,6 +4,37 @@
 // ============================================
 
 import * as THREE from 'three';
+import { MeshBasicNodeMaterial, PointsNodeMaterial, type UniformNode } from 'three/webgpu';
+import {
+  abs,
+  cameraPosition,
+  dot,
+  float,
+  length,
+  mix,
+  normalize,
+  normalView,
+  positionLocal,
+  positionWorld,
+  pow,
+  smoothstep,
+  uniform,
+  vec3,
+} from 'three/tsl';
+import { PointCloud } from '../three/PointCloud';
+
+type WithUniforms<T, U> = T & { uniforms: U };
+
+/** Cytoplasm uniforms, kept under `uniforms` so callers can set `.value` like a ShaderMaterial */
+interface CytoplasmUniforms {
+  color: UniformNode<'color', THREE.Color>;
+  opacity: UniformNode<'float', number>;
+  nucleusRadius: UniformNode<'float', number>;
+  cellRadius: UniformNode<'float', number>;
+  energyRatio: UniformNode<'float', number>;
+}
+
+type CytoplasmMaterial = WithUniforms<MeshBasicNodeMaterial, CytoplasmUniforms>;
 
 // Module-level geometry cache for performance
 const geometryCache = new Map<string, THREE.BufferGeometry>();
@@ -50,71 +81,51 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
   cellGroup.add(membrane);
 
   // === CYTOPLASM (Volumetric jelly with shader) ===
-  // Custom shader creates depth-based coloring and fresnel edge glow
+  // TSL node material creates depth-based coloring and fresnel edge glow
   const nucleusRadius = radius * 0.3; // 30% of cell radius
   const cytoplasmGeometry = getGeometry(
     `sphere-cytoplasm-${radius}`,
     () => new THREE.SphereGeometry(radius * 0.95, 32, 32)
   );
 
-  const cytoplasmMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      color: { value: new THREE.Color(colorHex) },
-      opacity: { value: 0.5 },
-      nucleusRadius: { value: nucleusRadius },
-      cellRadius: { value: radius * 0.95 },
-      energyRatio: { value: 1.0 }, // 0-1, affects brightness (low energy = darker)
-    },
-    vertexShader: `
-      varying vec3 vPosition;      // Local space position (for gradient/depth)
-      varying vec3 vWorldPosition; // World space position (for fresnel)
-      varying vec3 vNormal;
+  const cytoplasmUniforms: CytoplasmUniforms = {
+    color: uniform(new THREE.Color(colorHex)),
+    opacity: uniform(0.5),
+    nucleusRadius: uniform(nucleusRadius),
+    cellRadius: uniform(radius * 0.95),
+    energyRatio: uniform(1.0), // 0-1, affects brightness (low energy = darker)
+  };
 
-      void main() {
-        vPosition = position;
-        vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-        vNormal = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 color;
-      uniform float opacity;
-      uniform float nucleusRadius;
-      uniform float cellRadius;
-      uniform float energyRatio;
+  const cytoplasmMaterial: CytoplasmMaterial = Object.assign(
+    new MeshBasicNodeMaterial({
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    }),
+    { uniforms: cytoplasmUniforms }
+  );
+  const u = cytoplasmUniforms;
 
-      varying vec3 vPosition;      // Local space (for gradient)
-      varying vec3 vWorldPosition; // World space (for fresnel)
-      varying vec3 vNormal;
+  // Distance from center for gradient (local space)
+  const dist = length(positionLocal);
+  const gradient = smoothstep(u.nucleusRadius.mul(1.5), u.cellRadius, dist);
 
-      void main() {
-        // Distance from center for gradient (use local space)
-        float dist = length(vPosition);
-        float gradient = smoothstep(nucleusRadius * 1.5, cellRadius, dist);
+  // Fresnel edge glow. Matches the original GLSL exactly: view-space normal
+  // dotted with a world-space view direction.
+  const viewDir = normalize(cameraPosition.sub(positionWorld));
+  const fresnel = pow(float(1.0).sub(abs(dot(normalView, viewDir))), 2.0);
 
-        // Fresnel effect for edge glow (use world space for proper camera-relative calculation)
-        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.0);
+  // Alpha: denser near nucleus (0.6), transparent at edges (0.2), plus fresnel rim (0.15)
+  cytoplasmMaterial.opacityNode = mix(float(0.6), float(0.2), gradient)
+    .mul(u.opacity)
+    .add(fresnel.mul(0.15));
 
-        // Alpha: denser near nucleus, transparent at edges
-        float alpha = mix(0.6, 0.2, gradient) * opacity;
-        alpha += fresnel * 0.15;
+  // Depth darkening for volumetric feel (edges up to 30% darker)
+  const depthDarken = float(1.0).sub(dist.div(u.cellRadius).mul(0.3));
 
-        // Depth darkening for volumetric feel
-        float depthDarken = 1.0 - (dist / cellRadius) * 0.3;
-
-        // energyRatio affects brightness (0 = black, 1 = full color)
-        vec3 finalColor = mix(vec3(0.0, 0.0, 0.0), color, energyRatio) * depthDarken;
-
-        gl_FragColor = vec4(finalColor, alpha);
-      }
-    `,
-    transparent: true,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    blending: THREE.NormalBlending,
-  });
+  // energyRatio affects brightness (0 = black, 1 = full color)
+  cytoplasmMaterial.colorNode = mix(vec3(0.0, 0.0, 0.0), u.color, u.energyRatio).mul(depthDarken);
 
   const cytoplasm = new THREE.Mesh(cytoplasmGeometry, cytoplasmMaterial);
   cellGroup.add(cytoplasm);
@@ -144,7 +155,7 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
   particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const particleMaterial = new THREE.PointsMaterial({
+  const particleMaterial = new PointsNodeMaterial({
     color: colorHex,
     size: 2.5,
     transparent: true,
@@ -153,7 +164,8 @@ export function createSingleCell(radius: number, colorHex: number): THREE.Group 
     blending: THREE.AdditiveBlending, // Glow effect
   });
 
-  const organelles = new THREE.Points(particleGeometry, particleMaterial);
+  // PointCloud: WebGPU has no point size, so points are drawn as sized quads
+  const organelles = new PointCloud(particleGeometry, particleMaterial);
   cellGroup.add(organelles);
 
   // === INNER NUCLEUS (Glowing core) ===
@@ -200,14 +212,14 @@ export function updateSingleCellEnergy(
   // Get cell components (membrane, cytoplasm, organelles, nucleus)
   const membrane = cellGroup.children[0] as THREE.Mesh;
   const cytoplasm = cellGroup.children[1] as THREE.Mesh;
-  const organelles = cellGroup.children[2] as THREE.Points;
+  const organelles = cellGroup.children[2] as PointCloud;
   const nucleus = cellGroup.children[3] as THREE.Mesh;
 
   if (!membrane || !cytoplasm || !organelles || !nucleus) return;
 
   const membraneMaterial = membrane.material as THREE.MeshPhysicalMaterial;
-  const cytoplasmMaterial = cytoplasm.material as THREE.ShaderMaterial;
-  const organelleMaterial = organelles.material as THREE.PointsMaterial;
+  const cytoplasmMaterial = cytoplasm.material as CytoplasmMaterial;
+  const organelleMaterial = organelles.material;
   const nucleusMaterial = nucleus.material as THREE.MeshStandardMaterial;
 
   // Nucleus fades based on energy

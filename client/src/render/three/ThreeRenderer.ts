@@ -3,11 +3,10 @@
 // ============================================
 
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { WebGPURenderer, type RenderPipeline } from 'three/webgpu';
 import type { Renderer, CameraCapabilities } from '../Renderer';
 import { GAME_CONFIG, EvolutionStage, getEntityScale } from '#shared';
-import { createComposer } from './postprocessing/composer';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { createPipeline, type PipelineResult } from './postprocessing/pipeline';
 import { disposeSingleCellCache } from '../meshes/SingleCellMesh';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { TrailSystem } from '../systems/TrailSystem';
@@ -45,12 +44,13 @@ import {
  * Three.js-based renderer with postprocessing effects
  */
 export class ThreeRenderer implements Renderer {
-  private renderer!: THREE.WebGLRenderer;
+  private renderer!: WebGPURenderer;
+  private rendererReady = false; // WebGPU backend initializes asynchronously
   private scene!: THREE.Scene;
   private container!: HTMLElement;
-  private composer!: EffectComposer;
-  private renderPass!: RenderPass; // Stored to update camera on mode switch
-  private bloomPass!: import('three/addons/postprocessing/UnrealBloomPass.js').UnrealBloomPass;
+  private pipeline!: RenderPipeline;
+  private scenePass!: PipelineResult['scenePass']; // Stored to update camera on mode switch
+  private setBloomEnabled!: PipelineResult['setBloomEnabled'];
 
   // Perf debug toggles
   private _bloomEnabled = true;
@@ -120,10 +120,17 @@ export class ThreeRenderer implements Renderer {
     this.world = world;
 
     // Create renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // WebGPU with automatic WebGL2 fallback when WebGPU is unavailable
+    this.renderer = new WebGPURenderer({ antialias: true });
+    this.renderer
+      .init()
+      .then(() => {
+        this.rendererReady = true;
+      })
+      .catch((err) => console.error('[Renderer] Failed to initialize WebGPU/WebGL backend', err));
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    // Disable autoReset so renderer.info accumulates stats across all EffectComposer passes
+    // Disable autoReset so renderer.info accumulates stats across all postprocessing passes
     // We manually reset at the start of each frame in render()
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
@@ -202,17 +209,15 @@ export class ThreeRenderer implements Renderer {
     keyLight.position.set(5, 10, 7.5);
     this.scene.add(keyLight);
 
-    // Create postprocessing composer (store passes for camera switching and debug toggles)
-    const composerResult = createComposer(
+    // Create postprocessing pipeline (store scene pass for camera switching, bloom toggle for debug)
+    const pipelineResult = createPipeline(
       this.renderer,
       this.scene,
-      this.cameraSystem.getOrthoCamera(),
-      width,
-      height
+      this.cameraSystem.getOrthoCamera()
     );
-    this.composer = composerResult.composer;
-    this.renderPass = composerResult.renderPass;
-    this.bloomPass = composerResult.bloomPass;
+    this.pipeline = pipelineResult.pipeline;
+    this.scenePass = pipelineResult.scenePass;
+    this.setBloomEnabled = pipelineResult.setBloomEnabled;
 
     // Setup event listeners for camera effects
     this.setupEventListeners();
@@ -938,8 +943,11 @@ export class ThreeRenderer implements Renderer {
       this.cameraSystem.update();
     }
 
-    // Update renderPass camera based on current mode before rendering
-    this.renderPass.camera = this.cameraSystem.getActiveCamera();
+    // Update scene pass camera based on current mode before rendering
+    this.scenePass.camera = this.cameraSystem.getActiveCamera();
+
+    // Skip drawing until the GPU backend is ready (first frame or two)
+    if (!this.rendererReady) return;
 
     // Reset renderer info before render to get accurate per-frame stats
     this.renderer.info.reset();
@@ -948,7 +956,7 @@ export class ThreeRenderer implements Renderer {
     const renderStart = performance.now();
 
     // Render scene with postprocessing
-    this.composer.render();
+    this.pipeline.render();
 
     const renderTime = performance.now() - renderStart;
 
@@ -989,7 +997,7 @@ export class ThreeRenderer implements Renderer {
       const pixels = vp.x * vp.y;
 
       console.log(
-        `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.calls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
+        `[PERF] mode=${renderMode} fps=${fps} renderMs=${avgRenderMs} | calls=${info.render.drawCalls} tris=${info.render.triangles} | meshes=${meshCount} visible=${visibleMeshes} verts=${totalVerts} | lights=${lightCount} | geo=${info.memory.geometries} tex=${info.memory.textures} | px=${pixels}`
       );
       this._perfFrameCount = 0;
       this._perfRenderTimeSum = 0;
@@ -1050,7 +1058,6 @@ export class ThreeRenderer implements Renderer {
 
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height);
-    this.composer.setSize(width, height);
     this.cameraSystem.resize(width, height);
   }
 
@@ -1062,7 +1069,7 @@ export class ThreeRenderer implements Renderer {
 
   toggleBloom(): boolean {
     this._bloomEnabled = !this._bloomEnabled;
-    this.bloomPass.enabled = this._bloomEnabled;
+    this.setBloomEnabled(this._bloomEnabled);
     console.log(`[PERF TOGGLE] Bloom: ${this._bloomEnabled ? 'ON' : 'OFF'}`);
     return this._bloomEnabled;
   }
@@ -1267,8 +1274,8 @@ export class ThreeRenderer implements Renderer {
     // Dispose extracted module caches
     disposeSingleCellCache();
 
-    // Dispose composer
-    this.composer.dispose();
+    // Dispose postprocessing pipeline
+    this.pipeline.dispose();
 
     // Dispose renderer
     this.renderer.dispose();

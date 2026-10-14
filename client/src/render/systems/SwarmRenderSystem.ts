@@ -5,6 +5,8 @@
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 import {
   createSwarm,
   updateSwarmState,
@@ -66,7 +68,7 @@ export class SwarmRenderSystem {
   private swarmAuras: Map<string, THREE.Mesh> = new Map();
 
   // Aura orbiting particles (count grows with energy)
-  private swarmAuraParticles: Map<string, THREE.Points> = new Map();
+  private swarmAuraParticles: Map<string, PointCloud> = new Map();
 
   // Cache swarm base size for aura scaling
   private swarmBaseSizes: Map<string, number> = new Map();
@@ -207,7 +209,7 @@ export class SwarmRenderSystem {
         const auraParticles = this.swarmAuraParticles.get(id);
         if (auraParticles) {
           this.scene.remove(auraParticles);
-          auraParticles.geometry.dispose();
+          auraParticles.pointGeometry.dispose();
           (auraParticles.material as THREE.Material).dispose();
           this.swarmAuraParticles.delete(id);
         }
@@ -346,7 +348,7 @@ export class SwarmRenderSystem {
 
     this.swarmAuraParticles.forEach((particles) => {
       this.scene.remove(particles);
-      particles.geometry.dispose();
+      particles.pointGeometry.dispose();
       (particles.material as THREE.Material).dispose();
     });
     this.swarmAuraParticles.clear();
@@ -364,10 +366,10 @@ export class SwarmRenderSystem {
    */
   private setGroupOpacity(group: THREE.Group, opacity: number): void {
     group.children.forEach((child) => {
-      if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
+      if (child instanceof THREE.Mesh || child instanceof PointCloud) {
         const material = child.material as THREE.Material;
         if ('opacity' in material) {
-          (material as THREE.MeshPhysicalMaterial | THREE.PointsMaterial).opacity = opacity;
+          (material as THREE.MeshPhysicalMaterial | PointsNodeMaterial).opacity = opacity;
         }
       }
     });
@@ -396,7 +398,7 @@ export class SwarmRenderSystem {
     if (Math.abs(targetCount - currentCount) < 20) return;
 
     // Get the internal storm mesh (second child of group)
-    const internalStorm = group.children[1] as THREE.Points;
+    const internalStorm = group.children[1] as PointCloud;
     if (!internalStorm) return;
 
     // Create new particle data
@@ -447,11 +449,11 @@ export class SwarmRenderSystem {
     }
 
     // Update geometry
-    internalStorm.geometry.dispose();
+    internalStorm.pointGeometry.dispose();
     const newGeometry = new THREE.BufferGeometry();
     newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     newGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    internalStorm.geometry = newGeometry;
+    internalStorm.pointGeometry = newGeometry;
 
     // Update particle data
     this.swarmInternalParticles.set(swarmId, newParticles);
@@ -487,7 +489,7 @@ export class SwarmRenderSystem {
       const existingParticles = this.swarmAuraParticles.get(swarmId);
       if (existingParticles) {
         this.scene.remove(existingParticles);
-        existingParticles.geometry.dispose();
+        existingParticles.pointGeometry.dispose();
         (existingParticles.material as THREE.Material).dispose();
         this.swarmAuraParticles.delete(swarmId);
       }
@@ -572,7 +574,7 @@ export class SwarmRenderSystem {
       }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const material = new THREE.PointsMaterial({
+      const material = new PointsNodeMaterial({
         color: 0xff8800, // Bright orange
         size: 4 + intensityFactor * 4, // 4-8 based on intensity
         transparent: true,
@@ -581,15 +583,15 @@ export class SwarmRenderSystem {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      auraParticles = new THREE.Points(geometry, material);
+      auraParticles = new PointCloud(geometry, material);
       this.scene.add(auraParticles);
       this.swarmAuraParticles.set(swarmId, auraParticles);
     } else {
       // Check if particle count changed significantly (recreate if so)
-      const currentCount = auraParticles.geometry.attributes.position.count;
+      const currentCount = auraParticles.pointGeometry.attributes.position.count;
       if (Math.abs(currentCount - particleCount) > 2) {
         // Recreate geometry with new count
-        auraParticles.geometry.dispose();
+        auraParticles.pointGeometry.dispose();
         const positions = new Float32Array(particleCount * 3);
         for (let i = 0; i < particleCount; i++) {
           const angle = (i / particleCount) * Math.PI * 2 + time;
@@ -599,21 +601,21 @@ export class SwarmRenderSystem {
         }
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        auraParticles.geometry = geometry;
+        auraParticles.pointGeometry = geometry;
       } else {
         // Update positions for orbital animation
-        const positions = auraParticles.geometry.attributes.position.array as Float32Array;
-        const count = auraParticles.geometry.attributes.position.count;
+        const positions = auraParticles.pointGeometry.attributes.position.array as Float32Array;
+        const count = auraParticles.pointGeometry.attributes.position.count;
         for (let i = 0; i < count; i++) {
           const angle = (i / count) * Math.PI * 2 + time * 0.5; // Slow orbit
           positions[i * 3] = Math.cos(angle) * orbitRadius;
           positions[i * 3 + 1] = 0;
           positions[i * 3 + 2] = Math.sin(angle) * orbitRadius;
         }
-        auraParticles.geometry.attributes.position.needsUpdate = true;
+        auraParticles.pointGeometry.attributes.position.needsUpdate = true;
       }
       // Update material
-      const material = auraParticles.material as THREE.PointsMaterial;
+      const material = auraParticles.material as PointsNodeMaterial;
       material.opacity = auraOpacity;
       material.size = 4 + intensityFactor * 4;
     }

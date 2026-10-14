@@ -5,7 +5,34 @@
 // ============================================
 
 import * as THREE from 'three';
+import {
+  MeshBasicNodeMaterial,
+  PointsNodeMaterial,
+  type Node,
+  type UniformNode,
+} from 'three/webgpu';
+import {
+  abs,
+  clamp,
+  dot,
+  float,
+  fract,
+  Fn,
+  length,
+  mix,
+  normalize,
+  normalView,
+  positionView,
+  pow,
+  sin,
+  smoothstep,
+  uniform,
+  uv,
+  vec3,
+  vec4,
+} from 'three/tsl';
 import { GAME_CONFIG } from '#shared';
+import { PointCloud } from '../three/PointCloud';
 
 // ============================================
 // Visual Parameters - TUNE THESE
@@ -108,98 +135,132 @@ const ACCRETION_DISK = {
 };
 
 // ============================================
-// Shaders
+// Event Horizon Shader (TSL)
 // ============================================
 
-/** Vertex shader for event horizon distortion effect */
-const EVENT_HORIZON_VERTEX = `
-varying vec2 vUv;
-varying vec3 vNormal;
-varying vec3 vViewPosition;
+type WithUniforms<T, U> = T & { uniforms: U };
 
-void main() {
-  vUv = uv;
-  vNormal = normalize(normalMatrix * normal);
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  vViewPosition = -mvPosition.xyz;
-  gl_Position = projectionMatrix * mvPosition;
-}
-`;
-
-/** Fragment shader for event horizon distortion effect */
-const EVENT_HORIZON_FRAGMENT = `
-uniform float uTime;
-uniform vec3 uEdgeColor;
-uniform vec3 uInnerColor;
-uniform float uFresnelPower;
-uniform float uFresnelIntensity;
-uniform float uRippleSpeed;
-uniform float uRippleFrequency;
-uniform float uRippleAmplitude;
-uniform float uBaseOpacity;
-uniform float uEdgeOpacity;
-uniform float uColorCycleSpeed;
-
-varying vec2 vUv;
-varying vec3 vNormal;
-varying vec3 vViewPosition;
-
-// HSV to RGB conversion for smooth color cycling
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+/** Event horizon uniforms, kept under `uniforms` so callers can set `.value` like a ShaderMaterial */
+interface HorizonUniforms {
+  uTime: UniformNode<'float', number>;
+  // uEdgeColor/uInnerColor are unused by the shader (colors are HSV-cycled); kept for parity
+  uEdgeColor: UniformNode<'vec3', THREE.Vector3>;
+  uInnerColor: UniformNode<'vec3', THREE.Vector3>;
+  uFresnelPower: UniformNode<'float', number>;
+  uFresnelIntensity: UniformNode<'float', number>;
+  uRippleSpeed: UniformNode<'float', number>;
+  uRippleFrequency: UniformNode<'float', number>;
+  uRippleAmplitude: UniformNode<'float', number>;
+  uBaseOpacity: UniformNode<'float', number>;
+  uEdgeOpacity: UniformNode<'float', number>;
+  uColorCycleSpeed: UniformNode<'float', number>;
 }
 
-void main() {
+type HorizonMaterial = WithUniforms<MeshBasicNodeMaterial, HorizonUniforms>;
+
+/** Singularity core: unlit "void" whose output is allowed to go negative (see createGravityDistortion) */
+type CoreMaterial = WithUniforms<
+  MeshBasicNodeMaterial,
+  { emissiveIntensity: UniformNode<'float', number> }
+>;
+
+/** HSV to RGB conversion for smooth color cycling (same constants as the GLSL original) */
+const hsv2rgb = Fn(([c]: [Node<'vec3'>]) => {
+  const K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  const p = abs(fract(c.xxx.add(K.xyz)).mul(6.0).sub(K.www));
+  return c.z.mul(mix(K.xxx, clamp(p.sub(K.xxx), 0.0, 1.0), c.y));
+});
+
+/**
+ * Create the event horizon material: fresnel edge glow, animated concentric
+ * ripples, HSV color cycling, alpha fading out at the center.
+ */
+function createEventHorizonMaterial(): HorizonMaterial {
+  const u: HorizonUniforms = {
+    uTime: uniform(0.0),
+    uEdgeColor: uniform(
+      new THREE.Vector3(
+        EVENT_HORIZON.edgeColor.r,
+        EVENT_HORIZON.edgeColor.g,
+        EVENT_HORIZON.edgeColor.b
+      )
+    ),
+    uInnerColor: uniform(
+      new THREE.Vector3(
+        EVENT_HORIZON.innerColor.r,
+        EVENT_HORIZON.innerColor.g,
+        EVENT_HORIZON.innerColor.b
+      )
+    ),
+    uFresnelPower: uniform(EVENT_HORIZON.fresnelPower),
+    uFresnelIntensity: uniform(EVENT_HORIZON.fresnelIntensity),
+    uRippleSpeed: uniform(EVENT_HORIZON.rippleSpeed),
+    uRippleFrequency: uniform(EVENT_HORIZON.rippleFrequency),
+    uRippleAmplitude: uniform(EVENT_HORIZON.rippleAmplitude),
+    uBaseOpacity: uniform(EVENT_HORIZON.baseOpacity),
+    uEdgeOpacity: uniform(EVENT_HORIZON.edgeOpacity),
+    uColorCycleSpeed: uniform(EVENT_HORIZON.colorCycleSpeed),
+  };
+
+  const material: HorizonMaterial = Object.assign(
+    new MeshBasicNodeMaterial({
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending, // Glow effect
+    }),
+    { uniforms: u }
+  );
+
   // Fresnel effect - glow at edges where surface is perpendicular to view
-  vec3 viewDir = normalize(vViewPosition);
-  float fresnel = 1.0 - abs(dot(viewDir, vNormal));
-  fresnel = pow(fresnel, uFresnelPower) * uFresnelIntensity;
+  // (positionView negated = vector from surface to camera, as vViewPosition was)
+  const viewDir = normalize(positionView.negate());
+  const fresnel = pow(float(1.0).sub(abs(dot(viewDir, normalView))), u.uFresnelPower).mul(
+    u.uFresnelIntensity
+  );
 
-  // Radial distance from center (0 at center, 1 at edge)
-  vec2 centered = vUv - 0.5;
-  float dist = length(centered) * 2.0;
+  // Radial distance from center in UV space (0 at center, 1 at edge)
+  const centered = uv().sub(0.5);
+  const dist = length(centered).mul(2.0);
 
   // Animated concentric ripples
-  float ripplePhase = dist * uRippleFrequency - uTime * uRippleSpeed;
-  float ripple = sin(ripplePhase * 3.14159 * 2.0) * 0.5 + 0.5;
+  const ripplePhase = dist.mul(u.uRippleFrequency).sub(u.uTime.mul(u.uRippleSpeed));
+  const ripple1 = sin(ripplePhase.mul(3.14159 * 2.0))
+    .mul(0.5)
+    .add(0.5);
 
-  // Secondary ripple at different frequency for complexity
-  float ripple2 = sin(ripplePhase * 3.14159 * 2.0 * 1.7 + 1.0) * 0.5 + 0.5;
-  ripple = mix(ripple, ripple2, 0.3);
+  // Secondary ripple at different frequency for complexity (30% blend)
+  const ripple2 = sin(ripplePhase.mul(3.14159 * 2.0 * 1.7).add(1.0))
+    .mul(0.5)
+    .add(0.5);
+  const ripple = mix(ripple1, ripple2, 0.3);
 
-  // Distortion effect - shift the color based on ripple
-  float distortion = ripple * uRippleAmplitude;
+  // Distortion effect - shift the color gradient based on ripple
+  const distortion = ripple.mul(u.uRippleAmplitude);
 
   // === COLOR CYCLING ===
-  // Shift hue over time (magenta -> cyan -> magenta cycle)
-  float hueShift = uTime * uColorCycleSpeed;
-  // Base hue is ~0.83 (magenta), cycle through cyan (~0.5) and back
-  float baseHue = 0.83 + sin(hueShift * 3.14159 * 2.0) * 0.17;
-  vec3 cycledEdgeColor = hsv2rgb(vec3(baseHue, 0.9, 1.0));
-  vec3 cycledInnerColor = hsv2rgb(vec3(baseHue, 0.8, 0.15));
+  // Base hue is ~0.83 (magenta), swings +/-0.17 through cyan (~0.5) and back
+  const hueShift = u.uTime.mul(u.uColorCycleSpeed);
+  const baseHue = float(0.83).add(sin(hueShift.mul(3.14159 * 2.0)).mul(0.17));
+  const cycledEdgeColor = hsv2rgb(vec3(baseHue, 0.9, 1.0)); // Saturated, full brightness
+  const cycledInnerColor = hsv2rgb(vec3(baseHue, 0.8, 0.15)); // Dark center (value 0.15)
 
   // Color gradient from inner to edge, modulated by ripple
-  float colorMix = smoothstep(0.0, 1.0, dist + distortion * 0.5);
-  vec3 baseColor = mix(cycledInnerColor, cycledEdgeColor, colorMix);
+  const colorMix = smoothstep(0.0, 1.0, dist.add(distortion.mul(0.5)));
+  const baseColor = mix(cycledInnerColor, cycledEdgeColor, colorMix);
 
-  // Add ripple brightness variation
-  vec3 color = baseColor * (1.0 + ripple * 0.3);
+  // Ripple brightness variation (up to +30%) plus fresnel edge glow (also color-cycled)
+  material.colorNode = baseColor.mul(ripple.mul(0.3).add(1.0)).add(cycledEdgeColor.mul(fresnel));
 
-  // Add fresnel edge glow (also color-cycled)
-  color += cycledEdgeColor * fresnel;
+  // Opacity: more opaque at edges (fresnel) and where ripples are bright,
+  // faded out at the very center for the "void" look
+  material.opacityNode = mix(u.uBaseOpacity, u.uEdgeOpacity, fresnel)
+    .add(ripple.mul(0.1).mul(float(1.0).sub(dist)))
+    .mul(smoothstep(0.0, 0.3, dist));
 
-  // Opacity: more opaque at edges (fresnel) and where ripples are bright
-  float alpha = mix(uBaseOpacity, uEdgeOpacity, fresnel);
-  alpha += ripple * 0.1 * (1.0 - dist); // Subtle ripple in opacity
-
-  // Fade out at very center for the "void" look
-  alpha *= smoothstep(0.0, 0.3, dist);
-
-  gl_FragColor = vec4(color, alpha);
+  return material;
 }
-`;
 
 // ============================================
 // Types
@@ -295,40 +356,7 @@ export function createGravityDistortion(
     64, // Higher segments for smoother distortion
     64
   );
-  const horizonMaterial = new THREE.ShaderMaterial({
-    vertexShader: EVENT_HORIZON_VERTEX,
-    fragmentShader: EVENT_HORIZON_FRAGMENT,
-    uniforms: {
-      uTime: { value: 0.0 },
-      uEdgeColor: {
-        value: new THREE.Vector3(
-          EVENT_HORIZON.edgeColor.r,
-          EVENT_HORIZON.edgeColor.g,
-          EVENT_HORIZON.edgeColor.b
-        ),
-      },
-      uInnerColor: {
-        value: new THREE.Vector3(
-          EVENT_HORIZON.innerColor.r,
-          EVENT_HORIZON.innerColor.g,
-          EVENT_HORIZON.innerColor.b
-        ),
-      },
-      uFresnelPower: { value: EVENT_HORIZON.fresnelPower },
-      uFresnelIntensity: { value: EVENT_HORIZON.fresnelIntensity },
-      uRippleSpeed: { value: EVENT_HORIZON.rippleSpeed },
-      uRippleFrequency: { value: EVENT_HORIZON.rippleFrequency },
-      uRippleAmplitude: { value: EVENT_HORIZON.rippleAmplitude },
-      uBaseOpacity: { value: EVENT_HORIZON.baseOpacity },
-      uEdgeOpacity: { value: EVENT_HORIZON.edgeOpacity },
-      uColorCycleSpeed: { value: EVENT_HORIZON.colorCycleSpeed },
-    },
-    transparent: true,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    depthTest: false,
-    blending: THREE.AdditiveBlending, // Glow effect
-  });
+  const horizonMaterial = createEventHorizonMaterial();
   const horizonSphere = new THREE.Mesh(horizonGeometry, horizonMaterial);
   horizonSphere.position.z = 0.05;
   horizonSphere.userData.isEventHorizon = true;
@@ -386,7 +414,7 @@ export function createGravityDistortion(
   vortexGeometry.setAttribute('position', new THREE.BufferAttribute(vortexPositions, 3));
   vortexGeometry.setAttribute('size', new THREE.BufferAttribute(vortexSizes, 1));
 
-  const vortexMaterial = new THREE.PointsMaterial({
+  const vortexMaterial = new PointsNodeMaterial({
     color: VORTEX.color,
     size: VORTEX.size,
     transparent: true,
@@ -400,7 +428,8 @@ export function createGravityDistortion(
     VORTEX.minSpeedMultiplier +
     Math.random() * (VORTEX.maxSpeedMultiplier - VORTEX.minSpeedMultiplier);
 
-  const vortexParticles = new THREE.Points(vortexGeometry, vortexMaterial);
+  // PointCloud: WebGPU has no point size, so points are drawn as sized quads
+  const vortexParticles = new PointCloud(vortexGeometry, vortexMaterial);
   vortexParticles.position.z = 0.06;
   vortexParticles.userData.isVortex = true;
   vortexParticles.userData.vortexSpeed = vortexSpeed;
@@ -424,14 +453,22 @@ export function createGravityDistortion(
 
   // === LAYER 5: SINGULARITY CORE ===
   const coreGeometry = new THREE.SphereGeometry(GAME_CONFIG.OBSTACLE_CORE_RADIUS, 32, 32);
-  const coreMaterial = new THREE.MeshStandardMaterial({
-    color: SINGULARITY_CORE.baseColor,
-    emissive: SINGULARITY_CORE.emissive,
-    emissiveIntensity: SINGULARITY_CORE.emissiveIntensity,
-    roughness: SINGULARITY_CORE.roughness,
-    depthWrite: false,
-    depthTest: true,
-  });
+  // The void works by writing NEGATIVE color into the float scene target, so the
+  // additive glow layers drawn over it cancel out (magenta glow on negative magenta
+  // leaves a dark disc; only the cyan ring's green survives). Node materials clamp
+  // output to >= 0, so write base + emissive * intensity through outputNode, which
+  // bypasses the clamp. Lighting on the near-black base color was negligible.
+  const coreIntensity = uniform(SINGULARITY_CORE.emissiveIntensity);
+  const coreMaterial: CoreMaterial = Object.assign(
+    new MeshBasicNodeMaterial({ depthWrite: false, depthTest: true }),
+    { uniforms: { emissiveIntensity: coreIntensity } }
+  );
+  const base = new THREE.Color(SINGULARITY_CORE.baseColor); // hex -> linear, as materials do
+  const emissive = new THREE.Color(SINGULARITY_CORE.emissive);
+  const coreColor = vec3(base.r, base.g, base.b).add(
+    vec3(emissive.r, emissive.g, emissive.b).mul(coreIntensity)
+  );
+  coreMaterial.outputNode = vec4(coreColor, 1);
   const coreSphere = new THREE.Mesh(coreGeometry, coreMaterial);
   coreSphere.position.z = 0.1;
   coreSphere.userData.isSingularityCore = true;
@@ -449,6 +486,10 @@ export function createGravityDistortion(
   });
   const sparkSphere = new THREE.Mesh(sparkGeometry, sparkMaterial);
   sparkSphere.position.z = 0.12; // Slightly in front of core
+  // The spark sits inside the core sphere, which doesn't write depth, so it only
+  // shows if drawn after the core. WebGPU sorts opaque objects by depth (not
+  // material creation order like WebGL), so force the order.
+  sparkSphere.renderOrder = 1;
   sparkSphere.userData.isInnerSpark = true;
   group.add(sparkSphere);
 
@@ -500,7 +541,7 @@ export function createGravityDistortion(
   particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const particleMaterial = new THREE.PointsMaterial({
+  const particleMaterial = new PointsNodeMaterial({
     size: ACCRETION_DISK.size,
     sizeAttenuation: false,
     transparent: true,
@@ -510,7 +551,7 @@ export function createGravityDistortion(
     depthWrite: false,
   });
 
-  const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+  const particleSystem = new PointCloud(particleGeometry, particleMaterial);
   particleSystem.position.z = 0;
   group.add(particleSystem);
 
@@ -554,7 +595,7 @@ export function updateGravityDistortionAnimation(
   // === EVENT HORIZON DISTORTION SHADER ===
   const horizonSphere = group.children[2] as THREE.Mesh;
   if (horizonSphere?.userData.isEventHorizon) {
-    const horizonMaterial = horizonSphere.material as THREE.ShaderMaterial;
+    const horizonMaterial = horizonSphere.material as HorizonMaterial;
     if (horizonMaterial.uniforms?.uTime) {
       // Update time uniform for ripple animation (add phase offset for variety)
       horizonMaterial.uniforms.uTime.value = time + pulsePhase;
@@ -623,7 +664,7 @@ export function updateGravityDistortionAnimation(
 
   // === VORTEX ROTATION ===
   // Indices shifted by 3 due to energy bands (now at 6, 7)
-  const vortexParticles = group.children[6] as THREE.Points;
+  const vortexParticles = group.children[6] as PointCloud;
   const vortexLine = group.children[7] as THREE.Line;
 
   if (vortexParticles?.userData.isVortex) {
@@ -639,8 +680,8 @@ export function updateGravityDistortionAnimation(
   // Index shifted (now at 8)
   const coreSphere = group.children[8] as THREE.Mesh;
   if (coreSphere?.userData.isSingularityCore) {
-    const coreMaterial = coreSphere.material as THREE.MeshStandardMaterial;
-    coreMaterial.emissiveIntensity =
+    const coreMaterial = coreSphere.material as CoreMaterial;
+    coreMaterial.uniforms.emissiveIntensity.value =
       SINGULARITY_CORE.emissiveIntensity +
       Math.sin(time * SINGULARITY_CORE.pulseSpeed + pulsePhase) * SINGULARITY_CORE.emissiveRange;
   }
@@ -664,11 +705,11 @@ export function updateGravityDistortionAnimation(
 
   // === ACCRETION DISK PARTICLES ===
   // Index shifted (now at 10)
-  const particleSystem = group.children[10] as THREE.Points;
-  if (particleSystem && particleData) {
-    const positions = particleSystem.geometry.attributes.position.array as Float32Array;
-    const colors = particleSystem.geometry.attributes.color.array as Float32Array;
-    const sizes = particleSystem.geometry.attributes.size.array as Float32Array;
+  const particleSystem = group.children[10];
+  if (particleSystem instanceof PointCloud && particleData) {
+    const positions = particleSystem.pointGeometry.attributes.position.array as Float32Array;
+    const colors = particleSystem.pointGeometry.attributes.color.array as Float32Array;
+    const sizes = particleSystem.pointGeometry.attributes.size.array as Float32Array;
 
     for (let i = 0; i < particleData.length; i++) {
       const p = particleData[i];
@@ -753,9 +794,9 @@ export function updateGravityDistortionAnimation(
       positions[i * 3 + 2] = p.z;
     }
 
-    particleSystem.geometry.attributes.position.needsUpdate = true;
-    particleSystem.geometry.attributes.color.needsUpdate = true;
-    particleSystem.geometry.attributes.size.needsUpdate = true;
+    particleSystem.pointGeometry.attributes.position.needsUpdate = true;
+    particleSystem.pointGeometry.attributes.color.needsUpdate = true;
+    particleSystem.pointGeometry.attributes.size.needsUpdate = true;
   }
 }
 
@@ -768,11 +809,11 @@ export function updateGravityDistortionAnimation(
  */
 export function disposeGravityDistortion(group: THREE.Group): void {
   group.traverse((child) => {
-    if (
-      child instanceof THREE.Mesh ||
-      child instanceof THREE.Points ||
-      child instanceof THREE.Line
-    ) {
+    if (child instanceof PointCloud) {
+      // Dispose the point data only; the sprite quad geometry is shared by all sprites
+      child.pointGeometry.dispose();
+      child.material.dispose();
+    } else if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
       child.geometry.dispose();
       if (Array.isArray(child.material)) {
         child.material.forEach((m) => m.dispose());

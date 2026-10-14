@@ -6,6 +6,8 @@
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 
 /**
  * Configuration for the entropy serpent
@@ -145,7 +147,7 @@ function createSwarmSegment(segRadius: number, bodyColor: number): THREE.Group {
   const particleGeo = new THREE.BufferGeometry();
   particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-  const particleMat = new THREE.PointsMaterial({
+  const particleMat = new PointsNodeMaterial({
     color: 0xffaa00,
     size: 1.5,
     transparent: true,
@@ -155,7 +157,7 @@ function createSwarmSegment(segRadius: number, bodyColor: number): THREE.Group {
     depthWrite: false,
   });
 
-  const particles = new THREE.Points(particleGeo, particleMat);
+  const particles = new PointCloud(particleGeo, particleMat);
   particles.name = 'particles';
   seg.add(particles);
 
@@ -388,11 +390,11 @@ export function updateEntropySerpentAnimation(
 
   // === INTERNAL PARTICLE STORM ===
   bodySegments.forEach((seg, segIndex) => {
-    const particles = seg.children.find((c) => c.name === 'particles') as THREE.Points | undefined;
+    const particles = seg.children.find((c) => c.name === 'particles') as PointCloud | undefined;
     if (!particles) return;
 
     const particleData = animState.segmentParticles[segIndex];
-    const positions = particles.geometry.attributes.position.array as Float32Array;
+    const positions = particles.pointGeometry.attributes.position.array as Float32Array;
     const segRadius = seg.userData.segRadius;
 
     for (let i = 0; i < particleData.length; i++) {
@@ -438,7 +440,7 @@ export function updateEntropySerpentAnimation(
       positions[i * 3 + 2] = p.z;
     }
 
-    particles.geometry.attributes.position.needsUpdate = true;
+    particles.pointGeometry.attributes.position.needsUpdate = true;
   });
 
   // === ARM SWAY & CLAW SWIPE ===
@@ -525,8 +527,8 @@ export function updateEntropySerpentState(
       }
     }
 
-    if (child instanceof THREE.Points) {
-      const mat = child.material as THREE.PointsMaterial;
+    if (child instanceof PointCloud) {
+      const mat = child.material as PointsNodeMaterial;
       // Shift particle color toward red in chase/attack
       const particleColor = state === 'chase' || state === 'attack' ? 0xff6600 : 0xffaa00;
       mat.color.setHex(particleColor);
@@ -543,8 +545,8 @@ export function updateEntropySerpentState(
  */
 export function disposeEntropySerpent(group: THREE.Group): void {
   group.traverse((child) => {
-    if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-      child.geometry.dispose();
+    if (child instanceof THREE.Mesh || child instanceof PointCloud) {
+      (child instanceof PointCloud ? child.pointGeometry : child.geometry).dispose();
       if (Array.isArray(child.material)) {
         child.material.forEach((m) => m.dispose());
       } else {

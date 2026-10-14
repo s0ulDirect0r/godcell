@@ -7,6 +7,8 @@ import { setCreatureSpecialization } from '../meshes/AuthoredCreature';
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 import type { Player, EvolutionStage, DamageSource } from '#shared';
 import { GAME_CONFIG, EvolutionStage as EvolutionStageEnum } from '#shared';
 import {
@@ -1075,8 +1077,8 @@ export class PlayerRenderSystem {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (material as any).uniforms.opacity.value = opacity;
         }
-      } else if (child instanceof THREE.Points) {
-        const material = child.material as THREE.PointsMaterial;
+      } else if (child instanceof PointCloud) {
+        const material = child.material as PointsNodeMaterial;
         material.opacity = opacity;
       } else if (child instanceof THREE.Group) {
         this.setGroupOpacity(child, opacity);

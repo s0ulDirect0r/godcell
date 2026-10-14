@@ -6,6 +6,8 @@
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 
 // ============================================
 // VISUAL PARAMETERS
@@ -117,7 +119,7 @@ export function createSwarm(
   internalGeometry.setAttribute('position', new THREE.BufferAttribute(internalPositions, 3));
   internalGeometry.setAttribute('size', new THREE.BufferAttribute(internalSizes, 1));
 
-  const internalMaterial = new THREE.PointsMaterial({
+  const internalMaterial = new PointsNodeMaterial({
     color: 0xffaa00, // Bright orange/yellow
     size: 2,
     transparent: true,
@@ -127,7 +129,7 @@ export function createSwarm(
     depthWrite: false,
   });
 
-  const internalStorm = new THREE.Points(internalGeometry, internalMaterial);
+  const internalStorm = new PointCloud(internalGeometry, internalMaterial);
   group.add(internalStorm);
 
   // === ORBITING PARTICLES (Keep existing system but reduce count) ===
@@ -153,7 +155,7 @@ export function createSwarm(
 
   orbitingGeometry.setAttribute('position', new THREE.BufferAttribute(orbitingPositions, 3));
 
-  const orbitingMaterial = new THREE.PointsMaterial({
+  const orbitingMaterial = new PointsNodeMaterial({
     color: 0xff0088,
     size: 8, // Larger particles for orbiting
     transparent: true,
@@ -162,7 +164,7 @@ export function createSwarm(
     depthWrite: false,
   });
 
-  const orbitingParticles = new THREE.Points(orbitingGeometry, orbitingMaterial);
+  const orbitingParticles = new PointCloud(orbitingGeometry, orbitingMaterial);
   group.add(orbitingParticles);
 
   // XZ plane: X=game X, Y=height, Z=-game Y
@@ -189,10 +191,10 @@ export function createSwarm(
 export function updateSwarmState(group: THREE.Group, state: string, isDisabled: boolean): void {
   const outerSphere = group.children[0] as THREE.Mesh;
   const outerMaterial = outerSphere.material as THREE.MeshPhysicalMaterial;
-  const internalStorm = group.children[1] as THREE.Points;
-  const internalMaterial = internalStorm.material as THREE.PointsMaterial;
-  const orbitingParticles = group.children[2] as THREE.Points;
-  const orbitingMaterial = orbitingParticles.material as THREE.PointsMaterial;
+  const internalStorm = group.children[1] as PointCloud;
+  const internalMaterial = internalStorm.material as PointsNodeMaterial;
+  const orbitingParticles = group.children[2] as PointCloud;
+  const orbitingMaterial = orbitingParticles.material as PointsNodeMaterial;
 
   if (isDisabled) {
     // Disabled: gray/static appearance (paralyzed)
@@ -296,9 +298,9 @@ export function updateSwarmAnimation(
     Math.sin(time * 4 * (1 + energyRatio * 0.5) + pulsePhase) * flickerAmount;
 
   // === INTERNAL PARTICLE STORM ===
-  const internalStorm = group.children[1] as THREE.Points;
+  const internalStorm = group.children[1] as PointCloud;
   if (internalStorm && internalParticles) {
-    const positions = internalStorm.geometry.attributes.position.array as Float32Array;
+    const positions = internalStorm.pointGeometry.attributes.position.array as Float32Array;
 
     // Get swarm size from outer sphere geometry
     const swarmSize = (outerSphere.geometry as THREE.SphereGeometry).parameters.radius;
@@ -362,13 +364,13 @@ export function updateSwarmAnimation(
     }
 
     // Mark positions as needing update
-    internalStorm.geometry.attributes.position.needsUpdate = true;
+    internalStorm.pointGeometry.attributes.position.needsUpdate = true;
   }
 
   // === ORBITING PARTICLES ===
-  const orbitingParticlesMesh = group.children[2] as THREE.Points;
+  const orbitingParticlesMesh = group.children[2] as PointCloud;
   if (orbitingParticlesMesh && orbitingParticles) {
-    const positions = orbitingParticlesMesh.geometry.attributes.position.array as Float32Array;
+    const positions = orbitingParticlesMesh.pointGeometry.attributes.position.array as Float32Array;
 
     // Update each orbiting particle position based on rotation
     for (let i = 0; i < orbitingParticles.length; i++) {
@@ -386,7 +388,7 @@ export function updateSwarmAnimation(
     }
 
     // Mark positions as needing update
-    orbitingParticlesMesh.geometry.attributes.position.needsUpdate = true;
+    orbitingParticlesMesh.pointGeometry.attributes.position.needsUpdate = true;
   }
 }
 
@@ -397,8 +399,8 @@ export function updateSwarmAnimation(
  */
 export function disposeSwarm(group: THREE.Group): void {
   group.children.forEach((child) => {
-    if (child instanceof THREE.Mesh || child instanceof THREE.Points) {
-      child.geometry.dispose();
+    if (child instanceof THREE.Mesh || child instanceof PointCloud) {
+      (child instanceof PointCloud ? child.pointGeometry : child.geometry).dispose();
       (child.material as THREE.Material).dispose();
     }
   });

@@ -4,12 +4,14 @@
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 
 /**
  * Animation data for death/hit particles
  */
 export interface DeathAnimation {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }>;
   startTime: number;
   duration: number;
@@ -19,7 +21,7 @@ export interface DeathAnimation {
  * Animation data for evolution particles (spiral orbit)
  */
 export interface EvolutionAnimation {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{
     angle: number;
     radius: number;
@@ -37,7 +39,7 @@ export interface EvolutionAnimation {
  * Animation data for EMP pulse effect
  */
 export interface EMPEffect {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{
     angle: number;
     radius: number;
@@ -54,7 +56,7 @@ export interface EMPEffect {
  * Animation data for swarm death explosion (3D burst)
  */
 export interface SwarmDeathAnimation {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{
     x: number;
     y: number;
@@ -112,7 +114,7 @@ export function spawnDeathParticles(
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: colorHex,
     size: 4,
     transparent: true,
@@ -120,7 +122,7 @@ export function spawnDeathParticles(
     sizeAttenuation: false,
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -171,7 +173,7 @@ export function spawnHitSparks(scene: THREE.Scene, x: number, y: number): DeathA
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: 0xff0000, // Red color for damage indication
     size: 3,
     transparent: true,
@@ -179,7 +181,7 @@ export function spawnHitSparks(scene: THREE.Scene, x: number, y: number): DeathA
     sizeAttenuation: false,
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -236,7 +238,7 @@ export function spawnEvolutionParticles(
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: colorHex,
     size: 3,
     transparent: true,
@@ -245,7 +247,7 @@ export function spawnEvolutionParticles(
     blending: THREE.AdditiveBlending, // Additive blending for energy feel
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -295,7 +297,7 @@ export function spawnEMPPulse(scene: THREE.Scene, x: number, y: number): EMPEffe
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: 0x66ccff, // Blue-white electromagnetic color
     size: 4,
     transparent: true,
@@ -304,7 +306,7 @@ export function spawnEMPPulse(scene: THREE.Scene, x: number, y: number): EMPEffe
     blending: THREE.AdditiveBlending, // Additive blending for energy pulse
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -323,7 +325,7 @@ export function spawnEMPPulse(scene: THREE.Scene, x: number, y: number): EMPEffe
 export interface SpawnAnimation {
   entityId: string;
   entityType: 'player' | 'nutrient' | 'swarm';
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{ x: number; y: number; vx: number; vy: number; life: number }>;
   startTime: number;
   duration: number;
@@ -389,7 +391,7 @@ export function spawnMaterializeParticles(
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: colorHex,
     size: 4,
     transparent: true,
@@ -398,7 +400,7 @@ export function spawnMaterializeParticles(
     blending: THREE.AdditiveBlending, // Additive for energy feel
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -469,7 +471,7 @@ export function spawnSwarmDeathExplosion(
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
   // Orange/red swarm colors for death particles
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: 0xff6600, // Bright orange
     size: 4,
     transparent: true,
@@ -478,7 +480,7 @@ export function spawnSwarmDeathExplosion(
     blending: THREE.AdditiveBlending, // Additive for energy burst
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -493,7 +495,7 @@ export function spawnSwarmDeathExplosion(
  * Animation data for energy transfer particles (source → target)
  */
 export interface EnergyTransferAnimation {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: Array<{
     x: number;
     y: number;
@@ -579,7 +581,7 @@ export function spawnEnergyTransferParticles(
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: colorHex,
     size: 4,
     transparent: true,
@@ -588,7 +590,7 @@ export function spawnEnergyTransferParticles(
     blending: THREE.AdditiveBlending, // Additive for energy glow
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   scene.add(particles);
 
   return {
@@ -609,7 +611,7 @@ export { spawnMeleeArc, type MeleeArcAnimation } from './SharpMeleeEffect';
  */
 export interface ClawSlashAnimation {
   arcLine: THREE.Line; // Arc-shaped slash trail
-  sparkParticles: THREE.Points; // Sparks flying off the slash
+  sparkParticles: PointCloud; // Sparks flying off the slash
   sparkData: Array<{
     x: number;
     y: number;
@@ -714,7 +716,7 @@ export function spawnClawSlash(
 
   // Brighter orange for sparks
   const brightColor = 0xffaa00;
-  const sparkMaterial = new THREE.PointsMaterial({
+  const sparkMaterial = new PointsNodeMaterial({
     color: brightColor,
     size: 5,
     transparent: true,
@@ -723,7 +725,7 @@ export function spawnClawSlash(
     blending: THREE.AdditiveBlending,
   });
 
-  const sparkParticles = new THREE.Points(sparkGeometry, sparkMaterial);
+  const sparkParticles = new PointCloud(sparkGeometry, sparkMaterial);
   scene.add(sparkParticles);
 
   return {
@@ -744,8 +746,8 @@ export function spawnClawSlash(
  */
 export interface EnergyWhipAnimation {
   boltLine: THREE.Line; // Main lightning bolt line
-  impactParticles: THREE.Points; // AoE explosion particles at target
-  boltParticles: THREE.Points; // Particles along the bolt
+  impactParticles: PointCloud; // AoE explosion particles at target
+  boltParticles: PointCloud; // Particles along the bolt
   particleData: Array<{
     x: number;
     y: number;
@@ -859,7 +861,7 @@ export function spawnEnergyWhipStrike(
   boltParticleGeometry.setAttribute('position', new THREE.BufferAttribute(boltPositions, 3));
   boltParticleGeometry.setAttribute('size', new THREE.BufferAttribute(boltSizes, 1));
 
-  const boltParticleMaterial = new THREE.PointsMaterial({
+  const boltParticleMaterial = new PointsNodeMaterial({
     color: colorHex,
     size: 5,
     transparent: true,
@@ -868,7 +870,7 @@ export function spawnEnergyWhipStrike(
     blending: THREE.AdditiveBlending,
   });
 
-  const boltParticles = new THREE.Points(boltParticleGeometry, boltParticleMaterial);
+  const boltParticles = new PointCloud(boltParticleGeometry, boltParticleMaterial);
   scene.add(boltParticles);
 
   // ============================================
@@ -909,7 +911,7 @@ export function spawnEnergyWhipStrike(
   const b = Math.min(255, (colorHex & 0xff) + 50);
   const brightColor = (r << 16) | (g << 8) | b;
 
-  const impactMaterial = new THREE.PointsMaterial({
+  const impactMaterial = new PointsNodeMaterial({
     color: brightColor,
     size: 6,
     transparent: true,
@@ -918,7 +920,7 @@ export function spawnEnergyWhipStrike(
     blending: THREE.AdditiveBlending,
   });
 
-  const impactParticles = new THREE.Points(impactGeometry, impactMaterial);
+  const impactParticles = new PointCloud(impactGeometry, impactMaterial);
   scene.add(impactParticles);
 
   return {

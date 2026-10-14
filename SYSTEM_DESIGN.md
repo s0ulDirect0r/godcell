@@ -557,16 +557,24 @@ createHumanoid(...)                    // Stage 4: First-person humanoid
 createGodcell(...)                     // Stage 5: Transcendent form
 ```
 
-### PostProcessing (`three/postprocessing/composer.ts`)
+### PostProcessing (`three/postprocessing/pipeline.ts`)
 
-EffectComposer with bloom for neon aesthetic:
+The client renders with `WebGPURenderer` (WebGL2 fallback is automatic). Bloom is a TSL node pipeline:
 
 ```typescript
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(resolution, strength, radius, threshold));
+const sceneColor = pass(scene, camera).getTextureNode('output');
+const bloomNode = bloom(sceneColor, strength, radius, threshold);
+// Scene is tone mapped + sRGB-converted *before* bloom is added (matches the old composer look)
+const pipeline = new RenderPipeline(renderer, renderOutput(sceneColor).add(bloomNode));
+pipeline.outputColorTransform = false;
 // Bloom toggle: B key to disable for performance
 ```
+
+WebGPU constraints to keep in mind for render code:
+- No GLSL: custom materials are TSL node materials (`MeshBasicNodeMaterial` + `colorNode`/`positionNode`). Ported materials keep a `uniforms` map of TSL `uniform()` nodes so callers still set `.value`.
+- No point size: sized particles use `PointCloud` (`three/PointCloud.ts`), an instanced sprite. Mutate `cloud.pointGeometry`, not `cloud.geometry`.
+- Node materials clamp output to >= 0; write through `outputNode` when a material relies on negative color (gravity well core).
+- Opaque objects sort by depth, not material creation order; use `renderOrder` when draw order matters.
 
 ---
 

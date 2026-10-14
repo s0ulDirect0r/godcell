@@ -303,7 +303,7 @@ export class EffectsSystem {
     // Clear death animations (soup entity deaths)
     this.deathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.deathAnimations = [];
@@ -311,7 +311,7 @@ export class EffectsSystem {
     // Clear spawn animations (soup entity spawns)
     this.spawnAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.spawnAnimations = [];
@@ -319,7 +319,7 @@ export class EffectsSystem {
     // Clear energy transfer animations (soup energy flows)
     this.energyTransferAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.energyTransferAnimations = [];
@@ -327,7 +327,7 @@ export class EffectsSystem {
     // Clear swarm death animations (soup enemies)
     this.swarmDeathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.swarmDeathAnimations = [];
@@ -335,7 +335,7 @@ export class EffectsSystem {
     // Clear EMP effects (multi-cell ability visual)
     this.empEffects.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.empEffects = [];
@@ -346,10 +346,10 @@ export class EffectsSystem {
       anim.boltLine.geometry.dispose();
       (anim.boltLine.material as THREE.Material).dispose();
       this.scene.remove(anim.boltParticles);
-      anim.boltParticles.geometry.dispose();
+      anim.boltParticles.pointGeometry.dispose();
       (anim.boltParticles.material as THREE.Material).dispose();
       this.scene.remove(anim.impactParticles);
-      anim.impactParticles.geometry.dispose();
+      anim.impactParticles.pointGeometry.dispose();
       (anim.impactParticles.material as THREE.Material).dispose();
     });
     this.energyWhipAnimations = [];
@@ -368,7 +368,7 @@ export class EffectsSystem {
     // Clean up death animations
     this.deathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.deathAnimations = [];
@@ -376,7 +376,7 @@ export class EffectsSystem {
     // Clean up evolution animations
     this.evolutionAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.evolutionAnimations = [];
@@ -384,7 +384,7 @@ export class EffectsSystem {
     // Clean up EMP effects
     this.empEffects.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.empEffects = [];
@@ -392,7 +392,7 @@ export class EffectsSystem {
     // Clean up swarm death animations
     this.swarmDeathAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.swarmDeathAnimations = [];
@@ -400,7 +400,7 @@ export class EffectsSystem {
     // Clean up spawn animations
     this.spawnAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.spawnAnimations = [];
@@ -408,7 +408,7 @@ export class EffectsSystem {
     // Clean up energy transfer animations
     this.energyTransferAnimations.forEach((anim) => {
       this.scene.remove(anim.particles);
-      anim.particles.geometry.dispose();
+      anim.particles.pointGeometry.dispose();
       (anim.particles.material as THREE.Material).dispose();
     });
     this.energyTransferAnimations = [];
@@ -423,10 +423,10 @@ export class EffectsSystem {
       anim.boltLine.geometry.dispose();
       (anim.boltLine.material as THREE.Material).dispose();
       this.scene.remove(anim.boltParticles);
-      anim.boltParticles.geometry.dispose();
+      anim.boltParticles.pointGeometry.dispose();
       (anim.boltParticles.material as THREE.Material).dispose();
       this.scene.remove(anim.impactParticles);
-      anim.impactParticles.geometry.dispose();
+      anim.impactParticles.pointGeometry.dispose();
       (anim.impactParticles.material as THREE.Material).dispose();
     });
     this.energyWhipAnimations = [];
@@ -437,7 +437,7 @@ export class EffectsSystem {
       anim.arcLine.geometry.dispose();
       (anim.arcLine.material as THREE.Material).dispose();
       this.scene.remove(anim.sparkParticles);
-      anim.sparkParticles.geometry.dispose();
+      anim.sparkParticles.pointGeometry.dispose();
       (anim.sparkParticles.material as THREE.Material).dispose();
     });
     this.clawSlashAnimations = [];

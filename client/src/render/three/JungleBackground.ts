@@ -5,7 +5,120 @@ import { createGroveEnvironment } from '../meshes/GroveEnvironment';
 // ============================================
 
 import * as THREE from 'three';
+import { MeshBasicNodeMaterial, PointsNodeMaterial } from 'three/webgpu';
+import type { Node as TSLNode } from 'three/webgpu';
+import {
+  Fn,
+  abs,
+  attribute,
+  clamp,
+  dot,
+  float,
+  floor,
+  fract,
+  max,
+  mix,
+  positionLocal,
+  select,
+  sin,
+  smoothstep,
+  uniform,
+  uv,
+  varying,
+  vec2,
+  vec3,
+  vec4,
+} from 'three/tsl';
 import { GAME_CONFIG } from '#shared';
+import { PointCloud } from './PointCloud';
+
+// Node materials that expose their TSL uniform nodes as `material.uniforms.<name>.value`,
+// mirroring the old ShaderMaterial API so animation code can keep setting `.value`
+type UniformMap = Record<string, { value: unknown }>;
+type WithUniforms<M, U extends UniformMap = UniformMap> = M & { uniforms: U };
+
+function withUniforms<M extends THREE.Material, U extends UniformMap>(
+  material: M,
+  uniforms: U
+): WithUniforms<M, U> {
+  return Object.assign(material, { uniforms });
+}
+
+// ============================================
+// TSL noise helpers (ported 1:1 from the old GLSL shaders)
+// ============================================
+
+// Simplex noise (Ashima / Stefan Gustavson 2D simplex), range ~[-1, 1]
+const mod289v2 = (x: TSLNode<'vec2'>) => x.sub(floor(x.mul(1.0 / 289.0)).mul(289.0));
+const mod289v3 = (x: TSLNode<'vec3'>) => x.sub(floor(x.mul(1.0 / 289.0)).mul(289.0));
+const permute = (x: TSLNode<'vec3'>) => mod289v3(x.mul(34.0).add(1.0).mul(x));
+
+const snoise = Fn(([v]: [TSLNode<'vec2'>]) => {
+  const C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+  const i0 = floor(v.add(dot(v, C.yy)));
+  const x0 = v.sub(i0).add(dot(i0, C.xx));
+  const i1 = select(x0.x.greaterThan(x0.y), vec2(1.0, 0.0), vec2(0.0, 1.0));
+  // x12 = x0.xyxy + C.xxzz; x12.xy -= i1  (split into its xy / zw halves)
+  const x12xy = x0.add(C.xx).sub(i1);
+  const x12zw = x0.add(C.zz);
+  const i = mod289v2(i0);
+  const p = permute(
+    permute(i.y.add(vec3(0.0, i1.y, 1.0)))
+      .add(i.x)
+      .add(vec3(0.0, i1.x, 1.0))
+  );
+  const m0 = max(float(0.5).sub(vec3(dot(x0, x0), dot(x12xy, x12xy), dot(x12zw, x12zw))), 0.0);
+  const m1 = m0.mul(m0);
+  const m2 = m1.mul(m1);
+  const x = fract(p.mul(C.www)).mul(2.0).sub(1.0);
+  const h = abs(x).sub(0.5);
+  const ox = floor(x.add(0.5));
+  const a0 = x.sub(ox);
+  const m = m2.mul(float(1.79284291400159).sub(a0.mul(a0).add(h.mul(h)).mul(0.85373472095314)));
+  const g = vec3(
+    a0.x.mul(x0.x).add(h.x.mul(x0.y)),
+    a0.yz.mul(vec2(x12xy.x, x12zw.x)).add(h.yz.mul(vec2(x12xy.y, x12zw.y)))
+  );
+  return dot(m, g).mul(130.0);
+}).setLayout({ name: 'jungleSnoise', type: 'float', inputs: [{ name: 'v', type: 'vec2' }] });
+
+// Fractal Brownian Motion - 4 octaves of simplex noise
+const simplexFbm = Fn(([p, t]: [TSLNode<'vec2'>, TSLNode<'float'>]) => {
+  let value: TSLNode<'float'> = float(0.0);
+  let amplitude = 0.5;
+  let frequency = 1.0;
+  // Unrolled at graph-build time (same 4 octaves as the GLSL loop)
+  for (let octave = 0; octave < 4; octave++) {
+    value = value.add(snoise(p.mul(frequency).add(t)).mul(amplitude));
+    frequency *= 2.0;
+    amplitude *= 0.5;
+  }
+  return value;
+}).setLayout({
+  name: 'jungleFbm',
+  type: 'float',
+  inputs: [
+    { name: 'p', type: 'vec2' },
+    { name: 't', type: 'float' },
+  ],
+});
+
+// Cheap sin-based hash, range [0, 1)
+const dirtHash = Fn(([p]: [TSLNode<'vec2'>]) =>
+  fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453))
+).setLayout({ name: 'jungleDirtHash', type: 'float', inputs: [{ name: 'p', type: 'vec2' }] });
+
+// Smooth value noise built on dirtHash, range [0, 1]
+const dirtNoise = Fn(([p]: [TSLNode<'vec2'>]) => {
+  const i = floor(p);
+  const fr = fract(p);
+  const f = fr.mul(fr).mul(float(3.0).sub(fr.mul(2.0))); // Smoothstep-style fade curve
+  const a = dirtHash(i);
+  const b = dirtHash(i.add(vec2(1.0, 0.0)));
+  const c = dirtHash(i.add(vec2(0.0, 1.0)));
+  const d = dirtHash(i.add(vec2(1.0, 1.0)));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}).setLayout({ name: 'jungleDirtNoise', type: 'float', inputs: [{ name: 'p', type: 'vec2' }] });
 
 /**
  * Visual parameters for jungle background
@@ -183,13 +296,13 @@ interface FireflyParticle {
  */
 export function createJungleBackground(scene: THREE.Scene): {
   group: THREE.Group;
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: JungleParticle[];
-  soupActivityPoints: THREE.Points;
+  soupActivityPoints: PointCloud;
   soupActivityData: SoupActivityDot[];
-  undergrowthPoints: THREE.Points;
+  undergrowthPoints: PointCloud;
   undergrowthData: UndergrowthParticle[];
-  fireflyPoints: THREE.Points;
+  fireflyPoints: PointCloud;
   fireflyData: FireflyParticle[];
 } {
   const group = new THREE.Group();
@@ -384,115 +497,59 @@ export function createGroundTexture(group: THREE.Group): void {
   );
 
   // Abstract noise shader - layered simplex for atmospheric foggy glow
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      time: { value: 0 },
-      scale: { value: 8.0 }, // Noise scale (lower = larger patches)
-      glowColor: { value: new THREE.Vector3(0.0, 0.4, 0.2) }, // Dark green
-      baseColor: { value: new THREE.Vector3(0.005, 0.015, 0.01) }, // Very dark base
-      pulseSpeed: { value: 0.3 }, // Slow atmospheric pulse
-      flowSpeed: { value: 0.02 }, // Very slow drift
-      glowIntensity: { value: 0.3 }, // Subtle glow
-    },
-    vertexShader: `
-      varying vec2 vUv;
+  const uniforms = {
+    time: uniform(0),
+    scale: uniform(8.0), // Noise scale (lower = larger patches)
+    glowColor: uniform(new THREE.Vector3(0.0, 0.4, 0.2)), // Dark green
+    baseColor: uniform(new THREE.Vector3(0.005, 0.015, 0.01)), // Very dark base
+    pulseSpeed: uniform(0.3), // Slow atmospheric pulse
+    flowSpeed: uniform(0.02), // Very slow drift
+    glowIntensity: uniform(0.3), // Subtle glow
+  };
+  const material = withUniforms(
+    new MeshBasicNodeMaterial({
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.8,
+      fog: false, // ShaderMaterial default
+    }),
+    uniforms
+  );
 
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float time;
-      uniform float scale;
-      uniform vec3 glowColor;
-      uniform vec3 baseColor;
-      uniform float pulseSpeed;
-      uniform float flowSpeed;
-      uniform float glowIntensity;
+  const scaledUV = uv().mul(uniforms.scale);
 
-      varying vec2 vUv;
+  // Slow drifting offset
+  const drift = uniforms.time.mul(uniforms.flowSpeed);
 
-      // Simplex noise functions
-      vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-      vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+  // Layer 1: Large slow-moving patches
+  const noise1 = simplexFbm(scaledUV.mul(0.5).add(vec2(drift, drift.mul(0.7))), drift.mul(0.5));
 
-      float snoise(vec2 v) {
-        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
-                           -0.577350269189626, 0.024390243902439);
-        vec2 i  = floor(v + dot(v, C.yy));
-        vec2 x0 = v - i + dot(i, C.xx);
-        vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-        vec4 x12 = x0.xyxy + C.xxzz;
-        x12.xy -= i1;
-        i = mod289(i);
-        vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-        m = m*m; m = m*m;
-        vec3 x = 2.0 * fract(p * C.www) - 1.0;
-        vec3 h = abs(x) - 0.5;
-        vec3 ox = floor(x + 0.5);
-        vec3 a0 = x - ox;
-        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-        vec3 g;
-        g.x = a0.x * x0.x + h.x * x0.y;
-        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-        return 130.0 * dot(m, g);
-      }
+  // Layer 2: Medium detail
+  const noise2 = simplexFbm(scaledUV.mul(1.0).add(vec2(drift.mul(-0.5), drift)), drift.mul(0.3));
 
-      // Fractal Brownian Motion - layered noise
-      float fbm(vec2 p, float t) {
-        float value = 0.0;
-        float amplitude = 0.5;
-        float frequency = 1.0;
+  // Layer 3: Fine detail
+  const noise3 = simplexFbm(
+    scaledUV.mul(2.0).add(vec2(drift.mul(0.3), drift.mul(-0.4))),
+    drift.mul(0.2)
+  );
 
-        // Layer multiple octaves of noise
-        for (int i = 0; i < 4; i++) {
-          value += amplitude * snoise(p * frequency + t);
-          frequency *= 2.0;
-          amplitude *= 0.5;
-        }
-        return value;
-      }
+  // Combine layers with different weights, then remap from [-1,1] to [0,1] range
+  const combined = noise1.mul(0.5).add(noise2.mul(0.3)).add(noise3.mul(0.2)).mul(0.5).add(0.5);
 
-      void main() {
-        vec2 scaledUV = vUv * scale;
+  // Apply threshold for more defined patches
+  const glow = smoothstep(0.3, 0.7, combined);
 
-        // Slow drifting offset
-        float drift = time * flowSpeed;
+  // Pulse animation
+  const pulse = float(0.8).add(
+    sin(uniforms.time.mul(uniforms.pulseSpeed).add(combined.mul(3.0))).mul(0.2)
+  );
 
-        // Layer 1: Large slow-moving patches
-        float noise1 = fbm(scaledUV * 0.5 + vec2(drift, drift * 0.7), drift * 0.5);
-
-        // Layer 2: Medium detail
-        float noise2 = fbm(scaledUV * 1.0 + vec2(-drift * 0.5, drift), drift * 0.3);
-
-        // Layer 3: Fine detail
-        float noise3 = fbm(scaledUV * 2.0 + vec2(drift * 0.3, -drift * 0.4), drift * 0.2);
-
-        // Combine layers with different weights
-        float combined = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
-
-        // Remap from [-1,1] to [0,1] range
-        combined = combined * 0.5 + 0.5;
-
-        // Apply threshold for more defined patches
-        float glow = smoothstep(0.3, 0.7, combined);
-
-        // Pulse animation
-        float pulse = 0.8 + 0.2 * sin(time * pulseSpeed + combined * 3.0);
-
-        // Final color: dark base with glowing patches
-        vec3 color = baseColor + glowColor * glow * glowIntensity * pulse;
-
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.8,
-  });
+  // Final color: dark base with glowing patches
+  material.colorNode = uniforms.baseColor.add(
+    uniforms.glowColor.mul(glow).mul(uniforms.glowIntensity).mul(pulse)
+  );
+  // The GLSL wrote alpha 1.0 and never read `opacity`, so keep it fully opaque
+  material.opacityNode = float(1.0);
 
   const groundMesh = new THREE.Mesh(geometry, material);
   groundMesh.name = 'groundTexture';
@@ -504,7 +561,8 @@ export function createGroundTexture(group: THREE.Group): void {
   group.add(groundMesh);
 
   // Store material reference for animation
-  (group as unknown as { groundMaterial: THREE.ShaderMaterial }).groundMaterial = material;
+  (group as unknown as { groundMaterial: WithUniforms<MeshBasicNodeMaterial> }).groundMaterial =
+    material;
 }
 
 /**
@@ -519,60 +577,34 @@ function createDirtGround(group: THREE.Group): void {
     1
   );
 
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      baseColor: { value: new THREE.Color(0x030803) }, // Almost black with hint of green
-      highlightColor: { value: new THREE.Color(0x061006) }, // Barely visible dark green
-      noiseScale: { value: 0.003 }, // Scale of noise pattern
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 baseColor;
-      uniform vec3 highlightColor;
-      uniform float noiseScale;
-      varying vec2 vUv;
+  const uniforms = {
+    baseColor: uniform(new THREE.Color(0x030803)), // Almost black with hint of green
+    highlightColor: uniform(new THREE.Color(0x061006)), // Barely visible dark green
+    noiseScale: uniform(0.003), // Scale of noise pattern
+  };
+  const material = withUniforms(
+    new MeshBasicNodeMaterial({
+      side: THREE.DoubleSide,
+      depthWrite: false, // Render behind everything
+      fog: false, // ShaderMaterial default
+    }),
+    uniforms
+  );
 
-      // Simple noise function
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
+  // Multi-octave noise for organic variation
+  const pos = uv().mul(GAME_CONFIG.JUNGLE_WIDTH).mul(uniforms.noiseScale);
+  const n = dirtNoise(pos)
+    .mul(0.5)
+    .add(dirtNoise(pos.mul(2.0)).mul(0.25))
+    .add(dirtNoise(pos.mul(4.0)).mul(0.125))
+    .div(0.875); // Normalize
 
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
+  // Mix between base and highlight based on noise
+  const dirtColor = mix(uniforms.baseColor, uniforms.highlightColor, n.mul(0.5));
 
-      void main() {
-        // Multi-octave noise for organic variation
-        vec2 pos = vUv * ${GAME_CONFIG.JUNGLE_WIDTH.toFixed(1)} * noiseScale;
-        float n = noise(pos) * 0.5 + noise(pos * 2.0) * 0.25 + noise(pos * 4.0) * 0.125;
-        n = n / 0.875; // Normalize
-
-        // Mix between base and highlight based on noise
-        vec3 color = mix(baseColor, highlightColor, n * 0.5);
-
-        // Add subtle darker patches
-        float darkPatch = noise(pos * 0.5);
-        color *= 0.85 + darkPatch * 0.15;
-
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `,
-    side: THREE.DoubleSide,
-    depthWrite: false, // Render behind everything
-  });
+  // Add subtle darker patches
+  const darkPatch = dirtNoise(pos.mul(0.5));
+  material.colorNode = dirtColor.mul(float(0.85).add(darkPatch.mul(0.15)));
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'dirtGround';
@@ -705,68 +737,57 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
 
-  // Custom shader material for wind animation
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      time: { value: 0 },
-      windSpeed: { value: JUNGLE_CONFIG.GRASS_SWAY_SPEED },
-      windStrength: { value: JUNGLE_CONFIG.GRASS_SWAY_AMOUNT },
-    },
-    vertexShader: `
-      uniform float time;
-      uniform float windSpeed;
-      uniform float windStrength;
+  // Custom node material for wind animation
+  const uniforms = {
+    time: uniform(0),
+    windSpeed: uniform(JUNGLE_CONFIG.GRASS_SWAY_SPEED),
+    windStrength: uniform(JUNGLE_CONFIG.GRASS_SWAY_AMOUNT),
+  };
+  const material = withUniforms(
+    new MeshBasicNodeMaterial({
+      side: THREE.DoubleSide,
+      transparent: false,
+      depthWrite: false, // Don't write to depth buffer - let other objects render on top
+      fog: false, // ShaderMaterial default
+    }),
+    uniforms
+  );
 
-      attribute vec3 color;
-      varying vec3 vColor;
-      varying float vHeight;
+  // --- Vertex: wind sway ---
+  const pos = positionLocal;
 
-      void main() {
-        vColor = color;
+  // Animation intensity based on height (encoded in Y position relative to base)
+  // Higher vertices move more
+  const heightFactor = clamp(pos.y.div(120.0), 0.0, 1.0); // Normalize by max height (doubled)
 
-        // Get position
-        vec3 pos = position;
+  // Wind effect using sin with position offset for gust variation
+  const windPhase = uniforms.time.mul(uniforms.windSpeed).add(pos.x.mul(0.01)).add(pos.z.mul(0.01));
+  const windOffset = sin(windPhase).mul(uniforms.windStrength).mul(heightFactor).mul(heightFactor);
 
-        // Animation intensity based on height (encoded in Y position relative to base)
-        // Higher vertices move more
-        float heightFactor = pos.y / 120.0; // Normalize by max height (doubled)
-        heightFactor = clamp(heightFactor, 0.0, 1.0);
+  // Secondary smaller oscillation for more natural movement
+  const windPhase2 = uniforms.time
+    .mul(uniforms.windSpeed)
+    .mul(1.3)
+    .add(pos.x.mul(0.02))
+    .sub(pos.z.mul(0.015));
+  const windOffset2 = sin(windPhase2).mul(uniforms.windStrength).mul(0.3).mul(heightFactor);
 
-        // Wind effect using sin with position offset for gust variation
-        float windPhase = time * windSpeed + pos.x * 0.01 + pos.z * 0.01;
-        float windOffset = sin(windPhase) * windStrength * heightFactor * heightFactor;
+  material.positionNode = vec3(
+    pos.x.add(windOffset).add(windOffset2),
+    pos.y,
+    pos.z.add(windOffset.mul(0.5)) // Slight z movement too
+  );
 
-        // Secondary smaller oscillation for more natural movement
-        float windPhase2 = time * windSpeed * 1.3 + pos.x * 0.02 - pos.z * 0.015;
-        float windOffset2 = sin(windPhase2) * windStrength * 0.3 * heightFactor;
+  // --- Fragment: color ---
+  const vColor = attribute('color', 'vec3');
+  const vHeight = varying(heightFactor, 'vHeight');
 
-        pos.x += windOffset + windOffset2;
-        pos.z += windOffset * 0.5; // Slight z movement too
-
-        vHeight = heightFactor;
-
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vColor;
-      varying float vHeight;
-
-      void main() {
-        // Subtle brightness gradient from bottom to top (darker overall)
-        vec3 color = vColor * (0.5 + 0.2 * vHeight);
-
-        // Very subtle glow at tips only
-        float glow = 0.03 * vHeight;
-        color += vec3(0.0, glow, glow * 0.3);
-
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `,
-    side: THREE.DoubleSide,
-    transparent: false,
-    depthWrite: false, // Don't write to depth buffer - let other objects render on top
-  });
+  // Subtle brightness gradient from bottom to top (darker overall)
+  // Very subtle glow at tips only
+  const tipGlow = vHeight.mul(0.03);
+  material.colorNode = vColor
+    .mul(float(0.5).add(vHeight.mul(0.2)))
+    .add(vec3(0.0, tipGlow, tipGlow.mul(0.3)));
 
   const grassMesh = new THREE.Mesh(geometry, material);
   grassMesh.name = 'stylizedGrass';
@@ -776,7 +797,8 @@ function createStylizedGrass(group: THREE.Group): THREE.Mesh {
   group.add(grassMesh);
 
   // Store material reference for animation
-  (group as unknown as { grassMaterial: THREE.ShaderMaterial }).grassMaterial = material;
+  (group as unknown as { grassMaterial: WithUniforms<MeshBasicNodeMaterial> }).grassMaterial =
+    material;
 
   return grassMesh;
 }
@@ -1052,7 +1074,7 @@ export function updateRootNetworkAnimation(rootNetwork: THREE.Group, _dt: number
  * Adds density and "hiding spot" feel to the jungle floor
  */
 function createUndergrowth(): {
-  undergrowthPoints: THREE.Points;
+  undergrowthPoints: PointCloud;
   undergrowthData: UndergrowthParticle[];
 } {
   const count = JUNGLE_CONFIG.UNDERGROWTH_COUNT;
@@ -1095,8 +1117,8 @@ function createUndergrowth(): {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  const material = new THREE.PointsMaterial({
-    size: 4, // Uniform size (PointsMaterial doesn't support per-vertex sizes)
+  const material = new PointsNodeMaterial({
+    size: 4, // Uniform size (per-vertex sizes are not supported)
     vertexColors: true,
     transparent: true,
     opacity: 0.6,
@@ -1105,7 +1127,7 @@ function createUndergrowth(): {
     alphaTest: 0.2,
   });
 
-  const undergrowthPoints = new THREE.Points(geometry, material);
+  const undergrowthPoints = new PointCloud(geometry, material);
   undergrowthPoints.name = 'undergrowth';
 
   return { undergrowthPoints, undergrowthData };
@@ -1115,7 +1137,7 @@ function createUndergrowth(): {
  * Create firefly particles - floating ambient life that drifts and pulses
  */
 function createFireflies(): {
-  fireflyPoints: THREE.Points;
+  fireflyPoints: PointCloud;
   fireflyData: FireflyParticle[];
 } {
   const count = JUNGLE_CONFIG.FIREFLY_COUNT;
@@ -1169,7 +1191,7 @@ function createFireflies(): {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     size: JUNGLE_CONFIG.FIREFLY_SIZE,
     vertexColors: true,
     transparent: true,
@@ -1179,7 +1201,7 @@ function createFireflies(): {
     alphaTest: 0.1,
   });
 
-  const fireflyPoints = new THREE.Points(geometry, material);
+  const fireflyPoints = new PointCloud(geometry, material);
   fireflyPoints.name = 'fireflies';
 
   return { fireflyPoints, fireflyData };
@@ -1216,7 +1238,7 @@ function createGlowTexture(): THREE.Texture {
  * XZ plane: X=game X, Y=height, Z=-game Y
  */
 function createSoupPool(group: THREE.Group): {
-  activityPoints: THREE.Points;
+  activityPoints: PointCloud;
   activityData: SoupActivityDot[];
 } {
   // Center of the soup region
@@ -1302,7 +1324,7 @@ function createSoupPool(group: THREE.Group): {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     size: JUNGLE_CONFIG.SOUP_ACTIVITY_DOT_SIZE,
     vertexColors: true,
     transparent: true,
@@ -1310,7 +1332,7 @@ function createSoupPool(group: THREE.Group): {
     sizeAttenuation: false,
   });
 
-  const activityPoints = new THREE.Points(geometry, material);
+  const activityPoints = new PointCloud(geometry, material);
   activityPoints.name = 'soupActivityDots';
   group.add(activityPoints);
 
@@ -1323,7 +1345,7 @@ function createSoupPool(group: THREE.Group): {
  * XZ plane: X=game X, Y=height, Z=-game Y
  */
 function createJungleParticles(): {
-  particles: THREE.Points;
+  particles: PointCloud;
   particleData: JungleParticle[];
 } {
   const particleCount = JUNGLE_CONFIG.PARTICLE_COUNT;
@@ -1365,7 +1387,7 @@ function createJungleParticles(): {
   geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
   // Create material - green-tinted, more transparent
-  const material = new THREE.PointsMaterial({
+  const material = new PointsNodeMaterial({
     color: JUNGLE_CONFIG.PARTICLE_COLOR,
     size: 6, // Base size
     transparent: true,
@@ -1375,7 +1397,7 @@ function createJungleParticles(): {
     alphaTest: 0.3,
   });
 
-  const particles = new THREE.Points(geometry, material);
+  const particles = new PointCloud(geometry, material);
   return { particles, particleData };
 }
 
@@ -1409,11 +1431,11 @@ function createJungleParticleTexture(): THREE.Texture {
  * XZ plane: X=game X, Y=height, Z=-game Y
  */
 export function updateJungleParticles(
-  particles: THREE.Points,
+  particles: PointCloud,
   particleData: JungleParticle[],
   dt: number
 ): void {
-  const positions = (particles.geometry.attributes.position as THREE.BufferAttribute)
+  const positions = (particles.pointGeometry.attributes.position as THREE.BufferAttribute)
     .array as Float32Array;
 
   for (let i = 0; i < particleData.length; i++) {
@@ -1437,7 +1459,7 @@ export function updateJungleParticles(
     positions[i * 3 + 2] = -data.y;
   }
 
-  particles.geometry.attributes.position.needsUpdate = true;
+  particles.pointGeometry.attributes.position.needsUpdate = true;
 }
 
 /**
@@ -1446,11 +1468,11 @@ export function updateJungleParticles(
  * XZ plane: X=game X, Y=height, Z=-game Y
  */
 export function updateSoupActivity(
-  activityPoints: THREE.Points,
+  activityPoints: PointCloud,
   activityData: SoupActivityDot[],
   dt: number
 ): void {
-  const positions = (activityPoints.geometry.attributes.position as THREE.BufferAttribute)
+  const positions = (activityPoints.pointGeometry.attributes.position as THREE.BufferAttribute)
     .array as Float32Array;
 
   // Center of the soup region
@@ -1494,7 +1516,7 @@ export function updateSoupActivity(
     positions[i * 3 + 2] = -(centerY + dot.y);
   }
 
-  activityPoints.geometry.attributes.position.needsUpdate = true;
+  activityPoints.pointGeometry.attributes.position.needsUpdate = true;
 }
 
 /**
@@ -1582,12 +1604,12 @@ export function createFirstPersonGround(): THREE.Group {
  * Creates gentle breathing effect on ground-level glow
  */
 export function updateUndergrowth(
-  undergrowthPoints: THREE.Points,
+  undergrowthPoints: PointCloud,
   undergrowthData: UndergrowthParticle[],
   _dt: number
 ): void {
   const time = performance.now() / 1000;
-  const material = undergrowthPoints.material as THREE.PointsMaterial;
+  const material = undergrowthPoints.material;
 
   // Global pulse effect (all particles breathe together with phase offsets)
   let totalOpacity = 0;
@@ -1606,11 +1628,11 @@ export function updateUndergrowth(
  * Creates floating ambient life effect
  */
 export function updateFireflies(
-  fireflyPoints: THREE.Points,
+  fireflyPoints: PointCloud,
   fireflyData: FireflyParticle[],
   dt: number
 ): void {
-  const positions = (fireflyPoints.geometry.attributes.position as THREE.BufferAttribute)
+  const positions = (fireflyPoints.pointGeometry.attributes.position as THREE.BufferAttribute)
     .array as Float32Array;
   const time = performance.now() / 1000;
 
@@ -1653,10 +1675,10 @@ export function updateFireflies(
     positions[i * 3 + 2] = -data.y;
   }
 
-  fireflyPoints.geometry.attributes.position.needsUpdate = true;
+  fireflyPoints.pointGeometry.attributes.position.needsUpdate = true;
 
   // Pulse opacity for firefly glow effect
-  const material = fireflyPoints.material as THREE.PointsMaterial;
+  const material = fireflyPoints.material;
   const pulsePhase = time * JUNGLE_CONFIG.FIREFLY_PULSE_SPEED * Math.PI * 2;
   const pulseFactor = 0.5 + Math.sin(pulsePhase) * 0.3; // 0.2 to 0.8
   material.opacity = pulseFactor;
@@ -1670,15 +1692,21 @@ export function updateGroundTexture(jungleGroup: THREE.Group, _dtSeconds?: numbe
   const time = performance.now() / 1000;
 
   // Update ground shader time
-  const groundMaterial = (jungleGroup as unknown as { groundMaterial?: THREE.ShaderMaterial })
-    .groundMaterial;
+  const groundMaterial = (
+    jungleGroup as unknown as {
+      groundMaterial?: WithUniforms<MeshBasicNodeMaterial>;
+    }
+  ).groundMaterial;
   if (groundMaterial) {
     groundMaterial.uniforms.time.value = time;
   }
 
-  // Update grass shader time for wind animation (only if using ShaderMaterial)
-  const grassMaterial = (jungleGroup as unknown as { grassMaterial?: THREE.ShaderMaterial })
-    .grassMaterial;
+  // Update grass shader time for wind animation (only if using the uniform-backed node material)
+  const grassMaterial = (
+    jungleGroup as unknown as {
+      grassMaterial?: WithUniforms<MeshBasicNodeMaterial>;
+    }
+  ).grassMaterial;
   if (grassMaterial && grassMaterial.uniforms) {
     grassMaterial.uniforms.time.value = time;
   }

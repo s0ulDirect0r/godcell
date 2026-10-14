@@ -4,6 +4,8 @@
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
+import { PointCloud } from '../three/PointCloud';
 import { GAME_CONFIG } from '#shared';
 import {
   createJungleBackground,
@@ -46,7 +48,7 @@ export class EnvironmentSystem {
 
   // Soup background (Stage 1-2)
   private soupBackgroundGroup!: THREE.Group;
-  private dataParticles!: THREE.Points;
+  private dataParticles!: PointCloud;
   private particleData: Array<{ x: number; y: number; vx: number; vy: number; size: number }> = [];
 
   // Grid distortion data
@@ -57,7 +59,7 @@ export class EnvironmentSystem {
 
   // Jungle background (Stage 3+)
   private jungleBackgroundGroup!: THREE.Group;
-  private jungleParticles!: THREE.Points;
+  private jungleParticles!: PointCloud;
   private jungleParticleData: Array<{
     x: number;
     y: number;
@@ -67,16 +69,16 @@ export class EnvironmentSystem {
   }> = [];
 
   // Soup activity visualization (inside soup pool in jungle view)
-  private soupActivityPoints!: THREE.Points;
+  private soupActivityPoints!: PointCloud;
   private soupActivityData: Array<{ x: number; y: number; vx: number; vy: number; color: number }> =
     [];
 
   // Undergrowth particles (ground-level glow)
-  private undergrowthPoints!: THREE.Points;
+  private undergrowthPoints!: PointCloud;
   private undergrowthData: Array<{ x: number; y: number; phase: number; baseOpacity: number }> = [];
 
   // Firefly particles (floating ambient life)
-  private fireflyPoints!: THREE.Points;
+  private fireflyPoints!: PointCloud;
   private fireflyData: Array<{
     x: number;
     y: number;
@@ -364,7 +366,7 @@ export class EnvironmentSystem {
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
     // Create PointsMaterial with transparent circles
-    const material = new THREE.PointsMaterial({
+    const material = new PointsNodeMaterial({
       color: GAME_CONFIG.PARTICLE_COLOR,
       size: 5, // Base size (will be multiplied by size attribute)
       transparent: true,
@@ -375,7 +377,7 @@ export class EnvironmentSystem {
     });
 
     // Create Points mesh
-    this.dataParticles = new THREE.Points(geometry, material);
+    this.dataParticles = new PointCloud(geometry, material);
     this.soupBackgroundGroup.add(this.dataParticles);
   }
 
@@ -401,7 +403,7 @@ export class EnvironmentSystem {
 
   private updateSoupParticles(dt: number): void {
     const deltaSeconds = dt / 1000;
-    const positions = this.dataParticles.geometry.attributes.position.array as Float32Array;
+    const positions = this.dataParticles.pointGeometry.attributes.position.array as Float32Array;
 
     // Soup region bounds for wrapping
     const soupMinX = GAME_CONFIG.SOUP_ORIGIN_X;
@@ -429,6 +431,6 @@ export class EnvironmentSystem {
     }
 
     // Mark positions as needing update
-    this.dataParticles.geometry.attributes.position.needsUpdate = true;
+    this.dataParticles.pointGeometry.attributes.position.needsUpdate = true;
   }
 }

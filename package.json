@@ -36,7 +36,7 @@
     "pino-roll": "^4.0.0",
     "socket.io": "^4.7.2",
     "socket.io-client": "^4.7.2",
-    "three": "^0.181.2",
+    "three": "^0.186.1",
     "three-stdlib": "^2.36.1"
   },
   "devDependencies": {
@@ -44,7 +44,7 @@
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.56.1",
     "@types/node": "^20.10.6",
-    "@types/three": "^0.181.0",
+    "@types/three": "^0.186.0",
     "@typescript-eslint/eslint-plugin": "^8.49.0",
     "@typescript-eslint/parser": "^8.49.0",
     "concurrently": "^8.2.2",

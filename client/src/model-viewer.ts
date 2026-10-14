@@ -19,9 +19,10 @@ import { setCreatureSpecialization } from './render/meshes/AuthoredCreature';
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { WebGPURenderer, RenderPipeline } from 'three/webgpu';
+import { pass, renderOutput } from 'three/tsl';
+import type BloomNode from 'three/addons/tsl/display/BloomNode.js';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import GUI from 'lil-gui';
 import {
   createMultiCell,
@@ -74,9 +75,10 @@ function randomCellColor(): number {
 
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
-let renderer: THREE.WebGLRenderer;
-let composer: EffectComposer;
-let bloomPass: UnrealBloomPass;
+let renderer: WebGPURenderer;
+let rendererReady = false; // WebGPU backend initializes asynchronously
+let pipeline: RenderPipeline;
+let bloomNode: BloomNode;
 let controls: OrbitControls;
 let gui: GUI;
 let currentColor: number = randomCellColor();
@@ -170,25 +172,28 @@ function init() {
   camera.position.set(0, 0, 200);
 
   // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new WebGPURenderer({ antialias: true });
+  renderer.init().then(() => {
+    rendererReady = true;
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.toneMapping = THREE.ReinhardToneMapping;
   renderer.toneMappingExposure = 1.5;
   document.body.appendChild(renderer.domElement);
 
-  // Postprocessing composer with bloom (game-accurate glow)
-  composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(scene, camera);
-  composer.addPass(renderPass);
-
-  bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
+  // Postprocessing pipeline with bloom (game-accurate glow)
+  const sceneColor = pass(scene, camera).getTextureNode('output');
+  bloomNode = bloom(
+    sceneColor,
     1.2, // strength - strong glow for neon aesthetic
     0.8, // radius - spread of glow
     0.3 // threshold - lower = more things glow
   );
-  composer.addPass(bloomPass);
+  // Scene is tone mapped + sRGB-converted before bloom is added (matches the old composer;
+  // see render/three/postprocessing/pipeline.ts)
+  pipeline = new RenderPipeline(renderer, renderOutput(sceneColor).add(bloomNode));
+  pipeline.outputColorTransform = false;
 
   // OrbitControls for camera manipulation
   controls = new OrbitControls(camera, renderer.domElement);
@@ -541,19 +546,19 @@ function initGUI() {
     .add(bloomParams, 'strength', 0, 3, 0.1)
     .name('Strength')
     .onChange((v: number) => {
-      bloomPass.strength = v;
+      bloomNode.strength.value = v;
     });
   bloomFolder
     .add(bloomParams, 'radius', 0, 2, 0.1)
     .name('Radius')
     .onChange((v: number) => {
-      bloomPass.radius = v;
+      bloomNode.radius.value = v;
     });
   bloomFolder
     .add(bloomParams, 'threshold', 0, 1, 0.05)
     .name('Threshold')
     .onChange((v: number) => {
-      bloomPass.threshold = v;
+      bloomNode.threshold.value = v;
     });
   bloomFolder.open();
 
@@ -1089,12 +1094,11 @@ function animate(currentTime: number = 0) {
     }
   });
 
-  composer.render();
+  if (rendererReady) pipeline.render();
 }
 
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
 }

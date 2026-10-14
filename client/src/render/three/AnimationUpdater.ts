@@ -5,6 +5,7 @@ import { poseMeleeArc, disposeMeleeArc } from '../effects/SharpMeleeEffect';
 // ============================================
 
 import * as THREE from 'three';
+import { PointsNodeMaterial } from 'three/webgpu';
 import { GAME_CONFIG } from '#shared';
 import type {
   DeathAnimation,
@@ -46,7 +47,7 @@ export function updateDeathAnimations(
     }
 
     // Update particle positions and fade
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
 
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
@@ -64,10 +65,10 @@ export function updateDeathAnimations(
       p.life = 1 - progress;
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Update material opacity for fade out
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = 1 - progress;
   });
 
@@ -77,7 +78,7 @@ export function updateDeathAnimations(
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -112,7 +113,7 @@ export function updateEvolutionAnimations(
     }
 
     // Update particle positions
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
 
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
@@ -136,10 +137,10 @@ export function updateEvolutionAnimations(
       positions[i * 3 + 2] = -y;
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade out near end
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = progress < 0.8 ? 1.0 : 1.0 - (progress - 0.8) / 0.2;
   });
 
@@ -149,7 +150,7 @@ export function updateEvolutionAnimations(
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -178,7 +179,7 @@ export function updateEMPEffects(scene: THREE.Scene, animations: EMPEffect[]): v
     }
 
     // Update particle positions - expand from initial radius to EMP_RANGE
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
     const maxRadius = GAME_CONFIG.EMP_RANGE; // 384 units
 
     for (let i = 0; i < anim.particleData.length; i++) {
@@ -197,10 +198,10 @@ export function updateEMPEffects(scene: THREE.Scene, animations: EMPEffect[]): v
       positions[i * 3 + 2] = -y;
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade out as it expands (starts fading at 40% progress)
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = progress < 0.4 ? 1.0 : 1.0 - (progress - 0.4) / 0.6;
   });
 
@@ -210,7 +211,7 @@ export function updateEMPEffects(scene: THREE.Scene, animations: EMPEffect[]): v
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -245,7 +246,7 @@ export function updateSwarmDeathAnimations(
     }
 
     // Update particle positions - explode outward
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
 
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
@@ -262,10 +263,10 @@ export function updateSwarmDeathAnimations(
       positions[i * 3 + 2] = p.z;
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade out over entire duration
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = 1.0 - progress; // Linear fade
   });
 
@@ -275,7 +276,7 @@ export function updateSwarmDeathAnimations(
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -315,7 +316,7 @@ export function updateSpawnAnimations(
     }
 
     // Update particle positions - converge inward
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
 
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
@@ -330,12 +331,12 @@ export function updateSpawnAnimations(
       positions[i * 3 + 2] = -p.y;
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade out as particles converge (more visible at start)
     // Opacity: 1.0 → 0.3 (not fully transparent) so particles remain slightly visible
     // at the moment of convergence, reinforcing the "assembly" visual
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = 1.0 - progress * 0.7;
   });
 
@@ -345,7 +346,7 @@ export function updateSpawnAnimations(
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -387,7 +388,7 @@ export function updateEnergyTransferAnimations(
     }
 
     // Update particle positions - interpolate toward targets
-    const positions = anim.particles.geometry.attributes.position.array as Float32Array;
+    const positions = anim.particles.pointGeometry.attributes.position.array as Float32Array;
     let arrivedCount = 0;
 
     for (let i = 0; i < anim.particleData.length; i++) {
@@ -447,10 +448,10 @@ export function updateEnergyTransferAnimations(
       }
     }
 
-    anim.particles.geometry.attributes.position.needsUpdate = true;
+    anim.particles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade as particles converge (full opacity at start, fading near end)
-    const material = anim.particles.material as THREE.PointsMaterial;
+    const material = anim.particles.material as PointsNodeMaterial;
     material.opacity = progress < 0.6 ? 1.0 : 1.0 - (progress - 0.6) / 0.4;
 
     // If most particles have arrived, mark as receiving
@@ -465,7 +466,7 @@ export function updateEnergyTransferAnimations(
     const anim = animations[index];
 
     scene.remove(anim.particles);
-    anim.particles.geometry.dispose();
+    anim.particles.pointGeometry.dispose();
     (anim.particles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -553,14 +554,15 @@ export function updateEnergyWhipAnimations(
     // ============================================
     // Update bolt particles - flicker and fade
     // ============================================
-    const boltParticleMaterial = anim.boltParticles.material as THREE.PointsMaterial;
+    const boltParticleMaterial = anim.boltParticles.material as PointsNodeMaterial;
     // Flickering opacity for electric feel
     boltParticleMaterial.opacity = (1 - progress) * (0.5 + Math.random() * 0.5);
 
     // ============================================
     // Update impact particles - burst outward
     // ============================================
-    const impactPositions = anim.impactParticles.geometry.attributes.position.array as Float32Array;
+    const impactPositions = anim.impactParticles.pointGeometry.attributes.position
+      .array as Float32Array;
 
     for (let i = 0; i < anim.particleData.length; i++) {
       const p = anim.particleData[i];
@@ -575,10 +577,10 @@ export function updateEnergyWhipAnimations(
       impactPositions[i * 3 + 1] = 0.3;
       impactPositions[i * 3 + 2] = -p.y;
     }
-    anim.impactParticles.geometry.attributes.position.needsUpdate = true;
+    anim.impactParticles.pointGeometry.attributes.position.needsUpdate = true;
 
     // Fade impact particles
-    const impactMaterial = anim.impactParticles.material as THREE.PointsMaterial;
+    const impactMaterial = anim.impactParticles.material as PointsNodeMaterial;
     impactMaterial.opacity = 1 - progress;
   });
 
@@ -594,12 +596,12 @@ export function updateEnergyWhipAnimations(
 
     // Clean up bolt particles
     scene.remove(anim.boltParticles);
-    anim.boltParticles.geometry.dispose();
+    anim.boltParticles.pointGeometry.dispose();
     (anim.boltParticles.material as THREE.Material).dispose();
 
     // Clean up impact particles
     scene.remove(anim.impactParticles);
-    anim.impactParticles.geometry.dispose();
+    anim.impactParticles.pointGeometry.dispose();
     (anim.impactParticles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
@@ -635,7 +637,8 @@ export function updateClawSlashAnimations(
     // ============================================
     // Update spark particles - fly outward
     // ============================================
-    const sparkPositions = anim.sparkParticles.geometry.attributes.position.array as Float32Array;
+    const sparkPositions = anim.sparkParticles.pointGeometry.attributes.position
+      .array as Float32Array;
 
     for (let i = 0; i < anim.sparkData.length; i++) {
       const s = anim.sparkData[i];
@@ -647,7 +650,7 @@ export function updateClawSlashAnimations(
       sparkPositions[i * 3 + 1] = 45 + Math.random() * 2; // Slight flicker
       sparkPositions[i * 3 + 2] = -s.y;
     }
-    anim.sparkParticles.geometry.attributes.position.needsUpdate = true;
+    anim.sparkParticles.pointGeometry.attributes.position.needsUpdate = true;
 
     // ============================================
     // Fade out both elements
@@ -659,7 +662,7 @@ export function updateClawSlashAnimations(
     arcMaterial.opacity = opacity;
 
     // Spark particles fade
-    const sparkMaterial = anim.sparkParticles.material as THREE.PointsMaterial;
+    const sparkMaterial = anim.sparkParticles.material as PointsNodeMaterial;
     sparkMaterial.opacity = opacity;
   });
 
@@ -675,7 +678,7 @@ export function updateClawSlashAnimations(
 
     // Clean up spark particles
     scene.remove(anim.sparkParticles);
-    anim.sparkParticles.geometry.dispose();
+    anim.sparkParticles.pointGeometry.dispose();
     (anim.sparkParticles.material as THREE.Material).dispose();
 
     animations.splice(index, 1);
